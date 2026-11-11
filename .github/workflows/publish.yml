@@ -5,11 +5,12 @@ on:
     types: [published]
 
 jobs:
-  build-and-publish:
+  build-and-publish-testpypi:
     runs-on: ubuntu-latest
+    environment: testpypi
     permissions:
       id-token: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,11 +30,31 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          environment: testpypi
 
-      # --- ÉTAPE PRODUCTION (PyPI) ---
-      # Décommente ces lignes quand TestPyPI fonctionne bien
-      # - name: Publish to PyPI
-      #   uses: pypa/gh-action-pypi-publish@release/v1
-      #   with:
-      #     environment: pypi
+  # --- ÉTAPE PRODUCTION (PyPI) ---
+  # Un job ne peut porter qu'un seul environnement : le job PyPI est donc
+  # séparé. Décommente-le (et retire le job TestPyPI si tu ne veux publier
+  # que sur PyPI) le jour de la bascule, quand TestPyPI fonctionne bien.
+  #
+  # build-and-publish-pypi:
+  #   runs-on: ubuntu-latest
+  #   environment: pypi
+  #   permissions:
+  #     id-token: write
+  #
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.11"
+  #
+  #     - name: Build package
+  #       run: |
+  #         python -m pip install --upgrade build
+  #         python -m build
+  #
+  #     - name: Publish to PyPI
+  #       uses: pypa/gh-action-pypi-publish@release/v1
