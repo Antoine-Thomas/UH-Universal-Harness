@@ -37,7 +37,7 @@ uh doctor
 - [x] **Jalon 0 — Skeleton.** PyPI-installable package (`uh-harness`), `uh` CLI
       surface, `uh --version`, `uh doctor` (python / httpx / git / ollama probe),
       README, MIT license. No agent loop, no storage, no UI.
-- [ ] **Jalon 1 — Agent core.** Synchronous `run_turn` loop, toolsets
+- [x] **Jalon 1 — Agent core.** Synchronous `run_turn` loop, toolsets
       (`file`, `terminal`, `memory`), in-memory message history, `uh chat`.
       No persistence yet: a session lives only as long as the process.
 - [ ] **Jalon 2 — Local model layer.** Ollama client, local model discovery and
@@ -49,24 +49,33 @@ uh doctor
 - [ ] **Jalon 4 — Web UI.** Sessions and streaming chat in the browser, copied
       and adapted from Harness Maxxing.
 
-Only Jalon 0 is done. Everything else is a placeholder that exits with code `2`
-and names the milestone that will deliver it.
+Only Jalons 0 and 1 are done. Everything else is a placeholder that exits with
+code `2` and names the milestone that will deliver it.
 
-## CLI surface (Jalon 0)
+## CLI surface (Jalon 1)
 
 ```
 uh --version            # print the version
 uh doctor               # environment report, exit 0 (ollama absent = warning)
-uh model list           # placeholder -> Jalon 2, exit 2
+uh model list           # list models served by Ollama, exit 1 if Ollama is down
+uh chat                 # agent loop with file/terminal/memory tools
 uh model pull <name>    # placeholder -> Jalon 2, exit 2
-uh chat                 # placeholder -> Jalon 1, exit 2
 uh sessions             # placeholder -> Jalon 3, exit 2
 uh config               # placeholder -> Jalon 3, exit 2
 ```
 
+`uh chat` reads stdin; `--once` (or any non-TTY stdin) answers one line and
+exits. In-session commands: `/exit`, `/model <name>`, `/tools`, `/clear`.
+Tool activity goes to stderr, the answer to stdout, so the command stays
+scriptable:
+
+```bash
+echo "list the python files here" | uh chat --model qwen3:8b --once --workspace .
+```
+
 `uh doctor` exits `0` when only optional components are missing (Ollama, a local
 router config) and exits `1` when a blocking requirement is missing (Python
-< 3.11, `httpx`, `git`).
+< 3.11, `httpx`, `git`, unwritable workspace).
 
 ## License
 

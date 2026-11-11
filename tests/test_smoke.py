@@ -33,6 +33,8 @@ def test_doctor_exits_zero() -> None:
 
 
 def test_placeholder_exits_two() -> None:
-    result = _run("model", "list")
+    # `uh model list` became real in Jalon 1: the placeholder contract is now
+    # checked on a command that is still a placeholder.
+    result = _run("sessions")
     assert result.returncode == 2
     assert "Not implemented in Jalon 0" in (result.stdout + result.stderr)
