@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UH — Universal Harness</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <span class="brand">UH</span>
+        <button id="new-session" class="icon-button" title="New session" aria-label="New session">+</button>
+      </div>
+      <input id="search" class="search" type="search" placeholder="Search messages…" autocomplete="off">
+      <ul id="session-list" class="session-list"></ul>
+      <div id="search-results" class="search-results" hidden></div>
+      <footer class="sidebar-foot">
+        <span id="status-provider">…</span>
+        <button id="theme-toggle" class="icon-button" title="Toggle theme" aria-label="Toggle theme">◐</button>
+      </footer>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="menu-toggle" class="icon-button" title="Sessions" aria-label="Sessions">☰</button>
+        <div class="title" id="session-title">No session</div>
+        <select id="model-select" class="model-select" aria-label="Model"></select>
+        <div class="gauge" title="Context estimate (characters / 4)">
+          <div class="gauge-fill" id="gauge-fill"></div>
+          <span id="gauge-label">ctx ~0 tok</span>
+        </div>
+        <button id="stop" class="stop" disabled>Stop</button>
+      </header>
+
+      <div id="terminal-warning" class="warning" hidden>
+        Terminal toolset is ENABLED: the model can run shell commands in the workspace.
+      </div>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+
+      <form id="composer" class="composer">
+        <textarea id="input" rows="1" placeholder="Ask UH…  (Ctrl/Cmd-K for commands)" autocomplete="off"></textarea>
+        <button type="submit" id="send">Send</button>
+      </form>
+    </main>
+  </div>
+
+  <div id="palette" class="palette" hidden>
+    <input id="palette-input" placeholder="Command…" autocomplete="off">
+    <ul id="palette-list"></ul>
+  </div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

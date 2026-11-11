@@ -1,0 +1,437 @@
+// UH web front-end — original code, ES module, no build step, no third party.
+// Served under a strict CSP: no inline script, no inline style, no eval.
+
+const state = {
+  sessionId: null,
+  streaming: false,
+  abort: null,
+  commands: [],
+  paletteIndex: 0,
+  filtered: [],
+};
+
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (response.status === 401) {
+    document.body.textContent = "Session expired: reopen the URL printed by `uh web`.";
+    throw new Error("unauthorized");
+  }
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+// --------------------------------------------------------------- rendering --
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function appendMessage(role, text) {
+  const box = el("div", `msg ${role}`);
+  box.appendChild(el("span", "role", role));
+  box.appendChild(document.createTextNode(text));
+  $("messages").appendChild(box);
+  $("messages").scrollTop = $("messages").scrollHeight;
+  return box;
+}
+
+function toolCard(name, args, result) {
+  const card = el("details", "tool-card");
+  const summary = el("summary");
+  summary.appendChild(document.createTextNode(name || "tool"));
+  const stateLabel = el("span", "state", result === undefined ? "running…" : "done");
+  summary.appendChild(stateLabel);
+  card.appendChild(summary);
+  const payload = el("pre", null, JSON.stringify({ args, result }, null, 2));
+  card.appendChild(payload);
+
+  const isError = result !== undefined && /"error"\s*:/.test(result || "");
+  if (isError) {
+    card.classList.add("error");
+    stateLabel.textContent = "error";
+  }
+  $("messages").appendChild(card);
+  $("messages").scrollTop = $("messages").scrollHeight;
+  return card;
+}
+
+function renderHistory(messages) {
+  $("messages").textContent = "";
+  for (const message of messages) {
+    const role = message.role || "assistant";
+    if (role === "tool") {
+      toolCard(message.name || "tool", null, message.content || "");
+    } else if (role === "assistant" && (message.tool_calls || []).length) {
+      for (const call of message.tool_calls) {
+        toolCard(call.function?.name, call.function?.arguments, undefined);
+      }
+      if (message.content) appendMessage("assistant", message.content);
+    } else {
+      appendMessage(role, message.content || "");
+    }
+  }
+}
+
+function updateGauge(messages) {
+  const characters = messages.reduce((sum, m) => sum + (m.content || "").length, 0);
+  const tokens = Math.max(1, Math.round(characters / 4));
+  const percent = Math.min(100, (tokens / 8000) * 100);
+  $("gauge-fill").style.width = `${percent}%`;
+  $("gauge-label").textContent = `ctx ~${tokens} tok`;
+}
+
+// ------------------------------------------------------------------ status --
+async function loadStatus() {
+  const status = await api("/api/status");
+  $("status-provider").textContent = `${status.provider || "none"} · v${status.version}`;
+  $("terminal-warning").hidden = !status.terminal;
+  if (status.provider_error) {
+    $("status-provider").textContent += " (unavailable)";
+  }
+}
+
+async function loadModels() {
+  const data = await api("/api/models");
+  const select = $("model-select");
+  select.textContent = "";
+  const names = new Set([...(data.ollama || [])]);
+  if (data.model) names.add(data.model);
+  for (const name of names) {
+    const option = el("option", null, name);
+    option.value = name;
+    if (name === data.model) option.selected = true;
+    select.appendChild(option);
+  }
+  select.addEventListener("change", async () => {
+    const payload = { model: select.value };
+    if (state.sessionId) payload.session_id = state.sessionId;
+    await api("/api/model", { method: "POST", body: JSON.stringify(payload) });
+  });
+}
+
+// ---------------------------------------------------------------- sessions --
+async function loadSessions() {
+  const data = await api("/api/sessions");
+  const list = $("session-list");
+  list.textContent = "";
+  for (const session of data.sessions) {
+    const item = el("li");
+    if (session.id === state.sessionId) item.classList.add("active");
+    const row1 = el("div", "row1");
+    row1.appendChild(el("span", "sid", session.short_id));
+    row1.appendChild(el("span", "meta", `${session.message_count} msg`));
+    item.appendChild(row1);
+    item.appendChild(el("div", "title", session.title || "(untitled)"));
+    item.appendChild(el("div", "meta", session.provider || "-"));
+    item.addEventListener("click", () => openSession(session.id));
+    list.appendChild(item);
+  }
+  if (!data.sessions.length) {
+    list.appendChild(el("li", "meta", "no sessions yet"));
+  }
+}
+
+async function openSession(id) {
+  state.sessionId = id;
+  const data = await api(`/api/sessions/${encodeURIComponent(id)}/messages?limit=200`);
+  $("session-title").textContent = data.session.title || data.session.short_id;
+  if (data.model) {
+    const select = $("model-select");
+    if (![...select.options].some((o) => o.value === data.model)) {
+      const option = el("option", null, data.model);
+      option.value = data.model;
+      select.appendChild(option);
+    }
+    select.value = data.model;
+  }
+  renderHistory(data.messages);
+  updateGauge(data.messages);
+  await loadSessions();
+  $("sidebar").classList.remove("open");
+}
+
+async function newSession() {
+  const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
+  state.sessionId = data.session.id;
+  $("messages").textContent = "";
+  $("session-title").textContent = "(untitled)";
+  updateGauge([]);
+  await loadSessions();
+  $("input").focus();
+}
+
+// -------------------------------------------------------------------- chat --
+function parseFrames(buffer, onEvent) {
+  const blocks = buffer.replace(/\r\n/g, "\n").split("\n\n");
+  const rest = blocks.pop();
+  for (const block of blocks) {
+    let event = "message";
+    const dataLines = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+    }
+    if (!dataLines.length) continue;
+    try {
+      onEvent(event, JSON.parse(dataLines.join("\n")));
+    } catch {
+      onEvent(event, { raw: dataLines.join("\n") });
+    }
+  }
+  return rest;
+}
+
+async function sendMessage(text) {
+  if (state.streaming) return;
+  if (!state.sessionId) await newSession();
+
+  state.streaming = true;
+  $("send").disabled = true;
+  $("stop").disabled = false;
+  appendMessage("user", text);
+  let assistant = appendMessage("assistant", "");
+  let assistantText = "";
+  let openCard = null;
+
+  const controller = new AbortController();
+  state.abort = controller;
+  try {
+    const response = await fetch(`/api/sessions/${encodeURIComponent(state.sessionId)}/chat`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+      signal: controller.signal,
+    });
+    if (response.status === 401) {
+      document.body.textContent = "Session expired: reopen the URL printed by `uh web`.";
+      return;
+    }
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = parseFrames(buffer, (event, data) => {
+        if (event === "token") {
+          assistantText += data.text || "";
+          assistant.lastChild.textContent = assistantText;
+          $("messages").scrollTop = $("messages").scrollHeight;
+        } else if (event === "tool_call") {
+          openCard = toolCard(data.name, data.args, undefined);
+        } else if (event === "tool_result") {
+          if (openCard) {
+            openCard.querySelector("pre").textContent = data.content;
+            const label = openCard.querySelector(".state");
+            label.textContent = /"error"\s*:/.test(data.content || "") ? "error" : "done";
+            if (label.textContent === "error") openCard.classList.add("error");
+            openCard = null;
+          } else {
+            toolCard(data.name, null, data.content);
+          }
+        } else if (event === "error") {
+          appendMessage("system", data.message || "error");
+        } else if (event === "done") {
+          if (!assistantText && !assistant.textContent.replace("assistant", "").trim()) {
+            assistant.textContent = "";
+            assistant.remove();
+          }
+        }
+      });
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") appendMessage("system", `error: ${error.message}`);
+  } finally {
+    state.streaming = false;
+    state.abort = null;
+    $("send").disabled = false;
+    $("stop").disabled = true;
+    const data = await api(`/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=200`);
+    renderHistory(data.messages);
+    updateGauge(data.messages);
+    loadSessions();
+  }
+}
+
+async function stopTurn() {
+  if (!state.sessionId) return;
+  await api(`/api/sessions/${encodeURIComponent(state.sessionId)}/stop`, { method: "POST" });
+  if (state.abort) state.abort.abort();
+}
+
+// ------------------------------------------------------------------ search --
+let searchTimer = null;
+function wireSearch() {
+  $("search").addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    const query = $("search").value.trim();
+    const box = $("search-results");
+    if (!query) {
+      box.hidden = true;
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      const data = await api(`/api/search?q=${encodeURIComponent(query)}`);
+      box.textContent = "";
+      for (const hit of data.hits) {
+        const row = el("div", "hit");
+        row.appendChild(el("span", "sid", hit.short_id));
+        row.appendChild(el("div", "snippet", hit.snippet || ""));
+        row.addEventListener("click", () => openSession(hit.session_id));
+        box.appendChild(row);
+      }
+      if (!data.hits.length) box.appendChild(el("div", "meta", "no match"));
+      box.hidden = false;
+    }, 220);
+  });
+}
+
+// ----------------------------------------------------------------- palette --
+async function loadCommands() {
+  const data = await api("/api/commands");
+  state.commands = data.commands;
+}
+
+function renderPalette(query) {
+  const list = $("palette-list");
+  const needle = query.toLowerCase().replace(/^\//, "");
+  state.filtered = state.commands.filter(
+    (command) =>
+      command.name.startsWith(needle) ||
+      command.aliases.some((alias) => alias.startsWith(needle)),
+  );
+  state.paletteIndex = 0;
+  list.textContent = "";
+  state.filtered.forEach((command, index) => {
+    const item = el("li", index === 0 ? "active" : null);
+    item.appendChild(document.createTextNode(`/${command.name} ${command.args || ""}`.trim()));
+    item.appendChild(el("span", "alias", command.help));
+    item.addEventListener("click", () => runCommand(command));
+    list.appendChild(item);
+  });
+}
+
+function runCommand(command) {
+  closePalette();
+  const input = $("input");
+  if (command.name === "new") newSession();
+  else if (command.name === "clear") $("messages").textContent = "";
+  else if (command.name === "status") loadStatus();
+  else if (command.name === "sessions") loadSessions();
+  else if (command.name === "stop") stopTurn();
+  else {
+    // Commands without a direct API equivalent are inserted for the model or
+    // explained, never silently ignored.
+    input.value = command.args ? `/${command.name} ` : `/${command.name}`;
+    input.focus();
+  }
+}
+
+function openPalette() {
+  $("palette").hidden = false;
+  $("palette-input").value = "";
+  renderPalette("");
+  $("palette-input").focus();
+}
+
+function closePalette() {
+  $("palette").hidden = true;
+}
+
+function wirePalette() {
+  $("palette-input").addEventListener("input", (event) => renderPalette(event.target.value));
+  $("palette-input").addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      state.paletteIndex = Math.max(
+        0,
+        Math.min(state.filtered.length - 1, state.paletteIndex + delta),
+      );
+      [...$("palette-list").children].forEach((node, index) =>
+        node.classList.toggle("active", index === state.paletteIndex),
+      );
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const command = state.filtered[state.paletteIndex];
+      if (command) runCommand(command);
+    } else if (event.key === "Escape") {
+      closePalette();
+    }
+  });
+  $("palette").addEventListener("click", (event) => {
+    if (event.target === $("palette")) closePalette();
+  });
+  document.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openPalette();
+    }
+    if (event.key === "Escape") closePalette();
+  });
+}
+
+// -------------------------------------------------------------------- boot --
+function wireComposer() {
+  const input = $("input");
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      input.style.height = "auto";
+      sendMessage(text);
+    }
+  });
+  $("composer").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    sendMessage(text);
+  });
+  $("stop").addEventListener("click", stopTurn);
+  $("new-session").addEventListener("click", newSession);
+  $("menu-toggle").addEventListener("click", () => $("sidebar").classList.toggle("open"));
+  $("theme-toggle").addEventListener("click", () => {
+    const root = document.documentElement;
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+  });
+}
+
+async function boot() {
+  wireComposer();
+  wirePalette();
+  wireSearch();
+  await loadStatus();
+  await loadModels();
+  await loadCommands();
+  await loadSessions();
+}
+
+boot().catch((error) => {
+  document.body.textContent = `UH web error: ${error.message}`;
+});

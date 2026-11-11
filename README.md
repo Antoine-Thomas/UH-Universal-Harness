@@ -52,11 +52,14 @@ uh doctor
       zero-configuration onboarding (local model, offer to pull one sized to the
       RAM, local router, or a guided free key), `uh providers add|remove` with
       keys in `$UH_HOME/keys.toml` (0600), UTF-8 stdio on Windows, CI matrix.
-- [ ] **Jalon 5 — Web UI.** Sessions and streaming chat in the browser, copied
-      and adapted from Harness Maxxing.
+- [x] **Jalon 5 — Web UI.** `uh web` serves a local interface (sessions column,
+      streaming chat, collapsible tool cards, context gauge, per-session model,
+      full-text search, command palette, stop button, light/dark themes) from
+      three static files with no build step and no third-party JavaScript.
 
-Jalons 0 to 4 are done; only the web UI (Jalon 5) remains. No CLI command is a
-placeholder any more.
+Jalons 0 to 5 are done. The interface is an **original design**: it borrows the
+feature list of Harness Maxxing (public README) and none of its code, which is
+under a Fair Source Licence. UH stays MIT.
 
 ## CLI surface (Jalon 4)
 
@@ -83,6 +86,34 @@ stdin) answers one line and exits. Answers stream by default, `--no-stream`
 waits for the whole message. Conversations are persisted unless `--no-save`;
 `--session <id>` resumes (full id, unique prefix, or the short form shown by
 `uh sessions list`). Tool activity goes to stderr, the answer to stdout.
+
+## Web interface (optional)
+
+```
+pip install "uh-harness[web]"
+uh web                      # http://127.0.0.1:8765/?token=...
+uh web --port 9000 --no-open
+uh web --allow-terminal     # enable the shell toolset in the browser (off by default)
+```
+
+`uh web` without the extra prints the exact install command and exits 1. The
+core package stays on `httpx`; `fastapi`/`uvicorn` only exist in `[web]`.
+
+Security, because a local server is still a server:
+
+- binds `127.0.0.1`; any other `--host` prints a warning before starting;
+- a 43-character token is generated at startup, accepted once as `?token=` and
+  then kept in an `HttpOnly; SameSite=Strict` cookie; every `/api` route answers
+  401 without it (curl: `Authorization: Bearer <token>`);
+- `Host` and `Origin` are checked (DNS-rebinding / CSRF), no CORS is enabled;
+- strict CSP without `unsafe-inline`, so no inline script or style exists in the
+  HTML; `X-Frame-Options: DENY`;
+- the **terminal toolset is disabled** unless `--allow-terminal`; file tools stay
+  inside `--workspace`;
+- no provider key is ever returned by the API.
+
+Design notes and the feature-by-feature rationale live in
+[docs/WEB_DESIGN.md](docs/WEB_DESIGN.md).
 
 ## Console and slash commands
 

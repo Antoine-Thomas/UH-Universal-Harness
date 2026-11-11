@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -26,6 +27,10 @@ from .providers import Provider, ProviderError
 from .store import Store, StoreError, display_id
 
 TOOL_LINE_PREFIX = "· tool "
+
+
+class TurnCancelled(Exception):
+    """Raised inside the token callback when ``request_stop`` was called."""
 
 
 # --------------------------------------------------------------------------- #
@@ -165,6 +170,7 @@ class ChatSession:
         max_iterations: int,
         session_id: Optional[str] = None,
         announce: bool = True,
+        console: Optional["Console"] = None,
     ) -> None:
         self.provider_factory = provider_factory
         self.provider_kind = provider_kind
@@ -179,10 +185,28 @@ class ChatSession:
         self.max_iterations = max_iterations
         self.session_id = session_id
         self.announce = announce
-        self.console = Console()
+        self.console = console or Console()
+        # Web front-end hooks: no printing, events instead (see uh/web).
+        self.events: Optional[Callable[[dict], None]] = None
+        self._stop = threading.Event()
         self.history: list[dict] = [system_message(workspace)]
         if session_id and store is not None:
             self.history.extend(self._stored_messages(session_id))
+
+    # -- front-end hooks --------------------------------------------------- #
+    def request_stop(self) -> None:
+        """Ask the running turn to abort at the next streamed token."""
+        self._stop.set()
+
+    def clear_stop(self) -> None:
+        self._stop.clear()
+
+    def _emit(self, kind: str, **payload) -> None:
+        if self.events is not None:
+            try:
+                self.events({"type": kind, **payload})
+            except Exception:  # noqa: BLE001 - a broken sink must not kill the turn
+                pass
 
     # -- persistence helpers ----------------------------------------------- #
     def _stored_messages(self, session_id: str) -> list[dict]:
@@ -217,10 +241,19 @@ class ChatSession:
         chunks: list[str] = []
 
         def on_token(delta: str) -> None:
+            if self._stop.is_set():
+                raise TurnCancelled()
             chunks.append(delta)
             self.console.stream_write(delta)
+            self._emit("token", text=delta)
 
-        code = self._run_into(chunks, on_token)
+        try:
+            code = self._run_into(chunks, on_token)
+        except TurnCancelled:
+            self.console.errout("uh chat: stopped")
+            self._emit("error", message="stopped")
+            del self.history[before:]
+            return 1
         if code != 0:
             del self.history[before:]
             return code
@@ -246,6 +279,7 @@ class ChatSession:
             content = (last_assistant_message(self.history) or {}).get("content") or ""
 
         self._print_answer(content, chunks)
+        self._emit("answer", content=content)
         try:
             self._persist(self.history[before:])
         except StoreError as exc:
@@ -274,8 +308,19 @@ class ChatSession:
             return 1
 
         for message in updated[before:]:
-            if isinstance(message, dict) and message.get("role") == "tool":
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") == "assistant" and message.get("tool_calls"):
+                for call in message["tool_calls"]:
+                    function = call.get("function") or {}
+                    self._emit("tool_call", name=function.get("name", ""), args=function.get("arguments"))
+            if message.get("role") == "tool":
                 self.console.errout(_tool_activity(message))
+                self._emit(
+                    "tool_result",
+                    name=message.get("name") or "",
+                    content=str(message.get("content") or "")[:2000],
+                )
         self.history[:] = updated
         return 0
 

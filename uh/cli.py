@@ -854,6 +854,41 @@ def cmd_console(_args: argparse.Namespace) -> int:
     finally:
         session.close()
 
+# --------------------------------------------------------------------------- #
+# uh web (Jalon 5)
+# --------------------------------------------------------------------------- #
+def cmd_web(args: argparse.Namespace) -> int:
+    """Serve the local web interface. The heavy imports stay inside the extra."""
+    host = (getattr(args, "host", None) or "127.0.0.1").strip()
+    try:
+        from .web.app import LOOPBACK_NAMES, run_server
+    except ImportError as exc:
+        print(
+            "uh web: the [web] extra is not installed "
+            f"({type(exc).__name__}: {exc}).",
+            file=sys.stderr,
+        )
+        print('  install it with: pip install "uh-harness[web]"', file=sys.stderr)
+        return EXIT_FAILURE
+
+    if host not in LOOPBACK_NAMES:
+        print(
+            f"uh web: WARNING binding {host} (not loopback). The interface is reachable "
+            "from the network and the token in the URL is the only protection.",
+            file=sys.stderr,
+        )
+
+    workspace = Path(args.workspace).expanduser() if getattr(args, "workspace", None) else None
+    return run_server(
+        host=host,
+        port=int(args.port or 8765),
+        open_browser=not getattr(args, "no_open", False),
+        allow_terminal=bool(getattr(args, "allow_terminal", False)),
+        workspace=workspace,
+    )
+
+
+# --------------------------------------------------------------------------- #
 # uh sessions
 # --------------------------------------------------------------------------- #
 def _sessions_store(args: argparse.Namespace) -> tuple[Store | None, int]:
@@ -1224,6 +1259,17 @@ def build_parser() -> argparse.ArgumentParser:
     providers_remove = providers_sub.add_parser("remove", help="forget a stored provider")
     providers_remove.add_argument("name")
 
+    web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
+    web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
+    web.add_argument("--port", type=int, default=8765, help="port (default 8765)")
+    web.add_argument("--no-open", action="store_true", help="do not open a browser")
+    web.add_argument(
+        "--allow-terminal",
+        action="store_true",
+        help="enable the terminal toolset in the web UI (dangerous, off by default)",
+    )
+    web.add_argument("--workspace", help="workspace for the file tools")
+
     sessions = sub.add_parser("sessions", help="list, inspect, search and resume sessions")
     sessions_sub = sessions.add_subparsers(dest="sessions_command", metavar="<action>")
     sessions_list = sessions_sub.add_parser("list", help="list recent sessions")
@@ -1302,6 +1348,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.providers_command == "remove":
                 return cmd_providers_remove(args)
             return _sub_help(parser, "providers")
+        if args.command == "web":
+            return cmd_web(args)
         if args.command == "sessions":
             handlers = {
                 "list": cmd_sessions_list,

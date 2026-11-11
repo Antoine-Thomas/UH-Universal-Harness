@@ -243,6 +243,15 @@ class Store:
             cursor = self.conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         return cursor.rowcount > 0
 
+    def rename_session(self, session_id: str, title: str) -> bool:
+        """Set a session title. Same schema, no migration."""
+        with self.conn:
+            cursor = self.conn.execute(
+                "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?",
+                (title or "", _now(), session_id),
+            )
+        return cursor.rowcount > 0
+
     def find_session_by_metadata(self, key: str, value: Any) -> Optional[dict]:
         """Linear scan over sessions' JSON metadata (no JSON1 dependency assumed)."""
         for session in self.list_sessions(limit=10_000):
