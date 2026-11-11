@@ -78,7 +78,9 @@ def test_once_budget_exhausted_exits_one(
 def test_unknown_provider_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(["chat", "--once", "--provider", "openai", "--model", "x"])
     assert code == 1
-    assert "only 'ollama'" in capsys.readouterr().err
+    message = capsys.readouterr().err
+    assert "unknown provider" in message
+    assert "available:" in message
 
 
 def test_empty_stdin_exits_zero_without_calling_provider(

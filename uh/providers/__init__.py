@@ -1,9 +1,19 @@
-"""Provider layer: one blocking ``chat`` call, no streaming at Jalon 1."""
+"""Provider layer: one ``chat`` call, optionally streamed, plus the registry.
+
+Two providers ship with Jalon 2:
+
+* ``ollama``      - local models, ``/api/chat`` (NDJSON streaming);
+* ``omnirouter``  - a local OmniRoute gateway speaking the OpenAI API
+  (``/v1/chat/completions``, SSE streaming).
+
+``build_provider(kind, model)`` is the only construction path used by the CLI,
+so adding a provider means adding one module and one registry entry.
+"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Callable, List, Optional
 
 
 class ProviderError(RuntimeError):
@@ -20,6 +30,47 @@ class Provider(ABC):
     name = "base"
 
     @abstractmethod
-    def chat(self, messages: List[dict], tools: List[dict]) -> dict:
-        """Return one assistant message dict (``role``/``content``/``tool_calls``)."""
+    def chat(
+        self,
+        messages: List[dict],
+        tools: List[dict],
+        *,
+        on_token: Optional[Callable[[str], None]] = None,
+    ) -> dict:
+        """Return one assistant message dict (``role``/``content``/``tool_calls``).
+
+        ``on_token`` is ``None`` for a blocking call; otherwise each text delta is
+        passed to it and the complete message is returned at the end.
+        """
         raise NotImplementedError
+
+
+# Imported after Provider/ProviderError exist: the submodules import them back
+# from this package, which works because those names are already bound.
+from .ollama import OllamaProvider  # noqa: E402
+from .omnirouter import OmniRouterProvider  # noqa: E402
+
+PROVIDERS: dict[str, type[Provider]] = {
+    "ollama": OllamaProvider,
+    "omnirouter": OmniRouterProvider,
+}
+
+
+def available_providers() -> List[str]:
+    return sorted(PROVIDERS)
+
+
+def build_provider(kind: str, model: str = "", **kwargs) -> Provider:
+    """Instantiate the provider named by ``kind`` or raise a listed ``ProviderError``."""
+    key = (kind or "").strip().lower()
+    if key not in PROVIDERS:
+        raise ProviderError(
+            f"unknown provider '{kind}'; available: {', '.join(available_providers())}"
+        )
+    factory = PROVIDERS[key]
+    try:
+        return factory(model, **kwargs)
+    except ProviderError:
+        raise
+    except TypeError as exc:
+        raise ProviderError(f"cannot build provider '{key}': {exc}") from exc

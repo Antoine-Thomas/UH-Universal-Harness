@@ -14,6 +14,13 @@ tool calls use the Ollama ``/api/chat`` shape::
 Tool results come back as ``{"role": "tool", "name": <tool>, "content": <json>}``
 so the format stays portable to the providers of Jalon 2.
 
+Streaming (Jalon 2) is opt-in: ``on_token`` is a ``Callable[[str], None]``
+receiving text deltas. A provider that does not declare ``on_token`` (and has
+no ``**kwargs``) is detected by signature inspection: the loop then calls it in
+blocking mode and prints one warning per provider class, not one per turn.
+Detection is signature-based on purpose - retrying on any ``TypeError`` would
+swallow genuine bugs raised inside the provider.
+
 Fail-closed rules:
 
 * any exception raised by a toolset becomes a ``tool`` message holding the
@@ -26,8 +33,10 @@ Fail-closed rules:
 
 from __future__ import annotations
 
+import inspect
 import json
-from typing import Any, Dict, Iterable, List, Protocol, runtime_checkable
+import sys
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, runtime_checkable
 
 
 class BudgetExhausted(RuntimeError):
@@ -36,9 +45,15 @@ class BudgetExhausted(RuntimeError):
 
 @runtime_checkable
 class Provider(Protocol):
-    """Minimal provider surface: one blocking call, no streaming at Jalon 1."""
+    """Minimal provider surface: one call, optional token streaming."""
 
-    def chat(self, messages: List[dict], tools: List[dict]) -> dict: ...
+    def chat(
+        self,
+        messages: List[dict],
+        tools: List[dict],
+        *,
+        on_token: Optional[Callable[[str], None]] = None,
+    ) -> dict: ...
 
 
 @runtime_checkable
@@ -135,6 +150,51 @@ def last_assistant_message(messages: Iterable[dict]) -> dict | None:
 
 
 # --------------------------------------------------------------------------- #
+# streaming support detection
+# --------------------------------------------------------------------------- #
+# One warning per provider class, not per turn (Jalon 2 contract).
+_WARNED_NO_STREAMING: set[str] = set()
+
+
+def _provider_key(provider: Any) -> str:
+    cls = type(provider)
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def provider_supports_streaming(provider: Any) -> bool:
+    """True if ``provider.chat`` accepts ``on_token`` (explicitly or via **kwargs)."""
+    try:
+        parameters = inspect.signature(provider.chat).parameters
+    except (TypeError, ValueError):  # pragma: no cover - exotic callables
+        return True
+    if "on_token" in parameters:
+        return True
+    return any(param.kind is inspect.Parameter.VAR_KEYWORD for param in parameters.values())
+
+
+def _chat(
+    provider: "Provider",
+    messages: List[dict],
+    tools: List[dict],
+    on_token: Optional[Callable[[str], None]],
+) -> dict:
+    """Call the provider, degrading to blocking mode when streaming is unsupported."""
+    if on_token is None:
+        return provider.chat(messages, tools)
+    if provider_supports_streaming(provider):
+        return provider.chat(messages, tools, on_token=on_token)
+
+    key = _provider_key(provider)
+    if key not in _WARNED_NO_STREAMING:
+        _WARNED_NO_STREAMING.add(key)
+        print(
+            f"uh: provider {key} does not support streaming; falling back to blocking mode",
+            file=sys.stderr,
+        )
+    return provider.chat(messages, tools)
+
+
+# --------------------------------------------------------------------------- #
 # loop
 # --------------------------------------------------------------------------- #
 def run_turn(
@@ -143,11 +203,15 @@ def run_turn(
     toolsets: Dict[str, "Toolset"],
     *,
     max_iterations: int = 8,
+    on_token: Optional[Callable[[str], None]] = None,
 ) -> List[dict]:
     """Run the agent loop until a final answer or until the budget is spent.
 
     Returns a NEW list containing the original messages plus every assistant
     and tool message produced here. The caller's list is not mutated.
+
+    ``on_token`` (Jalon 2) streams text deltas to the caller while the answer is
+    generated; the complete message is still appended to the returned history.
     """
     if max_iterations < 1:
         raise ValueError("max_iterations must be >= 1")
@@ -158,7 +222,7 @@ def run_turn(
     total_iterations = int(max_iterations)
 
     for iteration in range(1, total_iterations + 1):
-        response = provider.chat(history, definitions)
+        response = _chat(provider, history, definitions, on_token)
         message = _as_assistant_message(response)
         message.setdefault("role", "assistant")
         if message.get("content") is None:

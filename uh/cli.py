@@ -1,12 +1,13 @@
 """UH command line interface.
 
-Jalon 1: ``uh chat`` (real agent loop) and ``uh model list`` (real Ollama
-discovery). ``uh sessions``, ``uh config`` and ``uh model pull`` remain
-placeholders that exit 2 and name their milestone.
+Jalon 2: streamed ``uh chat``, real ``uh model pull``, a provider registry
+(``ollama`` / ``omnirouter``) with a traced fallback chain, and
+``uh providers list``. ``uh sessions`` and ``uh config`` remain placeholders.
 
-The CLI is provider-agnostic on purpose: no vendor assumption, no API key
-required on first run. Local models are discovered through Ollama
-(``http://127.0.0.1:11434``, override with ``UH_OLLAMA_URL``).
+The CLI is provider-agnostic: no vendor assumption, no API key required on
+first run. Local models come from Ollama (``UH_OLLAMA_URL``); a local OmniRoute
+gateway is used as a backup when configured (``UH_OMNIROUTER_URL`` or
+``~/.omniroute/.env``).
 """
 
 from __future__ import annotations
@@ -20,11 +21,19 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Callable, Optional
 
 from . import __version__
-from .agent import BudgetExhausted, last_assistant_message, run_turn
-from .providers import Provider, ProviderError
-from .providers.ollama import OllamaProvider, list_models
+from .agent import BudgetExhausted, last_assistant_message, provider_supports_streaming, run_turn
+from .providers import PROVIDERS, Provider, ProviderError, available_providers, build_provider
+from .providers.ollama import list_models, pull_model
+from .providers.omnirouter import (
+    DEFAULT_MODEL as DEFAULT_OMNIROUTER_MODEL,
+    config_path as omnirouter_config_path,
+    is_configured as omnirouter_is_configured,
+    list_remote_models,
+    resolve_base_url as omnirouter_base_url,
+)
 from .toolsets import build_toolsets, describe_toolsets
 from .toolsets.memory import uh_home
 
@@ -36,52 +45,12 @@ EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_NOT_IMPLEMENTED = 2
 
-# Where the local free-router config may live (OmniRouter / Nemotron style).
-OMNIROUTER_CONFIG_NAMES = ("config.json", "config.yaml", "config.yml", "config.toml")
-
 
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
 def _ollama_url() -> str:
     return os.environ.get("UH_OLLAMA_URL", OLLAMA_DEFAULT_URL).rstrip("/")
-
-
-def _omnirouter_candidates() -> list[Path]:
-    """Likely locations of a local free-router config file (read-only probing)."""
-    candidates: list[Path] = []
-
-    for env_var in ("UH_OMNIROUTER_CONFIG", "OMNIROUTER_CONFIG", "OMNI_ROUTER_CONFIG"):
-        raw = os.environ.get(env_var)
-        if raw:
-            candidates.append(Path(raw).expanduser())
-
-    home = Path.home()
-    candidates.append(home / ".omnirouter")
-    candidates.append(home / ".config" / "omnirouter")
-    candidates.append(home / ".omnirouter.json")
-
-    if os.name == "nt":
-        for env_var in ("APPDATA", "LOCALAPPDATA"):
-            base = os.environ.get(env_var)
-            if base:
-                candidates.append(Path(base) / "omnirouter")
-    else:
-        candidates.append(Path("/etc/omnirouter"))
-
-    return candidates
-
-
-def _find_omnirouter_config() -> Path | None:
-    for candidate in _omnirouter_candidates():
-        if candidate.is_file():
-            return candidate
-        if candidate.is_dir():
-            for name in OMNIROUTER_CONFIG_NAMES:
-                nested = candidate / name
-                if nested.is_file():
-                    return nested
-    return None
 
 
 def _run_version(cmd: list[str]) -> str | None:
@@ -124,6 +93,19 @@ def _probe_ollama(timeout: float = 1.5) -> tuple[bool, str]:
     except Exception:  # noqa: BLE001 - a 200 with odd body is still "reachable"
         return True, f"reachable at {url}"
     return True, f"reachable at {url} ({len(names)} model(s))"
+
+
+def _router_detail() -> tuple[str, str]:
+    """Free-router line for ``uh doctor`` (measured: OmniRoute uses a dotenv file)."""
+    url = omnirouter_base_url()
+    path = omnirouter_config_path()
+    if url and path:
+        return "OK", f"OmniRouter at {url} (config: {path})"
+    if url:
+        return "OK", f"OmniRouter at {url} (from environment)"
+    if path:
+        return "INFO", f"OmniRoute config at {path} but no base URL could be derived"
+    return "INFO", "no local OmniRouter config found (optional)"
 
 
 def _workspace_path(raw: str | None = None) -> tuple[Path, str]:
@@ -222,12 +204,9 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         rows.append(("WARN", "ollama", f"{detail} - optional, start it to use local models"))
         warnings += 1
 
-    # 5. Optional local free-router config (info only)
-    router_config = _find_omnirouter_config()
-    if router_config:
-        rows.append(("OK", "router", f"local config found: {router_config}"))
-    else:
-        rows.append(("INFO", "router", "no local OmniRouter config found (optional)"))
+    # 5. Free router (info only, never blocking)
+    router_status, router_detail = _router_detail()
+    rows.append((router_status, "router", router_detail))
 
     # 6. Workspace: the file/terminal tools refuse anything outside it
     workspace_status, workspace_detail = _check_workspace()
@@ -264,25 +243,228 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
 # providers
 # --------------------------------------------------------------------------- #
 def _make_provider(kind: str, model: str) -> Provider:
-    """Build the provider named by ``--provider``. Seam used by the tests."""
-    if kind == "ollama":
-        return OllamaProvider(model)
-    raise ProviderError(f"unknown provider '{kind}'; only 'ollama' is available in Jalon 1")
+    """Build the provider named by ``kind``. Seam used by the tests."""
+    return build_provider(kind, model)
 
 
-def _default_model() -> str | None:
+class _FallbackProvider(Provider):
+    """Try providers in order; every switch is traced on stderr.
+
+    Note: if a provider fails *after* emitting some tokens, the retry restarts
+    from the same messages, so the caller may see the beginning of the answer
+    twice. Switches are rare and the trace makes it visible.
+    """
+
+    name = "chain"
+
+    def __init__(self, chain: list[tuple[str, Provider]]) -> None:
+        if not chain:
+            raise ProviderError("empty provider chain")
+        self.chain = chain
+        self.index = 0
+
+    @property
+    def model(self) -> str:
+        return str(getattr(self.chain[self.index][1], "model", "") or "")
+
+    def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        on_token: Optional[Callable[[str], None]] = None,
+    ) -> dict:
+        errors: list[str] = []
+        first_error: ProviderError | None = None
+        for position in range(self.index, len(self.chain)):
+            kind, provider = self.chain[position]
+            try:
+                if on_token is not None and provider_supports_streaming(provider):
+                    message = provider.chat(messages, tools, on_token=on_token)
+                else:
+                    message = provider.chat(messages, tools)
+            except ProviderError as exc:
+                first_error = first_error or exc
+                errors.append(f"{kind}: {exc}")
+                if position + 1 < len(self.chain):
+                    print(
+                        f"fallback: {kind} -> {self.chain[position + 1][0]} (reason: {exc})",
+                        file=sys.stderr,
+                    )
+                continue
+            self.index = position
+            return message
+
+        if len(self.chain) == 1 and first_error is not None:
+            raise first_error
+        raise ProviderError("all providers failed: " + "; ".join(errors))
+
+
+def _build_chain(requested: str | None, model: str | None) -> tuple[list[tuple[str, Provider]], str]:
+    """Return ``[(kind, provider), ...]`` and the model actually selected.
+
+    Explicit ``--provider`` means one provider, no fallback. Otherwise the chain
+    is ``ollama`` (with the requested or first local model) then ``omnirouter``
+    when it is configured - the switch is always announced on stderr.
+    """
+    if requested:
+        provider = _make_provider(requested, model or "")
+        return [(requested, provider)], (model or getattr(provider, "model", "") or "")
+
+    chain: list[tuple[str, Provider]] = []
+    reasons: list[str] = []
+
+    ollama_model = model
+    if not ollama_model:
+        try:
+            local = list_models()
+        except ProviderError as exc:
+            reasons.append(f"ollama: {exc}")
+            local = []
+        ollama_model = str(local[0]["name"]) if local else None
+        if ollama_model is None and not reasons:
+            reasons.append("ollama: no local model installed (run: ollama pull <name>)")
+
+    if ollama_model:
+        try:
+            chain.append(("ollama", _make_provider("ollama", ollama_model)))
+        except ProviderError as exc:
+            reasons.append(f"ollama: {exc}")
+
+    # Model namespaces differ between providers: an Ollama tag such as
+    # "qwen3:8b" is not a valid OmniRoute id, so the backup uses its own model
+    # (UH_OMNIROUTER_MODEL or a free auto-combo) unless --provider names it.
+    omni_model = os.environ.get("UH_OMNIROUTER_MODEL") or DEFAULT_OMNIROUTER_MODEL
     try:
-        models = list_models()
+        chain.append(("omnirouter", _make_provider("omnirouter", omni_model)))
     except ProviderError as exc:
-        print(f"uh chat: {exc}", file=sys.stderr)
-        return None
-    if not models:
+        reasons.append(f"omnirouter: {exc}")
+
+    if not chain:
+        raise ProviderError("no usable provider - " + "; ".join(reasons))
+
+    if chain[0][0] == "omnirouter":
+        reason = next(
+            (item[len("ollama: "):] for item in reasons if item.startswith("ollama: ")),
+            "ollama provider unavailable",
+        )
+        print(f"fallback: ollama -> omnirouter (reason: {reason})", file=sys.stderr)
+
+    return chain, (ollama_model or omni_model)
+
+
+# --------------------------------------------------------------------------- #
+# uh providers
+# --------------------------------------------------------------------------- #
+def cmd_providers_list(_args: argparse.Namespace) -> int:
+    print("providers (runtime: httpx only)")
+
+    url = _ollama_url()
+    try:
+        local = list_models()
+    except ProviderError:
+        print(f"  {'ollama':<11} not reachable at {url}")
+        print(f"  {'':<11} start it with `ollama serve`")
+    else:
+        print(f"  {'ollama':<11} reachable at {url} ({len(local)} model(s))")
+        default = str(local[0]["name"]) if local else "(none installed)"
+        print(f"  {'':<11} default model: {default}")
+
+    base = omnirouter_base_url()
+    if not base:
+        print(f"  {'omnirouter':<11} not configured (set UH_OMNIROUTER_URL)")
+    else:
+        try:
+            ids = list_remote_models(base)
+        except ProviderError as exc:
+            print(f"  {'omnirouter':<11} configured at {base}, unreachable: {exc}")
+        else:
+            print(f"  {'omnirouter':<11} configured at {base} ({len(ids)} model(s))")
+            suffix = "" if ids else " (check UH_OMNIROUTER_API_KEY)"
+            print(f"  {'':<11} default model: {DEFAULT_OMNIROUTER_MODEL}{suffix}")
+
+    print("")
+    print(f"registered: {', '.join(available_providers())}")
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
+# uh model pull
+# --------------------------------------------------------------------------- #
+class _PullProgress:
+    """Render ``/api/pull`` events: in-place on a TTY, throttled lines otherwise."""
+
+    def __init__(self, quiet: bool = False, stream=None) -> None:
+        self.quiet = quiet
+        self.stream = stream or sys.stderr
+        self.tty = bool(getattr(self.stream, "isatty", lambda: False)())
+        self.last_status: str | None = None
+        self.last_percent = -1
+        self.width = 0
+
+    def __call__(self, event: dict) -> None:
+        if self.quiet:
+            return
+        status = str(event.get("status") or "").strip()
+        completed = event.get("completed")
+        total = event.get("total")
+
+        if total:
+            percent = int((completed or 0) * 100 / total) if total else 0
+            line = f"{status} {percent:3d}% ({_human_size(completed or 0)}/{_human_size(total)})"
+            if self.tty:
+                self.stream.write("\r" + line[:200].ljust(self.width))
+                self.stream.flush()
+                self.width = len(line[:200])
+            elif status != self.last_status or percent - self.last_percent >= 10 or percent >= 100:
+                print(line, file=self.stream)
+                self.last_status = status
+                self.last_percent = percent
+            return
+
+        if status and status != self.last_status:
+            print(status, file=self.stream)
+            self.last_status = status
+
+    def finish(self) -> None:
+        if not self.quiet and self.tty and self.width:
+            self.stream.write("\n")
+            self.stream.flush()
+            self.width = 0
+
+
+def cmd_model_pull(args: argparse.Namespace) -> int:
+    name = (args.name or "").strip()
+    if not name:
+        print("uh model pull: a model name is required", file=sys.stderr)
+        return EXIT_FAILURE
+
+    if args.interactive and not args.yes:
         print(
-            "uh chat: no local model installed; run `ollama pull llama3.2:3b` first",
+            "uh model pull: the size of a remote model is unknown before download "
+            "(Ollama answers 404 on /api/show for a non-local model); this may take a while.",
             file=sys.stderr,
         )
-        return None
-    return str(models[0]["name"])
+        if not sys.stdin or not sys.stdin.isatty():
+            print("uh model pull: --interactive needs a TTY; aborted", file=sys.stderr)
+            return EXIT_FAILURE
+        answer = input(f"pull {name}? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("uh model pull: cancelled", file=sys.stderr)
+            return EXIT_FAILURE
+    elif not args.quiet:
+        print(f"uh model pull: {name} (size unknown before download)", file=sys.stderr)
+
+    progress = _PullProgress(quiet=args.quiet)
+    try:
+        pull_model(name, progress)
+    except ProviderError as exc:
+        progress.finish()
+        print(f"uh model pull: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    progress.finish()
+    print(f"pulled {name}", file=sys.stderr)
+    return EXIT_OK
 
 
 # --------------------------------------------------------------------------- #
@@ -318,15 +500,30 @@ def _turn(
     provider: Provider,
     toolsets: dict,
     max_iterations: int,
+    stream: bool = True,
 ) -> int:
     """Run one user turn, print the answer, update ``history`` in place.
 
-    Tool activity goes to stderr so that stdout stays scriptable.
+    Streaming prints deltas to stdout as they arrive; tool activity goes to
+    stderr so stdout stays scriptable.
     """
     before = len(history)
     history.append({"role": "user", "content": text})
+
+    chunks: list[str] = []
+
+    def on_token(delta: str) -> None:
+        chunks.append(delta)
+        print(delta, end="", flush=True)
+
     try:
-        updated = run_turn(history, provider, toolsets, max_iterations=max_iterations)
+        updated = run_turn(
+            history,
+            provider,
+            toolsets,
+            max_iterations=max_iterations,
+            on_token=on_token if stream else None,
+        )
     except BudgetExhausted as exc:
         print(f"uh chat: {exc}", file=sys.stderr)
         del history[before:]
@@ -343,34 +540,37 @@ def _turn(
     history[:] = updated
     final = last_assistant_message(updated)
     content = (final or {}).get("content") or ""
-    print(content if content else "(empty response)")
+    streamed = "".join(chunks)
+
+    if stream:
+        if streamed:
+            print()
+            if content and content != streamed:
+                print(content)
+        elif content:
+            print(content)
+        else:
+            print("(empty response)")
+    else:
+        print(content if content else "(empty response)")
     return EXIT_OK
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
-    if args.provider != "ollama":
-        print(
-            f"uh chat: unknown provider '{args.provider}'; only 'ollama' is available in Jalon 1",
-            file=sys.stderr,
-        )
-        return EXIT_FAILURE
-
     workspace, _origin = _workspace_path(args.workspace)
     if not workspace.is_dir():
         print(f"uh chat: workspace not found: {workspace}", file=sys.stderr)
         return EXIT_FAILURE
     os.environ["UH_WORKSPACE"] = str(workspace)
 
-    model = args.model or _default_model()
-    if not model:
-        return EXIT_FAILURE
-
     try:
-        provider = _make_provider(args.provider, model)
+        chain, model = _build_chain(args.provider, args.model)
     except ProviderError as exc:
         print(f"uh chat: {exc}", file=sys.stderr)
         return EXIT_FAILURE
 
+    provider: Provider = _FallbackProvider(chain) if len(chain) > 1 else chain[0][1]
+    stream = not args.no_stream
     toolsets = build_toolsets(workspace)
     max_iterations = max(1, int(args.max_iterations or DEFAULT_MAX_ITERATIONS))
     history: list[dict] = [_system_message(workspace)]
@@ -381,12 +581,11 @@ def cmd_chat(args: argparse.Namespace) -> int:
         text = (line or "").strip()
         if not text:
             return EXIT_OK
-        return _turn(history, text, provider, toolsets, max_iterations)
+        return _turn(history, text, provider, toolsets, max_iterations, stream)
 
-    print(
-        f"uh chat - model {getattr(provider, 'model', model)}, workspace {workspace}",
-        file=sys.stderr,
-    )
+    label = " + ".join(kind for kind, _ in chain)
+    mode = "stream" if stream else "blocking"
+    print(f"uh chat - model {model}, provider {label}, {mode}, workspace {workspace}", file=sys.stderr)
     print("commands: /exit, /model <name>, /tools, /clear", file=sys.stderr)
     while True:
         try:
@@ -411,20 +610,18 @@ def cmd_chat(args: argparse.Namespace) -> int:
         if text.startswith("/model"):
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                print(
-                    f"uh chat: current model {getattr(provider, 'model', model)}",
-                    file=sys.stderr,
-                )
+                print(f"uh chat: current model {model}", file=sys.stderr)
                 continue
+            kind = args.provider or chain[0][0]
             try:
-                provider = _make_provider(args.provider, parts[1].strip())
+                provider = _make_provider(kind, parts[1].strip())
             except ProviderError as exc:
                 print(f"uh chat: {exc}", file=sys.stderr)
                 continue
             model = parts[1].strip()
-            print(f"uh chat: model set to {model}", file=sys.stderr)
+            print(f"uh chat: model set to {model} ({kind})", file=sys.stderr)
             continue
-        _turn(history, text, provider, toolsets, max_iterations)
+        _turn(history, text, provider, toolsets, max_iterations, stream)
 
 
 # --------------------------------------------------------------------------- #
@@ -451,10 +648,6 @@ def cmd_model_list(_args: argparse.Namespace) -> int:
     print("")
     print(f"{len(models)} model(s)")
     return EXIT_OK
-
-
-def cmd_model_pull(_args: argparse.Namespace) -> int:
-    return _not_implemented("uh model pull", "Jalon 2 (local model layer)")
 
 
 # --------------------------------------------------------------------------- #
@@ -485,7 +678,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Universal Harness - provider-agnostic agent harness CLI.",
         epilog=(
             "Universal CLI: works with any local or free provider "
-            "(Ollama, free local routers). No API key needed to start."
+            "(Ollama, OmniRouter). No API key needed to start."
         ),
     )
     parser.add_argument(
@@ -505,7 +698,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     chat = sub.add_parser("chat", help="conversation loop with file/terminal/memory tools")
     chat.add_argument("--model", help="model name (default: first model found in Ollama)")
-    chat.add_argument("--provider", default="ollama", help="provider name (default: ollama)")
+    chat.add_argument(
+        "--provider",
+        metavar="<kind>",
+        help=(
+            f"force one provider ({', '.join(available_providers())}); "
+            "default: ollama, then omnirouter when configured"
+        ),
+    )
     chat.add_argument("--workspace", help="workspace directory for the file/terminal tools")
     chat.add_argument(
         "--max-iterations",
@@ -518,12 +718,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="read one line from stdin, answer, exit (implicit when stdin is not a TTY)",
     )
+    chat.add_argument(
+        "--no-stream",
+        action="store_true",
+        help="wait for the complete answer instead of streaming tokens",
+    )
 
     model = sub.add_parser("model", help="manage local models")
     model_sub = model.add_subparsers(dest="model_command", metavar="<action>")
     model_sub.add_parser("list", help="list models served by Ollama")
-    pull = model_sub.add_parser("pull", help="download a model (Jalon 2)")
+    pull = model_sub.add_parser("pull", help="download a model from the Ollama registry")
     pull.add_argument("name", help="model name, e.g. llama3.2:3b")
+    pull.add_argument("--quiet", action="store_true", help="no progress, only a final summary")
+    pull.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    pull.add_argument(
+        "--interactive",
+        action="store_true",
+        help="ask for confirmation before downloading (size is unknown beforehand)",
+    )
+
+    providers = sub.add_parser("providers", help="list registered providers and their state")
+    providers_sub = providers.add_subparsers(dest="providers_command", metavar="<action>")
+    providers_sub.add_parser("list", help="show providers and their status")
 
     sub.add_parser("sessions", help="manage sessions (Jalon 3)")
     sub.add_parser("config", help="read or write UH configuration (Jalon 3)")
@@ -533,8 +749,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _model_help(parser: argparse.ArgumentParser) -> int:
-    parser._subparsers_by_name["model"].print_help()  # type: ignore[attr-defined]
+def _sub_help(parser: argparse.ArgumentParser, name: str) -> int:
+    parser._subparsers_by_name[name].print_help()  # type: ignore[attr-defined]
     return EXIT_NOT_IMPLEMENTED
 
 
@@ -556,7 +772,11 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_model_list(args)
             if args.model_command == "pull":
                 return cmd_model_pull(args)
-            return _model_help(parser)
+            return _sub_help(parser, "model")
+        if args.command == "providers":
+            if args.providers_command == "list":
+                return cmd_providers_list(args)
+            return _sub_help(parser, "providers")
         if args.command == "sessions":
             return cmd_sessions(args)
         if args.command == "config":
