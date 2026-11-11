@@ -110,6 +110,7 @@ def is_configured() -> bool:
 # --------------------------------------------------------------------------- #
 class OmniRouterProvider(Provider):
     name = "omnirouter"
+    label = "OmniRouter"  # overridden by subclasses (e.g. a user's own gateway)
 
     def __init__(
         self,
@@ -138,7 +139,7 @@ class OmniRouterProvider(Provider):
 
     def _error(self, exc: Exception) -> ProviderError:
         return ProviderError(
-            f"cannot reach OmniRouter at {self.base_url} ({type(exc).__name__}: {exc})"
+            f"cannot reach {self.label} at {self.base_url} ({type(exc).__name__}: {exc})"
         )
 
     # -- chat -------------------------------------------------------------- #
@@ -175,7 +176,7 @@ class OmniRouterProvider(Provider):
         data = self._payload(response)
         choices = data.get("choices") or []
         if not choices or not isinstance(choices[0], dict):
-            raise ProviderError("OmniRouter response has no 'choices' entry")
+            raise ProviderError(f"{self.label} response has no 'choices' entry")
         message = choices[0].get("message") or {}
         return {
             "role": "assistant",
@@ -196,7 +197,7 @@ class OmniRouterProvider(Provider):
             ) as response:
                 if response.status_code != 200:
                     body = "".join(response.iter_text())[:300]
-                    raise ProviderError(f"OmniRouter HTTP {response.status_code}: {body}")
+                    raise ProviderError(f"{self.label} HTTP {response.status_code}: {body}")
                 for line in response.iter_lines():
                     text = (line or "").strip()
                     if not text or not text.startswith("data:"):
@@ -234,23 +235,24 @@ class OmniRouterProvider(Provider):
     def _payload(self, response: httpx.Response) -> dict:
         if response.status_code == 401:
             raise ProviderError(
-                "OmniRouter rejected the API key (HTTP 401): set UH_OMNIROUTER_API_KEY"
+                f"{self.label} rejected the API key (HTTP 401): "
+                "check `uh providers list` and re-add it"
             )
         if response.status_code != 200:
             raise ProviderError(
-                f"OmniRouter HTTP {response.status_code}: {(response.text or '')[:300]}"
+                f"{self.label} HTTP {response.status_code}: {(response.text or '')[:300]}"
             )
         try:
             data = response.json()
         except ValueError as exc:
-            raise ProviderError(f"OmniRouter returned non-JSON body: {exc}") from exc
+            raise ProviderError(f"{self.label} returned non-JSON body: {exc}") from exc
         if not isinstance(data, dict):
-            raise ProviderError("OmniRouter returned an unexpected payload")
+            raise ProviderError(f"{self.label} returned an unexpected payload")
         if data.get("error"):
             detail = data["error"]
             if isinstance(detail, dict):
                 detail = detail.get("message") or detail
-            raise ProviderError(f"OmniRouter error: {detail}")
+            raise ProviderError(f"{self.label} error: {detail}")
         return data
 
 

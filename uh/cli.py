@@ -25,9 +25,19 @@ from typing import Any, Callable, Optional
 
 from . import __version__
 from . import banner
+from . import commands
 from . import config as uh_config
+from . import console
 from .agent import BudgetExhausted, last_assistant_message, provider_supports_streaming, run_turn
-from .providers import PROVIDERS, Provider, ProviderError, available_providers, build_provider
+from . import keys
+from .providers import (
+    PROVIDERS,
+    Provider,
+    ProviderError,
+    all_provider_kinds,
+    available_providers,
+    build_provider,
+)
 from .providers.ollama import list_models, pull_model
 from .providers.omnirouter import (
     DEFAULT_MODEL as DEFAULT_OMNIROUTER_MODEL,
@@ -54,6 +64,24 @@ EXIT_NOT_IMPLEMENTED = 2
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
+def _configure_stdio() -> None:
+    """Force UTF-8 on stdout/stderr.
+
+    cmd.exe and PowerShell default to cp1252/cp850: without this, printing the
+    banner's box drawing or an accented answer raises UnicodeEncodeError and the
+    CLI dies on the first line. ``errors="replace"`` keeps an exotic terminal
+    usable instead of crashing it.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError, AttributeError):  # pragma: no cover - exotic streams
+            pass
+
+
 def _ollama_url() -> str:
     return os.environ.get("UH_OLLAMA_URL", OLLAMA_DEFAULT_URL).rstrip("/")
 
@@ -337,6 +365,11 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     config_status, config_detail = _config_detail()
     rows.append((config_status, "config", config_detail))
 
+    # 11. Provider keys (Jalon 4): present/absent only, never the value
+    from .keys import file_mode
+
+    rows.append(("INFO", "keys", file_mode()))
+
     width = max(len(label) for _, label, _ in rows)
     print(f"UH doctor - uh {__version__}")
     print(f"  host: {platform.system()} {platform.release()} / {platform.machine()}")
@@ -362,59 +395,6 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
 def _make_provider(kind: str, model: str) -> Provider:
     """Build the provider named by ``kind``. Seam used by the tests."""
     return build_provider(kind, model)
-
-
-class _FallbackProvider(Provider):
-    """Try providers in order; every switch is traced on stderr.
-
-    Note: if a provider fails *after* emitting some tokens, the retry restarts
-    from the same messages, so the caller may see the beginning of the answer
-    twice. Switches are rare and the trace makes it visible.
-    """
-
-    name = "chain"
-
-    def __init__(self, chain: list[tuple[str, Provider]]) -> None:
-        if not chain:
-            raise ProviderError("empty provider chain")
-        self.chain = chain
-        self.index = 0
-
-    @property
-    def model(self) -> str:
-        return str(getattr(self.chain[self.index][1], "model", "") or "")
-
-    def chat(
-        self,
-        messages: list[dict],
-        tools: list[dict],
-        *,
-        on_token: Optional[Callable[[str], None]] = None,
-    ) -> dict:
-        errors: list[str] = []
-        first_error: ProviderError | None = None
-        for position in range(self.index, len(self.chain)):
-            kind, provider = self.chain[position]
-            try:
-                if on_token is not None and provider_supports_streaming(provider):
-                    message = provider.chat(messages, tools, on_token=on_token)
-                else:
-                    message = provider.chat(messages, tools)
-            except ProviderError as exc:
-                first_error = first_error or exc
-                errors.append(f"{kind}: {exc}")
-                if position + 1 < len(self.chain):
-                    print(
-                        f"fallback: {kind} -> {self.chain[position + 1][0]} (reason: {exc})",
-                        file=sys.stderr,
-                    )
-                continue
-            self.index = position
-            return message
-
-        if len(self.chain) == 1 and first_error is not None:
-            raise first_error
-        raise ProviderError("all providers failed: " + "; ".join(errors))
 
 
 def _build_chain(
@@ -510,8 +490,69 @@ def cmd_providers_list(_args: argparse.Namespace) -> int:
             suffix = "" if ids else " (check UH_OMNIROUTER_API_KEY)"
             print(f"  {'':<11} default model: {DEFAULT_OMNIROUTER_MODEL}{suffix}")
 
+    configured = keys.read_providers()
     print("")
-    print(f"registered: {', '.join(available_providers())}")
+    if configured:
+        for name in sorted(configured):
+            entry = configured[name]
+            state = "key present" if entry.get("key") else "key absent"
+            print(f"  {name:<11} configured at {entry.get('base_url')} ({state})")
+            print(f"  {'':<11} model: {entry.get('model') or '-'}")
+    else:
+        print(f"  {'(user)':<11} none added (uh providers add <name>)")
+
+    print("")
+    print(f"registered: {', '.join(all_provider_kinds())}")
+    print("keys file: " + keys.file_mode())
+    return EXIT_OK
+
+
+def cmd_providers_add(args: argparse.Namespace) -> int:
+    """Store one OpenAI-compatible provider. The key is never echoed or logged."""
+    import getpass
+
+    name = (args.name or "").strip().lower()
+    base_url = (getattr(args, "base_url", None) or "").strip()
+    model = (getattr(args, "model", None) or "").strip()
+    key = (getattr(args, "key", None) or "").strip()
+    interactive = sys.stdin is not None and sys.stdin.isatty()
+
+    if interactive and not base_url:
+        base_url = input("base URL (e.g. https://api.groq.com/openai/v1): ").strip()
+    if interactive and not model:
+        model = input("model id: ").strip()
+    if not key:
+        if interactive:
+            key = getpass.getpass("API key (not echoed): ").strip()
+        else:
+            key = os.environ.get("UH_PROVIDER_KEY", "").strip()
+
+    if not (base_url and model):
+        print("uh providers add: --base-url and --model are required", file=sys.stderr)
+        return EXIT_FAILURE
+    if not key:
+        print(
+            "uh providers add: an API key is required (--key, UH_PROVIDER_KEY, or the prompt)",
+            file=sys.stderr,
+        )
+        return EXIT_FAILURE
+
+    try:
+        path = keys.add_provider(name, base_url, model, key)
+    except ValueError as exc:
+        print(f"uh providers add: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    print(f"added provider {name} (model {model}) -> {path}")
+    print("the key is stored in that file only; it is never printed or committed")
+    return EXIT_OK
+
+
+def cmd_providers_remove(args: argparse.Namespace) -> int:
+    name = (args.name or "").strip().lower()
+    if not keys.remove_provider(name):
+        print(f"uh providers remove: no provider '{name}'", file=sys.stderr)
+        return EXIT_FAILURE
+    print(f"removed provider {name}")
     return EXIT_OK
 
 
@@ -595,261 +636,224 @@ def cmd_model_pull(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# uh chat
+# uh chat (Jalon 4: console session, slash commands, persistence)
 # --------------------------------------------------------------------------- #
-def _system_message(workspace: Path) -> dict:
-    return {
-        "role": "system",
-        "content": (
-            "You are UH, a local agent harness. Use the provided tools to inspect and modify "
-            f"files inside the workspace {workspace}, to run shell commands, and to keep notes "
-            "in long-term memory. Prefer the file tools over the shell for file edits. "
-            "Answer without calling a tool once the task is done."
-        ),
-    }
+def _chat_namespace(**overrides) -> argparse.Namespace:
+    defaults = dict(
+        prompt=None,
+        model=None,
+        provider=None,
+        workspace=None,
+        max_iterations=None,
+        once=False,
+        no_stream=False,
+        session=None,
+        no_save=False,
+        new=False,
+        debug=False,
+    )
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
 
 
-def _tool_activity(message: dict) -> str:
-    name = message.get("name") or "?"
-    raw = message.get("content") or ""
-    try:
-        payload = json.loads(raw)
-    except (TypeError, ValueError):
-        payload = {"raw": str(raw)}
-    if isinstance(payload, dict) and payload.get("error"):
-        return f"· tool {name}: error: {str(payload['error'])[:200]}"
-    return f"· tool {name}: ok"
+def _build_chat_session(
+    args: argparse.Namespace,
+    cfg: uh_config.Config,
+    *,
+    chain: list[tuple[str, Provider]] | None = None,
+    model: str | None = None,
+    announce: bool = True,
+) -> tuple[console.ChatSession | None, int]:
+    """Resolve workspace/provider/store and build the console session."""
+    workspace_raw = args.workspace or str(cfg.get("workspace") or "")
+    workspace, _origin = _workspace_path(workspace_raw or None)
+    if not workspace.is_dir():
+        print(f"uh chat: workspace not found: {workspace}", file=sys.stderr)
+        return None, EXIT_FAILURE
+    os.environ["UH_WORKSPACE"] = str(workspace)
+
+    if chain is None or model is None:
+        requested_model = args.model or str(cfg.get("default_model") or "") or None
+        preferred = args.provider or str(cfg.get("default_provider") or "") or None
+        try:
+            chain, model = _build_chain(
+                args.provider,
+                requested_model,
+                str(cfg.get("omnirouter_model") or ""),
+                preferred=preferred,
+            )
+        except ProviderError as exc:
+            print(f"uh chat: {exc}", file=sys.stderr)
+            return None, EXIT_FAILURE
+
+    stream = False if args.no_stream else bool(cfg.get("stream"))
+    max_iterations = max(1, int(cfg.get("max_iterations") or DEFAULT_MAX_ITERATIONS))
+    toolsets = build_toolsets(workspace)
+
+    store: Store | None = None
+    if not args.no_save:
+        try:
+            store = _open_store(cfg.resolved_store_path())
+        except StoreError as exc:
+            print(f"uh chat: {exc}", file=sys.stderr)
+            return None, EXIT_FAILURE
+
+    session = console.ChatSession(
+        provider_factory=_make_provider,
+        provider_kind=chain[0][0],
+        chain=chain,
+        model=model,
+        toolsets=toolsets,
+        workspace=workspace,
+        cfg=cfg,
+        stream=stream,
+        store=store,
+        max_iterations=max_iterations,
+        announce=announce,
+    )
+
+    requested_session = getattr(args, "session", None)
+    if requested_session:
+        if store is None:
+            print("uh chat: --session needs persistence (drop --no-save)", file=sys.stderr)
+            session.close()
+            return None, EXIT_FAILURE
+        message = session.resume(requested_session)
+        if not message.startswith("resumed"):
+            print(f"uh: {message}", file=sys.stderr)
+            session.close()
+            return None, EXIT_FAILURE
+        print(f"uh chat: {message}", file=sys.stderr)
+        if getattr(args, "new", False):
+            source = session.session_id
+            assert source is not None and store is not None
+            fork_id = store.create_session(
+                title="fork",
+                model=str(session.model or ""),
+                provider=session.provider_kind or "",
+                metadata={"forked_from": source},
+            )
+            for message_dict in store.get_messages(source):
+                store.append_message(fork_id, message_dict)
+            session.session_id = fork_id
+            print(f"session {display_id(fork_id)} (forked)", file=sys.stderr)
+
+    return session, EXIT_OK
 
 
-def _title_from(text: str, limit: int = 60) -> str:
-    flat = " ".join((text or "").split())
-    return flat[:limit]
+def _run_repl(session: console.ChatSession) -> int:
+    """Interactive loop: prompts go to the model, ``/command`` to the registry."""
+    ui = session.console
+    if bool(session.cfg.get("banner")) and banner.should_show():
+        ui.show_banner(short=True)
+    mode = "stream" if session.stream else "blocking"
+    ui.errout(
+        f"uh chat - model {session.model}, provider {session.provider_kind}, "
+        f"{mode}, workspace {session.workspace}"
+    )
+    if session.session_id:
+        ui.errout(f"session {display_id(session.session_id)}")
+    ui.show_status(session)
+    ui.errout("type /help for commands, /exit to leave")
 
+    while True:
+        try:
+            line = input("you> ")
+        except (EOFError, KeyboardInterrupt):
+            print("", file=sys.stderr)
+            break
+        text = line.strip()
+        if not text:
+            continue
+        if commands.is_command(text):
+            result = commands.dispatch(session, text)
+            if result.out:
+                ui.out(result.out)
+            if result.err:
+                ui.errout(result.err)
+            if result.exit:
+                break
+            continue
+        session.run_text(text)
 
-def _turn(
-    history: list[dict],
-    text: str,
-    provider: Provider,
-    toolsets: dict,
-    max_iterations: int,
-    stream: bool = True,
-) -> int:
-    """Run one user turn, print the answer, update ``history`` in place.
-
-    Streaming prints deltas to stdout as they arrive; tool activity goes to
-    stderr so stdout stays scriptable.
-    """
-    before = len(history)
-    history.append({"role": "user", "content": text})
-
-    chunks: list[str] = []
-
-    def on_token(delta: str) -> None:
-        chunks.append(delta)
-        print(delta, end="", flush=True)
-
-    try:
-        updated = run_turn(
-            history,
-            provider,
-            toolsets,
-            max_iterations=max_iterations,
-            on_token=on_token if stream else None,
-        )
-    except BudgetExhausted as exc:
-        print(f"uh chat: {exc}", file=sys.stderr)
-        del history[before:]
-        return EXIT_FAILURE
-    except ProviderError as exc:
-        print(f"uh chat: provider error: {exc}", file=sys.stderr)
-        del history[before:]
-        return EXIT_FAILURE
-
-    for message in updated[before:]:
-        if isinstance(message, dict) and message.get("role") == "tool":
-            print(_tool_activity(message), file=sys.stderr)
-
-    history[:] = updated
-    final = last_assistant_message(updated)
-    content = (final or {}).get("content") or ""
-    streamed = "".join(chunks)
-
-    if stream:
-        if streamed:
-            print()
-            if content and content != streamed:
-                print(content)
-        elif content:
-            print(content)
-        else:
-            print("(empty response)")
-    else:
-        print(content if content else "(empty response)")
+    if session.session_id:
+        ui.errout(f"resume with: uh chat --session {display_id(session.session_id)}")
     return EXIT_OK
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
     cfg = _load_config(args)
+    session, code = _build_chat_session(args, cfg)
+    if session is None:
+        return code
+    try:
+        interactive = not args.once and sys.stdin is not None and sys.stdin.isatty()
+        if interactive:
+            return _run_repl(session)
+        text = (getattr(args, "prompt", None) or "").strip()
+        if not text:
+            line = sys.stdin.readline() if sys.stdin is not None else ""
+            text = (line or "").strip()
+        if not text:
+            return EXIT_OK
+        return session.run_text(text)
+    finally:
+        session.close()
 
-    workspace_raw = args.workspace or str(cfg.get("workspace") or "")
-    workspace, _origin = _workspace_path(workspace_raw or None)
-    if not workspace.is_dir():
-        print(f"uh chat: workspace not found: {workspace}", file=sys.stderr)
-        return EXIT_FAILURE
-    os.environ["UH_WORKSPACE"] = str(workspace)
 
-    model = args.model or str(cfg.get("default_model") or "") or None
-    provider_kind = args.provider or str(cfg.get("default_provider") or "") or None
+def cmd_console(_args: argparse.Namespace) -> int:
+    """`uh` with no subcommand: chat when interactive, help when piped.
+
+    On a first run with nothing configured, :mod:`uh.onboarding` picks a
+    provider (local model, offer to pull one, local router, configured
+    provider, or a guided key setup) before the console starts.
+    """
+    if not (sys.stdin is not None and sys.stdin.isatty()):
+        if banner.should_show():
+            print(banner.render())
+        build_parser().print_help()
+        return EXIT_OK
+
+    cfg = _load_config(None)
+    args = _chat_namespace()
+    chain: list[tuple[str, Provider]] | None = None
+    model: str | None = None
 
     try:
         chain, model = _build_chain(
-            args.provider,
-            model,
-            str(cfg.get("omnirouter_model") or ""),
-            preferred=provider_kind,
+            None, str(cfg.get("default_model") or "") or None,
+            str(cfg.get("omnirouter_model") or ""), preferred=str(cfg.get("default_provider") or "") or None,
         )
-    except ProviderError as exc:
-        print(f"uh chat: {exc}", file=sys.stderr)
-        return EXIT_FAILURE
+    except ProviderError:
+        chain = None
 
-    provider: Provider = _FallbackProvider(chain) if len(chain) > 1 else chain[0][1]
-    stream = False if args.no_stream else bool(cfg.get("stream"))
-    max_iterations = max(1, int(cfg.get("max_iterations") or DEFAULT_MAX_ITERATIONS))
-    toolsets = build_toolsets(workspace)
+    if chain is None:
+        from . import onboarding
 
-    save = not args.no_save
-    store: Store | None = None
-    session_id: str | None = getattr(args, "session", None)
-    if save:
+        choice = onboarding.choose_provider()
+        if choice is None:
+            print(
+                "uh: no provider available - run `uh providers add <name>` or start Ollama.",
+                file=sys.stderr,
+            )
+            return EXIT_FAILURE
         try:
-            store = _open_store(cfg.resolved_store_path())
-        except StoreError as exc:
-            print(f"uh chat: {exc}", file=sys.stderr)
+            provider = _make_provider(choice.kind, choice.model)
+        except ProviderError as exc:
+            print(f"uh: {exc}", file=sys.stderr)
             return EXIT_FAILURE
+        chain = [(choice.kind, provider)]
+        model = choice.model
+        print(f"uh: {choice.message}", file=sys.stderr)
 
-    history: list[dict] = [_system_message(workspace)]
-    if session_id:
-        if store is None:
-            print("uh chat: --session needs persistence (drop --no-save)", file=sys.stderr)
-            return EXIT_FAILURE
-        session, code = _session_or_error(store, session_id)
-        if session is None:
-            return code
-        session_id = session["id"]
-        if getattr(args, "new", False):
-            fork = store.create_session(
-                title=session.get("title") or "fork",
-                model=model,
-                provider="+".join(kind for kind, _ in chain),
-                metadata={"forked_from": session_id},
-            )
-            for message in store.get_messages(session_id):
-                store.append_message(fork, message)
-            session_id = fork
-            print(f"session {display_id(session_id)} (forked)", file=sys.stderr)
-        history.extend(
-            {key: value for key, value in message.items() if key not in {"id", "session_id", "created_at"}}
-            for message in store.get_messages(session_id)
-        )
-
-    interactive = not args.once and sys.stdin is not None and sys.stdin.isatty()
-    label = " + ".join(kind for kind, _ in chain)
-    mode = "stream" if stream else "blocking"
-
-    if interactive:
-        if bool(cfg.get("banner")) and banner.should_show():
-            print(banner.BANNER_SHORT, file=sys.stderr, end="")
-        print(
-            f"uh chat - model {model}, provider {label}, {mode}, workspace {workspace}",
-            file=sys.stderr,
-        )
-        if session_id:
-            print(f"session {display_id(session_id)}", file=sys.stderr)
-        print("commands: /exit, /model <name>, /tools, /clear", file=sys.stderr)
-
-    def persist(new_messages: list[dict]) -> None:
-        nonlocal session_id
-        if store is None or not new_messages:
-            return
-        if session_id is None:
-            first_user = next(
-                (m.get("content") or "" for m in new_messages if m.get("role") == "user"), ""
-            )
-            session_id = store.create_session(
-                title=_title_from(first_user),
-                model=str(model or ""),
-                provider="+".join(kind for kind, _ in chain),
-            )
-            print(f"session {display_id(session_id)}", file=sys.stderr)
-        for message in new_messages:
-            store.append_message(session_id, message)
-
-    def run_turn_text(text: str) -> int:
-        before = len(history)
-        code = _turn(history, text, provider, toolsets, max_iterations, stream)
-        if code == EXIT_OK:
-            try:
-                persist(history[before:])
-            except StoreError as exc:
-                print(f"uh chat: cannot record session: {exc}", file=sys.stderr)
+    session, code = _build_chat_session(args, cfg, chain=chain, model=model)
+    if session is None:
         return code
-
     try:
-        if not interactive:
-            prompt = getattr(args, "prompt", None)
-            text = (prompt or "").strip()
-            if not text:
-                line = sys.stdin.readline() if sys.stdin is not None else ""
-                text = (line or "").strip()
-            if not text:
-                return EXIT_OK
-            return run_turn_text(text)
-
-        while True:
-            try:
-                line = input("you> ")
-            except (EOFError, KeyboardInterrupt):
-                print("", file=sys.stderr)
-                break
-            text = line.strip()
-            if not text:
-                continue
-            if text in {"/exit", "/quit"}:
-                break
-            if text == "/clear":
-                history[:] = [_system_message(workspace)]
-                print("uh chat: history cleared", file=sys.stderr)
-                continue
-            if text == "/tools":
-                print("active toolsets:", file=sys.stderr)
-                for toolset_line in describe_toolsets(toolsets):
-                    print(f"  {toolset_line}", file=sys.stderr)
-                continue
-            if text.startswith("/model"):
-                parts = text.split(maxsplit=1)
-                if len(parts) < 2:
-                    print(f"uh chat: current model {model}", file=sys.stderr)
-                    continue
-                kind = provider_kind or chain[0][0]
-                try:
-                    provider = _make_provider(kind, parts[1].strip())
-                except ProviderError as exc:
-                    print(f"uh chat: {exc}", file=sys.stderr)
-                    continue
-                model = parts[1].strip()
-                print(f"uh chat: model set to {model} ({kind})", file=sys.stderr)
-                continue
-            run_turn_text(text)
+        return _run_repl(session)
     finally:
-        if store is not None:
-            store.close()
+        session.close()
 
-    if session_id:
-        print(f"resume with: uh chat --session {display_id(session_id)}", file=sys.stderr)
-    return EXIT_OK
-
-
-# --------------------------------------------------------------------------- #
 # uh sessions
 # --------------------------------------------------------------------------- #
 def _sessions_store(args: argparse.Namespace) -> tuple[Store | None, int]:
@@ -1210,6 +1214,15 @@ def build_parser() -> argparse.ArgumentParser:
     providers = sub.add_parser("providers", help="list registered providers and their state")
     providers_sub = providers.add_subparsers(dest="providers_command", metavar="<action>")
     providers_sub.add_parser("list", help="show providers and their status")
+    providers_add = providers_sub.add_parser(
+        "add", help="store an OpenAI-compatible provider (key never printed)"
+    )
+    providers_add.add_argument("name", help="short name, e.g. groq")
+    providers_add.add_argument("--base-url", help="e.g. https://api.groq.com/openai/v1")
+    providers_add.add_argument("--model", help="model id used by default")
+    providers_add.add_argument("--key", help="API key (prefer the prompt: it is not echoed)")
+    providers_remove = providers_sub.add_parser("remove", help="forget a stored provider")
+    providers_remove.add_argument("name")
 
     sessions = sub.add_parser("sessions", help="list, inspect, search and resume sessions")
     sessions_sub = sessions.add_subparsers(dest="sessions_command", metavar="<action>")
@@ -1263,14 +1276,12 @@ def _sub_help(parser: argparse.ArgumentParser, name: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command is None:
-        if banner.should_show():
-            print(banner.render())
-        parser.print_help()
-        return EXIT_OK
+        return cmd_console(args)
 
     try:
         if args.command == "doctor":
@@ -1286,6 +1297,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "providers":
             if args.providers_command == "list":
                 return cmd_providers_list(args)
+            if args.providers_command == "add":
+                return cmd_providers_add(args)
+            if args.providers_command == "remove":
+                return cmd_providers_remove(args)
             return _sub_help(parser, "providers")
         if args.command == "sessions":
             handlers = {

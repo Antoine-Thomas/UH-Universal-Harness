@@ -47,17 +47,23 @@ uh doctor
       SQLite FTS5 store (`uh sessions list|show|search|delete|resume`), layered
       configuration with `uh config show|get|set|path`, `uh memory migrate|show`,
       extended `uh doctor`.
-- [ ] **Jalon 4 — Web UI.** Sessions and streaming chat in the browser, copied
+- [x] **Jalon 4 — Console experience.** `uh` with no argument opens a chat
+      console: banner, status bar, slash commands (`docs/SLASH_COMMANDS.md`),
+      zero-configuration onboarding (local model, offer to pull one sized to the
+      RAM, local router, or a guided free key), `uh providers add|remove` with
+      keys in `$UH_HOME/keys.toml` (0600), UTF-8 stdio on Windows, CI matrix.
+- [ ] **Jalon 5 — Web UI.** Sessions and streaming chat in the browser, copied
       and adapted from Harness Maxxing.
 
-Jalons 0 to 3 are done; only the web UI (Jalon 4) remains. No CLI command is a
+Jalons 0 to 4 are done; only the web UI (Jalon 5) remains. No CLI command is a
 placeholder any more.
 
-## CLI surface (Jalon 3)
+## CLI surface (Jalon 4)
 
 ```
+uh                      # interactive console (piped: help, unchanged)
 uh --version            # print the version
-uh doctor               # environment report (python, httpx, git, ollama, store, disk, config)
+uh doctor               # environment report (python, httpx, git, ollama, store, disk, config, keys)
 uh model list           # list models served by Ollama, exit 1 if Ollama is down
 uh model pull <name>    # download a model with progress on stderr
 uh chat [prompt]        # agent loop with file/terminal/memory tools (streamed, saved)
@@ -68,14 +74,40 @@ uh sessions resume <id> # continue a session (--fork copies it into a new one)
 uh config show|get|set  # layered configuration
 uh memory migrate|show  # one-shot import of the flat memory file
 uh providers list       # registered providers and their state
+uh providers add <name> # store an OpenAI-compatible provider (key never printed)
+uh providers remove <name>
 ```
 
 `uh chat` reads stdin or takes a prompt argument; `--once` (or any non-TTY
 stdin) answers one line and exits. Answers stream by default, `--no-stream`
 waits for the whole message. Conversations are persisted unless `--no-save`;
 `--session <id>` resumes (full id, unique prefix, or the short form shown by
-`uh sessions list`). In-session commands: `/exit`, `/model <name>`, `/tools`,
-`/clear`. Tool activity goes to stderr, the answer to stdout.
+`uh sessions list`). Tool activity goes to stderr, the answer to stdout.
+
+## Console and slash commands
+
+`uh` on a terminal starts the console; piped, it still prints help (scriptable
+unchanged). The status bar shows `provider · model · session · messages ·
+context estimate`. `/help` lists everything; the full inventory and the reason
+each Hermes command was kept or dropped lives in
+[docs/SLASH_COMMANDS.md](docs/SLASH_COMMANDS.md).
+
+`/help`, `/model`, `/provider`, `/tools`, `/clear`, `/new`, `/sessions`,
+`/resume`, `/history`, `/retry`, `/title`, `/status`, `/config`, `/doctor`,
+`/memory`, `/version`, `/exit` (aliases `/h`, `/?`, `/reset`, `/quit`, `/q`,
+`/v`). An unknown command is never sent to the model: it is refused with the
+closest match suggested.
+
+First run with nothing configured, in order: an installed Ollama model, else an
+offer to pull a small model sized to the detected RAM (size shown, never
+downloaded without a yes), else a local OmniRouter gateway, else a provider you
+already added, else a guided setup that explains where to get a free key and
+stores it in `$UH_HOME/keys.toml` (0600). UH ships **no key**: a published key
+is a stolen key.
+
+The console can use [rich](https://rich.readthedocs.io/) when installed
+(`pip install "uh-harness[ui]"`); without it, or off a TTY, everything falls
+back to plain text with the same output contract.
 
 ```bash
 echo "list the python files here" | uh chat --once --model qwen3:8b --workspace .
