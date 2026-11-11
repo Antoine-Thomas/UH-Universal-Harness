@@ -20,6 +20,8 @@ def _run(args: list[str], *, encoding_env: str | None = None) -> subprocess.Comp
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=90,
         env=env,
     )
@@ -57,7 +59,14 @@ def test_non_ascii_output_does_not_raise(tmp_path: Path) -> None:
     env["PYTHONIOENCODING"] = "cp1252:strict"
     env["UH_HOME"] = str(tmp_path / "home")
     result = subprocess.run(
-        [sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=90, env=env
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=90,
+        env=env,
     )
     assert result.returncode == 0, result.stderr
     assert "accents" in result.stdout

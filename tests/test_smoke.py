@@ -10,11 +10,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
+    # The CLI reconfigures its stdio to UTF-8, so read its output as UTF-8 -
+    # decoding with the Windows locale (cp1252) kills the reader thread and
+    # leaves stdout as None.
     return subprocess.run(
         [sys.executable, "-m", "uh", *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=60,
     )
 
