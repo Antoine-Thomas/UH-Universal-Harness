@@ -32,9 +32,9 @@ def test_doctor_exits_zero() -> None:
     assert "python" in result.stdout
 
 
-def test_placeholder_exits_two() -> None:
-    # `uh model list` became real in Jalon 1: the placeholder contract is now
-    # checked on a command that is still a placeholder.
+def test_group_without_action_exits_two() -> None:
+    # Jalon 3 removed the last placeholder command: the exit-2 contract now lives
+    # on the "group without an action" path, which prints that group's help.
     result = _run("sessions")
     assert result.returncode == 2
-    assert "Not implemented in Jalon 0" in (result.stdout + result.stderr)
+    assert "usage: uh sessions" in (result.stdout + result.stderr)

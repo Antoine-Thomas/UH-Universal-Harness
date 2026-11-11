@@ -43,43 +43,62 @@ uh doctor
 - [x] **Jalon 2 — Local model layer.** Streamed chat (`--no-stream` to disable),
       real `uh model pull` with progress, provider registry (`ollama`,
       `omnirouter`), traced fallback chain, `uh providers list`.
-- [ ] **Jalon 3 — Sessions and configuration.** Persisted sessions backed by a
-      SQLite FTS5 store (`uh sessions`), layered config file and `uh config`,
+- [x] **Jalon 3 — Sessions and configuration.** Persisted sessions backed by a
+      SQLite FTS5 store (`uh sessions list|show|search|delete|resume`), layered
+      configuration with `uh config show|get|set|path`, `uh memory migrate|show`,
       extended `uh doctor`.
 - [ ] **Jalon 4 — Web UI.** Sessions and streaming chat in the browser, copied
       and adapted from Harness Maxxing.
 
-Only Jalons 0, 1 and 2 are done. Everything else is a placeholder that exits
-with code `2` and names the milestone that will deliver it.
+Jalons 0 to 3 are done; only the web UI (Jalon 4) remains. No CLI command is a
+placeholder any more.
 
-## CLI surface (Jalon 2)
+## CLI surface (Jalon 3)
 
 ```
 uh --version            # print the version
-uh doctor               # environment report, exit 0 (ollama absent = warning)
+uh doctor               # environment report (python, httpx, git, ollama, store, disk, config)
 uh model list           # list models served by Ollama, exit 1 if Ollama is down
 uh model pull <name>    # download a model with progress on stderr
-uh chat                 # agent loop with file/terminal/memory tools (streamed)
+uh chat [prompt]        # agent loop with file/terminal/memory tools (streamed, saved)
+uh sessions list        # recent sessions (id, date, provider, messages, title)
+uh sessions show <id>   # one session and its messages
+uh sessions search <q>  # full-text search across every message
+uh sessions resume <id> # continue a session (--fork copies it into a new one)
+uh config show|get|set  # layered configuration
+uh memory migrate|show  # one-shot import of the flat memory file
 uh providers list       # registered providers and their state
-uh sessions             # placeholder -> Jalon 3, exit 2
-uh config               # placeholder -> Jalon 3, exit 2
 ```
 
-`uh chat` reads stdin; `--once` (or any non-TTY stdin) answers one line and
-exits. Answers stream by default, `--no-stream` waits for the whole message.
-In-session commands: `/exit`, `/model <name>`, `/tools`, `/clear`. Tool activity
-goes to stderr, the answer to stdout, so the command stays scriptable:
+`uh chat` reads stdin or takes a prompt argument; `--once` (or any non-TTY
+stdin) answers one line and exits. Answers stream by default, `--no-stream`
+waits for the whole message. Conversations are persisted unless `--no-save`;
+`--session <id>` resumes (full id, unique prefix, or the short form shown by
+`uh sessions list`). In-session commands: `/exit`, `/model <name>`, `/tools`,
+`/clear`. Tool activity goes to stderr, the answer to stdout.
 
 ```bash
-echo "list the python files here" | uh chat --model qwen3:8b --once --workspace .
-uh chat --provider omnirouter --model auto/fast      # force the gateway
-uh model pull qwen2.5:0.5b --quiet                   # scripts: summary only
-uh model pull big:70b --interactive                  # asks before downloading
+echo "list the python files here" | uh chat --once --model qwen3:8b --workspace .
+uh chat --session 1829-9474 "et ensuite ?"           # resume
+uh sessions search clavier                            # FTS5 across all messages
+uh memory migrate                                     # MEMORY.md -> one session, once
 ```
 
-`uh doctor` exits `0` when only optional components are missing (Ollama, a local
-router config) and exits `1` when a blocking requirement is missing (Python
-< 3.11, `httpx`, `git`, unwritable workspace).
+## Sessions, store and configuration
+
+- Store: `$UH_HOME/uh.db` (`~/.uh/uh.db`), schema v1, WAL, foreign keys ON.
+  Deleting a session cascades to its messages and to the FTS index.
+- Two tables (`sessions`, `messages`) plus an external-content FTS5 index kept
+  in sync by triggers; `search` returns a snippet and a `bm25` rank.
+- A database written by a newer build is refused (`StoreError`), never
+  downgraded silently. No FTS5 in the SQLite build means no store at all.
+- Configuration, lowest to highest: defaults, `~/.uh/config.toml`, `./uh.toml`,
+  `UH_*` environment, CLI flags. `uh config show` prints the source of every
+  value. Unknown keys warn and are ignored; the writer handles flat keys only
+  (booleans, integers, strings) and refuses anything else.
+- `uh memory migrate` copies `MEMORY.md` into a `kind=memory` session after
+  writing a timestamped `.bak`; it is idempotent and leaves the flat file in
+  place (the memory toolset still reads and writes it).
 
 ## Providers and fallback
 
