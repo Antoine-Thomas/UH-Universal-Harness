@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from . import __version__
+from . import banner
 from .agent import BudgetExhausted, last_assistant_message, provider_supports_streaming, run_turn
 from .providers import PROVIDERS, Provider, ProviderError, available_providers, build_provider
 from .providers.ollama import list_models, pull_model
@@ -585,6 +586,8 @@ def cmd_chat(args: argparse.Namespace) -> int:
 
     label = " + ".join(kind for kind, _ in chain)
     mode = "stream" if stream else "blocking"
+    if banner.should_show():
+        print(banner.BANNER_SHORT, file=sys.stderr, end="")
     print(f"uh chat - model {model}, provider {label}, {mode}, workspace {workspace}", file=sys.stderr)
     print("commands: /exit, /model <name>, /tools, /clear", file=sys.stderr)
     while True:
@@ -759,6 +762,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command is None:
+        if banner.should_show():
+            print(banner.render())
         parser.print_help()
         return EXIT_OK
 
