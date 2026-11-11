@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uh-harness"
+version = "0.1.0"
+description = "Universal Harness - a provider-agnostic agent harness CLI (local-first, no vendor lock-in)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Thomas Leroyer" }]
+keywords = ["agent", "harness", "llm", "ollama", "cli", "local-first"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "build>=1"]
+
+[project.scripts]
+uh = "uh.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Antoine-Thomas/UH-Universal-Harness"
+
+[tool.setuptools.packages.find]
+include = ["uh*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
