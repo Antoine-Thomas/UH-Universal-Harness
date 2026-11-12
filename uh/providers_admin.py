@@ -7,7 +7,9 @@ functions. A rule changed here changes everywhere, which is the point.
 
 Invariants (also listed in ``docs/AUDIT_BRIEF.md``):
 
-* no function in this module returns a key - only counts;
+* no function in this module returns a **full** key: callers get counts, and
+  :func:`keys_panel` returns at most a masked hint (3 leading + 4 trailing
+  characters) for identification - never a value the holder could replay;
 * a key is never taken from a command-line argument, only from a masked prompt,
   an environment variable or stdin;
 * the loopback restriction on *writing* a key belongs to the web layer, which
@@ -18,6 +20,7 @@ Invariants (also listed in ``docs/AUDIT_BRIEF.md``):
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 from typing import Any, Optional
 from urllib.parse import urlsplit
@@ -36,6 +39,13 @@ NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 PROBE_TIMEOUT = 10.0
 MAX_KEY_LENGTH = 512
 STRATEGIES = ("priority", "round-robin")
+
+# The three priority sections of the API-key panel, in fallback order.
+CLOUDFLARE_ACCOUNT_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_MODEL = "deepseek-flash"
+HINT_HEAD, HINT_TAIL, HINT_MIN = 3, 4, 12
 
 
 class AdminError(RuntimeError):
@@ -160,6 +170,78 @@ def provider_rows() -> list[dict[str, Any]]:
     return rows
 
 
+def key_hint(raw: Any) -> str:
+    """Display-only mask: 3 leading + 4 trailing characters, or fully hidden.
+
+    Below ``HINT_MIN`` characters the value stays fully masked: four characters
+    out of eight is half the secret, not a hint.
+    """
+    value = str(raw or "").strip()
+    if len(value) < HINT_MIN:
+        return "••••"
+    return f"{value[:HINT_HEAD]}…{value[-HINT_TAIL:]}"
+
+
+def _stored_keys(name: str, configured: dict[str, Any]) -> list[str]:
+    return [item for item in ((configured.get(name) or {}).get("keys") or []) if item]
+
+
+def keys_panel() -> dict[str, Any]:
+    """State of the three priority sections of the API-key panel.
+
+    Never returns a full key: a section carries ``configured``, the ``source``
+    of the credential, and at most a masked hint per stored key.
+    """
+    configured = read_providers()
+    cfg = uh_config.load()
+
+    account = os.environ.get("UH_CLOUDFLARE_ACCOUNT_ID", "").strip() or str(
+        cfg.get("cloudflare_account_id") or ""
+    ).strip()
+    env_token = os.environ.get("UH_CLOUDFLARE_API_TOKEN", "").strip()
+    stored_token = _stored_keys("cloudflare", configured)
+    if env_token:
+        # UH never wrote this one: report its presence, never a fragment of it.
+        cloudflare = {
+            "configured": True,
+            "source": "environment",
+            "account_id": account,
+            "key_hints": [],
+        }
+    elif stored_token:
+        cloudflare = {
+            "configured": True,
+            "source": "keys.toml",
+            "account_id": account,
+            "key_hints": [key_hint(item) for item in stored_token],
+        }
+    else:
+        cloudflare = {
+            "configured": False,
+            "source": "none",
+            "account_id": account,
+            "key_hints": [],
+        }
+
+    deepseek_keys = _stored_keys("deepseek", configured)
+    deepseek = {
+        "configured": bool(deepseek_keys),
+        "key_hints": [key_hint(item) for item in deepseek_keys],
+    }
+
+    # Imported lazily: providers.omnirouter is a provider, not administration.
+    from .providers.omnirouter import config_path, resolve_api_key, resolve_base_url
+
+    path = config_path()
+    omniroute = {
+        "detected": path is not None,
+        "base_url": str(resolve_base_url() or "") if path else "",
+        "has_key": bool(resolve_api_key()) if path else False,
+        "config_path": str(path) if path else "",
+    }
+    return {"cloudflare": cloudflare, "deepseek": deepseek, "omniroute": omniroute}
+
+
 def _require_known(name: str) -> tuple[Optional[Any], Optional[dict[str, Any]]]:
     specs = catalog()
     configured = read_providers()
@@ -234,6 +316,75 @@ def create_custom(name: str, base_url: str, model: str = "", key: str = "") -> d
     if clean in catalog():
         raise AdminError(f"'{clean}' is a catalogue provider")
     return save_provider(clean, base_url, model, key)
+
+
+def save_cloudflare(account_id: str, raw_token: Any) -> dict[str, Any]:
+    """Store the account id in ``config.toml`` and the token in ``keys.toml``.
+
+    Two files, two purposes: an account id is not a credential and belongs to
+    the flat configuration; the token is one and follows the 0600 key store.
+    """
+    account = (account_id or "").strip()
+    if not CLOUDFLARE_ACCOUNT_RE.match(account):
+        raise AdminError(
+            "account_id must be the 32 hexadecimal characters of the Cloudflare "
+            "account id (dashboard: Workers & Pages, Account ID)"
+        )
+    token = validate_key(raw_token)
+    from .providers.cloudflare import DEFAULT_MODEL as cloudflare_model
+
+    try:
+        add_provider(
+            "cloudflare",
+            CLOUDFLARE_BASE_URL.format(account_id=account),
+            cloudflare_model,
+            token,
+        )
+        uh_config.write_layer("user", "cloudflare_account_id", account)
+    except (OSError, ValueError) as exc:
+        raise AdminError(f"cannot store the credentials: {exc}") from exc
+    return {"account_id": account, "key_hint": key_hint(token), "source": "keys.toml"}
+
+
+def save_deepseek_key(raw_key: Any) -> dict[str, Any]:
+    """Store a DeepSeek key; a later call appends it (key rotation)."""
+    key = validate_key(raw_key)
+    try:
+        if "deepseek" in read_providers():
+            add_key("deepseek", key)
+        else:
+            add_provider("deepseek", DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, key)
+    except (OSError, ValueError) as exc:
+        raise AdminError(f"cannot store the key: {exc}") from exc
+    keys = _stored_keys("deepseek", read_providers())
+    return {"keys": len(keys), "key_hints": [key_hint(item) for item in keys]}
+
+
+def import_from_omnirouter() -> dict[str, Any]:
+    """Copy the OmniRoute gateway configuration into ``keys.toml`` (0600).
+
+    The imported entry is named ``omnirouter`` so the providers panel shows it;
+    the built-in provider keeps working from the environment and the dotenv
+    either way.
+    """
+    from .providers.omnirouter import DEFAULT_MODEL, config_path, resolve_api_key, resolve_base_url
+
+    path = config_path()
+    if path is None:
+        raise AdminError(
+            "no OmniRoute configuration detected (~/.omniroute/.env)", kind="unknown"
+        )
+    base_url = resolve_base_url() or ""
+    key = resolve_api_key() or ""
+    if not base_url or not key:
+        raise AdminError("the OmniRoute configuration has no base URL or no API key")
+    save_provider("omnirouter", base_url, DEFAULT_MODEL, key)
+    return {
+        "imported": True,
+        "name": "omnirouter",
+        "base_url": base_url,
+        "key_hints": [key_hint(key)],
+    }
 
 
 def read_secret(prompt: str = "API key (not echoed): ", env_var: str = "UH_PROVIDER_KEY") -> str:

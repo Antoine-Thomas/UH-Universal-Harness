@@ -82,8 +82,9 @@ uh doctor
       keys in `$UH_HOME/keys.toml` (0600), UTF-8 stdio on Windows, CI matrix.
 - [x] **Jalon 5 — Web UI.** `uh web` serves a local interface (sessions column,
       streaming chat, collapsible tool cards, context gauge, per-session model,
-      full-text search, command palette, stop button, light/dark themes) from
-      three static files with no build step and no third-party JavaScript.
+      full-text search, command palette, stop button, light/dark themes, and an
+      API-key panel for Cloudflare, DeepSeek and OmniRoute with masked hints)
+      from three static files with no build step and no third-party JavaScript.
 
 Jalons 0 to 5 are done. The interface is an **original design**: it borrows the
 feature list of Harness Maxxing (public README) and none of its code, which is

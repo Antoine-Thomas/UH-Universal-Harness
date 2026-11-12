@@ -5,8 +5,10 @@ bind, and translates :class:`~uh.providers_admin.AdminError` into a status code.
 Everything that decides *what is allowed* lives in ``providers_admin``, so the
 console, the CLI and the web panel cannot drift apart.
 
-Invariant, enforced by tests: **no route ever returns a key**, not even
-truncated. Deletion takes an index in the body, never a value in the URL.
+Invariant, enforced by tests: **no route ever returns a full key**. The
+API-key panel receives a masked hint (3 leading + 4 trailing characters) for a
+stored key, nothing at all for an environment-provided one. Deletion takes an
+index in the body, never a value in the URL.
 """
 
 from __future__ import annotations
@@ -19,9 +21,13 @@ from ..providers_admin import (
     AdminError,
     add_key_to,
     create_custom,
+    import_from_omnirouter,
     is_loopback_bind,
+    keys_panel,
     provider_rows,
     remove_key_index,
+    save_cloudflare,
+    save_deepseek_key,
     settings,
     test_connection,
     update_settings,
@@ -53,7 +59,37 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
         return {
             "providers": provider_rows(),
             "key_entry_allowed": is_loopback_bind(bound_host()),
+            "keys": keys_panel(),
         }
+
+    @app.post("/api/providers/cloudflare/config", dependencies=[Depends(dependency)])
+    def save_cloudflare_config(payload: Annotated[dict, Body()]) -> dict:
+        require_loopback()
+        body = payload or {}
+        try:
+            stored = save_cloudflare(
+                str(body.get("account_id") or ""), body.get("token")
+            )
+        except AdminError as exc:
+            raise translate(exc) from exc
+        return {"stored": True, **stored}
+
+    @app.post("/api/providers/deepseek/key", dependencies=[Depends(dependency)])
+    def add_deepseek_key(payload: Annotated[dict, Body()]) -> dict:
+        require_loopback()
+        try:
+            stored = save_deepseek_key((payload or {}).get("key"))
+        except AdminError as exc:
+            raise translate(exc) from exc
+        return {"stored": True, **stored}
+
+    @app.post("/api/providers/omniroute/import", dependencies=[Depends(dependency)])
+    def import_omnirouter_config() -> dict:
+        require_loopback()
+        try:
+            return import_from_omnirouter()
+        except AdminError as exc:
+            raise translate(exc) from exc
 
     @app.post("/api/providers/{name}/keys", dependencies=[Depends(dependency)])
     def add_provider_key(name: str, payload: Annotated[dict, Body()]) -> dict:

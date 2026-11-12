@@ -331,3 +331,32 @@ body {
   align-self: flex-start; padding: 4px 12px; font-size: 12px; border-radius: 8px;
   cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
 }
+
+/* --- API keys panel (right column, Jalon 8) ------------------------------- */
+.panel-tabs {
+  display: flex; gap: 4px; padding: 8px 14px 0;
+  border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.panel-tab {
+  padding: 6px 12px; font-size: 12px; cursor: pointer;
+  color: var(--muted); background: transparent;
+  border: 1px solid transparent; border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+.panel-tab.active {
+  color: var(--text); background: var(--bg); border-color: var(--border);
+}
+.panel-view[hidden] { display: none; }
+.keys-priority {
+  padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.key-section .custom-form { margin-top: 8px; }
+.key-actions {
+  display: flex; align-items: center; gap: 8px; margin-top: 2px;
+  align-self: flex-end;
+}
+.key-actions button {
+  padding: 4px 12px; font-size: 12px; border-radius: 8px;
+  cursor: pointer; border: 1px solid var(--accent);
+  background: var(--accent); color: var(--on-accent);
+}

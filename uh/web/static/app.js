@@ -424,9 +424,10 @@ async function loadProviders() {
   state.keyEntryAllowed = Boolean(data.key_entry_allowed);
   // The banner depends on the answer, so it is set after it, not when opening.
   $("providers-hint").textContent = state.keyEntryAllowed
-    ? "keys are write-only: stored, never displayed"
+    ? "keys are write-only: only a masked hint is shown"
     : "read-only: key entry needs a loopback bind";
   renderProviders(data.providers || []);
+  renderKeysPanel(data.keys);
   renderRouterSettings(await api("/api/router/settings"));
 }
 
@@ -638,6 +639,192 @@ function renderProviders(rows) {
   for (const row of rows) box.appendChild(providerCard(row));
 }
 
+
+// ----------------------------------------------------------------- keys tab --
+// Priority order, fixed by the server: Cloudflare (free) -> DeepSeek (paid
+// fallback) -> OmniRoute (free gateways). Every key stays write-only: the
+// panel only ever receives a masked hint, and the input is cleared before the
+// request so a failure can never re-display what was typed.
+function keyCard(title, badgeText, badgeClass) {
+  const card = el("div", "provider-card key-section");
+  const head = el("div", "provider-head");
+  head.appendChild(el("span", "provider-name", title));
+  head.appendChild(el("span", `badge ${badgeClass}`, badgeText));
+  card.appendChild(head);
+  return card;
+}
+
+function keyField(form, label, { type = "text", placeholder = "", value = "" } = {}) {
+  const row = el("label", "custom-field");
+  row.appendChild(el("span", null, label));
+  const input = document.createElement("input");
+  input.type = type;
+  input.placeholder = placeholder;
+  input.value = value;
+  input.autocomplete = "off";
+  if (type === "password") input.className = "provider-key-input";
+  row.appendChild(input);
+  form.appendChild(row);
+  return input;
+}
+
+function keyActions(form, label) {
+  const actions = el("div", "key-actions");
+  const submit = el("button", null, label);
+  submit.type = "submit";
+  const result = el("span", "test-result", "");
+  actions.appendChild(submit);
+  actions.appendChild(result);
+  form.appendChild(actions);
+  return result;
+}
+
+function cloudflareCard(section) {
+  const card = keyCard("Cloudflare Workers AI", "free", "ok");
+  let status = "not configured";
+  if (section.configured && section.source === "environment") {
+    status = "configured from the environment (no value stored by UH)";
+  } else if (section.configured) {
+    status = `configured · ${(section.key_hints || []).join(", ")}`;
+  }
+  card.appendChild(el("div", "provider-meta", status));
+  if (section.account_id) {
+    card.appendChild(el("div", "provider-url", `account ${section.account_id}`));
+  }
+
+  if (state.keyEntryAllowed) {
+    const form = el("form", "custom-form");
+    const account = keyField(form, "account", {
+      placeholder: "32 hex characters",
+      value: section.account_id || "",
+    });
+    const token = keyField(form, "token", {
+      type: "password",
+      placeholder: "API token (never shown again)",
+    });
+    const result = keyActions(form, "Save");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const typed = token.value;
+      token.value = ""; // cleared before the request: never re-displayed
+      if (!typed) return;
+      try {
+        await api("/api/providers/cloudflare/config", {
+          method: "POST",
+          body: JSON.stringify({ account_id: account.value.trim(), token: typed }),
+        });
+        await loadProviders();
+      } catch (error) {
+        result.textContent = `error: ${error.message}`;
+        result.className = "test-result warn";
+      }
+    });
+    card.appendChild(form);
+  }
+  return card;
+}
+
+function deepseekCard(section) {
+  const card = keyCard("DeepSeek", "paid fallback", "hl");
+  card.appendChild(
+    el(
+      "div",
+      "provider-meta",
+      section.configured
+        ? `${(section.key_hints || []).length} key(s) · ${(section.key_hints || []).join(", ")}`
+        : "not configured",
+    ),
+  );
+
+  if (state.keyEntryAllowed) {
+    const form = el("form", "custom-form");
+    const key = keyField(form, "key", {
+      type: "password",
+      placeholder: "API key (never shown again)",
+    });
+    const result = keyActions(form, "Save");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const typed = key.value;
+      key.value = "";
+      if (!typed) return;
+      try {
+        await api("/api/providers/deepseek/key", {
+          method: "POST",
+          body: JSON.stringify({ key: typed }),
+        });
+        await loadProviders();
+      } catch (error) {
+        result.textContent = `error: ${error.message}`;
+        result.className = "test-result warn";
+      }
+    });
+    card.appendChild(form);
+  }
+  return card;
+}
+
+function omnirouteCard(section) {
+  const card = keyCard("OmniRoute", "free gateways", "ok");
+  if (!section.detected) {
+    card.appendChild(el("div", "provider-meta", "no OmniRoute config detected (~/.omniroute/.env)"));
+    return card;
+  }
+  card.appendChild(el("div", "provider-url", section.base_url || ""));
+  card.appendChild(
+    el(
+      "div",
+      "provider-meta",
+      section.has_key ? "configuration detected" : "configuration detected, no API key",
+    ),
+  );
+
+  if (state.keyEntryAllowed && section.has_key) {
+    const actions = el("div", "provider-test");
+    const button = el("button", null, "Import from OmniRoute");
+    button.type = "button";
+    const result = el("span", "test-result", "");
+    button.addEventListener("click", async () => {
+      result.textContent = "importing…";
+      try {
+        const imported = await api("/api/providers/omniroute/import", { method: "POST" });
+        result.textContent = `imported ${imported.name}`;
+        result.className = "test-result ok";
+        await loadProviders();
+      } catch (error) {
+        result.textContent = `error: ${error.message}`;
+        result.className = "test-result warn";
+      }
+    });
+    actions.appendChild(button);
+    actions.appendChild(result);
+    card.appendChild(actions);
+  }
+  return card;
+}
+
+function renderKeysPanel(keys) {
+  const box = $("keys-priority");
+  box.textContent = "";
+  if (!keys) {
+    box.appendChild(el("div", "panel-hint", "key state unavailable"));
+    return;
+  }
+  box.appendChild(cloudflareCard(keys.cloudflare || {}));
+  box.appendChild(deepseekCard(keys.deepseek || {}));
+  box.appendChild(omnirouteCard(keys.omniroute || {}));
+}
+
+function showPanelTab(name) {
+  const keys = name !== "providers";
+  $("tab-keys").classList.toggle("active", keys);
+  $("tab-providers").classList.toggle("active", !keys);
+  $("tab-keys").setAttribute("aria-selected", String(keys));
+  $("tab-providers").setAttribute("aria-selected", String(!keys));
+  $("keys-view").hidden = !keys;
+  $("providers-view").hidden = keys;
+}
+
 function openProviders() {
   $("layout").classList.remove("right-collapsed");
   $("providers-hint").textContent = "loading…";
@@ -665,6 +852,8 @@ function isNarrow() {
 function wireProviders() {
   $("providers-open").addEventListener("click", openProviders);
   $("providers-close").addEventListener("click", closeProviders);
+  $("tab-keys").addEventListener("click", () => showPanelTab("keys"));
+  $("tab-providers").addEventListener("click", () => showPanelTab("providers"));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && providersAreOpen()) closeProviders();
   });

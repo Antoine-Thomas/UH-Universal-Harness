@@ -39,16 +39,28 @@ even when the failing input was one.
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
 | GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds]}` |
 | POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider}` · `400` |
-| GET | `/api/providers` | — | `{providers: [{name, base_url, model, keys, verified, custom, in_chain}], key_entry_allowed}` |
+| GET | `/api/providers` | — | `{providers: [{name, base_url, model, keys, verified, custom, in_chain}], key_entry_allowed, keys: {cloudflare: {configured, source, account_id, key_hints}, deepseek: {configured, key_hints}, omniroute: {detected, base_url, has_key, config_path}}}` |
 | POST | `/api/providers/{name}/keys` | `{key}` | `{stored: true, keys: n}` · `400` · `403` off loopback · `404` unknown |
 | DELETE | `/api/providers/{name}/keys` | `{index}` | `{deleted: true, keys: n}` · `400` · `403` · `404` |
+| POST | `/api/providers/cloudflare/config` | `{account_id, token}` | `{stored: true, account_id, key_hint, source}` · `400` (account id must be 32 hex) · `403` · no full key in the answer |
+| POST | `/api/providers/deepseek/key` | `{key}` | `{stored: true, keys: n, key_hints: [...]}` · `400` · `403` |
+| POST | `/api/providers/omniroute/import` | — | `{imported: true, name, base_url, key_hints}` · `403` · `404` no OmniRoute config |
 | POST | `/api/providers/custom` | `{name, base_url, model?, key?}` | `{created: true, name, base_url, model}` · `400` · `403` |
 | POST | `/api/providers/{name}/test` | — | `{ok, status, error_kind}` · `404` |
 | GET | `/api/router/settings` | — | `{allow_remote, consent, consent_date, strategy, extra_providers, warning}` |
 | PUT | `/api/router/settings` | `{allow_remote, consent?, strategy?}` | the same object · `400` consent or strategy · `403` off loopback |
 
-`403` on the four write routes comes from one rule: `uh web` must be bound to
+`403` on every write route comes from one rule: `uh web` must be bound to
 loopback. There is no override flag.
+
+**No response ever carries a full key.** The `keys` object of
+`GET /api/providers` is the API-key panel's state: `configured`, the `source`
+of the credential (`environment`, `keys.toml` or `none`), and at most a
+**masked hint** per stored key (3 leading + 4 trailing characters, e.g.
+`sk-…abcd`). A key that comes from the environment is reported as
+`source: environment` with no hint at all: UH never wrote it and does not
+echo it. Delete-by-index exists for the same reason: a key value must not
+travel in a URL, which ends up in an access log.
 
 `error_kind` is one of `auth`, `rate_limit`, `payment`, `server`, `timeout`,
 `transport`, `redirect_refused`, `no_base_url` — the same classification the
@@ -76,11 +88,12 @@ served by `--static-dir` is free to use its own, but the ones below are the
 contract of the bundled one:
 
 ```
-composer  gauge-fill  gauge-label  input  layout  menu-toggle  messages  model-select
-new-session  palette  palette-input  palette-list  providers-close
-providers-hint  providers-list  providers-open  providers-panel
-router-settings  search  search-results  send  session-list  session-title
-sidebar  status-provider  stop  terminal-warning  theme-toggle
+composer  gauge-fill  gauge-label  input  keys-priority  keys-view  layout
+menu-toggle  messages  model-select  new-session  palette  palette-input
+palette-list  providers-close  providers-hint  providers-list  providers-open
+providers-panel  providers-view  router-settings  search  search-results  send
+session-list  session-title  sidebar  status-provider  stop  tab-keys
+tab-providers  terminal-warning  theme-toggle
 ```
 
 ## Serving a replacement interface

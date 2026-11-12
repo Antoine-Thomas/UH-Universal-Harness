@@ -49,13 +49,22 @@
 
     <aside class="rightbar" id="providers-panel" aria-label="Configuration">
       <header class="panel-head">
-        <strong>Providers</strong>
+        <strong>Configuration</strong>
         <span id="providers-hint" class="panel-hint"></span>
         <button id="providers-close" class="icon-button" aria-label="Close">×</button>
       </header>
+      <nav class="panel-tabs" role="tablist">
+        <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">API keys</button>
+        <button id="tab-providers" class="panel-tab" role="tab" aria-selected="false" aria-controls="providers-view">Providers</button>
+      </nav>
       <div class="rightbar-scroll">
-        <div id="router-settings" class="router-settings"></div>
-        <div id="providers-list" class="providers-list"></div>
+        <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">
+          <div id="keys-priority" class="keys-priority"></div>
+        </div>
+        <div id="providers-view" class="panel-view" role="tabpanel" aria-labelledby="tab-providers" hidden>
+          <div id="router-settings" class="router-settings"></div>
+          <div id="providers-list" class="providers-list"></div>
+        </div>
       </div>
     </aside>
   </div>

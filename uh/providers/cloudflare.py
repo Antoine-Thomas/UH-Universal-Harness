@@ -10,9 +10,10 @@ Configuration resolution:
 
 * **account id**: ``UH_CLOUDFLARE_ACCOUNT_ID``, then the
   ``cloudflare_account_id`` key of ``config.toml`` (not a credential).
-* **API token**: ``UH_CLOUDFLARE_API_TOKEN`` and **nowhere else** - a token
-  is never written to ``config.toml`` (flat config holds no secrets; user
-  keys live in ``keys.toml``, and this one is not a user-catalogue entry).
+* **API token**: ``UH_CLOUDFLARE_API_TOKEN`` first (never printed, never
+  stored by UH), then the token the web panel saved in ``$UH_HOME/keys.toml``
+  (0600) under ``[providers.cloudflare]``. It is never written to
+  ``config.toml``: the flat configuration holds no secret.
 
 Both are required; a missing one raises :class:`ProviderError` at construction
 naming the variable - a missing credential costs a skip, never a 401.
@@ -49,9 +50,19 @@ def resolve_account_id() -> Optional[str]:
 
 
 def resolve_api_token() -> Optional[str]:
-    """The token is read from the environment only - never from a file UH writes."""
+    """``UH_CLOUDFLARE_API_TOKEN`` first, then the token stored by the web panel.
+
+    The token is never read from ``config.toml``: only ``keys.toml`` (0600)
+    holds credentials, and UH never prints what it finds there.
+    """
     value = os.environ.get(ENV_API_TOKEN, "").strip()
-    return value or None
+    if value:
+        return value
+    from ..keys import get_provider
+
+    entry = get_provider("cloudflare") or {}
+    stored = [item for item in (entry.get("keys") or []) if item]
+    return stored[0] if stored else None
 
 
 class CloudflareProvider(OmniRouterProvider):

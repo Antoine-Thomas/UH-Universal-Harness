@@ -83,7 +83,7 @@ an invariant deliberately, change the test **and** this list in the same commit.
 
 | Invariant | Enforced in | Proved by |
 | --- | --- | --- |
-| Keys are **write-only**: no route, command or log returns a key, not even truncated | `uh/providers_admin.py`, `uh/web/providers_api.py`, `uh/commands.py` | `test_known_key_never_appears_in_any_response`, `test_add_key_stores_without_echoing_it`, `test_known_key_never_appears_in_any_command_output` |
+| Keys are **write-only**: no route, command or log returns a full key. The API-key panel receives at most a masked hint (3 leading + 4 trailing characters); a key taken from the environment gets no hint at all | `uh/providers_admin.py`, `uh/web/providers_api.py`, `uh/commands.py` | `test_known_key_never_appears_in_any_response`, `test_a_stored_key_never_appears_in_any_get`, `test_key_hint_stays_a_hint`, `test_add_key_stores_without_echoing_it`, `test_known_key_never_appears_in_any_command_output` |
 | No key ever comes from a command-line argument | `uh/cli.py` (no `--key`), `providers_admin.read_secret` | `test_cli_refuses_a_key_in_argv` |
 | Token + `Host`/`Origin` checks on every API call | `uh/web/app.py` | `test_api_requires_a_token`, `test_bad_token_is_rejected`, `test_host_and_origin_are_checked` |
 | CSP without `unsafe-inline`; no inline script; `X-Frame-Options: DENY` | `uh/web/app.py` | `test_security_headers_and_no_inline_script`, `test_static_assets_are_served_with_security_headers` |
@@ -106,9 +106,10 @@ an invariant deliberately, change the test **and** this list in the same commit.
 | The documented API matches the code | `docs/API.md` | `test_every_route_is_documented`, `test_no_documented_route_is_invented`, `test_router_routes_are_documented` |
 
 Rules that follow from the above, worth repeating to a designer: **the panel must
-not add a "show key" affordance**, must not put a key in a URL, must not weaken
-the CSP for convenience (no CDN, no inline style), and must keep the key-entry
-form disabled when `key_entry_allowed` is false.
+not add a "show key" affordance** and must never display more than the masked
+hint (3 leading + 4 trailing characters), must not put a key in a URL, must not
+weaken the CSP for convenience (no CDN, no inline style), and must keep the
+key-entry form disabled when `key_entry_allowed` is false.
 
 ## 4. Running everything
 
