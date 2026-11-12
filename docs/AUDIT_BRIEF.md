@@ -8,7 +8,7 @@ taste choice.
 
 State at the time of writing: `main` after Jalon 6b, version **0.8.0** in
 `pyproject.toml`, `uh-harness` on PyPI up to 0.7.2 (0.8.0 tagged, not released
-yet). Tests: 302 passed, 1 skipped.
+yet). Tests: 306 passed, 1 skipped.
 
 ---
 
@@ -97,7 +97,10 @@ an invariant deliberately, change the test **and** this list in the same commit.
 | The router token is separate from the web token, in its own file, compared in constant time | `uh/router/serve.py` | `test_token_is_created_once_and_rotated`, `test_wrong_token_is_401` |
 | `uh router serve` accepts `Authorization: Bearer` only (no cookie), and checks `Host`; no CORS | `uh/router/serve.py` | `test_cookie_alone_is_not_authentication`, `test_forged_host_is_refused`, `test_valid_request_sets_no_cors_header` |
 | A client's `Authorization` is never forwarded upstream | `uh/router/serve.py` | `test_client_authorization_never_reaches_the_provider` |
-| `uh router serve` caps body size and concurrency (`413`, `429`) | `uh/router/serve.py` | `test_body_too_large_is_413`, `test_concurrency_cap_answers_429` |
+| `uh router serve` caps the body by **bytes read**, not by `Content-Length` (chunked requests are capped too) | `uh/router/serve.py` | `test_chunked_body_without_content_length_is_capped`, `test_body_too_large_is_413` |
+| A concurrency slot is held until the stream **really** ends, including on client disconnect | `uh/router/serve.py` | `test_streaming_keeps_its_concurrency_slot_until_the_stream_ends`, `test_client_disconnect_releases_the_slot` |
+| The access log names the provider of **that** request (no shared trace) | `uh/router/serve.py` | `test_log_line_names_the_provider_of_that_request` |
+| `uh router serve` answers a real OpenAI client | `docs/ROUTER_SERVE.md` | exercised by hand with `openai` 3.49.0 (not in CI: the SDK is not a project dependency) |
 | A broken stream is reported, never replayed | `uh/router/serve.py` | `test_mid_stream_failure_is_explicit_and_never_replayed` |
 | The documented API matches the code | `docs/API.md` | `test_every_route_is_documented`, `test_no_documented_route_is_invented`, `test_router_routes_are_documented` |
 
@@ -146,6 +149,9 @@ gate strips it for exactly that reason).
   access for one client means rotating and updating all of them.
 - **No time-based rate limiting** on `uh router serve`: only concurrency (4) and
   body size (1 MiB) are capped, so a patient client can still spend the quota.
+- **The OpenAI SDK check is manual**, not in CI: `openai` is deliberately not a
+  project dependency, so a future breaking change in the SDK would only be seen
+  by re-running the check by hand.
 - **`usage` is not measured** by `uh router serve`: the OpenAI usage block is
   zeros, not tokens counted.
 - **No cost accounting.** Tokens are not counted, prices are not known.

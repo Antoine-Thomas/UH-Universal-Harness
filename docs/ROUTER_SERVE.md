@@ -78,6 +78,15 @@ print(client.chat.completions.create(
 ).choices[0].message.content)
 ```
 
+## Verified with the real SDK
+
+Exercised on 2026-11-12 with `openai` **3.49.0** installed in a throwaway venv
+(outside the repository), against `uh router serve` and a simulated provider:
+`models.list()`, `chat.completions.create()` non-stream, and the same call with
+`stream=True` — chunks assembled to `bonjour !`, `finish_reason=stop` in both
+cases. The output shape below is therefore checked against a real client, not
+only against curl.
+
 ## What it does with your request
 
 1. `model: "auto"` → the chain: a local model first when one is installed, then
