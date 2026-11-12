@@ -285,3 +285,25 @@ def test_known_key_never_appears_in_any_command_output(
     assert SECRET not in blob
     assert SECRET[:12] not in blob
     assert "known-key-7b1" not in blob
+
+def test_console_local_only_off_handles_eof(
+    session: console.ChatSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Ctrl-D at the consent prompt must cancel, not raise EOFError."""
+
+    class Tty:
+        def isatty(self) -> bool:
+            return True
+
+        def readline(self) -> str:
+            return ""
+
+    def raise_eof(*_args, **_kwargs):
+        raise EOFError
+
+    monkeypatch.setattr("sys.stdin", Tty())
+    monkeypatch.setattr("builtins.input", raise_eof)
+    result = commands.dispatch(session, "/local-only off")
+    assert "cancelled" in (result.out or "")
+    assert admin.settings()["allow_remote"] is False
+    assert admin.settings()["consent"] is False

@@ -101,8 +101,11 @@ def _cmd_provider(session: "ChatSession", args: str) -> CommandResult:
                     return CommandResult(err="provider: nothing entered")
                 count = providers_admin.add_key_to(name, key)
                 return CommandResult(out=f"{name}: {count} key(s) stored")
-            base_url = input("base URL (https, e.g. https://api.exemple.fr/v1): ").strip()
-            model = input("model id: ").strip()
+            try:
+                base_url = input("base URL (https, e.g. https://api.exemple.fr/v1): ").strip()
+                model = input("model id: ").strip()
+            except EOFError:
+                return CommandResult(err="provider: cancelled")
             key = providers_admin.read_secret("API key (optional, not echoed): ")
             created = providers_admin.create_custom(name, base_url, model, key)
         except providers_admin.AdminError as exc:
@@ -227,7 +230,10 @@ def _cmd_local_only(_session: "ChatSession", args: str) -> CommandResult:
             err="refusing to enable remote providers without an interactive confirmation"
         )
     print(state["warning"])
-    answer = input("Type 'yes' to confirm: ").strip().lower()
+    try:
+        answer = input("Type 'yes' to confirm: ").strip().lower()
+    except EOFError:  # Ctrl-D or a closed pipe: no consent was given
+        return CommandResult(out="cancelled: still local only")
     if answer != "yes":
         return CommandResult(out="cancelled: still local only")
     updated = providers_admin.update_settings(allow_remote=True, consent=True)
