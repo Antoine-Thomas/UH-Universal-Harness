@@ -18,6 +18,7 @@
       <div id="search-results" class="search-results" hidden></div>
       <footer class="sidebar-foot">
         <span id="status-provider">…</span>
+        <button id="providers-open" class="icon-button" title="Providers" aria-label="Providers">⚙</button>
         <button id="theme-toggle" class="icon-button" title="Toggle theme" aria-label="Toggle theme">◐</button>
       </footer>
     </aside>
@@ -45,6 +46,15 @@
         <button type="submit" id="send">Send</button>
       </form>
     </main>
+  </div>
+
+  <div id="providers-panel" class="panel" hidden>
+    <header class="panel-head">
+      <strong>Providers</strong>
+      <span id="providers-hint" class="panel-hint"></span>
+      <button id="providers-close" class="icon-button" aria-label="Close">×</button>
+    </header>
+    <div id="providers-list" class="providers-list"></div>
   </div>
 
   <div id="palette" class="palette" hidden>

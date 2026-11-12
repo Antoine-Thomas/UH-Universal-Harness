@@ -398,6 +398,60 @@ function wirePalette() {
   });
 }
 
+
+// ---------------------------------------------------------------- providers --
+// Read-only in 7a.1: what exists, how many keys, and whether the router would
+// use it. No key value ever crosses this boundary.
+async function loadProviders() {
+  const data = await api("/api/providers");
+  renderProviders(data.providers || []);
+}
+
+function providerCard(row) {
+  const card = el("div", "provider-card");
+  const head = el("div", "provider-head");
+  head.appendChild(el("span", "provider-name", row.name));
+  const status = row.custom ? "custom" : row.verified;
+  const badge = el("span", `badge ${status === "verified" ? "ok" : "warn"}`, status);
+  head.appendChild(badge);
+  if (row.in_chain) head.appendChild(el("span", "badge ok", "in chain"));
+  card.appendChild(head);
+  card.appendChild(
+    el("div", "provider-meta", `${row.keys} key(s) · ${row.model || "no model configured"}`),
+  );
+  card.appendChild(el("div", "provider-url", row.base_url || ""));
+  return card;
+}
+
+function renderProviders(rows) {
+  const box = $("providers-list");
+  box.textContent = "";
+  if (!rows.length) {
+    box.appendChild(el("div", "panel-hint", "no provider in the catalogue"));
+    return;
+  }
+  for (const row of rows) box.appendChild(providerCard(row));
+}
+
+function openProviders() {
+  $("providers-panel").hidden = false;
+  $("providers-hint").textContent = "read-only for now";
+  loadProviders().catch((error) => {
+    $("providers-list").textContent = "";
+    $("providers-list").appendChild(el("div", "panel-hint", `error: ${error.message}`));
+  });
+}
+
+function wireProviders() {
+  $("providers-open").addEventListener("click", openProviders);
+  $("providers-close").addEventListener("click", () => {
+    $("providers-panel").hidden = true;
+  });
+  $("providers-panel").addEventListener("click", (event) => {
+    if (event.target === $("providers-panel")) $("providers-panel").hidden = true;
+  });
+}
+
 // -------------------------------------------------------------------- boot --
 function wireComposer() {
   const input = $("input");
@@ -435,6 +489,7 @@ async function boot() {
   wireComposer();
   wirePalette();
   wireSearch();
+  wireProviders();
   await loadStatus();
   await loadModels();
   await loadCommands();

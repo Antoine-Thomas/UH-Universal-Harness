@@ -432,6 +432,11 @@ def create_app(
         app.state.kind, app.state.model = kind, model
         return {"provider": kind, "model": model}
 
+    # Jalon 7a: provider panel. Imported late to keep the module import light.
+    from .providers_api import register_provider_routes
+
+    register_provider_routes(app, require_token)
+
     return app
 
 

@@ -192,3 +192,30 @@ body {
   .model-select { max-width: 120px; }
   .messages { padding: 12px; }
 }
+
+/* --- providers panel (Jalon 7a) ------------------------------------------ */
+.panel {
+  position: fixed; inset: 6% 50% auto 50%; transform: translateX(-50%);
+  width: min(680px, 94vw); max-height: 84vh; display: flex; flex-direction: column;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 12px; z-index: 25;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .28); overflow: hidden;
+}
+.panel-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+}
+.panel-head strong { font-size: 14px; }
+.panel-hint { flex: 1; font-size: 11px; color: var(--muted); }
+.providers-list { overflow-y: auto; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+.provider-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; background: var(--bg); }
+.provider-head { display: flex; align-items: center; gap: 8px; }
+.provider-name { font-weight: 600; font-size: 13px; }
+.provider-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.provider-url { font-family: var(--mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+.badge {
+  font-size: 10px; padding: 1px 7px; border-radius: 9px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.badge.ok { color: var(--accent); border-color: var(--accent); }
+.badge.warn { color: var(--error); border-color: var(--error); }
