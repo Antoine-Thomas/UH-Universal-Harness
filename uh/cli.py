@@ -415,6 +415,30 @@ def _router_entry_if_configured() -> tuple[str, Provider] | None:
         return None
 
 
+def _cloudflare_entry() -> tuple[str, Provider] | None:
+    """Cloudflare joins the chain only when the account id and a token exist."""
+    from .providers.cloudflare import resolve_account_id, resolve_api_token
+
+    if not (resolve_account_id() and resolve_api_token()):
+        return None
+    try:
+        return ("cloudflare", _make_provider("cloudflare", ""))
+    except ProviderError:
+        return None
+
+
+def _deepseek_entry() -> tuple[str, Provider] | None:
+    """DeepSeek joins the chain only when a key is configured."""
+    from .providers.deepseek import resolve_api_key
+
+    if not resolve_api_key():
+        return None
+    try:
+        return ("deepseek", _make_provider("deepseek", ""))
+    except ProviderError:
+        return None
+
+
 def _build_chain(
     requested: str | None,
     model: str | None,
@@ -423,10 +447,17 @@ def _build_chain(
 ) -> tuple[list[tuple[str, Provider]], str]:
     """Return ``[(kind, provider), ...]`` and the model actually selected.
 
+    Default order::
+
+        ollama (local) -> cloudflare (free) -> deepseek (paid, safety valve)
+        -> omnirouter (local gateway) -> router (free providers with keys)
+
     ``requested`` (CLI ``--provider``) means one provider, no fallback.
-    ``preferred`` is the configured default provider: it only ORDERS the chain,
-    it never disables the fallback - otherwise a default of "ollama" in
-    config.toml would silently kill the OmniRouter backup.
+    ``preferred`` (the configured default provider) only MOVES that entry to the
+    front; it never disables the fallback - otherwise a default of "ollama" in
+    config.toml would silently kill the cloud backups. A provider whose key is
+    not configured is skipped, never attempted: a missing key costs a skip
+    instead of a 401.
     """
     if requested:
         provider = _make_provider(requested, model or "")
@@ -452,6 +483,13 @@ def _build_chain(
         except ProviderError as exc:
             reasons.append(f"ollama: {exc}")
 
+    cloudflare_entry = _cloudflare_entry()
+    if cloudflare_entry is None:
+        reasons.append("cloudflare: not configured (account id or API key missing)")
+    deepseek_entry = _deepseek_entry()
+    if deepseek_entry is None:
+        reasons.append("deepseek: not configured (no API key)")
+
     omni_entry: tuple[str, Provider] | None = None
     try:
         omni_entry = (
@@ -463,23 +501,35 @@ def _build_chain(
 
     router_entry = _router_entry_if_configured()
 
-    omnirouter_first = (preferred or "").strip().lower() == "omnirouter"
-    first, second = (omni_entry, ollama_entry) if omnirouter_first else (ollama_entry, omni_entry)
-    chain = [entry for entry in (first, second) if entry is not None]
-    if router_entry is not None:
-        chain.append(router_entry)
+    chain = [
+        entry
+        for entry in (ollama_entry, cloudflare_entry, deepseek_entry, omni_entry, router_entry)
+        if entry is not None
+    ]
 
     if not chain:
         raise ProviderError("no usable provider - " + "; ".join(reasons))
 
-    if chain[0][0] == "omnirouter" and not omnirouter_first:
+    preferred_name = (preferred or "").strip().lower()
+    if preferred_name:
+        chain = [entry for entry in chain if entry[0] == preferred_name] + [
+            entry for entry in chain if entry[0] != preferred_name
+        ]
+
+    if chain[0][0] != "ollama" and ollama_entry is None:
         reason = next(
             (item[len("ollama: "):] for item in reasons if item.startswith("ollama: ")),
             "ollama provider unavailable",
         )
-        print(f"fallback: ollama -> omnirouter (reason: {reason})", file=sys.stderr)
+        print(f"fallback: ollama -> {chain[0][0]} (reason: {reason})", file=sys.stderr)
 
-    return chain, (ollama_model or omnirouter_model or DEFAULT_OMNIROUTER_MODEL)
+    resolved = (
+        ollama_model
+        or str(getattr(chain[0][1], "model", "") or "")
+        or omnirouter_model
+        or DEFAULT_OMNIROUTER_MODEL
+    )
+    return chain, resolved
 
 
 # --------------------------------------------------------------------------- #

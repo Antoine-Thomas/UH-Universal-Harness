@@ -32,7 +32,8 @@ Four ideas that each solved one problem, combined in one small package:
   schema, refuse unknown arguments and return errors the model can read; the
   dangerous toolset is off unless you enable it.
 - **Deterministic routing with a traced fallback** (from UHB). Ollama first,
-  then a local router, then whatever you configured — and the fallback is
+  then Cloudflare, then DeepSeek, then the local gateway and the free router —
+  and the fallback is
   *printed*, never silent. A dead provider is an error message, not a mystery.
 - **Sessions and a browser UI that stay local** (from Harness Maxxing's feature
   set, reimplemented from scratch). Sessions live in SQLite with full-text
@@ -272,18 +273,26 @@ extractor, keep a bigger model for the rest.
 | Provider | Transport | Endpoint | Streaming |
 | --- | --- | --- | --- |
 | `ollama` | httpx, NDJSON | `POST /api/chat`, `GET /api/tags`, `POST /api/pull` | yes |
+| `cloudflare` | httpx, SSE | `POST /v1/chat/completions` (OpenAI-compatible, per-account URL) | yes |
+| `deepseek` | httpx, SSE | `POST /chat/completions` (OpenAI-compatible) | yes |
 | `omnirouter` | httpx, SSE | `POST /v1/chat/completions` (OpenAI-compatible) | yes |
 
-Without `--provider`, `uh chat` builds the chain `ollama`, then `omnirouter`
-(when configured), then the free-provider **router** (when it has keys). Every switch is printed on stderr, never silent:
+Without `--provider`, `uh chat` builds the chain `ollama`, then `cloudflare`
+(when its account id and token are configured), then `deepseek` (when a key is
+configured), then the OmniRoute gateway and the free-provider **router** (when
+they are configured). A provider whose key is missing is **skipped**, never
+attempted. Every switch is printed on stderr, never silent, and never goes into
+the answer:
 
 ```
-fallback: ollama -> omnirouter (reason: cannot reach Ollama at ...)
+fallback: ollama -> cloudflare (reason: no local model installed)
+fallback: cloudflare -> deepseek (reason: 429 rate limit)
 ```
 
 `--provider <kind>` disables the fallback: one provider, its errors surface as
-they are. Model namespaces are not shared, so the backup uses
-`UH_OMNIROUTER_MODEL` (default `auto/best-free`) rather than the Ollama tag.
+they are. Model namespaces are not shared, so each backup uses its own model:
+`UH_OMNIROUTER_MODEL` (default `auto/best-free`), `deepseek-flash` for DeepSeek,
+`@cf/meta/llama-3.3-70b-instruct-fp8-fast` for Cloudflare.
 
 ## Free providers, opt-in and local-first
 

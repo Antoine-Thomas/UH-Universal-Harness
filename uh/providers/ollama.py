@@ -78,7 +78,9 @@ class OllamaProvider(Provider):
 
         if response.status_code != 200:
             body = (response.text or "").strip()[:300]
-            raise ProviderError(f"Ollama HTTP {response.status_code}: {body}")
+            raise ProviderError(
+                f"Ollama HTTP {response.status_code}: {body}", status=response.status_code
+            )
 
         try:
             data = response.json()
@@ -107,7 +109,10 @@ class OllamaProvider(Provider):
             ) as response:
                 if response.status_code != 200:
                     body = "".join(response.iter_text())[:300]
-                    raise ProviderError(f"Ollama HTTP {response.status_code}: {body}")
+                    raise ProviderError(
+                        f"Ollama HTTP {response.status_code}: {body}",
+                        status=response.status_code,
+                    )
                 for line in response.iter_lines():
                     event = _parse_ndjson(line)
                     if event is None:

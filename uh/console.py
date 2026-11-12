@@ -483,16 +483,29 @@ class _ChainProvider(Provider):
         errors: list[str] = []
         first: Optional[ProviderError] = None
         for position, (kind, provider) in enumerate(self.chain):
+            emitted = False
+
+            def counted(delta: str, _sink=on_token) -> None:
+                nonlocal emitted
+                emitted = True
+                if _sink is not None:
+                    _sink(delta)
+
             try:
                 if on_token is not None and provider_supports_streaming(provider):
-                    return provider.chat(messages, tools, on_token=on_token)
+                    return provider.chat(messages, tools, on_token=counted)
                 return provider.chat(messages, tools)
             except ProviderError as exc:
+                if emitted:
+                    # Half an answer is already on screen: replaying it on the
+                    # next provider would duplicate the text. Report, never replay.
+                    raise
                 first = first or exc
                 errors.append(f"{kind}: {exc}")
                 if position + 1 < len(self.chain):
                     print(
-                        f"fallback: {kind} -> {self.chain[position + 1][0]} (reason: {exc})",
+                        f"fallback: {kind} -> {self.chain[position + 1][0]} "
+                        f"(reason: {exc.reason})",
                         file=sys.stderr,
                     )
         if len(self.chain) == 1 and first is not None:

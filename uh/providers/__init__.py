@@ -6,7 +6,9 @@ Built-in providers:
 * ``omnirouter``  - a local OmniRoute gateway speaking the OpenAI API
   (``/v1/chat/completions``, SSE streaming);
 * ``cloudflare``  - Cloudflare Workers AI, OpenAI-compatible, configured by
-  ``UH_CLOUDFLARE_ACCOUNT_ID`` + ``UH_CLOUDFLARE_API_TOKEN``.
+  ``UH_CLOUDFLARE_ACCOUNT_ID`` + a token (environment or the web panel);
+* ``deepseek``    - DeepSeek, OpenAI-compatible at ``https://api.deepseek.com``
+  (``/chat/completions``), the paid fallback.
 
 ``build_provider(kind, model)`` is the only construction path used by the CLI,
 so adding a provider means adding one module and one registry entry.
@@ -23,7 +25,24 @@ class ProviderError(RuntimeError):
 
     Deliberately distinct from :class:`uh.agent.BudgetExhausted`: callers must be
     able to tell "the model is unreachable" from "the model kept calling tools".
+
+    ``status`` is the HTTP status when the failure was an answer (429, 401, …):
+    the fallback log line reports ``reason`` - a classified, one-line reason -
+    instead of the raw message, which can quote the request body.
     """
+
+    def __init__(self, message: str, *, status: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def reason(self) -> str:
+        """Short classified reason for fallback lines: ``429 rate limit``."""
+        if self.status is not None:
+            from ..router.client import classify_status
+
+            return f"{self.status} {classify_status(self.status).replace('_', ' ')}"
+        return type(self).__name__
 
 
 class Provider(ABC):
@@ -53,6 +72,7 @@ from .ollama import OllamaProvider  # noqa: E402
 from .omnirouter import OmniRouterProvider  # noqa: E402
 from .openai_compat import OpenAICompatProvider  # noqa: E402
 from .cloudflare import CloudflareProvider  # noqa: E402
+from .deepseek import DeepSeekProvider  # noqa: E402
 
 
 def _build_router(model: str = "", **kwargs) -> "Provider":
@@ -66,6 +86,7 @@ PROVIDERS: dict[str, Callable[..., Provider]] = {
     "ollama": OllamaProvider,
     "omnirouter": OmniRouterProvider,
     "cloudflare": CloudflareProvider,
+    "deepseek": DeepSeekProvider,
     "router": _build_router,
 }
 

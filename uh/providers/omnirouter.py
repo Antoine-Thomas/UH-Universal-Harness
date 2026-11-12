@@ -111,6 +111,9 @@ def is_configured() -> bool:
 class OmniRouterProvider(Provider):
     name = "omnirouter"
     label = "OmniRouter"  # overridden by subclasses (e.g. a user's own gateway)
+    # The OpenAI path appended to ``base_url``. Subclasses whose vendor does not
+    # use the ``/v1`` prefix (DeepSeek) override it.
+    chat_path = "/v1/chat/completions"
 
     def __init__(
         self,
@@ -165,7 +168,7 @@ class OmniRouterProvider(Provider):
     def _chat_blocking(self, payload: dict) -> dict:
         try:
             response = httpx.post(
-                f"{self.base_url}/v1/chat/completions",
+                f"{self.base_url}{self.chat_path}",
                 json=payload,
                 headers=self._headers(),
                 timeout=self.timeout,
@@ -190,14 +193,17 @@ class OmniRouterProvider(Provider):
         try:
             with httpx.stream(
                 "POST",
-                f"{self.base_url}/v1/chat/completions",
+                f"{self.base_url}{self.chat_path}",
                 json=payload,
                 headers=self._headers(),
                 timeout=self.timeout,
             ) as response:
                 if response.status_code != 200:
                     body = "".join(response.iter_text())[:300]
-                    raise ProviderError(f"{self.label} HTTP {response.status_code}: {body}")
+                    raise ProviderError(
+                        f"{self.label} HTTP {response.status_code}: {body}",
+                        status=response.status_code,
+                    )
                 for line in response.iter_lines():
                     text = (line or "").strip()
                     if not text or not text.startswith("data:"):
@@ -236,11 +242,13 @@ class OmniRouterProvider(Provider):
         if response.status_code == 401:
             raise ProviderError(
                 f"{self.label} rejected the API key (HTTP 401): "
-                "check `uh providers list` and re-add it"
+                "check `uh providers list` and re-add it",
+                status=401,
             )
         if response.status_code != 200:
             raise ProviderError(
-                f"{self.label} HTTP {response.status_code}: {(response.text or '')[:300]}"
+                f"{self.label} HTTP {response.status_code}: {(response.text or '')[:300]}",
+                status=response.status_code,
             )
         try:
             data = response.json()
