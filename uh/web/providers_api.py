@@ -124,11 +124,11 @@ def provider_rows(app: FastAPI) -> list[dict[str, Any]]:
 def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> None:
     """Attach the provider routes. ``dependency`` is the token check of the app."""
 
-    def require_loopback() -> None:
+    def require_loopback(what: str = "key entry") -> None:
         if not is_loopback_bind(getattr(app.state.settings, "host", "")):
             raise HTTPException(
                 status_code=403,
-                detail="key entry is only allowed when uh web listens on loopback",
+                detail=f"{what} is only allowed when uh web listens on loopback",
             )
 
     @app.get("/api/providers", dependencies=[Depends(dependency)])
@@ -264,7 +264,7 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
     def write_settings(payload: Annotated[dict, Body()]) -> dict:
         # Enabling remote providers is a privacy decision: same loopback rule as
         # key entry, no exception.
-        require_loopback()
+        require_loopback("changing privacy settings")
         body = payload or {}
         want_remote = bool(body.get("allow_remote"))
         consent = bool(body.get("consent"))

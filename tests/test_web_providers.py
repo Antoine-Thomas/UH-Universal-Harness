@@ -536,6 +536,7 @@ def test_settings_refuse_off_loopback(tmp_path: Path, monkeypatch: pytest.Monkey
                 headers=AUTH,
             )
             assert response.status_code == 403
+            assert "privacy settings" in response.json()["detail"]
 
     run(scenario())
 

@@ -683,6 +683,7 @@ async function boot() {
   // like a broken app, and the session the user left is the one they want.
   const newest = document.querySelector("#session-list li[data-id]");
   if (!state.sessionId && newest) await openSession(newest.dataset.id);
+  if (location.hash === "#providers") openProviders();
 }
 
 boot().catch((error) => {
