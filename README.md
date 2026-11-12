@@ -134,7 +134,12 @@ uh router status        # chain, keys, cooldowns, last error
 uh router serve         # OpenAI-compatible endpoint on 127.0.0.1:8780
 uh router token show    # the token local clients must use (rotate: token rotate)
 uh docs [--open]        # local documentation, no network
+uh upgrade [--restart]  # pip install --upgrade uh-harness (--user, --dry-run), then re-exec uh
 ```
+
+`uh upgrade` reports the running and installed version, refuses to touch a system
+interpreter outside a virtualenv unless `--user` is passed, keeps the old version
+when pip fails, and only re-execs `uh` when `--restart` is given.
 
 `uh chat` reads stdin or takes a prompt argument; `--once` (or any non-TTY
 stdin) answers one line and exits. Answers stream by default, `--no-stream`

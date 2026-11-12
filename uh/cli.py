@@ -55,6 +55,7 @@ MIN_PYTHON = (3, 10)
 OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434"
 DEFAULT_MAX_ITERATIONS = 8
 MIN_FREE_DISK_BYTES = 500 * 1024 * 1024
+PACKAGE_NAME = "uh-harness"
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -689,6 +690,96 @@ def cmd_docs(args: argparse.Namespace) -> int:
         webbrowser.open(target.as_uri())
         print(f"opened {target}")
     return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
+# uh upgrade
+# --------------------------------------------------------------------------- #
+def in_virtualenv() -> bool:
+    """True inside a venv: pip then writes to a throwaway prefix, not the system."""
+    return sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+
+
+def installed_version() -> str | None:
+    """Version recorded in the installed distribution (None when unreadable).
+
+    Caches are invalidated first: pip has just rewritten dist-info on disk, and
+    the running interpreter must report the new version, not the cached one.
+    """
+    try:
+        import importlib
+        from importlib import metadata
+
+        importlib.invalidate_caches()
+        return metadata.version(PACKAGE_NAME)
+    except Exception:  # noqa: BLE001 - missing or corrupt metadata is not fatal
+        return None
+
+
+def pip_upgrade_command(*, user: bool = False, dry_run: bool = False) -> list[str]:
+    command = [sys.executable, "-m", "pip", "install", "--upgrade", PACKAGE_NAME]
+    if user:
+        command.append("--user")
+    if dry_run:
+        command.append("--dry-run")
+    return command
+
+
+def restart_process() -> int:
+    """Re-exec ``uh`` (no arguments: the console) in place of this process."""
+    print("uh upgrade: redémarrage de uh", file=sys.stderr)
+    try:
+        os.execv(sys.executable, [sys.executable, "-m", "uh"])
+    except OSError as exc:
+        print(f"uh upgrade: redémarrage impossible ({exc}); relance uh à la main", file=sys.stderr)
+        return EXIT_FAILURE
+    return EXIT_OK  # pragma: no cover - execv does not return
+
+
+def cmd_upgrade(args: argparse.Namespace) -> int:
+    """`uh upgrade`: pip install --upgrade uh-harness, then report and maybe restart."""
+    running = __version__
+    installed = installed_version() or running
+    print(f"uh upgrade: version qui tourne {running}, installée {installed}")
+
+    if not in_virtualenv() and not args.user:
+        print(
+            "uh upgrade: hors virtualenv - refus de modifier l'interpréteur système "
+            "(utilise --user pour une installation utilisateur)",
+            file=sys.stderr,
+        )
+        return EXIT_FAILURE
+
+    command = pip_upgrade_command(user=args.user, dry_run=args.dry_run)
+    # flush before handing the terminal to pip: its output is unbuffered, ours
+    # is block-buffered when redirected, and the two would interleave backwards.
+    print("uh upgrade: " + " ".join(command), flush=True)
+    try:
+        completed = subprocess.run(command, check=False)
+    except OSError as exc:
+        print(f"uh upgrade: impossible de lancer pip: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    if completed.returncode != 0:
+        print(
+            f"uh upgrade: pip a échoué (code {completed.returncode}); "
+            f"{installed} reste installée, rien n'a changé",
+            file=sys.stderr,
+        )
+        return completed.returncode if completed.returncode > 0 else EXIT_FAILURE
+
+    if args.dry_run:
+        print("uh upgrade: dry-run, rien n'a été installé")
+        return EXIT_OK
+
+    upgraded = installed_version() or installed
+    if upgraded == installed == running:
+        print(f"uh upgrade: déjà à jour ({installed})")
+        return EXIT_OK
+    print(f"uh upgrade: {installed} -> {upgraded}")
+    if not args.restart:
+        print("Relance uh pour utiliser la nouvelle version (ou `uh upgrade --restart`).")
+        return EXIT_OK
+    return restart_process()
 
 
 def cmd_providers_remove(args: argparse.Namespace) -> int:
@@ -1624,6 +1715,23 @@ def build_parser() -> argparse.ArgumentParser:
     docs_cmd = sub.add_parser("docs", help="show the local documentation (no network)")
     docs_cmd.add_argument("--open", action="store_true", help="open the README in a browser")
 
+    upgrade = sub.add_parser("upgrade", help="upgrade uh-harness with pip, then restart")
+    upgrade.add_argument(
+        "--restart",
+        action="store_true",
+        help="re-exec uh once the upgrade succeeded (default: print a hint only)",
+    )
+    upgrade.add_argument(
+        "--user",
+        action="store_true",
+        help="allow a user-level install when no virtualenv is active",
+    )
+    upgrade.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="let pip report what it would install, change nothing",
+    )
+
     router = sub.add_parser("router", help="free-provider router (Jalon 6a)")
     router_sub = router.add_subparsers(dest="router_command", metavar="<action>")
     router_sub.add_parser("status", help="per-provider state: keys, cooldown, last error")
@@ -1756,6 +1864,8 @@ def main(argv: list[str] | None = None) -> int:
             return handler(args)
         if args.command == "docs":
             return cmd_docs(args)
+        if args.command == "upgrade":
+            return cmd_upgrade(args)
         if args.command == "router":
             if args.router_command == "status":
                 return cmd_router_status(args)
