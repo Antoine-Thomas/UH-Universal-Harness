@@ -1115,12 +1115,25 @@ def cmd_web(args: argparse.Namespace) -> int:
         )
 
     workspace = Path(args.workspace).expanduser() if getattr(args, "workspace", None) else None
+
+    static_dir = None
+    raw_static = getattr(args, "static_dir", None)
+    if raw_static:
+        static_dir = Path(raw_static).expanduser()
+        if not (static_dir / "index.html").is_file():
+            print(
+                f"uh web: {static_dir} does not contain index.html",
+                file=sys.stderr,
+            )
+            return EXIT_FAILURE
+
     return run_server(
         host=host,
         port=int(args.port or 8765),
         open_browser=not getattr(args, "no_open", False),
         allow_terminal=bool(getattr(args, "allow_terminal", False)),
         workspace=workspace,
+        static_dir=static_dir,
     )
 
 
@@ -1532,6 +1545,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="enable the terminal toolset in the web UI (dangerous, off by default)",
     )
     web.add_argument("--workspace", help="workspace for the file tools")
+    web.add_argument(
+        "--static-dir",
+        help="serve a replacement interface from this folder (must contain index.html)",
+    )
 
     sessions = sub.add_parser("sessions", help="list, inspect, search and resume sessions")
     sessions_sub = sessions.add_subparsers(dest="sessions_command", metavar="<action>")

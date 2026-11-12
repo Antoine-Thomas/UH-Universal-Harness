@@ -139,6 +139,7 @@ def create_app(
     provider_factory: Optional[Callable[[str, str], Provider]] = None,
     kind: Optional[str] = None,
     model: Optional[str] = None,
+    static_dir: Optional[Path] = None,
 ) -> FastAPI:
     app = FastAPI(title="UH", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     cfg = cfg or uh_config.load()
@@ -202,13 +203,16 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return response
 
-    if STATIC_DIR.is_dir():
-        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    # A replacement interface (--static-dir) is served exactly like the bundled
+    # one: same token, same Host/Origin checks, same CSP, no build step.
+    page_dir = Path(static_dir) if static_dir is not None else STATIC_DIR
+    if page_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=str(page_dir)), name="static")
 
     # -- page -------------------------------------------------------------- #
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request, token: Optional[str] = None) -> HTMLResponse:
-        page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        page = (page_dir / "index.html").read_text(encoding="utf-8")
         cookie = request.cookies.get(COOKIE_NAME)
         if token and secrets.compare_digest(token, app.state.token):
             response = HTMLResponse(page)
@@ -447,6 +451,7 @@ def run_server(
     open_browser: bool = True,
     allow_terminal: bool = False,
     workspace: Optional[Path] = None,
+    static_dir: Optional[Path] = None,
 ) -> int:
     """Start uvicorn and print the tokenised URL. Returns the exit code."""
     import uvicorn
@@ -456,11 +461,14 @@ def run_server(
         port=port,
         allow_terminal=allow_terminal,
         workspace=workspace,
+        static_dir=static_dir,
     )
     url = f"http://{host}:{port}/?token={app.state.token}"
     print(f"UH web - {url}")
     print(f"  provider: {app.state.kind or 'none'} · model: {app.state.model or 'none'}")
     print(f"  workspace: {app.state.settings.workspace}")
+    if static_dir is not None:
+        print(f"  interface: {static_dir} (replacement)")
     if not allow_terminal:
         print("  terminal toolset: disabled (enable with --allow-terminal)")
     if host not in LOOPBACK_NAMES:

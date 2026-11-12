@@ -1,0 +1,95 @@
+# `uh web` — HTTP API contract
+
+Read from the running code, not from memory: `tests/test_web_api_docs.py` fails
+when a route exists in the app and is missing here, and when an element id used
+by `uh/web/static/index.html` is missing from the id list below. Update this file
+in the same commit as any route change.
+
+## Transport and trust
+
+| Rule | Value |
+| --- | --- |
+| Bind | `127.0.0.1:8765` by default; `--host` allows anything, with a warning |
+| Auth | token, generated per process; `/?token=…` sets a `HttpOnly; SameSite=Strict` cookie, `Authorization: Bearer …` is also accepted |
+| Missing or wrong token | `401 {"detail": "…"}` |
+| `Host` header | must be the bind host or loopback, else `400 {"detail": "host not allowed"}` |
+| `Origin` header | when present, must match `http://<host>:<port>`, else `400` |
+| Headers on every response | `Content-Security-Policy: default-src 'none'; …` (no `unsafe-inline`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` |
+| OpenAPI | disabled (`openapi_url=None`, `docs_url=None`) |
+| Bodies | never logged; keys never appear in any response |
+
+Error shape is always `{"detail": "<message>"}`. Messages never contain a key,
+even when the failing input was one.
+
+## Routes
+
+| Method | Path | Body / query | Response |
+| --- | --- | --- | --- |
+| GET | `/` | `?token=` | HTML page (sets the cookie when the token matches) |
+| GET | `/static/*` | — | the three interface files (or `--static-dir`) |
+| GET | `/api/status` | — | `{version, provider, model, provider_error, sessions, store, schema_version, terminal, workspace}` |
+| GET | `/api/commands` | — | `{commands: [{name, aliases, help, args, group}]}` |
+| GET | `/api/sessions` | `?limit=` | `{sessions: [{…, short_id}]}` |
+| POST | `/api/sessions` | `{title?}` | `{session: {…, short_id}}` |
+| DELETE | `/api/sessions/{session_id}` | — | `{deleted: bool, id}` · `404` |
+| PATCH | `/api/sessions/{session_id}` | `{title}` | `{id, title}` · `404` |
+| GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
+| POST | `/api/sessions/{session_id}/chat` | `{message}` | **SSE stream** (below) · `400` empty message · `404` · `503` provider unreachable |
+| POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
+| GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
+| GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds]}` |
+| POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider}` · `400` |
+| GET | `/api/providers` | — | `{providers: [{name, base_url, model, keys, verified, custom, in_chain}], key_entry_allowed}` |
+| POST | `/api/providers/{name}/keys` | `{key}` | `{stored: true, keys: n}` · `400` · `403` off loopback · `404` unknown |
+| DELETE | `/api/providers/{name}/keys` | `{index}` | `{deleted: true, keys: n}` · `400` · `403` · `404` |
+| POST | `/api/providers/custom` | `{name, base_url, model?, key?}` | `{created: true, name, base_url, model}` · `400` · `403` |
+| POST | `/api/providers/{name}/test` | — | `{ok, status, error_kind}` · `404` |
+| GET | `/api/router/settings` | — | `{allow_remote, consent, consent_date, strategy, extra_providers, warning}` |
+| PUT | `/api/router/settings` | `{allow_remote, consent?, strategy?}` | the same object · `400` consent or strategy · `403` off loopback |
+
+`403` on the four write routes comes from one rule: `uh web` must be bound to
+loopback. There is no override flag.
+
+`error_kind` is one of `auth`, `rate_limit`, `payment`, `server`, `timeout`,
+`transport`, `redirect_refused`, `no_base_url` — the same classification the
+router uses.
+
+## SSE stream of `POST /api/sessions/{id}/chat`
+
+Frames follow the usual `event: <name>\ndata: <json>\n\n` shape.
+
+| Event | Data | Meaning |
+| --- | --- | --- |
+| `open` | `{session, model}` | the turn started |
+| `token` | `{text}` | one streamed fragment |
+| `tool` | `{name, …}` | one tool call, before and after |
+| `message` | `{…}` | a whole assistant message when streaming is off |
+| `error` | `{message}` | the turn failed; the message is already classified |
+| `done` | `{session}` | terminal event, always sent, even after an error or a stop |
+
+`POST …/stop` makes the stream end with `done`, not with an error.
+
+## Element ids used by the current interface
+
+`uh/web/static/index.html` + `app.js` rely on these ids; a replacement interface
+served by `--static-dir` is free to use its own, but the ones below are the
+contract of the bundled one:
+
+```
+composer  gauge-fill  gauge-label  input  menu-toggle  messages  model-select
+new-session  palette  palette-input  palette-list  providers-close
+providers-hint  providers-list  providers-open  providers-panel
+router-settings  search  search-results  send  session-list  session-title
+sidebar  status-provider  stop  terminal-warning  theme-toggle
+```
+
+## Serving a replacement interface
+
+```
+uh web --static-dir ./my-ui
+```
+
+The folder is mounted at `/static` and its `index.html` is served at `/`, with
+the **same** token, `Host`/`Origin` checks and CSP as the bundled interface (no
+`unsafe-inline`, so the page must load its script from `/static/…`). A missing
+`index.html` is a startup error, not a silent fallback.
