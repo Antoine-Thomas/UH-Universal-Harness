@@ -1,11 +1,39 @@
 name: Publish to PyPI
 
+# Fires ONLY when a GitHub release is published. Pushing a tag does nothing:
+# the tag/release distinction is the single most common source of "I pushed and
+# nothing happened".
 on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
+  test:
+    name: tests (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,web]"
+
+      - name: Test
+        run: pytest -q
+
   build-and-publish-testpypi:
+    name: build + TestPyPI
+    needs: test
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -20,21 +48,60 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Check version against the release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import sys
+          import tomllib
+
+          version = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+
+          sys.path.insert(0, ".")
+          import uh  # noqa: E402  (the package under this checkout)
+
+          tag = (os.environ.get("RELEASE_TAG") or "").strip()
+          expected = tag[1:] if tag.startswith("v") else tag
+          print(f"release tag: {tag!r} -> {expected!r}")
+          print(f"pyproject version: {version}")
+          print(f"uh.__version__: {uh.__version__}")
+
+          problems = []
+          if not expected:
+              problems.append("no release tag in the event payload")
+          if expected != version:
+              problems.append(f"release tag {expected} != pyproject version {version}")
+          if uh.__version__ != version:
+              problems.append(f"uh.__version__ {uh.__version__} != pyproject version {version}")
+          for problem in problems:
+              print(f"::error::{problem}")
+          if problems:
+              sys.exit(1)
+          print("version check OK")
+          PY
+
       - name: Build package
         run: |
-          python -m pip install --upgrade build
+          python -m pip install --upgrade build twine
           python -m build
 
-      # --- ÉTAPE TEST (TestPyPI) ---
+      - name: Twine check
+        run: python -m twine check dist/*
+
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
 
-  # --- ÉTAPE PRODUCTION (PyPI) ---
-  # Un job ne peut porter qu'un seul environnement : celui-ci est donc séparé.
-  # Mêmes étapes, environnement `pypi`, aucun jeton (identité OIDC).
   build-and-publish-pypi:
+    name: build + PyPI
+    needs: [test, build-and-publish-testpypi]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -49,11 +116,50 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Check version against the release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import sys
+          import tomllib
+
+          version = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+
+          sys.path.insert(0, ".")
+          import uh  # noqa: E402  (the package under this checkout)
+
+          tag = (os.environ.get("RELEASE_TAG") or "").strip()
+          expected = tag[1:] if tag.startswith("v") else tag
+          print(f"release tag: {tag!r} -> {expected!r}")
+          print(f"pyproject version: {version}")
+          print(f"uh.__version__: {uh.__version__}")
+
+          problems = []
+          if not expected:
+              problems.append("no release tag in the event payload")
+          if expected != version:
+              problems.append(f"release tag {expected} != pyproject version {version}")
+          if uh.__version__ != version:
+              problems.append(f"uh.__version__ {uh.__version__} != pyproject version {version}")
+          for problem in problems:
+              print(f"::error::{problem}")
+          if problems:
+              sys.exit(1)
+          print("version check OK")
+          PY
+
       - name: Build package
         run: |
-          python -m pip install --upgrade build
+          python -m pip install --upgrade build twine
           python -m build
 
-      # --- ÉTAPE PRODUCTION (PyPI) ---
+      - name: Twine check
+        run: python -m twine check dist/*
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
