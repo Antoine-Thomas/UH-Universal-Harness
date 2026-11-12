@@ -3,27 +3,52 @@
 
 # UH — Universal Harness
 
-A provider-agnostic agent harness in Python. UH merges the ideas that worked in
-four prior projects:
+A provider-agnostic agent harness in Python: a console, a local web UI, tool use,
+persisted sessions, and **one** runtime dependency (`httpx`). Local-first, no
+account, no API key on first launch.
 
-| Source | What UH takes from it |
-| --- | --- |
-| Harness Maxxing | web UX, organised sessions |
-| OpenClaw | the harness contract (toolsets, fail-closed modes) |
-| Hermes Agent | the synchronous agent loop (`run_turn`) |
-| UHB | deterministic routing, fail-closed modes |
+## Quickstart
 
-**The CLI is universal.** UH makes no assumption about a specific vendor: it
-must drive any local or free provider (Ollama on `127.0.0.1:11434`, a local
-free router such as OmniRouter/Nemotron) and must never require an API key on
-first launch. A paid provider is an opt-in, never a prerequisite.
+```bash
+pip install uh-harness          # Python 3.10+
+uh                              # console: picks a local model, starts chatting
+pip install "uh-harness[web]" && uh web   # optional: the browser UI
+```
 
-The web UI will be **copied and adapted from Harness Maxxing**, not written from
-scratch and not vendored as a dependency.
+That is the whole setup. UH finds an Ollama model you already have (or offers to
+pull a small one sized to your RAM), falls back to a local OpenAI-compatible
+router, and only asks for a key if nothing local answers — in which case
+`uh doctor` and the guided setup tell you exactly what to do. Nothing is sent
+anywhere until you type a prompt.
+
+## Why UH?
+
+Four ideas that each solved one problem, combined in one small package:
+
+- **A real agent loop, not a chat wrapper** (from Hermes Agent). `run_turn` runs
+  synchronously, executes the tools the model asks for, feeds the results back,
+  and stops at a hard `max_iterations` budget instead of looping forever.
+- **A contract, not a framework** (from OpenClaw). Toolsets declare their
+  schema, refuse unknown arguments and return errors the model can read; the
+  dangerous toolset is off unless you enable it.
+- **Deterministic routing with a traced fallback** (from UHB). Ollama first,
+  then a local router, then whatever you configured — and the fallback is
+  *printed*, never silent. A dead provider is an error message, not a mystery.
+- **Sessions and a browser UI that stay local** (from Harness Maxxing's feature
+  set, reimplemented from scratch). Sessions live in SQLite with full-text
+  search; the web UI is served from `127.0.0.1` behind a per-process token.
+
+**The CLI is universal.** UH makes no assumption about a vendor: it drives any
+local or free provider (Ollama on `127.0.0.1:11434`, a local router such as
+OmniRouter/Nemotron) and never requires an API key on first launch. A paid
+provider is an opt-in, never a prerequisite.
 
 - Requires Python ≥ 3.10 (`tomli` is installed automatically on 3.10)
-- Single runtime dependency: `httpx`
+- Single runtime dependency: `httpx` (`[ui]` adds `rich`, `[web]` adds
+  `fastapi` + `uvicorn`)
 - Installable on its own: no dependency on `hermes-home-vision` or `uhb`
+- MIT licence; the web UI is an original implementation (see
+  [docs/WEB_DESIGN.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/WEB_DESIGN.md))
 
 ## Install (development)
 
@@ -90,7 +115,14 @@ waits for the whole message. Conversations are persisted unless `--no-save`;
 `--session <id>` resumes (full id, unique prefix, or the short form shown by
 `uh sessions list`). Tool activity goes to stderr, the answer to stdout.
 
-## Web interface (optional)
+## Web interface
+
+![UH web interface - sessions on the left, streaming chat with a collapsible tool card, context gauge and model selector on the right](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/webui.png)
+
+*A real session, not a mockup: the assistant called `write_file`, the card is the
+tool call, the gauge is the context estimate for that conversation.*
+
+Served locally, never exposed by default:
 
 ```
 pip install "uh-harness[web]"
@@ -107,7 +139,7 @@ Security, because a local server is still a server:
 - binds `127.0.0.1`; any other `--host` prints a warning before starting;
 - a 43-character token is generated at startup, accepted once as `?token=` and
   then kept in an `HttpOnly; SameSite=Strict` cookie; every `/api` route answers
-  401 without it (curl: `Authorization: Bearer <token>`);
+  401 without it (curl: send the token as a bearer `Authorization` header);
 - `Host` and `Origin` are checked (DNS-rebinding / CSRF), no CORS is enabled;
 - strict CSP without `unsafe-inline`, so no inline script or style exists in the
   HTML; `X-Frame-Options: DENY`;

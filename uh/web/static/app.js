@@ -66,17 +66,28 @@ function toolCard(name, args, result) {
   return card;
 }
 
+function fillToolCard(card, content) {
+  card.querySelector("pre").textContent = content;
+  const label = card.querySelector(".state");
+  const failed = /"error"\s*:/.test(content || "");
+  label.textContent = failed ? "error" : "done";
+  card.classList.toggle("error", failed);
+}
+
 function renderHistory(messages) {
   $("messages").textContent = "";
+  // A tool call and its result are two rows in the store: pair them, or the
+  // replay shows "running…" followed by a second card holding the result.
+  let pending = [];
   for (const message of messages) {
     const role = message.role || "assistant";
-    if (role === "tool") {
-      toolCard(message.name || "tool", null, message.content || "");
-    } else if (role === "assistant" && (message.tool_calls || []).length) {
-      for (const call of message.tool_calls) {
-        toolCard(call.function?.name, call.function?.arguments, undefined);
-      }
+    if (role === "assistant" && (message.tool_calls || []).length) {
+      pending = message.tool_calls.map((call) => toolCard(call.function?.name, call.function?.arguments, undefined));
       if (message.content) appendMessage("assistant", message.content);
+    } else if (role === "tool") {
+      const card = pending.shift();
+      if (card) fillToolCard(card, message.content || "");
+      else toolCard(message.name || "tool", null, message.content || "");
     } else {
       appendMessage(role, message.content || "");
     }
@@ -127,6 +138,7 @@ async function loadSessions() {
   list.textContent = "";
   for (const session of data.sessions) {
     const item = el("li");
+    item.dataset.id = session.id;
     if (session.id === state.sessionId) item.classList.add("active");
     const row1 = el("div", "row1");
     row1.appendChild(el("span", "sid", session.short_id));
@@ -239,10 +251,7 @@ async function sendMessage(text) {
           openCard = toolCard(data.name, data.args, undefined);
         } else if (event === "tool_result") {
           if (openCard) {
-            openCard.querySelector("pre").textContent = data.content;
-            const label = openCard.querySelector(".state");
-            label.textContent = /"error"\s*:/.test(data.content || "") ? "error" : "done";
-            if (label.textContent === "error") openCard.classList.add("error");
+            fillToolCard(openCard, data.content);
             openCard = null;
           } else {
             toolCard(data.name, null, data.content);
@@ -430,6 +439,10 @@ async function boot() {
   await loadModels();
   await loadCommands();
   await loadSessions();
+  // Open the most recent session on first load: an empty pane on arrival looks
+  // like a broken app, and the session the user left is the one they want.
+  const newest = document.querySelector("#session-list li[data-id]");
+  if (!state.sessionId && newest) await openSession(newest.dataset.id);
 }
 
 boot().catch((error) => {
