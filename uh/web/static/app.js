@@ -406,6 +406,10 @@ function wirePalette() {
 async function loadProviders() {
   const data = await api("/api/providers");
   state.keyEntryAllowed = Boolean(data.key_entry_allowed);
+  // The banner depends on the answer, so it is set after it, not when opening.
+  $("providers-hint").textContent = state.keyEntryAllowed
+    ? "keys are write-only: stored, never displayed"
+    : "read-only: key entry needs a loopback bind";
   renderProviders(data.providers || []);
   renderRouterSettings(await api("/api/router/settings"));
 }
@@ -620,7 +624,7 @@ function renderProviders(rows) {
 
 function openProviders() {
   $("providers-panel").hidden = false;
-  $("providers-hint").textContent = "read-only for now";
+  $("providers-hint").textContent = "loading…";
   loadProviders().catch((error) => {
     $("providers-list").textContent = "";
     $("providers-list").appendChild(el("div", "panel-hint", `error: ${error.message}`));
