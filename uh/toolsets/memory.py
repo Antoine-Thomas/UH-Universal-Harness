@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 SECTIONS: tuple[str, ...] = ("Notes", "Preferences", "Learned")
 HEADER = "# UH memory"
@@ -125,7 +125,11 @@ class MemoryToolset:
 
     def call(self, name: str, args: dict | None = None) -> dict:
         args = dict(args or {})
-        handler = {"memory_read": self.memory_read, "memory_write": self.memory_write}.get(name)
+        handlers: dict[str, Callable[..., dict]] = {
+            "memory_read": self.memory_read,
+            "memory_write": self.memory_write,
+        }
+        handler = handlers.get(name)
         if handler is None:
             return {"error": f"unknown memory tool '{name}'. Known: {sorted(ALLOWED_ARGS)}"}
 

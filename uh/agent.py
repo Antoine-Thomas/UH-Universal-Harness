@@ -36,7 +36,16 @@ from __future__ import annotations
 import inspect
 import json
 import sys
-from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, runtime_checkable
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
 
 
 class BudgetExhausted(RuntimeError):
@@ -221,7 +230,7 @@ def run_turn(
     definitions = _tool_definitions(toolsets)
     total_iterations = int(max_iterations)
 
-    for iteration in range(1, total_iterations + 1):
+    for _iteration in range(1, total_iterations + 1):  # the count is only for the error
         response = _chat(provider, history, definitions, on_token)
         message = _as_assistant_message(response)
         message.setdefault("role", "assistant")

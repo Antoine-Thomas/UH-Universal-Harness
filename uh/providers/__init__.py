@@ -51,7 +51,7 @@ from .ollama import OllamaProvider  # noqa: E402
 from .omnirouter import OmniRouterProvider  # noqa: E402
 from .openai_compat import OpenAICompatProvider  # noqa: E402
 
-PROVIDERS: dict[str, type[Provider]] = {
+PROVIDERS: dict[str, Callable[..., Provider]] = {
     "ollama": OllamaProvider,
     "omnirouter": OmniRouterProvider,
 }

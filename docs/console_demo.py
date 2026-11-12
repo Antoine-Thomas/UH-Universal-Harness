@@ -13,7 +13,6 @@ import io
 import os
 import sys
 import tempfile
-from pathlib import Path
 
 os.environ["UH_HOME"] = tempfile.mkdtemp(prefix="uh-console-demo-")
 os.environ.pop("UH_NO_SAVE", None)

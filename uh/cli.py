@@ -21,17 +21,11 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
-from . import __version__
-from . import banner
-from . import commands
+from . import __version__, banner, commands, console, keys
 from . import config as uh_config
-from . import console
-from .agent import BudgetExhausted, last_assistant_message, provider_supports_streaming, run_turn
-from . import keys
 from .providers import (
-    PROVIDERS,
     Provider,
     ProviderError,
     all_provider_kinds,
@@ -41,15 +35,21 @@ from .providers import (
 from .providers.ollama import list_models, pull_model
 from .providers.omnirouter import (
     DEFAULT_MODEL as DEFAULT_OMNIROUTER_MODEL,
+)
+from .providers.omnirouter import (
     config_path as omnirouter_config_path,
-    is_configured as omnirouter_is_configured,
+)
+from .providers.omnirouter import (
     list_remote_models,
+)
+from .providers.omnirouter import (
     resolve_base_url as omnirouter_base_url,
 )
-from .store import Store, StoreError, default_store_path, display_id
-from .toolsets import build_toolsets, describe_toolsets
+from .store import Store, StoreError, display_id
+from .toolsets import build_toolsets
 from .toolsets.memory import SECTIONS as MEMORY_SECTIONS
-from .toolsets.memory import memory_path, parse as parse_memory, uh_home
+from .toolsets.memory import memory_path, uh_home
+from .toolsets.memory import parse as parse_memory
 
 MIN_PYTHON = (3, 10)
 OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434"
@@ -1351,34 +1351,34 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "web":
             return cmd_web(args)
         if args.command == "sessions":
-            handlers = {
+            session_handlers: dict[str, Callable[[argparse.Namespace], int]] = {
                 "list": cmd_sessions_list,
                 "show": cmd_sessions_show,
                 "search": cmd_sessions_search,
                 "delete": cmd_sessions_delete,
                 "resume": cmd_sessions_resume,
             }
-            handler = handlers.get(args.sessions_command)
+            handler = session_handlers.get(args.sessions_command)
             if handler is None:
                 return _sub_help(parser, "sessions")
             return handler(args)
         if args.command == "config":
-            handlers = {
+            config_handlers: dict[str, Callable[[argparse.Namespace], int]] = {
                 "show": cmd_config_show,
                 "get": cmd_config_get,
                 "set": cmd_config_set,
                 "path": cmd_config_path,
             }
-            handler = handlers.get(args.config_command)
+            handler = config_handlers.get(args.config_command)
             if handler is None:
                 return _sub_help(parser, "config")
             return handler(args)
         if args.command == "memory":
-            handlers = {
+            memory_handlers: dict[str, Callable[[argparse.Namespace], int]] = {
                 "show": cmd_memory_show,
                 "migrate": cmd_memory_migrate,
             }
-            handler = handlers.get(args.memory_command)
+            handler = memory_handlers.get(args.memory_command)
             if handler is None:
                 return _sub_help(parser, "memory")
             return handler(args)

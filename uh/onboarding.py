@@ -80,7 +80,7 @@ def detect_ram_gb() -> Optional[float]:
             status = MemoryStatus()
             status.dwLength = ctypes.sizeof(MemoryStatus)
             if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-                return round(status.ullTotalPhys / (1024**3), 1)
+                return round(float(status.ullTotalPhys) / (1024**3), 1)
             return None
         if sys.platform == "darwin":
             output = subprocess.run(

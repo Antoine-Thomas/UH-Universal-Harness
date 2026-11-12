@@ -189,9 +189,8 @@ class Store:
     def __enter__(self) -> "Store":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
-        return False
 
     # -- sessions ---------------------------------------------------------- #
     def create_session(

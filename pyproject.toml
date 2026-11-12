@@ -34,7 +34,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "build>=1", "fastapi>=0.110", "uvicorn>=0.29"]
+dev = [
+    "pytest>=8",
+    "build>=1",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
 ui = ["rich>=13"]
 web = ["fastapi>=0.110", "uvicorn>=0.29"]
 
@@ -53,6 +61,33 @@ include = ["uh*"]
 
 [tool.setuptools.package-data]
 "uh.web" = ["static/*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+# Deliberately narrow and green: correctness rules only. E501 is not selected -
+# line width is a formatter concern, and hand-enforcing it fights long prompt
+# strings. Widen the selection (C4, UP, SIM) when the codebase is ready for it.
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["uh"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["uh"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+strict_equality = true
+show_error_codes = true
+exclude = ["^\\.venv/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

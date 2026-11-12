@@ -22,7 +22,7 @@ import secrets
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -33,7 +33,7 @@ from .. import commands as uh_commands
 from .. import config as uh_config
 from ..console import ChatSession, Console
 from ..providers import Provider, ProviderError
-from ..store import Store, StoreError, display_id
+from ..store import Store, display_id
 from ..toolsets import build_toolsets
 from .sse import frame
 
@@ -144,8 +144,8 @@ def create_app(
     cfg = cfg or uh_config.load()
     app.state.cfg = cfg
     app.state.token = token or secrets.token_urlsafe(32)
-    app.state.active: dict[str, ChatSession] = {}
-    app.state.session_models: dict[str, tuple[str, str]] = {}
+    app.state.active = {}  # dict[str, ChatSession]: in-flight turns
+    app.state.session_models = {}  # dict[str, tuple[str, str]]: per-session model
     app.state.settings = type(
         "Settings",
         (),
@@ -278,6 +278,8 @@ def create_app(
                 provider=app.state.kind,
             )
             session = store.get_session(session_id)
+        if session is None:  # the row was just inserted; None means a broken store
+            raise HTTPException(status_code=500, detail="session vanished after creation")
         return {"session": {**session, "short_id": display_id(session_id)}}
 
     @app.delete("/api/sessions/{session_id}", dependencies=[Depends(require_token)])

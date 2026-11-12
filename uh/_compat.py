@@ -11,6 +11,6 @@ from __future__ import annotations
 try:  # Python >= 3.11
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - depends on the interpreter
-    import tomli as tomllib  # type: ignore[no-redef]
+    import tomli as tomllib
 
 __all__ = ["tomllib"]

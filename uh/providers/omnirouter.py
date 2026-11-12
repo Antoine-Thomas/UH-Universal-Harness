@@ -82,7 +82,7 @@ def resolve_base_url() -> str | None:
 
     values = _dotenv()
     if values.get("BASE_URL"):
-        return values["BASE_URL"].rstrip("/")
+        return str(values["BASE_URL"]).rstrip("/")
 
     host = values.get("OMNIROUTE_SERVER_HOST") or values.get("HOST")
     if host:

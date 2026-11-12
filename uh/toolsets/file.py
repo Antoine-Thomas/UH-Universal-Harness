@@ -23,7 +23,7 @@ import fnmatch
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Callable, Iterable, List
 
 MAX_READ_BYTES = 1_000_000
 MAX_SEARCH_RESULTS = 100
@@ -128,12 +128,13 @@ class FileToolset:
     # -- plumbing ---------------------------------------------------------- #
     def call(self, name: str, args: dict | None = None) -> dict:
         args = dict(args or {})
-        handler = {
+        handlers: dict[str, Callable[..., dict]] = {
             "read_file": self.read_file,
             "write_file": self.write_file,
             "patch": self.patch,
             "search_files": self.search_files,
-        }.get(name)
+        }
+        handler = handlers.get(name)
         if handler is None:
             return {"error": f"unknown file tool '{name}'. Known: {sorted(ALLOWED_ARGS)}"}
 

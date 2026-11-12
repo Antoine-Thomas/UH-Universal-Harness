@@ -22,7 +22,12 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import config as uh_config
-from .agent import BudgetExhausted, last_assistant_message, provider_supports_streaming, run_turn
+from .agent import (
+    BudgetExhausted,
+    last_assistant_message,
+    provider_supports_streaming,
+    run_turn,
+)
 from .providers import Provider, ProviderError
 from .store import Store, StoreError, display_id
 
@@ -468,7 +473,13 @@ class _ChainProvider(Provider):
     def __init__(self, chain: list[tuple[str, Provider]]) -> None:
         self.chain = chain
 
-    def chat(self, messages, tools, *, on_token=None):
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        on_token: Optional[Callable[[str], None]] = None,
+    ) -> dict:
         errors: list[str] = []
         first: Optional[ProviderError] = None
         for position, (kind, provider) in enumerate(self.chain):

@@ -7,7 +7,6 @@ client with ``asyncio.run`` so no async pytest plugin is required.
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -18,7 +17,7 @@ pytest.importorskip("fastapi")
 import httpx  # noqa: E402
 
 from uh import keys as keys_mod  # noqa: E402
-from uh.store import Store, display_id  # noqa: E402
+from uh.store import display_id  # noqa: E402
 from uh.web.app import create_app  # noqa: E402
 from uh.web.sse import parse_frames  # noqa: E402
 

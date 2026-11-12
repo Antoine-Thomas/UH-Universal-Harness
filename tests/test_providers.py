@@ -8,8 +8,7 @@ from pathlib import Path
 import pytest
 
 from uh import cli
-from uh.providers import PROVIDERS, ProviderError, build_provider
-from uh.providers import omnirouter
+from uh.providers import PROVIDERS, ProviderError, build_provider, omnirouter
 from uh.providers.ollama import OllamaProvider
 from uh.providers.omnirouter import OmniRouterProvider
 
