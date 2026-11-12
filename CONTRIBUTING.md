@@ -39,6 +39,13 @@ Hooks: trailing whitespace, end-of-file, YAML/TOML syntax, merge conflicts,
 large files, LF endings, `ruff --fix`, and `mypy` on `uh/`. If a hook rewrites
 a file, re-add it and commit again.
 
+## Line endings
+
+`.editorconfig` sets `end_of_line = lf` for everything, and `.gitattributes`
+normalises the repository to LF. On Windows, set `git config core.autocrlf false`
+once: otherwise checkouts come back as CRLF and the `mixed-line-ending` hook
+rewrites them on every commit.
+
 ## The push gate
 
 `pre-commit install --hook-type pre-push` installs a hook that runs `ruff`,

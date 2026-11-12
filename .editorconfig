@@ -1,0 +1,19 @@
+# One editor convention for every tool that writes into this repository.
+# The goal is that `pre-commit run --all-files` has nothing to rewrite: the
+# mixed-line-ending hook was fixing CRLF files on every commit, which is a
+# symptom, not a fix.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{md,yml,yaml,toml,json,cfg,ini}]
+indent_size = 2
+
+[*.{bat,cmd}]
+end_of_line = crlf
