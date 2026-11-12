@@ -19,7 +19,7 @@ def _snapshot(directory: Path) -> dict[str, tuple[int, int]]:
     return {
         item.name: (item.stat().st_mtime_ns, item.stat().st_size)
         for item in directory.iterdir()
-        if item.is_file()
+        if item.is_file() and not item.name.startswith("uh.db")
     }
 
 
@@ -38,7 +38,13 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture(scope="session", autouse=True)
 def real_home_untouched():
-    """Fail the whole run if a test wrote into the developer's ``~/.uh``."""
+    """Fail the whole run if a test wrote credentials or memory into ``~/.uh``.
+
+    The store is excluded from the snapshot on purpose: a live ``uh`` session in
+    another window keeps writing its WAL, and a guard that trips on the
+    developer's own chat window is one everybody learns to ignore. Store leaks
+    are caught precisely by :func:`no_real_store` instead.
+    """
     real = Path.home() / ".uh"
     before = _snapshot(real)
     yield
@@ -47,3 +53,36 @@ def real_home_untouched():
         "a test wrote into the real ~/.uh (isolation leak): "
         f"before={sorted(before)} after={sorted(after)}"
     )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_real_store():
+    """Fail the whole run if a test opens the developer's real session database.
+
+    A filesystem snapshot cannot answer that question - the developer's own
+    running ``uh`` writes the same files - so the constructor is wrapped: every
+    ``Store`` built during the run must resolve under an isolated ``UH_HOME``.
+    """
+    from uh.store import Store
+
+    real = (Path.home() / ".uh").resolve()
+    opened: list[str] = []
+    original = Store.__init__
+
+    def guarded(self, path=None, *args, **kwargs) -> None:
+        try:
+            from uh.store import default_store_path
+
+            candidate = Path(path).expanduser().resolve() if path else default_store_path()
+        except (OSError, RuntimeError):
+            candidate = None
+        if candidate is not None and (candidate == real or real in candidate.parents):
+            opened.append(str(candidate))
+        original(self, path, *args, **kwargs)
+
+    Store.__init__ = guarded  # type: ignore[method-assign]
+    try:
+        yield opened
+    finally:
+        Store.__init__ = original  # type: ignore[method-assign]
+        assert not opened, f"a test opened the real store: {sorted(set(opened))[:3]}"
