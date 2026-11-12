@@ -208,6 +208,7 @@ and returns errors the model can read — an error is a message, not a crash.
 | `terminal` | `run_command` | blacklist plus timeout, not a sandbox; off in the web UI unless `--allow-terminal` |
 | `memory` | `memory_read`, `memory_write` | one flat file, sections |
 | `web_search` | `web_search(query, max_results)` | DuckDuckGo HTML endpoint, no API key, up to 5 results (title, url, snippet); `max_results` is capped, parse failures are reported as throttling |
+| `uhb` | `uhb_status()` | UHB control plane, loopback only (`UH_UHB_URL`, default `http://127.0.0.1:8101`); the toolset exists only when `GET /status` answers within 1 s, and returns version, mode, harness plus provider and mode **names** only |
 
 `/web <query>` runs the search toolset directly from the console, without a
 model call and without touching the session history. The toolset returns

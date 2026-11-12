@@ -22,12 +22,14 @@ from typing import Dict, List
 from .file import FileToolset
 from .memory import MemoryToolset
 from .terminal import TerminalToolset
+from .uhb import Uhbtoolset
 from .web_search import WebSearchToolset
 
 __all__ = [
     "FileToolset",
     "MemoryToolset",
     "TerminalToolset",
+    "Uhbtoolset",
     "WebSearchToolset",
     "build_toolsets",
     "describe_toolsets",
@@ -35,14 +37,23 @@ __all__ = [
 
 
 def build_toolsets(workspace: str | os.PathLike[str] | None = None) -> Dict[str, object]:
-    """Build the Jalon 1 toolset set, keyed by toolset name."""
+    """Build the Jalon 1 toolset set, keyed by toolset name.
+
+    ``uhb`` joins only when a UHB control plane answers on its loopback URL
+    (1 s probe): a dead or older UHB contributes no tools rather than a tool
+    that fails on every call. ``UH_UHB_URL=""`` disables it explicitly.
+    """
     ws = Path(workspace) if workspace is not None else None
-    return {
+    toolsets: Dict[str, object] = {
         "file": FileToolset(workspace=ws),
         "terminal": TerminalToolset(workspace=ws),
         "memory": MemoryToolset(),
         "web_search": WebSearchToolset(),
     }
+    uhb = Uhbtoolset.from_environment()
+    if uhb is not None:
+        toolsets["uhb"] = uhb
+    return toolsets
 
 
 def describe_toolsets(toolsets: Dict[str, object]) -> List[str]:

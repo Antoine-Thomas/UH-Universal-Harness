@@ -30,6 +30,9 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("UH_HOME", str(target))
     monkeypatch.delenv("UH_PROVIDER_KEY", raising=False)
+    # No test probes a real UHB: the uhb toolset is opt-in per test
+    # (it sets UH_UHB_URL itself and stubs the probe).
+    monkeypatch.setenv("UH_UHB_URL", "")
     return target
 
 
