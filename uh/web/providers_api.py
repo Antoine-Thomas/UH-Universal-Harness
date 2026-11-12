@@ -13,7 +13,7 @@ step worse.
 from __future__ import annotations
 
 import ipaddress
-from typing import Any, Callable
+from typing import Annotated, Any, Callable
 from urllib.parse import urlsplit
 
 from fastapi import Body, Depends, FastAPI, HTTPException
@@ -133,7 +133,7 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
         }
 
     @app.post("/api/providers/{name}/keys", dependencies=[Depends(dependency)])
-    def add_provider_key(name: str, payload: dict = Body(...)) -> dict:
+    def add_provider_key(name: str, payload: Annotated[dict, Body()]) -> dict:
         require_loopback()
         clean = (name or "").strip().lower()
         raw = (payload or {}).get("key")
@@ -163,7 +163,7 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
         return {"stored": True, "keys": len(read_providers().get(clean, {}).get("keys") or [])}
 
     @app.delete("/api/providers/{name}/keys", dependencies=[Depends(dependency)])
-    def delete_provider_key(name: str, payload: dict = Body(...)) -> dict:
+    def delete_provider_key(name: str, payload: Annotated[dict, Body()]) -> dict:
         require_loopback()
         clean = (name or "").strip().lower()
         index = (payload or {}).get("index")
