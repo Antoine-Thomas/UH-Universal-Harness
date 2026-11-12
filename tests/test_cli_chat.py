@@ -206,3 +206,58 @@ def test_repl_leaves_a_blank_line_before_the_prompt_and_the_answer(
     assert out.startswith("\n"), "a blank line precedes the first prompt"
     assert "\n\n" in out, "the question and the answer are separated"
     assert "bonjour a toi" in out
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "uh doctor",
+        "uh upgrade",
+        "pip install uh-harness",
+        "git status",
+        "ls -la",
+        "cd ..",
+        "ollama serve",
+        "docker ps",
+        "UH DOCTOR",
+    ],
+)
+def test_shell_lines_are_recognised(line: str) -> None:
+    assert cli.shell_command_hint(line) == cli.SHELL_WARNING
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "bonjour",
+        "/help",
+        "comment ça va ?",
+        "explique-moi git",
+        "",
+        "   ",
+    ],
+)
+def test_prose_and_slash_commands_are_not_shell(line: str) -> None:
+    assert cli.shell_command_hint(line) is None
+
+
+def test_the_warning_says_what_to_do() -> None:
+    assert "Type /exit first" in cli.SHELL_WARNING
+    assert "prefix with /" in cli.SHELL_WARNING
+
+
+def test_repl_refuses_a_shell_line_without_calling_the_model(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    stub = StubProvider()
+    session = _repl_session(tmp_path, stub)
+    answers = iter(["uh doctor", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    assert cli._run_repl(session) == 0
+
+    captured = capsys.readouterr()
+    assert stub.seen == [], "a shell line must never reach the model"
+    assert "that looks like a shell command" in captured.err
+    assert [m["role"] for m in session.history] == ["system"], "nothing was appended"

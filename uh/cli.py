@@ -978,6 +978,70 @@ def _build_chat_session(
     return session, EXIT_OK
 
 
+# First tokens that mean "the user thinks this is a shell". Kept to the ones
+# people actually type at a prompt; the heuristic is documented in the helper.
+SHELL_COMMANDS = frozenset(
+    {
+        "uh",
+        "pip",
+        "pip3",
+        "pipx",
+        "python",
+        "python3",
+        "py",
+        "uv",
+        "conda",
+        "git",
+        "ls",
+        "cd",
+        "pwd",
+        "dir",
+        "cat",
+        "type",
+        "mkdir",
+        "rmdir",
+        "rm",
+        "del",
+        "cp",
+        "copy",
+        "mv",
+        "move",
+        "touch",
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "cargo",
+        "go",
+        "dotnet",
+        "docker",
+        "systemctl",
+        "sudo",
+        "export",
+        "ollama",
+    }
+)
+
+SHELL_WARNING = (
+    "uh chat: that looks like a shell command. Type /exit first to run it, "
+    "or prefix with / to use a chat command."
+)
+
+
+def shell_command_hint(text: str) -> str | None:
+    """The warning when a typed line looks like a shell command, else ``None``.
+
+    Heuristic on the first token only, so a sentence that happens to start with
+    one of those words ("git est un outil de versionnage") is also caught: that
+    costs one line of explanation, never a wrong tool call. The alternative -
+    sending ``uh doctor`` to the model - spends tokens to answer nonsense.
+    """
+    words = (text or "").strip().split(maxsplit=1)
+    if words and words[0].lower() in SHELL_COMMANDS:
+        return SHELL_WARNING
+    return None
+
+
 def _run_repl(session: console.ChatSession) -> int:
     """Interactive loop: prompts go to the model, ``/command`` to the registry.
 
@@ -1021,6 +1085,12 @@ def _run_repl(session: console.ChatSession) -> int:
                     ui.errout(result.err)
                 if result.exit:
                     break
+                continue
+            warning = shell_command_hint(text)
+            if warning:
+                # A shell line typed at you>: say so, spend no token, keep the
+                # history clean (the user's *next* message must not inherit it).
+                ui.errout(warning)
                 continue
             ui.out("")  # and one between the question and the answer
             session.run_text(text)
