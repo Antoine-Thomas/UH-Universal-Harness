@@ -32,6 +32,8 @@ from .providers import Provider, ProviderError
 from .store import Store, StoreError, display_id
 
 TOOL_LINE_PREFIX = "· tool "
+INTERRUPT_NOTE = "[interrompu] tour annulé (Ctrl+C)"
+INTERRUPT_EXIT = 130
 
 
 class TurnCancelled(Exception):
@@ -80,6 +82,10 @@ class Console:
         handle = self.stream or sys.stdout
         handle.write(text)
         handle.flush()
+
+    def end_partial_line(self) -> None:
+        """Close a streamed line left open by an interruption (Ctrl+C)."""
+        self.stream_write("\n")
 
     # -- status bar -------------------------------------------------------- #
     @staticmethod
@@ -259,6 +265,11 @@ class ChatSession:
             self._emit("error", message="stopped")
             del self.history[before:]
             return 1
+        except KeyboardInterrupt:
+            # Ctrl+C lands inside httpx/httpcore while a provider streams: the
+            # traceback belongs nowhere on screen, and half an answer must not
+            # be recorded. Drop the turn, keep the session alive.
+            return self._interrupted(before, chunks)
         if code != 0:
             del self.history[before:]
             return code
@@ -276,7 +287,10 @@ class ChatSession:
                 "content": "Answer the original question now, in plain text, without calling a tool.",
             }
             position = len(self.history)
-            code = self._run_into(chunks, on_token, extra=[nudge])
+            try:
+                code = self._run_into(chunks, on_token, extra=[nudge])
+            except KeyboardInterrupt:
+                return self._interrupted(before, chunks)
             if code != 0:
                 return code
             if len(self.history) > position:
@@ -290,6 +304,20 @@ class ChatSession:
         except StoreError as exc:
             self.console.errout(f"uh chat: cannot record session: {exc}")
         return 0
+
+    def _interrupted(self, before: int, chunks: list[str]) -> int:
+        """Acknowledge a Ctrl+C and drop the half-finished turn.
+
+        The user message and any partial tool traffic are rolled back: a turn
+        cut in the middle is not a turn, and replaying it from a truncated
+        history is what produces 400s on the next request.
+        """
+        if chunks:
+            self.console.end_partial_line()
+        self.console.errout(INTERRUPT_NOTE)
+        self._emit("error", message="interrupted")
+        del self.history[before:]
+        return INTERRUPT_EXIT
 
     def _run_into(
         self, chunks: list[str], on_token, extra: list[dict] | None = None

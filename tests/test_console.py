@@ -136,3 +136,68 @@ def test_empty_answer_is_explicit(
     )
     session.run_text("sans reponse")
     assert "(empty response)" in capsys.readouterr().out
+
+
+class InterruptOnce:
+    """Streams one token, then behaves like Ctrl+C in httpx; answers afterwards."""
+
+    model = "stub:1b"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, messages, tools, *, on_token=None):
+        self.calls += 1
+        if self.calls == 1:
+            if on_token is not None:
+                on_token("demi-reponse")
+            raise KeyboardInterrupt()
+        return {"role": "assistant", "content": "seconde reponse", "tool_calls": []}
+
+
+def _streaming_session(tmp_path: Path, provider) -> console.ChatSession:
+    return console.ChatSession(
+        provider_factory=lambda kind, model: provider,
+        provider_kind="stub",
+        chain=[("stub", provider)],
+        model="stub:1b",
+        toolsets={},
+        workspace=tmp_path,
+        cfg=uh_config.load(),
+        stream=True,
+        store=None,
+        max_iterations=2,
+    )
+
+
+def test_ctrl_c_during_a_streamed_turn_keeps_the_session_usable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    provider = InterruptOnce()
+    session = _streaming_session(tmp_path, provider)
+
+    code = session.run_text("premier")
+
+    captured = capsys.readouterr()
+    assert code == console.INTERRUPT_EXIT
+    assert "[interrompu]" in captured.err
+    # the half answer is closed on its own line, then acknowledged on stderr
+    assert captured.out.endswith("\n")
+    # nothing from the cut turn is kept: only the system prompt remains
+    assert [m["role"] for m in session.history] == ["system"]
+
+    assert session.run_text("second") == 0
+    assert "seconde reponse" in capsys.readouterr().out
+
+
+def test_ctrl_c_is_not_a_traceback_even_in_once_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`uh chat --once` goes through run_text too: no KeyboardInterrupt escapes it."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    provider = InterruptOnce()
+    session = _streaming_session(tmp_path, provider)
+
+    assert session.run_text("premier") == console.INTERRUPT_EXIT
+    assert "Traceback" not in capsys.readouterr().err

@@ -94,3 +94,76 @@ def test_empty_stdin_exits_zero_without_calling_provider(
     code = cli.main(["chat", "--once", "--model", "stub:1b", "--workspace", str(tmp_path)])
     assert code == 0
     assert not stub.seen
+
+
+class StreamInterrupt:
+    """One streamed token then Ctrl+C, then a normal answer on the next turn."""
+
+    model = "stub:1b"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, messages, tools, *, on_token=None):
+        self.calls += 1
+        if self.calls == 1:
+            if on_token is not None:
+                on_token("demi")
+            raise KeyboardInterrupt()
+        return {"role": "assistant", "content": "reponse du second tour", "tool_calls": []}
+
+
+def _repl_session(tmp_path: Path, provider) -> object:
+    from uh import config as uh_config
+    from uh import console as uh_console
+
+    return uh_console.ChatSession(
+        provider_factory=lambda kind, model: provider,
+        provider_kind="stub",
+        chain=[("stub", provider)],
+        model="stub:1b",
+        toolsets={},
+        workspace=tmp_path,
+        cfg=uh_config.load(),
+        stream=True,
+        store=None,
+        max_iterations=2,
+    )
+
+
+def test_repl_prompts_again_after_ctrl_c_during_a_turn(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    provider = StreamInterrupt()
+    session = _repl_session(tmp_path, provider)
+    answers = iter(["premier", "second", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    code = cli._run_repl(session)
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "[interrompu]" in captured.err
+    assert "Traceback" not in captured.err
+    # the REPL asked a second question and the model answered it
+    assert provider.calls == 2
+    assert "reponse du second tour" in captured.out
+
+
+def test_repl_survives_an_interrupt_outside_run_text(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Ctrl+C inside a slash command must not kill the loop either."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    session = _repl_session(tmp_path, StreamInterrupt())
+    answers = iter(["premier", "/exit"])
+
+    def boom(_text: str) -> int:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(session, "run_text", boom)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    assert cli._run_repl(session) == 0
+    assert "[interrompu]" in capsys.readouterr().err

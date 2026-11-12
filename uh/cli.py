@@ -909,16 +909,23 @@ def _run_repl(session: console.ChatSession) -> int:
         text = line.strip()
         if not text:
             continue
-        if commands.is_command(text):
-            result = commands.dispatch(session, text)
-            if result.out:
-                ui.out(result.out)
-            if result.err:
-                ui.errout(result.err)
-            if result.exit:
-                break
-            continue
-        session.run_text(text)
+        try:
+            if commands.is_command(text):
+                result = commands.dispatch(session, text)
+                if result.out:
+                    ui.out(result.out)
+                if result.err:
+                    ui.errout(result.err)
+                if result.exit:
+                    break
+                continue
+            session.run_text(text)
+        except KeyboardInterrupt:
+            # Second net: run_text already swallows an interrupt raised by the
+            # provider, this one covers a slash command or a provider rebuild.
+            # The REPL never dies on Ctrl+C; the prompt comes back.
+            print("", file=sys.stderr)
+            ui.errout(console.INTERRUPT_NOTE)
 
     if session.session_id:
         ui.errout(f"resume with: uh chat --session {display_id(session.session_id)}")
