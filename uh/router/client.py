@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 
 import httpx
 
+from ..providers import request_messages
 from .catalog import ModelSpec, ProviderSpec
 
 
@@ -99,7 +100,13 @@ def _headers(spec: ProviderSpec, key: str) -> dict[str, str]:
 
 
 def _body(model: str, messages: list[dict], tools: list[dict], stream: bool) -> dict:
-    payload: dict[str, Any] = {"model": model, "messages": messages, "stream": stream}
+    payload: dict[str, Any] = {
+        "model": model,
+        # DeepSeek-style gateways reject an assistant message whose tool_calls
+        # list is empty: strip it on the wire, keep the local dicts as they are.
+        "messages": request_messages(messages),
+        "stream": stream,
+    }
     if tools:
         payload["tools"] = tools
     if stream:

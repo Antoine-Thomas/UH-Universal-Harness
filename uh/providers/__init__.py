@@ -45,6 +45,23 @@ class ProviderError(RuntimeError):
         return type(self).__name__
 
 
+def request_messages(messages: List[dict]) -> List[dict]:
+    """Copy of ``messages`` with an empty ``tool_calls`` list removed.
+
+    OpenAI tolerates ``"tool_calls": []`` on an assistant message; DeepSeek does
+    not, and rejects the *next* turn with ``400 Invalid 'messages[N].tool_calls':
+    empty array`` because the assistant message is replayed from history. The
+    wire payload is fixed here, once, for every OpenAI-compatible provider; the
+    session keeps its own dicts untouched.
+    """
+    cleaned: List[dict] = []
+    for message in messages:
+        if isinstance(message, dict) and "tool_calls" in message and not message["tool_calls"]:
+            message = {key: value for key, value in message.items() if key != "tool_calls"}
+        cleaned.append(message)
+    return cleaned
+
+
 class Provider(ABC):
     """Base class for every provider (local or remote)."""
 

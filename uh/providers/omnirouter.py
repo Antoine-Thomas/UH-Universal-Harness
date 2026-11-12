@@ -31,7 +31,7 @@ from typing import Callable, List, Optional
 
 import httpx
 
-from . import Provider, ProviderError
+from . import Provider, ProviderError, request_messages
 
 DEFAULT_OMNIROUTER_PORT = 20128
 DEFAULT_MODEL = "auto/best-free"
@@ -155,7 +155,7 @@ class OmniRouterProvider(Provider):
     ) -> dict:
         payload: dict = {
             "model": self.model,
-            "messages": messages,
+            "messages": request_messages(messages),
             "stream": on_token is not None,
         }
         if tools:

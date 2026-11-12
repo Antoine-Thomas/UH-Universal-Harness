@@ -18,7 +18,7 @@ from typing import Callable, Iterator, List, Optional
 
 import httpx
 
-from . import Provider, ProviderError
+from . import Provider, ProviderError, request_messages
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_TIMEOUT = 120.0
@@ -60,7 +60,7 @@ class OllamaProvider(Provider):
     ) -> dict:
         payload: dict = {
             "model": self.model,
-            "messages": messages,
+            "messages": request_messages(messages),
             "stream": on_token is not None,
         }
         if tools:
