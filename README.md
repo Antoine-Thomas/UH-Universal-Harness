@@ -1,3 +1,6 @@
+[![PyPI version](https://img.shields.io/pypi/v/uh-harness.svg)](https://pypi.org/project/uh-harness/)
+[![Publish to PyPI](https://github.com/Antoine-Thomas/UH-Universal-Harness/actions/workflows/publish.yml/badge.svg)](https://github.com/Antoine-Thomas/UH-Universal-Harness/actions/workflows/publish.yml)
+
 # UH — Universal Harness
 
 A provider-agnostic agent harness in Python. UH merges the ideas that worked in
@@ -122,6 +125,8 @@ unchanged). The status bar shows `provider · model · session · messages ·
 context estimate`. `/help` lists everything; the full inventory and the reason
 each Hermes command was kept or dropped lives in
 [docs/SLASH_COMMANDS.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/SLASH_COMMANDS.md).
+
+The release process (Trusted Publishing, TestPyPI then PyPI, yanking) is in [docs/RELEASING.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/RELEASING.md).
 
 `/help`, `/model`, `/provider`, `/tools`, `/clear`, `/new`, `/sessions`,
 `/resume`, `/history`, `/retry`, `/title`, `/status`, `/config`, `/doctor`,
