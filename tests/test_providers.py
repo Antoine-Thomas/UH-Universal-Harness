@@ -43,8 +43,8 @@ def isolated_router(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return missing
 
 
-def test_registry_contains_both_providers() -> None:
-    assert set(PROVIDERS) == {"ollama", "omnirouter"}
+def test_registry_contains_every_provider() -> None:
+    assert set(PROVIDERS) == {"ollama", "omnirouter", "router"}
 
 
 def test_build_ollama_provider() -> None:

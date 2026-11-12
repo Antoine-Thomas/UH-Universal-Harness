@@ -51,9 +51,18 @@ from .ollama import OllamaProvider  # noqa: E402
 from .omnirouter import OmniRouterProvider  # noqa: E402
 from .openai_compat import OpenAICompatProvider  # noqa: E402
 
+
+def _build_router(model: str = "", **kwargs) -> "Provider":
+    """Free-provider router. Imported lazily: uh.router imports this module."""
+    from ..router.provider import RouterProvider
+
+    return RouterProvider(model, **kwargs)
+
+
 PROVIDERS: dict[str, Callable[..., Provider]] = {
     "ollama": OllamaProvider,
     "omnirouter": OmniRouterProvider,
+    "router": _build_router,
 }
 
 

@@ -397,6 +397,24 @@ def _make_provider(kind: str, model: str) -> Provider:
     return build_provider(kind, model)
 
 
+def _router_entry_if_configured() -> tuple[str, Provider] | None:
+    """Add the free router to the chain only when it has keys for catalogue entries."""
+    try:
+        from .keys import read_providers
+        from .router.catalog import load_catalog
+
+        catalog = load_catalog()
+        configured = set(read_providers()) & set(catalog)
+    except Exception:  # noqa: BLE001 - a missing catalogue must not break `uh chat`
+        return None
+    if not configured:
+        return None
+    try:
+        return ("router", _make_provider("router", ""))
+    except ProviderError:
+        return None
+
+
 def _build_chain(
     requested: str | None,
     model: str | None,
@@ -443,9 +461,13 @@ def _build_chain(
     except ProviderError as exc:
         reasons.append(f"omnirouter: {exc}")
 
+    router_entry = _router_entry_if_configured()
+
     omnirouter_first = (preferred or "").strip().lower() == "omnirouter"
     first, second = (omni_entry, ollama_entry) if omnirouter_first else (ollama_entry, omni_entry)
     chain = [entry for entry in (first, second) if entry is not None]
+    if router_entry is not None:
+        chain.append(router_entry)
 
     if not chain:
         raise ProviderError("no usable provider - " + "; ".join(reasons))
@@ -855,6 +877,148 @@ def cmd_console(_args: argparse.Namespace) -> int:
         session.close()
 
 # --------------------------------------------------------------------------- #
+# uh providers free / uh router status (Jalon 6a)
+# --------------------------------------------------------------------------- #
+def cmd_providers_free(args: argparse.Namespace) -> int:
+    """List the free-provider catalogue and (in a TTY) store a key."""
+    import getpass
+
+    from .keys import add_key, add_provider, read_providers
+    from .router.catalog import CatalogError, load_catalog
+    from .router.policy import CONSENT_WARNING, record_consent
+
+    try:
+        catalog = load_catalog()
+    except CatalogError as exc:
+        print(f"uh providers free: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+
+    configured = read_providers()
+    print("free providers, cheapest-first candidates (catalogue data, verified per entry)")
+    print(f"  {'name':<11} {'status':<11} {'keys':>4}  models / limits")
+    for name, spec in catalog.items():
+        keys = [item for item in configured.get(name, {}).get("keys", []) if item]
+        models = ", ".join(model.id for model in spec.models[:2]) or "discovered at runtime"
+        label = "verified" if spec.verified == "verified" else "UNVERIFIED"
+        print(f"  {name:<11} {label:<11} {len(keys):>4}  {models}")
+        if spec.limits:
+            print(f"  {'':<11} {'':<11} {'':>4}  limits: {spec.limits}")
+        if spec.key_url:
+            print(f"  {'':<11} {'':<11} {'':>4}  key: {spec.key_url}")
+        if spec.notes:
+            print(f"  {'':<11} {'':<11} {'':>4}  note: {spec.notes}")
+        if spec.verified != "verified":
+            print(
+                f"  {'':<11} {'':<11} {'':>4}  excluded from the automatic chain; "
+                f"opt in with: uh config set router_extra_providers {name}"
+            )
+
+    if not (sys.stdin and sys.stdin.isatty()):
+        print("\nrun `uh providers free` in a terminal to add a key (input is hidden).")
+        return EXIT_OK
+
+    try:
+        name = input("\nprovider to configure (empty to cancel): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("cancelled (no terminal input)", file=sys.stderr)
+        return EXIT_OK
+    if not name:
+        return EXIT_OK
+    chosen = catalog.get(name)
+    if chosen is None:
+        print(f"uh: unknown provider '{name}'", file=sys.stderr)
+        return EXIT_FAILURE
+    if chosen.verified == "unverified":
+        print(f"uh: {name} is unverified in the catalogue; not using it", file=sys.stderr)
+        return EXIT_FAILURE
+    spec = chosen
+
+    if spec.key_url:
+        print(f"register a key at: {spec.key_url}")
+    if spec.signup_note:
+        print(f"note: {spec.signup_note}")
+    print()
+    print(CONSENT_WARNING)
+    try:
+        answer = input("\nStore a key for this provider and enable remote calls? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("cancelled (no terminal input)", file=sys.stderr)
+        return EXIT_FAILURE
+    if answer not in {"y", "yes"}:
+        print("cancelled", file=sys.stderr)
+        return EXIT_FAILURE
+
+    try:
+        key = getpass.getpass("API key (not echoed): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("cancelled (no terminal input)", file=sys.stderr)
+        return EXIT_FAILURE
+    if not key:
+        print("uh: empty key, nothing stored", file=sys.stderr)
+        return EXIT_FAILURE
+
+    try:
+        existing = configured.get(name)
+        model = spec.models[0].id if spec.models else ""
+        if existing:
+            add_key(name, key)
+        else:
+            add_provider(name, spec.base_url, model, key)
+    except OSError as exc:
+        print(f"uh: cannot write the key file: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    except ValueError as exc:
+        print(f"uh: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+
+    uh_config.write_layer("user", "allow_remote", True)
+    record_consent()
+    print(f"stored 1 key for {name}; remote providers enabled for this user")
+    print("the key is never printed, logged or committed")
+    return EXIT_OK
+
+
+def cmd_router_status(args: argparse.Namespace) -> int:
+    from .providers import build_provider
+    from .router.policy import allow_remote, has_consent
+
+    cfg = _load_config(args)
+    local_only = bool(getattr(args, "local_only", False))
+    allowed = allow_remote(cfg, local_only=local_only)
+    print(f"router - {'remote allowed' if allowed else 'local-only: no remote call will be made'}")
+    print(f"  consent: {'recorded' if has_consent(cfg) else 'not recorded yet'}")
+    print(f"  strategy: {cfg.get('router_strategy') or 'priority'}")
+
+    from .router.provider import RouterProvider
+
+    try:
+        provider = build_provider("router", "", cfg=cfg, local_only=local_only)
+    except ProviderError as exc:
+        print(f"uh router status: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    if not isinstance(provider, RouterProvider):
+        print("uh router status: unexpected provider type", file=sys.stderr)
+        return EXIT_FAILURE
+
+    rows = provider.status_rows()
+    if not rows:
+        print("  no provider in the catalogue")
+        return EXIT_OK
+    print(f"  {'provider':<11} {'status':<20} {'keys':>4} {'chain':<6} {'state':<12} last error")
+    for row in rows:
+        if not row["keys"]:
+            state = "no key"
+        else:
+            state = "ready" if row["available"] else f"cooling {row['cooling_seconds']}s"
+        chain = "yes" if row["selected"] else "no"
+        print(
+            f"  {row['provider']:<11} {row['label']:<20} {row['keys']:>4} {chain:<6} "
+            f"{state:<12} {row['last_error'] or '-'}"
+        )
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
 # uh web (Jalon 5)
 # --------------------------------------------------------------------------- #
 def cmd_web(args: argparse.Namespace) -> int:
@@ -1190,6 +1354,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the UH version and exit",
     )
     parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="never call a remote provider, whatever the config says",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="print tracebacks instead of short errors",
@@ -1248,6 +1417,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     providers = sub.add_parser("providers", help="list registered providers and their state")
     providers_sub = providers.add_subparsers(dest="providers_command", metavar="<action>")
+    providers_sub.add_parser("free", help="list the free-provider catalogue and store a key")
     providers_sub.add_parser("list", help="show providers and their status")
     providers_add = providers_sub.add_parser(
         "add", help="store an OpenAI-compatible provider (key never printed)"
@@ -1258,6 +1428,10 @@ def build_parser() -> argparse.ArgumentParser:
     providers_add.add_argument("--key", help="API key (prefer the prompt: it is not echoed)")
     providers_remove = providers_sub.add_parser("remove", help="forget a stored provider")
     providers_remove.add_argument("name")
+
+    router = sub.add_parser("router", help="free-provider router (Jalon 6a)")
+    router_sub = router.add_subparsers(dest="router_command", metavar="<action>")
+    router_sub.add_parser("status", help="per-provider state: keys, cooldown, last error")
 
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
     web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
@@ -1326,6 +1500,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # --local-only wins over config and environment: one global kill switch.
+    if getattr(args, "local_only", False):
+        os.environ["UH_ALLOW_REMOTE"] = "0"
+
     if args.command is None:
         return cmd_console(args)
 
@@ -1343,11 +1521,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "providers":
             if args.providers_command == "list":
                 return cmd_providers_list(args)
+            if args.providers_command == "free":
+                return cmd_providers_free(args)
             if args.providers_command == "add":
                 return cmd_providers_add(args)
             if args.providers_command == "remove":
                 return cmd_providers_remove(args)
             return _sub_help(parser, "providers")
+        if args.command == "router":
+            if args.router_command == "status":
+                return cmd_router_status(args)
+            return _sub_help(parser, "router")
         if args.command == "web":
             return cmd_web(args)
         if args.command == "sessions":

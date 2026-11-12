@@ -89,6 +89,15 @@ Jalons 0 to 5 are done. The interface is an **original design**: it borrows the
 feature list of Harness Maxxing (public README) and none of its code, which is
 under a Fair Source Licence. UH stays MIT.
 
+A sixth milestone is in progress:
+
+- [x] **Jalon 6a — Free-provider router.** Catalogue of free OpenAI-compatible
+      providers (`uh/router/catalog.toml`, verified per entry), key rotation,
+      cooldowns, circuit breaker, tool-capable-model filter, traced failover,
+      opt-in remote access with recorded consent and `--local-only`.
+- [ ] **Jalon 6b — Local gateway.** `uh router serve`: an OpenAI-compatible
+      endpoint on `127.0.0.1` behind a token, so other tools can use UH's pool.
+
 ## CLI surface (Jalon 4)
 
 ```
@@ -207,8 +216,8 @@ uh memory migrate                                     # MEMORY.md -> one session
 | `ollama` | httpx, NDJSON | `POST /api/chat`, `GET /api/tags`, `POST /api/pull` | yes |
 | `omnirouter` | httpx, SSE | `POST /v1/chat/completions` (OpenAI-compatible) | yes |
 
-Without `--provider`, `uh chat` builds the chain `ollama` then `omnirouter`
-(when configured). Every switch is printed on stderr, never silent:
+Without `--provider`, `uh chat` builds the chain `ollama`, then `omnirouter`
+(when configured), then the free-provider **router** (when it has keys). Every switch is printed on stderr, never silent:
 
 ```
 fallback: ollama -> omnirouter (reason: cannot reach Ollama at ...)
@@ -217,6 +226,34 @@ fallback: ollama -> omnirouter (reason: cannot reach Ollama at ...)
 `--provider <kind>` disables the fallback: one provider, its errors surface as
 they are. Model namespaces are not shared, so the backup uses
 `UH_OMNIROUTER_MODEL` (default `auto/best-free`) rather than the Ollama tag.
+
+## Free providers, opt-in and local-first
+
+UH ships **no key**: a key in a public package is a stolen key. Instead, `uh
+providers free` lists the free, OpenAI-compatible providers (endpoint, free
+model ids, documented limits, where to get your own key, and the date each fact
+was checked), and stores the key you obtain in `$UH_HOME/keys.toml` (0600 where
+the OS allows).
+
+```
+uh providers free          # catalogue, then (in a terminal) store a key
+uh router status           # per provider: keys, ready/cooling, last error kind
+uh --local-only chat ...   # one command, guaranteed local
+uh config set allow_remote true
+```
+
+Remote access is **off by default**. The first remote call asks for an explicit
+consent, because free tiers routinely keep requests and may train on them —
+Ollama still answers first whenever a model is installed. Off a terminal, UH
+refuses rather than guessing. Multiple keys per provider are rotated, a `429`
+parks the key for its `Retry-After`, and three failures open a circuit breaker
+that re-probes after a backoff; none of that is silent: the provider and model
+that really answered are shown by `uh router status` and stored in the trace.
+
+Catalogue entries carry a verification status and the date they were checked;
+the `partial` ones are labelled `UNVERIFIED`, kept out of the automatic chain,
+and only used after `uh config set router_extra_providers <name>`. What is verified, what is not, and why no key is ever
+shipped: [docs/ROUTER.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/ROUTER.md).
 
 ## OmniRouter discovery (measured, not guessed)
 

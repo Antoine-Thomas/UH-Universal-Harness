@@ -1,0 +1,119 @@
+# Catalogue of free, OpenAI-compatible providers - DATA ONLY, no code.
+#
+# Every entry was checked against the provider's own documentation on the date
+# in `checked_at`. Free tiers change often: re-check before trusting a limit.
+# `verified` is one of:
+#   verified  - endpoint, auth, model ids and the stated limits were read on the
+#               provider's official documentation during this check;
+#   partial   - the endpoint is documented but at least one fact (usually the
+#               free-tier limits) could not be confirmed on an official page;
+#   unverified- kept for reference only, never selected automatically.
+#
+# No key, no token, no credential belongs in this file.
+
+version = 1
+checked_at = "2026-11-12"
+
+[providers.groq]
+base_url = "https://api.groq.com/openai/v1"
+auth = "bearer"
+key_url = "https://console.groq.com/keys"
+docs_url = "https://console.groq.com/docs/rate-limits"
+verified = "verified"
+checked_at = "2026-11-12"
+limits = "per model; e.g. gpt-oss-120b: 30 RPM / 1K RPD / 8K TPM / 200K TPD"
+notes = "429 responses always carry retry-after; the other x-ratelimit-* headers are always set."
+signup_note = "Free plan, no card required."
+
+[[providers.groq.models]]
+id = "openai/gpt-oss-120b"
+tools = true
+
+[[providers.groq.models]]
+id = "qwen/qwen3.8-27b"
+tools = true
+
+[[providers.groq.models]]
+id = "openai/gpt-oss-20b"
+tools = true
+
+[providers.openrouter]
+base_url = "https://openrouter.ai/api/v1"
+auth = "bearer"
+key_url = "https://openrouter.ai/keys"
+docs_url = "https://openrouter.ai/docs/api-reference/limits"
+verified = "verified"
+checked_at = "2026-11-12"
+limits = "free variants are capped per day; 429 carries Retry-After, 402 means out of credit"
+notes = "Free models are catalog entries suffixed ':free' (GET /api/v1/models). A mid-stream 429 arrives as an SSE chunk with finish_reason=error, not an HTTP status."
+signup_note = "Free models need an account; adding 10 credits raises the free daily cap."
+discover = "/models"
+discover_suffix = ":free"
+
+[providers.cerebras]
+base_url = "https://api.cerebras.ai/v1"
+auth = "bearer"
+key_url = "https://cloud.cerebras.ai/"
+docs_url = "https://inference-docs.cerebras.ai/api-reference/chat-completions"
+verified = "verified"
+checked_at = "2026-11-12"
+limits = "free tier: per-minute request/token caps, not published per model on the API reference page"
+notes = "Endpoint POST /v1/chat/completions; authentication by a bearer token. Model ids come from the API reference examples."
+signup_note = "Free tier available from the Cerebras Cloud console."
+
+[[providers.cerebras.models]]
+id = "qwen-3.8-27b"
+tools = true
+
+[[providers.cerebras.models]]
+id = "gpt-oss-120b"
+tools = true
+
+[providers.nvidia]
+base_url = "https://integrate.api.nvidia.com/v1"
+auth = "bearer"
+key_url = "https://build.nvidia.com/"
+docs_url = "https://docs.api.nvidia.com/nim/reference/llm-apis"
+verified = "verified"
+checked_at = "2026-11-12"
+limits = "developer program credits; not a flat free tier"
+notes = "POST /v1/chat/completions on integrate.api.nvidia.com. Model ids are namespaced, e.g. deepseek-ai/deepseek-v4-flash."
+signup_note = "Needs an NVIDIA developer account; free credits are limited."
+
+[[providers.nvidia.models]]
+id = "deepseek-ai/deepseek-v4-flash"
+tools = true
+
+[[providers.nvidia.models]]
+id = "meta/llama-3.3-70b-instruct"
+tools = true
+
+[providers.gemini]
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+auth = "bearer"
+key_url = "https://aistudio.google.com/apikey"
+docs_url = "https://ai.google.dev/gemini-api/docs/openai"
+verified = "partial"
+checked_at = "2026-11-12"
+limits = "free tier exists per model; daily request caps not confirmed today"
+notes = "The official compatibility page returned HTTP 504 during this check; base_url and the Bearer scheme come from Google's own documented example. Re-check before relying on it."
+signup_note = "Google AI Studio API key; free tier with daily caps."
+
+[[providers.gemini.models]]
+id = "gemini-3.8-flash"
+tools = true
+
+[providers.mistral]
+base_url = "https://api.mistral.ai/v1"
+auth = "bearer"
+key_url = "https://console.mistral.ai/api-keys"
+docs_url = "https://docs.mistral.ai/api/"
+verified = "partial"
+checked_at = "2026-11-12"
+limits = "free 'experiment' plan exists; caps not confirmed on the API reference page"
+notes = "POST /v1/chat/completions documented; base_url inferred from the API reference host, not printed verbatim there."
+signup_note = "Mistral Studio account; free plan is rate-limited and may train on inputs."
+
+[[providers.mistral.models]]
+id = "mistral-small-latest"
+tools = true

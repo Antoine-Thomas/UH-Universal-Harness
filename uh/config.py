@@ -31,6 +31,12 @@ DEFAULTS: dict[str, Any] = {
     "store_path": "$UH_HOME/uh.db",
     "stream": True,
     "banner": True,
+    # Jalon 6a: the router never leaves the machine unless the user says so.
+    "allow_remote": False,
+    "remote_consent": "",
+    "router_strategy": "priority",
+    # comma-separated catalogue names the user accepts despite "partial" status
+    "router_extra_providers": "",
 }
 
 KEY_TYPES: dict[str, type] = {
@@ -42,6 +48,10 @@ KEY_TYPES: dict[str, type] = {
     "store_path": str,
     "stream": bool,
     "banner": bool,
+    "allow_remote": bool,
+    "remote_consent": str,
+    "router_strategy": str,
+    "router_extra_providers": str,
 }
 
 ENV_KEYS: dict[str, str] = {
@@ -53,6 +63,9 @@ ENV_KEYS: dict[str, str] = {
     "store_path": "UH_STORE_PATH",
     "stream": "UH_STREAM",
     "banner": "UH_BANNER",
+    "allow_remote": "UH_ALLOW_REMOTE",
+    "router_strategy": "UH_ROUTER_STRATEGY",
+    "router_extra_providers": "UH_ROUTER_EXTRA_PROVIDERS",
 }
 
 _TRUE = {"1", "true", "yes", "on"}

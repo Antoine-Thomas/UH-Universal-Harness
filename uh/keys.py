@@ -81,10 +81,15 @@ def read_providers() -> dict[str, dict[str, Any]]:
     cleaned: dict[str, dict[str, Any]] = {}
     for name, entry in providers.items():
         if isinstance(entry, dict) and entry.get("base_url"):
+            single = str(entry.get("key") or "")
+            many = [str(item) for item in (entry.get("keys") or []) if item]
+            if single and single not in many:
+                many.insert(0, single)
             cleaned[str(name)] = {
                 "base_url": str(entry.get("base_url") or ""),
                 "model": str(entry.get("model") or ""),
-                "key": str(entry.get("key") or ""),
+                "key": many[0] if many else "",
+                "keys": many,
             }
     return cleaned
 
@@ -109,7 +114,12 @@ def _dump(providers: dict[str, dict[str, Any]]) -> str:
         lines.append(f"[providers.{name}]")
         lines.append(f"base_url = {_quote(entry.get('base_url', ''))}")
         lines.append(f"model = {_quote(entry.get('model', ''))}")
-        lines.append(f"key = {_quote(entry.get('key', ''))}")
+        keys = [key for key in (entry.get("keys") or []) if key]
+        if len(keys) > 1:
+            rendered = ", ".join(_quote(key) for key in keys)
+            lines.append(f"keys = [{rendered}]")
+        else:
+            lines.append(f"key = {_quote(entry.get('key', '') or (keys[0] if keys else ''))}")
         lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
 
@@ -143,6 +153,39 @@ def _restrict(path: Path) -> None:
         pass
 
 
+def add_key(name: str, key: str) -> Path:
+    """Append a key to an existing provider (rotation), ignoring duplicates."""
+    clean = (name or "").strip().lower()
+    providers = read_providers()
+    if clean not in providers:
+        raise ValueError(f"unknown provider '{clean}': add it with `uh providers add` first")
+    entry = providers[clean]
+    keys = [item for item in (entry.get("keys") or []) if item]
+    if not keys and entry.get("key"):
+        keys = [entry["key"]]
+    if key and key not in keys:
+        keys.append(key)
+    entry["keys"] = keys
+    entry["key"] = keys[0] if keys else ""
+    return _write_all(providers)
+
+
+def remove_key(name: str, key: str) -> bool:
+    """Drop one key (by exact value); never prints it back."""
+    clean = (name or "").strip().lower()
+    providers = read_providers()
+    entry = providers.get(clean)
+    if not entry:
+        return False
+    keys = [item for item in (entry.get("keys") or []) if item and item != key]
+    if len(keys) == len([item for item in (entry.get("keys") or []) if item]):
+        return False
+    entry["keys"] = keys
+    entry["key"] = keys[0] if keys else ""
+    _write_all(providers)
+    return True
+
+
 def add_provider(name: str, base_url: str, model: str, key: str) -> Path:
     clean = (name or "").strip().lower()
     if not _NAME_RE.match(clean):
@@ -156,6 +199,7 @@ def add_provider(name: str, base_url: str, model: str, key: str) -> Path:
         "base_url": (base_url or "").rstrip("/"),
         "model": model or "",
         "key": key or "",
+        "keys": [key] if key else [],
     }
     return _write_all(providers)
 

@@ -38,6 +38,7 @@ def test_add_read_remove_roundtrip(home: Path) -> None:
         "base_url": "https://api.groq.com/openai/v1",
         "model": "llama-3.1-8b",
         "key": SECRET,
+        "keys": [SECRET],
     }
     assert keys_mod.has_key("groq")
     assert keys_mod.provider_names() == ["groq"]
