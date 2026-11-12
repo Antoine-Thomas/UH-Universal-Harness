@@ -14,29 +14,6 @@
 version = 1
 checked_at = "2026-11-12"
 
-[providers.groq]
-base_url = "https://api.groq.com/openai/v1"
-auth = "bearer"
-key_url = "https://console.groq.com/keys"
-docs_url = "https://console.groq.com/docs/rate-limits"
-verified = "verified"
-checked_at = "2026-11-12"
-limits = "per model; e.g. gpt-oss-120b: 30 RPM / 1K RPD / 8K TPM / 200K TPD"
-notes = "429 responses always carry retry-after; the other x-ratelimit-* headers are always set."
-signup_note = "Free plan, no card required."
-
-[[providers.groq.models]]
-id = "openai/gpt-oss-120b"
-tools = true
-
-[[providers.groq.models]]
-id = "qwen/qwen3.8-27b"
-tools = true
-
-[[providers.groq.models]]
-id = "openai/gpt-oss-20b"
-tools = true
-
 [providers.openrouter]
 base_url = "https://openrouter.ai/api/v1"
 auth = "bearer"

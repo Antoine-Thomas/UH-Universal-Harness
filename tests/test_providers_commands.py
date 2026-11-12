@@ -58,7 +58,7 @@ def session(home: Path) -> console.ChatSession:
 # --------------------------------------------------------------------------- #
 def test_service_rejects_a_catalogue_name_for_a_custom_provider(home: Path) -> None:
     with pytest.raises(admin.AdminError) as failure:
-        admin.create_custom("groq", "https://api.groq.com/openai/v1")
+        admin.create_custom("openrouter", "https://openrouter.ai/api/v1")
     assert "catalogue provider" in str(failure.value)
 
 
@@ -165,11 +165,11 @@ def test_console_key_add_uses_the_masked_reader(
         return SECRET
 
     monkeypatch.setattr(admin, "read_secret", fake_reader)
-    result = commands.dispatch(session, "/key add groq")
+    result = commands.dispatch(session, "/key add openrouter")
     assert calls and "not echoed" in calls[0]
     assert not result.err
     assert SECRET not in (result.out or "")
-    assert keys_mod.get_provider("groq")["keys"] == [SECRET]
+    assert keys_mod.get_provider("openrouter")["keys"] == [SECRET]
 
 
 def test_console_key_add_refuses_an_empty_secret(
@@ -181,10 +181,10 @@ def test_console_key_add_refuses_an_empty_secret(
 
 
 def test_console_router_shows_the_chain(session: console.ChatSession) -> None:
-    admin.save_provider("groq", "https://api.groq.com/openai/v1", "m", SECRET)
+    admin.save_provider("openrouter", "https://openrouter.ai/api/v1", "m", SECRET)
     result = commands.dispatch(session, "/router")
     assert "allow_remote: false" in result.out
-    assert "groq" in result.out
+    assert "openrouter" in result.out
     assert SECRET not in result.out
 
 

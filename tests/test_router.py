@@ -27,7 +27,7 @@ TODAY = "2026-11-12"
 # --------------------------------------------------------------------------- #
 def test_catalog_is_data_and_loads() -> None:
     catalog = load_catalog()
-    assert {"groq", "openrouter", "cerebras", "nvidia"} <= set(catalog)
+    assert {"openrouter", "cerebras", "nvidia"} <= set(catalog)
     for spec in catalog.values():
         assert spec.base_url.startswith("https://")
         assert spec.verified in catalog_mod.VERIFICATION_STATES

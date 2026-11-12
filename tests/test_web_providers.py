@@ -127,8 +127,8 @@ def test_providers_lists_the_catalogue(tmp_path: Path, monkeypatch: pytest.Monke
             assert response.status_code == 200
             payload = response.json()
             names = {row["name"] for row in payload["providers"]}
-            assert {"groq", "openrouter", "cerebras"} <= names
-            row = next(item for item in payload["providers"] if item["name"] == "groq")
+            assert {"openrouter", "cerebras", "nvidia"} <= names
+            row = next(item for item in payload["providers"] if item["name"] == "openrouter")
             assert row["verified"] == "verified"
             assert row["keys"] == 0
             assert row["in_chain"] is False
@@ -206,7 +206,7 @@ def test_add_key_stores_without_echoing_it(
     async def scenario():
         async with client(app) as http:
             response = await http.post(
-                "/api/providers/groq/keys", json={"key": KNOWN_KEY}, headers=AUTH
+                "/api/providers/openrouter/keys", json={"key": KNOWN_KEY}, headers=AUTH
             )
             assert response.status_code == 200
             assert response.json() == {"stored": True, "keys": 1}
@@ -214,11 +214,11 @@ def test_add_key_stores_without_echoing_it(
 
             listing = await http.get("/api/providers", headers=AUTH)
             assert_no_key(listing.text)
-            groq = next(row for row in listing.json()["providers"] if row["name"] == "groq")
-            assert groq["keys"] == 1
+            row = next(row for row in listing.json()["providers"] if row["name"] == "openrouter")
+            assert row["keys"] == 1
 
     run(scenario())
-    entry = keys_mod.get_provider("groq")
+    entry = keys_mod.get_provider("openrouter")
     assert entry is not None and entry["keys"] == [KNOWN_KEY]
     assert oct((tmp_path / "home" / "keys.toml").stat().st_mode & 0o777) in {"0o600", "0o666"}
 
@@ -347,7 +347,7 @@ def test_custom_provider_created_and_listed(
         ({"name": "perso", "base_url": "http://api.example.com/v1"}, "https"),
         ({"name": "perso", "base_url": "http://169.254.169.254/latest"}, "link-local"),
         ({"name": "perso", "base_url": "ftp://x.test"}, "http or https"),
-        ({"name": "groq", "base_url": "https://x.test/v1"}, "catalogue provider"),
+        ({"name": "openrouter", "base_url": "https://x.test/v1"}, "catalogue provider"),
         ({"name": "perso", "base_url": ""}, "required"),
     ],
 )
@@ -383,7 +383,7 @@ def test_probe_sends_a_ping_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     async def scenario():
         async with client(app) as http:
-            result = await http.post("/api/providers/groq/test", headers=AUTH)
+            result = await http.post("/api/providers/openrouter/test", headers=AUTH)
             assert result.status_code == 200
             assert result.json() == {"ok": True, "status": 200, "error_kind": None}
 
@@ -403,7 +403,7 @@ def test_probe_reports_the_error_kind(
 
     async def scenario():
         async with client(app) as http:
-            body = (await http.post("/api/providers/groq/test", headers=AUTH)).json()
+            body = (await http.post("/api/providers/openrouter/test", headers=AUTH)).json()
             assert body["ok"] is False
             assert body["error_kind"] == kind
             assert body["status"] == status
@@ -420,7 +420,7 @@ def test_probe_refuses_a_redirect(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     async def scenario():
         async with client(app) as http:
-            body = (await http.post("/api/providers/groq/test", headers=AUTH)).json()
+            body = (await http.post("/api/providers/openrouter/test", headers=AUTH)).json()
             assert body["ok"] is False
             assert body["error_kind"] == "redirect_refused"
 
@@ -435,7 +435,7 @@ def test_probe_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     async def scenario():
         async with client(app) as http:
-            body = (await http.post("/api/providers/groq/test", headers=AUTH)).json()
+            body = (await http.post("/api/providers/openrouter/test", headers=AUTH)).json()
             assert body == {"ok": False, "status": None, "error_kind": "timeout"}
 
     run(scenario())

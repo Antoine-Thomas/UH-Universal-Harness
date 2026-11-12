@@ -232,7 +232,7 @@ def test_client_authorization_never_reaches_the_provider() -> None:
 
     from uh.router.provider import RouterProvider
 
-    keys_mod.add_provider("groq", "https://api.groq.com/openai/v1", "m", PROVIDER_KEY)
+    keys_mod.add_provider("cerebras", "https://api.cerebras.ai/v1", "m", PROVIDER_KEY)
     allow_remote()
     router = RouterProvider(transport=httpx.MockTransport(handler), cfg=uh_config.load())
     app = make_app(chain=[("router", router)])
@@ -259,7 +259,7 @@ def test_local_only_refuses_before_any_upstream_call() -> None:
 
     from uh.router.provider import RouterProvider
 
-    keys_mod.add_provider("groq", "https://api.groq.com/openai/v1", "m", PROVIDER_KEY)
+    keys_mod.add_provider("cerebras", "https://api.cerebras.ai/v1", "m", PROVIDER_KEY)
     uh_config.write_layer("user", "allow_remote", False)
     cfg = uh_config.load()
     router = RouterProvider(transport=httpx.MockTransport(handler), cfg=cfg)
@@ -283,7 +283,7 @@ def test_no_token_key_or_prompt_in_responses_logs_or_exceptions(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    keys_mod.add_provider("groq", "https://api.groq.com/openai/v1", "m", PROVIDER_KEY)
+    keys_mod.add_provider("cerebras", "https://api.cerebras.ai/v1", "m", PROVIDER_KEY)
     allow_remote()
 
     def handler(request: httpx.Request) -> httpx.Response:

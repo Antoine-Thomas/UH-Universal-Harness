@@ -16,7 +16,6 @@ without notice: `uh providers free` prints the same fields, so drift is visible.
 
 | Provider | Endpoint | Auth | Status (2026-11-12) | What was verified |
 | --- | --- | --- | --- | --- |
-| Groq | `https://api.groq.com/openai/v1` | bearer | verified | rate-limit page: per-model RPM/RPD/TPM/TPD; `429` always carries `retry-after` |
 | OpenRouter | `https://openrouter.ai/api/v1` | bearer | verified | `:free` catalog variants via `GET /api/v1/models`; `429` + `Retry-After`, `402` = credit; a mid-stream 429 arrives as an SSE chunk with `finish_reason: error` |
 | Cerebras | `https://api.cerebras.ai/v1` | bearer | verified | `POST /v1/chat/completions`, Bearer auth, model ids from the API reference examples |
 | NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | bearer | verified | `POST /v1/chat/completions`, namespaced model ids (`deepseek-ai/…`) |
