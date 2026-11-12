@@ -772,8 +772,10 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     upgraded = installed_version() or installed
-    if upgraded == installed == running:
-        print(f"uh upgrade: already up to date ({installed})")
+    if upgraded == installed:
+        # running can differ from installed in a dev checkout (a stale egg-info
+        # next to the source): saying "1.0.0 -> 1.0.0" would be nonsense.
+        print(f"uh upgrade: already up to date (installed {installed}, running {running})")
         return EXIT_OK
     print(f"uh upgrade: {installed} -> {upgraded}")
     if not args.restart:

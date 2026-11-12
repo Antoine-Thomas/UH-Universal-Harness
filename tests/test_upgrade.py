@@ -80,7 +80,7 @@ def test_inside_a_venv_the_command_is_pip_install_upgrade(
 
     assert seen[0][1:] == ["-m", "pip", "install", "--upgrade", "uh-harness"]
     assert "--user" not in seen[0]
-    assert "already up to date (1.0.0)" in capsys.readouterr().out
+    assert "already up to date (installed 1.0.0, running 1.0.0)" in capsys.readouterr().out
 
 
 def test_dry_run_passes_the_flag_and_installs_nothing(
@@ -157,6 +157,22 @@ def test_restart_re_execs_the_console_module(
 
     assert no_exec == [[sys.executable, sys.executable, "-m", "uh"]]
     assert "1.0.1" in capsys.readouterr().out
+
+
+def test_stale_metadata_never_reports_a_fake_version_change(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dev checkout reports 1.0.0 from a stale egg-info while running 1.0.1."""
+    monkeypatch.setattr(cli, "in_virtualenv", lambda: True)
+    monkeypatch.setattr(cli, "installed_version", lambda: "1.0.0")
+    monkeypatch.setattr(cli, "__version__", "1.0.1")
+    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **kw: _completed())
+
+    assert cli.cmd_upgrade(_args()) == 0
+
+    out = capsys.readouterr().out
+    assert "1.0.0 -> 1.0.0" not in out
+    assert "already up to date (installed 1.0.0, running 1.0.1)" in out
 
 
 def test_upgrade_is_wired_into_the_parser(monkeypatch: pytest.MonkeyPatch) -> None:
