@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report (private)
+    url: https://github.com/Antoine-Thomas/UH-Universal-Harness/security/advisories/new
+    about: Report a vulnerability privately. Never open a public issue for a security problem.
+  - name: Documentation
+    url: https://github.com/Antoine-Thomas/UH-Universal-Harness/tree/main/docs
+    about: Design notes, release process, provider catalogue and slash-command inventory.

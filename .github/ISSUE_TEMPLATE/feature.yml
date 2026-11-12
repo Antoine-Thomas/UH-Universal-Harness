@@ -1,0 +1,49 @@
+name: Feature request
+description: Propose a capability or a change in behaviour
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        UH is deliberately small: one runtime dependency, a console, an optional
+        local web UI, three toolsets. A feature that adds a dependency or reaches
+        the network by default starts at a disadvantage — say why it is worth it.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that UH makes hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: Behaviour, commands, expected output. A sketch is enough.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Console / slash commands
+        - Web interface
+        - Agent loop / toolsets
+        - Providers and router
+        - Sessions, store, configuration
+        - Packaging and CI
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints you accept
+      options:
+        - label: It does not add a mandatory runtime dependency (or it justifies one)
+        - label: It keeps local-first behaviour (nothing leaves the machine unless the user opts in)
+        - label: It ships with tests and stays within the existing CI matrix

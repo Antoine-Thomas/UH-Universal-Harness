@@ -47,8 +47,16 @@ pending publisher for project `uh-harness`, owner `Antoine-Thomas`, repository
 `testpypi`.
 
 On GitHub: *Settings → Environments* → `testpypi` (no rule) and `pypi` with
-**Required reviewers** set, so no PyPI upload happens without an explicit
-approval. During a run the PyPI job waits at "Waiting for review".
+**Required reviewers** listing the maintainer.
+
+> **Measured on 2026-11-12: neither environment has any protection rule**
+> (`gh api repos/:owner/:repo/environments` → `protection_rules: []`). Until you
+> add yourself as a required reviewer on `pypi`, the PyPI job **publishes
+> immediately**, with no approval step. This is a manual setting: nothing in the
+> repository can enforce it.
+>
+> Leave **"Prevent self-review"** *disabled*: enabled, the only maintainer could
+> never approve their own release, and the job would wait forever.
 
 ## Release checklist
 
@@ -72,7 +80,8 @@ git push origin main --tags
 
 4. On GitHub: *Releases → Draft a new release → tag `vX.Y.Z` → Publish release*.
    This is the trigger. The `test` job runs first, then TestPyPI.
-5. Approve the `pypi` environment once TestPyPI is green.
+5. Approve the `pypi` environment once TestPyPI is green — **only if you set
+   a required reviewer**; without it, the upload starts on its own.
 6. Verify both indexes (below).
 
 ## Verifying a published version
@@ -94,6 +103,15 @@ python -m venv /tmp/uh-check
 The PyPI project page renders the README **as it was at build time**: a README
 change only appears on PyPI with the next release, which is why documentation
 fixes often ship with a patch version.
+
+## Before you publish: the two gates that are not in this repository
+
+- **Environment protection** on `pypi` (above): manual, measured absent.
+- **Branch protection** on `main`: manual too. Without it, nothing forces the CI
+  to be green before a push reaches `main`; the release process above assumes it
+  is, but the repository cannot enforce it.
+
+Both are listed with their exact menu paths in `docs/JALON7.md`.
 
 ## Version rules
 

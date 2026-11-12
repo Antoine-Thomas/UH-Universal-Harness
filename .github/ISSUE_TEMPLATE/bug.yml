@@ -1,0 +1,73 @@
+name: Bug report
+description: Something in UH does not behave as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Never paste a provider key, a web token or private
+        content**: redact it. For a security problem, use the *Security* tab →
+        *Report a vulnerability* instead of this form.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, what you got, and how to reproduce it.
+      placeholder: |
+        I ran `uh ...`
+        Expected: ...
+        Got: ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `uh --version`
+      placeholder: "uh 0.8.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 10/11
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider in use
+      options:
+        - Ollama (local)
+        - OmniRouter (local gateway)
+        - Free-provider router
+        - A custom OpenAI-compatible provider
+        - Not applicable / the CLI itself
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `uh doctor`
+      description: It contains paths but no key. Remove anything you consider private.
+      render: text
+    validations:
+      required: false
