@@ -287,3 +287,165 @@ def test_delete_key_by_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     run(scenario())
     assert keys_mod.get_provider("groq")["keys"] == ["second-key"]
+
+# --------------------------------------------------------------------------- #
+# 7a.3 — custom provider and connection test
+# --------------------------------------------------------------------------- #
+def test_custom_provider_refused_off_loopback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch, host="0.0.0.0")
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.post(
+                "/api/providers/custom",
+                json={"name": "perso", "base_url": "https://api.example.com/v1", "model": "m"},
+                headers=AUTH,
+            )
+            assert response.status_code == 403
+
+    run(scenario())
+
+
+def test_custom_provider_created_and_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = await http.post(
+                "/api/providers/custom",
+                json={
+                    "name": "perso",
+                    "base_url": "https://api.example.com/v1",
+                    "model": "some-model",
+                    "key": KNOWN_KEY,
+                },
+                headers=AUTH,
+            )
+            assert created.status_code == 200
+            assert created.json()["created"] is True
+            assert_no_key(created.text)
+
+            listing = await http.get("/api/providers", headers=AUTH)
+            assert_no_key(listing.text)
+            row = next(item for item in listing.json()["providers"] if item["name"] == "perso")
+            assert row["custom"] is True
+            assert row["verified"] == "custom"
+            assert row["keys"] == 1
+
+    run(scenario())
+    assert keys_mod.get_provider("perso")["keys"] == [KNOWN_KEY]
+
+
+@pytest.mark.parametrize(
+    ("payload", "fragment"),
+    [
+        ({"name": "Bad Name", "base_url": "https://x.test/v1"}, "lowercase"),
+        ({"name": "perso", "base_url": "http://api.example.com/v1"}, "https"),
+        ({"name": "perso", "base_url": "http://169.254.169.254/latest"}, "link-local"),
+        ({"name": "perso", "base_url": "ftp://x.test"}, "http or https"),
+        ({"name": "groq", "base_url": "https://x.test/v1"}, "catalogue provider"),
+        ({"name": "perso", "base_url": ""}, "required"),
+    ],
+)
+def test_custom_provider_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict, fragment: str
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.post("/api/providers/custom", json=payload, headers=AUTH)
+            assert response.status_code == 400
+            assert fragment in response.json()["detail"]
+
+    run(scenario())
+
+
+def _probe_app(tmp_path, monkeypatch, handler):
+    app = make_app(tmp_path, monkeypatch)
+    app.state.probe_transport = httpx.MockTransport(handler)
+    return app
+
+
+def test_probe_sends_a_ping_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        assert request.url.path.endswith("/chat/completions")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "p"}}]})
+
+    app = _probe_app(tmp_path, monkeypatch, handler)
+
+    async def scenario():
+        async with client(app) as http:
+            result = await http.post("/api/providers/groq/test", headers=AUTH)
+            assert result.status_code == 200
+            assert result.json() == {"ok": True, "status": 200, "error_kind": None}
+
+    run(scenario())
+    assert seen[0]["messages"] == [{"role": "user", "content": "ping"}]
+    assert seen[0]["max_tokens"] == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "kind"),
+    [(401, "auth"), (429, "rate_limit"), (500, "server"), (402, "payment")],
+)
+def test_probe_reports_the_error_kind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: int, kind: str
+) -> None:
+    app = _probe_app(tmp_path, monkeypatch, lambda request: httpx.Response(status))
+
+    async def scenario():
+        async with client(app) as http:
+            body = (await http.post("/api/providers/groq/test", headers=AUTH)).json()
+            assert body["ok"] is False
+            assert body["error_kind"] == kind
+            assert body["status"] == status
+
+    run(scenario())
+
+
+def test_probe_refuses_a_redirect(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _probe_app(
+        tmp_path,
+        monkeypatch,
+        lambda request: httpx.Response(302, headers={"location": "https://evil.test/steal"}),
+    )
+
+    async def scenario():
+        async with client(app) as http:
+            body = (await http.post("/api/providers/groq/test", headers=AUTH)).json()
+            assert body["ok"] is False
+            assert body["error_kind"] == "redirect_refused"
+
+    run(scenario())
+
+
+def test_probe_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.TimeoutException("slow", request=request)
+
+    app = _probe_app(tmp_path, monkeypatch, handler)
+
+    async def scenario():
+        async with client(app) as http:
+            body = (await http.post("/api/providers/groq/test", headers=AUTH)).json()
+            assert body == {"ok": False, "status": None, "error_kind": "timeout"}
+
+    run(scenario())
+
+
+def test_probe_unknown_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            assert (await http.post("/api/providers/nope/test", headers=AUTH)).status_code == 404
+
+    run(scenario())

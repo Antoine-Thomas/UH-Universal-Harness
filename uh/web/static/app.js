@@ -423,6 +423,29 @@ function providerCard(row) {
   );
   card.appendChild(el("div", "provider-url", row.base_url || ""));
 
+  const testRow = el("div", "provider-test");
+  const testButton = el("button", null, "Test connection");
+  testButton.type = "button";
+  const testResult = el("span", "test-result", "");
+  testButton.addEventListener("click", async () => {
+    testResult.textContent = "testing…";
+    try {
+      const result = await api(`/api/providers/${encodeURIComponent(row.name)}/test`, {
+        method: "POST",
+      });
+      testResult.textContent = result.ok
+        ? `ok (HTTP ${result.status})`
+        : `failed: ${result.error_kind}${result.status ? ` (HTTP ${result.status})` : ""}`;
+      testResult.className = `test-result ${result.ok ? "ok" : "warn"}`;
+    } catch (error) {
+      testResult.textContent = `failed: ${error.message}`;
+      testResult.className = "test-result warn";
+    }
+  });
+  testRow.appendChild(testButton);
+  testRow.appendChild(testResult);
+  card.appendChild(testRow);
+
   if (row.keys > 0) {
     const chips = el("div", "key-chips");
     for (let index = 1; index <= row.keys; index += 1) {
@@ -474,9 +497,65 @@ function providerCard(row) {
   return card;
 }
 
+function customProviderForm() {
+  const details = el("details", "provider-custom");
+  details.appendChild(el("summary", null, "Add a custom OpenAI-compatible provider"));
+  const form = el("form", "custom-form");
+
+  const fields = [
+    ["name", "name (a-z, 0-9, -, _)", "text"],
+    ["base_url", "https://… (http only on loopback)", "text"],
+    ["model", "model id", "text"],
+    ["key", "key (optional, never shown again)", "password"],
+  ];
+  const inputs = {};
+  for (const [field, placeholder, type] of fields) {
+    const input = document.createElement("input");
+    input.type = type;
+    input.name = field;
+    input.placeholder = placeholder;
+    input.autocomplete = "off";
+    if (type === "password") input.className = "provider-key-input";
+    inputs[field] = input;
+    const row = el("label", "custom-field");
+    row.appendChild(el("span", null, field));
+    row.appendChild(input);
+    form.appendChild(row);
+  }
+
+  const submit = el("button", null, "Create");
+  submit.type = "submit";
+  const status = el("span", "test-result", "");
+  form.appendChild(submit);
+  form.appendChild(status);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = {
+      name: inputs.name.value.trim(),
+      base_url: inputs.base_url.value.trim(),
+      model: inputs.model.value.trim(),
+      key: inputs.key.value,
+    };
+    inputs.key.value = ""; // cleared before sending
+    try {
+      await api("/api/providers/custom", { method: "POST", body: JSON.stringify(payload) });
+      details.open = false;
+      await loadProviders();
+    } catch (error) {
+      status.textContent = `error: ${error.message}`;
+      status.className = "test-result warn";
+    }
+  });
+
+  details.appendChild(form);
+  return details;
+}
+
 function renderProviders(rows) {
   const box = $("providers-list");
   box.textContent = "";
+  if (state.keyEntryAllowed) box.appendChild(customProviderForm());
   if (!rows.length) {
     box.appendChild(el("div", "panel-hint", "no provider in the catalogue"));
     return;

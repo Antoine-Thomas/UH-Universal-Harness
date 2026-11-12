@@ -13,16 +13,21 @@ step worse.
 from __future__ import annotations
 
 import ipaddress
+import re
 from typing import Annotated, Any, Callable
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import Body, Depends, FastAPI, HTTPException
 
 from .. import config as uh_config
 from ..keys import add_key, add_provider, read_providers, remove_key_at
 from ..router.catalog import CatalogError, load_catalog
+from ..router.client import classify_status
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+PROBE_TIMEOUT = 10.0
 LINK_LOCAL = ipaddress.ip_network("169.254.0.0/16")
 
 
@@ -161,6 +166,83 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
             raise HTTPException(status_code=400, detail=f"cannot store the key: {exc}") from exc
 
         return {"stored": True, "keys": len(read_providers().get(clean, {}).get("keys") or [])}
+
+    @app.post("/api/providers/custom", dependencies=[Depends(dependency)])
+    def create_custom_provider(payload: Annotated[dict, Body()]) -> dict:
+        require_loopback()
+        body = payload or {}
+        name = str(body.get("name") or "").strip().lower()
+        if not NAME_RE.match(name):
+            raise HTTPException(
+                status_code=400,
+                detail="name must be lowercase letters, digits, '-' or '_' (max 32 characters)",
+            )
+        if name in _catalog():
+            raise HTTPException(status_code=400, detail=f"'{name}' is a catalogue provider")
+        try:
+            base_url = validate_base_url(str(body.get("base_url") or ""))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        model = str(body.get("model") or "").strip()
+        key = body.get("key")
+        if key is not None and not isinstance(key, str):
+            raise HTTPException(status_code=400, detail="key must be a string")
+        try:
+            add_provider(name, base_url, model, str(key or "").strip())
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"cannot store the provider: {exc}") from exc
+        return {"created": True, "name": name, "base_url": base_url, "model": model}
+
+    @app.post("/api/providers/{name}/test", dependencies=[Depends(dependency)])
+    def test_provider(name: str) -> dict:
+        clean = (name or "").strip().lower()
+        catalog = _catalog()
+        configured = read_providers()
+        spec = catalog.get(clean)
+        entry = configured.get(clean)
+        if spec is None and entry is None:
+            raise HTTPException(status_code=404, detail=f"unknown provider '{clean}'")
+
+        base_url = (entry or {}).get("base_url") or (spec.base_url if spec else "")
+        if not base_url:
+            return {"ok": False, "status": None, "error_kind": "no_base_url"}
+        model = (entry or {}).get("model") or (
+            spec.models[0].id if spec and spec.models else ""
+        )
+        keys = [item for item in ((entry or {}).get("keys") or []) if item]
+        headers = {"Content-Type": "application/json"}
+        if keys:
+            headers["Authorization"] = f"Bearer {keys[0]}"
+
+        transport = getattr(app.state, "probe_transport", None)
+        try:
+            with httpx.Client(
+                timeout=PROBE_TIMEOUT, follow_redirects=False, transport=transport
+            ) as client:
+                response = client.post(
+                    f"{base_url}/chat/completions",
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "max_tokens": 1,
+                    },
+                    headers=headers,
+                )
+        except httpx.TimeoutException:
+            return {"ok": False, "status": None, "error_kind": "timeout"}
+        except httpx.TransportError:
+            return {"ok": False, "status": None, "error_kind": "transport"}
+
+        if 300 <= response.status_code < 400:
+            # following it would send the key wherever the redirect points
+            return {"ok": False, "status": response.status_code, "error_kind": "redirect_refused"}
+        if response.status_code >= 400:
+            return {
+                "ok": False,
+                "status": response.status_code,
+                "error_kind": classify_status(response.status_code),
+            }
+        return {"ok": True, "status": response.status_code, "error_kind": None}
 
     @app.delete("/api/providers/{name}/keys", dependencies=[Depends(dependency)])
     def delete_provider_key(name: str, payload: Annotated[dict, Body()]) -> dict:

@@ -61,6 +61,11 @@ def _classify(status: int) -> str:
     return "error"
 
 
+def classify_status(status: int) -> str:
+    """Public wrapper: the web panel reports the same kinds as the router."""
+    return _classify(status)
+
+
 def _http_error(response: httpx.Response) -> RouterError:
     kind = _classify(response.status_code)
     detail = ""
