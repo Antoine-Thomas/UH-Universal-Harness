@@ -30,3 +30,15 @@ repos:
           - "fastapi>=0.110"
           - "uvicorn>=0.29"
         args: ["--config-file=pyproject.toml"]
+
+  # A push is the last moment where a red commit is still cheap to stop: once it
+  # is on main, CI runs on broken code and a tag could ship it.
+  - repo: local
+    hooks:
+      - id: push-gate
+        name: push gate (ruff, mypy, pytest)
+        entry: python
+        args: [scripts/push_gate.py]
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

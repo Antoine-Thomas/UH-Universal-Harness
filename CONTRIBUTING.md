@@ -39,6 +39,14 @@ Hooks: trailing whitespace, end-of-file, YAML/TOML syntax, merge conflicts,
 large files, LF endings, `ruff --fix`, and `mypy` on `uh/`. If a hook rewrites
 a file, re-add it and commit again.
 
+## The push gate
+
+`pre-commit install --hook-type pre-push` installs a hook that runs `ruff`,
+`mypy` and `pytest -q` before any `git push`, and refuses the push if one fails
+(`python scripts/push_gate.py` runs the same thing by hand). The same rule applies
+to scripts and to a human: every check is evaluated **before** a commit is
+created, never after.
+
 ## Style
 
 - `ruff` config lives in `pyproject.toml` (`target-version = py310`,
