@@ -64,7 +64,7 @@ def test_user_flag_allows_a_system_interpreter(
     assert cli.cmd_upgrade(_args(user=True)) == 0
 
     assert seen and "--user" in seen[0]
-    assert "déjà à jour" in capsys.readouterr().out
+    assert "already up to date" in capsys.readouterr().out
     assert not no_exec
 
 
@@ -80,7 +80,7 @@ def test_inside_a_venv_the_command_is_pip_install_upgrade(
 
     assert seen[0][1:] == ["-m", "pip", "install", "--upgrade", "uh-harness"]
     assert "--user" not in seen[0]
-    assert "déjà à jour (1.0.0)" in capsys.readouterr().out
+    assert "already up to date (1.0.0)" in capsys.readouterr().out
 
 
 def test_dry_run_passes_the_flag_and_installs_nothing(
@@ -95,7 +95,7 @@ def test_dry_run_passes_the_flag_and_installs_nothing(
 
     assert "--dry-run" in seen[0]
     out = capsys.readouterr().out
-    assert "dry-run" in out
+    assert "dry run" in out
     assert not no_exec, "--dry-run must never restart"
 
 
@@ -109,8 +109,8 @@ def test_pip_failure_keeps_the_installed_version(
     assert cli.cmd_upgrade(_args(restart=True)) == 2
 
     captured = capsys.readouterr()
-    assert "pip a échoué" in captured.err
-    assert "reste installée" in captured.err
+    assert "pip failed" in captured.err
+    assert "stays installed" in captured.err
     assert not no_exec, "a failed upgrade must not restart uh"
 
 
@@ -126,7 +126,7 @@ def test_pip_that_cannot_start_is_reported(
     monkeypatch.setattr(cli.subprocess, "run", boom)
 
     assert cli.cmd_upgrade(_args()) == 1
-    assert "impossible de lancer pip" in capsys.readouterr().err
+    assert "cannot run pip" in capsys.readouterr().err
 
 
 def test_upgrade_without_restart_prints_the_hint(
@@ -140,7 +140,7 @@ def test_upgrade_without_restart_prints_the_hint(
 
     out = capsys.readouterr().out
     assert "1.0.0 -> 1.0.1" in out
-    assert "Relance uh pour utiliser la nouvelle version" in out
+    assert "relaunch uh to use the new version" in out
     assert not no_exec
 
 

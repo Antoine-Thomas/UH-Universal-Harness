@@ -727,11 +727,11 @@ def pip_upgrade_command(*, user: bool = False, dry_run: bool = False) -> list[st
 
 def restart_process() -> int:
     """Re-exec ``uh`` (no arguments: the console) in place of this process."""
-    print("uh upgrade: redémarrage de uh", file=sys.stderr)
+    print("uh upgrade: restarting uh", file=sys.stderr)
     try:
         os.execv(sys.executable, [sys.executable, "-m", "uh"])
     except OSError as exc:
-        print(f"uh upgrade: redémarrage impossible ({exc}); relance uh à la main", file=sys.stderr)
+        print(f"uh upgrade: restart failed ({exc}); run uh yourself", file=sys.stderr)
         return EXIT_FAILURE
     return EXIT_OK  # pragma: no cover - execv does not return
 
@@ -740,12 +740,12 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     """`uh upgrade`: pip install --upgrade uh-harness, then report and maybe restart."""
     running = __version__
     installed = installed_version() or running
-    print(f"uh upgrade: version qui tourne {running}, installée {installed}")
+    print(f"uh upgrade: running {running}, installed {installed}")
 
     if not in_virtualenv() and not args.user:
         print(
-            "uh upgrade: hors virtualenv - refus de modifier l'interpréteur système "
-            "(utilise --user pour une installation utilisateur)",
+            "uh upgrade: not inside a virtualenv - refusing to modify the system "
+            "interpreter (pass --user for a user-level install)",
             file=sys.stderr,
         )
         return EXIT_FAILURE
@@ -757,27 +757,27 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     try:
         completed = subprocess.run(command, check=False)
     except OSError as exc:
-        print(f"uh upgrade: impossible de lancer pip: {exc}", file=sys.stderr)
+        print(f"uh upgrade: cannot run pip: {exc}", file=sys.stderr)
         return EXIT_FAILURE
     if completed.returncode != 0:
         print(
-            f"uh upgrade: pip a échoué (code {completed.returncode}); "
-            f"{installed} reste installée, rien n'a changé",
+            f"uh upgrade: pip failed (exit {completed.returncode}); "
+            f"{installed} stays installed, nothing changed",
             file=sys.stderr,
         )
         return completed.returncode if completed.returncode > 0 else EXIT_FAILURE
 
     if args.dry_run:
-        print("uh upgrade: dry-run, rien n'a été installé")
+        print("uh upgrade: dry run, nothing was installed")
         return EXIT_OK
 
     upgraded = installed_version() or installed
     if upgraded == installed == running:
-        print(f"uh upgrade: déjà à jour ({installed})")
+        print(f"uh upgrade: already up to date ({installed})")
         return EXIT_OK
     print(f"uh upgrade: {installed} -> {upgraded}")
     if not args.restart:
-        print("Relance uh pour utiliser la nouvelle version (ou `uh upgrade --restart`).")
+        print("uh upgrade: relaunch uh to use the new version (or pass --restart)")
         return EXIT_OK
     return restart_process()
 
@@ -977,7 +977,13 @@ def _build_chat_session(
 
 
 def _run_repl(session: console.ChatSession) -> int:
-    """Interactive loop: prompts go to the model, ``/command`` to the registry."""
+    """Interactive loop: prompts go to the model, ``/command`` to the registry.
+
+    TODO(UHB): Ctrl+C on an empty ``you>`` prompt leaves the console, unlike the
+    CPython REPL which prints a fresh prompt. Left as is on purpose (a different
+    behaviour, not a bug); revisit with the UHB interface so the two ergonomics
+    can be compared side by side.
+    """
     ui = session.console
     if bool(session.cfg.get("banner")) and banner.should_show():
         # Full logo: render() already degrades to the short art under 40 columns.

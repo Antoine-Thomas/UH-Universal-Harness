@@ -10,6 +10,9 @@ Design constraints:
   plain path never emits any.
 * The session state lives here (provider, model, history, store), so the slash
   command handlers in :mod:`uh.commands` stay thin and testable.
+* ``INTERRUPT_NOTE`` is deliberately French (``[interrompu]``), unlike the rest
+  of the CLI: it is a short token the operator recognises at a glance, and it
+  was explicitly requested. Do not "normalise" this one string to English.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from .providers import Provider, ProviderError
 from .store import Store, StoreError, display_id
 
 TOOL_LINE_PREFIX = "· tool "
+# French on purpose: the one user-facing string that stays so (see module docstring).
 INTERRUPT_NOTE = "[interrompu] tour annulé (Ctrl+C)"
 INTERRUPT_EXIT = 130
 
