@@ -378,3 +378,103 @@ def test_chunked_body_without_content_length_is_capped() -> None:
 
     response = asyncio.run(scenario())
     assert response.status_code == 413
+
+
+def _raw_scope(payload: dict) -> dict:
+    body = json.dumps(payload).encode()
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/chat/completions",
+        "raw_path": b"/v1/chat/completions",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"127.0.0.1:8780"),
+            (b"authorization", f"Bearer {TOKEN}".encode()),
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+        "client": ("127.0.0.1", 50000),
+        "server": ("127.0.0.1", 8780),
+        "state": {},
+    }
+
+
+async def _drive(app, payload: dict, *, on_headers=None, scope_payload: dict | None = None):
+    """Drive one request at the ASGI level: we see the state between headers and body."""
+    queue: asyncio.Queue = asyncio.Queue()
+    body = json.dumps(payload).encode()
+    await queue.put({"type": "http.request", "body": body, "more_body": False})
+    status: dict[str, int] = {}
+    finished = asyncio.Event()
+
+    async def receive():
+        return await queue.get()
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            status["code"] = message["status"]
+            if on_headers is not None:
+                await on_headers()
+        elif message["type"] == "http.response.body" and not message.get("more_body", False):
+            finished.set()
+
+    await app(_raw_scope(scope_payload or payload), receive, send)
+    await asyncio.wait_for(finished.wait(), timeout=5)
+    return status["code"]
+
+
+def test_streaming_keeps_its_concurrency_slot_until_the_stream_ends() -> None:
+    """call_next returns at headers: the slot must live until the body ends.
+
+    httpx's ASGITransport buffers the whole body, so it cannot see the defect; the
+    request is driven at the ASGI level instead, and we read ``in_flight`` right
+    after the response headers, while the generator is still running.
+    """
+    app = make_app(chain=[("slow", SlowStream(delay=0.6))], max_concurrency=1)
+    payload = {"model": "auto", "messages": [{"role": "user", "content": "x"}], "stream": True}
+    observed: dict[str, int] = {}
+
+    async def scenario():
+        async def on_headers() -> None:
+            observed["mid_flight"] = app.state.in_flight
+            observed["concurrent"] = await _drive(app, payload)
+
+        await _drive(app, payload, on_headers=on_headers)
+        observed["after"] = app.state.in_flight
+
+    asyncio.run(scenario())
+    assert observed["mid_flight"] == 1, "the slot was released before the stream ended"
+    assert observed["concurrent"] == 429, "a concurrent turn was accepted during a stream"
+    assert observed["after"] == 0, "the counter did not come back to zero"
+
+
+def test_client_disconnect_releases_the_slot() -> None:
+    """A client that leaves mid-stream must not keep a slot for ever."""
+    app = make_app(chain=[("slow", SlowStream(delay=5.0))], max_concurrency=1)
+    payload = {"model": "auto", "messages": [{"role": "user", "content": "x"}], "stream": True}
+    started = asyncio.Event()
+
+    async def scenario():
+        queue: asyncio.Queue = asyncio.Queue()
+        body = json.dumps(payload).encode()
+        await queue.put({"type": "http.request", "body": body, "more_body": False})
+        await queue.put({"type": "http.disconnect"})
+
+        async def receive():
+            return await queue.get()
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                started.set()
+
+        task = asyncio.create_task(app(_raw_scope(payload), receive, send))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        await asyncio.wait_for(task, timeout=5)  # the app must unwind, not hang
+        return app.state.in_flight
+
+    assert asyncio.run(scenario()) == 0

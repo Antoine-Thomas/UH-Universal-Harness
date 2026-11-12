@@ -293,26 +293,59 @@ def create_router_app(
             except ValueError:
                 return _error(400, "invalid content-length", "invalid_request_error", "bad_request")
 
+        released = False
+
+        def release() -> None:
+            nonlocal released
+            if released:  # a stream and the middleware must not decrement twice
+                return
+            released = True
+            with app.state.lock:
+                app.state.in_flight -= 1
+
+        def log_line(status_code: int) -> None:
+            trace = app.state.last_trace
+            LOG.info(
+                "%s %s %s %s/%s %.1fms",
+                request.method,
+                request.url.path,
+                status_code,
+                trace.get("provider", "-"),
+                trace.get("model", "-"),
+                (time.perf_counter() - started) * 1000,
+            )
+
         with app.state.lock:
             if app.state.in_flight >= app.state.max_concurrency:
                 return _error(429, "too many concurrent requests", "rate_limit_error", "too_many_requests")
             app.state.in_flight += 1
         try:
             response = await call_next(request)
-        finally:
-            with app.state.lock:
-                app.state.in_flight -= 1
+        except Exception:
+            release()
+            raise
 
-        trace = app.state.last_trace
-        LOG.info(
-            "%s %s %s %s/%s %.1fms",
-            request.method,
-            request.url.path,
-            response.status_code,
-            trace.get("provider", "-"),
-            trace.get("model", "-"),
-            (time.perf_counter() - started) * 1000,
-        )
+        # A streamed answer comes back when its *headers* are ready, not when the
+        # body is over: the slot is held until the generator really ends -
+        # normal end, error, or client disconnect (the finally always runs).
+        body_iterator = getattr(response, "body_iterator", None)
+        if body_iterator is not None:
+
+            async def guarded():
+                try:
+                    async for chunk in body_iterator:
+                        yield chunk
+                finally:
+                    log_line(response.status_code)
+                    release()
+
+            response.body_iterator = guarded()
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            return response
+
+        log_line(response.status_code)
+        release()
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         # No CORS header, ever: a browser must not be able to read this API.
