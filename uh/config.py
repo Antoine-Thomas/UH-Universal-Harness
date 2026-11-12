@@ -37,6 +37,9 @@ DEFAULTS: dict[str, Any] = {
     "router_strategy": "priority",
     # comma-separated catalogue names the user accepts despite "partial" status
     "router_extra_providers": "",
+    # Cloudflare Workers AI account id (not a credential - the API token is
+    # read from UH_CLOUDFLARE_API_TOKEN only and is never stored)
+    "cloudflare_account_id": "",
 }
 
 KEY_TYPES: dict[str, type] = {
@@ -52,6 +55,7 @@ KEY_TYPES: dict[str, type] = {
     "remote_consent": str,
     "router_strategy": str,
     "router_extra_providers": str,
+    "cloudflare_account_id": str,
 }
 
 ENV_KEYS: dict[str, str] = {
@@ -66,6 +70,7 @@ ENV_KEYS: dict[str, str] = {
     "allow_remote": "UH_ALLOW_REMOTE",
     "router_strategy": "UH_ROUTER_STRATEGY",
     "router_extra_providers": "UH_ROUTER_EXTRA_PROVIDERS",
+    "cloudflare_account_id": "UH_CLOUDFLARE_ACCOUNT_ID",
 }
 
 _TRUE = {"1", "true", "yes", "on"}

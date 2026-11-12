@@ -1,10 +1,12 @@
 """Provider layer: one ``chat`` call, optionally streamed, plus the registry.
 
-Two providers ship with Jalon 2:
+Built-in providers:
 
 * ``ollama``      - local models, ``/api/chat`` (NDJSON streaming);
 * ``omnirouter``  - a local OmniRoute gateway speaking the OpenAI API
-  (``/v1/chat/completions``, SSE streaming).
+  (``/v1/chat/completions``, SSE streaming);
+* ``cloudflare``  - Cloudflare Workers AI, OpenAI-compatible, configured by
+  ``UH_CLOUDFLARE_ACCOUNT_ID`` + ``UH_CLOUDFLARE_API_TOKEN``.
 
 ``build_provider(kind, model)`` is the only construction path used by the CLI,
 so adding a provider means adding one module and one registry entry.
@@ -50,6 +52,7 @@ class Provider(ABC):
 from .ollama import OllamaProvider  # noqa: E402
 from .omnirouter import OmniRouterProvider  # noqa: E402
 from .openai_compat import OpenAICompatProvider  # noqa: E402
+from .cloudflare import CloudflareProvider  # noqa: E402
 
 
 def _build_router(model: str = "", **kwargs) -> "Provider":
@@ -62,6 +65,7 @@ def _build_router(model: str = "", **kwargs) -> "Provider":
 PROVIDERS: dict[str, Callable[..., Provider]] = {
     "ollama": OllamaProvider,
     "omnirouter": OmniRouterProvider,
+    "cloudflare": CloudflareProvider,
     "router": _build_router,
 }
 
