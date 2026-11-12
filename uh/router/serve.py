@@ -151,6 +151,23 @@ def _call_chain(
 # --------------------------------------------------------------------------- #
 # OpenAI shapes
 # --------------------------------------------------------------------------- #
+async def _read_body(request: Request, limit: int) -> Optional[bytes]:
+    """Read the body, stopping as soon as ``limit`` is exceeded.
+
+    ``Content-Length`` is only a hint: a chunked request has none, so the cap has
+    to count the bytes actually received - and must not buffer them all before
+    refusing (a client sending gigabytes would exhaust memory first).
+    """
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _trace_of(chain: list[tuple[str, Any]]) -> dict[str, str]:
     """The provider that actually answered, from its own trace when it has one."""
     for kind, provider in chain:
@@ -336,9 +353,13 @@ def create_router_app(
 
     @app.post("/v1/chat/completions")
     async def chat_completions(request: Request):
+        raw = await _read_body(request, app.state.max_body)
+        if raw is None:
+            # chunked request over the cap: Content-Length said nothing
+            return _error(413, "request body too large", "invalid_request_error", "body_too_large")
         try:
-            payload = await request.json()
-        except Exception:  # noqa: BLE001 - malformed JSON is a client error
+            payload = json.loads(raw or b"{}")
+        except ValueError:
             return _error(400, "invalid JSON body", "invalid_request_error", "bad_request")
         if not isinstance(payload, dict):
             return _error(400, "body must be a JSON object", "invalid_request_error", "bad_request")

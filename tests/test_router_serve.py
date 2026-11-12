@@ -338,3 +338,43 @@ def test_non_loopback_bind_is_refused() -> None:
     with pytest.raises(ValueError, match="loopback only"):
         serve.create_router_app(token=TOKEN, port=8780, host="0.0.0.0")
     assert serve.run_server(host="192.168.1.10", port=8780) == 1
+
+# --------------------------------------------------------------------------- #
+# 6b.1 - reproductions of the three reported defects
+# --------------------------------------------------------------------------- #
+class SlowStream(StubProvider):
+    """Emits a token, then waits: the stream stays open as long as we want."""
+
+    def __init__(self, delay: float = 0.5) -> None:
+        super().__init__(delay=0.0)
+        self.delay = delay
+
+    def chat(self, messages, tools, *, on_token=None):
+        if on_token is not None:
+            on_token("start")
+            time.sleep(self.delay)
+            on_token("end")
+            return {"role": "assistant", "content": "startend", "tool_calls": []}
+        return {"role": "assistant", "content": "startend", "tool_calls": []}
+
+
+def test_chunked_body_without_content_length_is_capped() -> None:
+    """A chunked request has no Content-Length: the cap must count real bytes."""
+    app = make_app(max_body=1024)
+
+    async def body():
+        for _ in range(64):  # 64 KiB, far over the 1 KiB cap
+            yield b"x" * 1024
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Host": "127.0.0.1:8780", "Authorization": f"Bearer {TOKEN}"}
+        async with httpx.AsyncClient(transport=transport, base_url=BASE) as http:
+            return await http.post(
+                "/v1/chat/completions",
+                content=body(),
+                headers={**headers, "Content-Type": "application/json"},
+            )
+
+    response = asyncio.run(scenario())
+    assert response.status_code == 413
