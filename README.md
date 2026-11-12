@@ -169,10 +169,10 @@ each Hermes command was kept or dropped lives in
 
 The release process (Trusted Publishing, TestPyPI then PyPI, yanking) is in [docs/RELEASING.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/RELEASING.md).
 
-`/help`, `/model`, `/provider`, `/tools`, `/clear`, `/new`, `/sessions`,
-`/resume`, `/history`, `/retry`, `/title`, `/status`, `/config`, `/doctor`,
-`/memory`, `/version`, `/exit` (aliases `/h`, `/?`, `/reset`, `/quit`, `/q`,
-`/v`). An unknown command is never sent to the model: it is refused with the
+`/help`, `/model`, `/provider`, `/key`, `/router`, `/local-only`, `/tools`,
+`/clear`, `/new`, `/sessions`, `/resume`, `/history`, `/retry`, `/title`,
+`/save`, `/export`, `/status`, `/config`, `/doctor`, `/memory`, `/version`,
+`/exit` (aliases `/h`, `/?`, `/reset`, `/quit`, `/q`, `/v`). An unknown command is never sent to the model: it is refused with the
 closest match suggested.
 
 First run with nothing configured, in order: an installed Ollama model, else an

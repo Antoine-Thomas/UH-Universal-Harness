@@ -16,6 +16,13 @@ need this?* A command is retained only if UH can make it work at this milestone
 | `/help` | `/h`, `/?` | List commands (grouped), or `/help <cmd>` for one | Entry point; mirrors Hermes' `/help` |
 | `/model [name]` | — | List providers' models, or switch model in the live session | UH has multi-model local; Hermes switches session-scoped |
 | `/provider [name]` | — | Show or switch the provider chain | UH-specific: the harness is provider-agnostic |
+| `/provider add <name>` | — | Add a custom provider (base_url, model) or a key for a catalogue entry | Same action as the web panel, same service layer |
+| `/provider test <name>` | — | Send one `ping` (`max_tokens: 1`) to the provider | Panel's "Test connection"; no session content |
+| `/key list|add|remove` | — | Presence and count, masked entry (`getpass`), deletion by index | Keys are write-only everywhere, CLI included |
+| `/router [reset]` | — | Router settings and chain; `reset` clears cooldowns and breakers | Mirrors `uh router status`, plus the live pool |
+| `/local-only [on|off]` | — | Nothing leaves the machine; `off` needs the recorded consent | Same gate as `allow_remote` in the panel |
+| `/save [file]` | — | Write the session as Markdown (relative paths land in the workspace) | Local transcript, no network |
+| `/export [md|json]` | — | Export the session next to the workspace | Same, machine-readable |
 | `/tools` | — | List active toolsets and their tools | Same intent as Hermes `/tools list` |
 | `/clear` | — | Clear the in-memory history, keep the session | Same as Hermes `/clear` minus screen repaint |
 | `/new` | `/reset` | Start a new session (fresh id, empty history) | Same as Hermes `/new` |
@@ -50,3 +57,24 @@ need this?* A command is retained only if UH can make it work at this milestone
 An unknown `/xyz` prints a one-line error on stderr and proposes the closest
 known name (difflib): `unknown command /modl - did you mean /model ?`. It never
 consumes the line as a prompt: a leading `/` is always command intent.
+
+## Jalon 7b.1 — parité console / CLI / web
+
+The provider and key commands are not a second implementation: the console, the
+CLI (`uh keys …`, `uh providers test …`) and the web panel all call
+`uh/providers_admin.py`. A rule changed there changes in the three places at
+once, and a refusal (unknown provider, oversized key, link-local URL, missing
+consent) is worded identically.
+
+Two consequences worth stating:
+
+- **No key ever comes from a command-line argument.** `uh providers add` lost its
+  `--key` option: `argv` is visible in the process list and kept in the shell
+  history. The key is read from `UH_PROVIDER_KEY`, from stdin when piped, or
+  from a masked prompt.
+- **A key is never displayed**, not even truncated: the commands print
+  "absent" or "n key(s)".
+
+`/router reset` only exists in the console, where a live router instance exists;
+the CLI cannot reset another process's cooldowns, and pretending otherwise would
+be a no-op command.

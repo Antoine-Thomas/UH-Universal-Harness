@@ -531,41 +531,113 @@ def cmd_providers_list(_args: argparse.Namespace) -> int:
 
 def cmd_providers_add(args: argparse.Namespace) -> int:
     """Store one OpenAI-compatible provider. The key is never echoed or logged."""
-    import getpass
+    from .providers_admin import AdminError, read_secret, save_provider
 
     name = (args.name or "").strip().lower()
     base_url = (getattr(args, "base_url", None) or "").strip()
     model = (getattr(args, "model", None) or "").strip()
-    key = (getattr(args, "key", None) or "").strip()
     interactive = sys.stdin is not None and sys.stdin.isatty()
 
     if interactive and not base_url:
         base_url = input("base URL (e.g. https://api.groq.com/openai/v1): ").strip()
     if interactive and not model:
         model = input("model id: ").strip()
-    if not key:
-        if interactive:
-            key = getpass.getpass("API key (not echoed): ").strip()
-        else:
-            key = os.environ.get("UH_PROVIDER_KEY", "").strip()
-
     if not (base_url and model):
         print("uh providers add: --base-url and --model are required", file=sys.stderr)
         return EXIT_FAILURE
+
+    key = read_secret()
     if not key:
         print(
-            "uh providers add: an API key is required (--key, UH_PROVIDER_KEY, or the prompt)",
+            "uh providers add: an API key is required (prompt, stdin or UH_PROVIDER_KEY)",
             file=sys.stderr,
         )
         return EXIT_FAILURE
 
     try:
-        path = keys.add_provider(name, base_url, model, key)
-    except ValueError as exc:
+        saved = save_provider(name, base_url, model, key)
+    except AdminError as exc:
         print(f"uh providers add: {exc}", file=sys.stderr)
         return EXIT_FAILURE
-    print(f"added provider {name} (model {model}) -> {path}")
-    print("the key is stored in that file only; it is never printed or committed")
+    print(f"added provider {saved['name']} (model {saved['model'] or 'none'})")
+    print("the key is stored in $UH_HOME/keys.toml only; it is never printed or committed")
+    return EXIT_OK
+
+
+def cmd_providers_test(args: argparse.Namespace) -> int:
+    """One 'ping' with max_tokens 1: no session content leaves the machine."""
+    from .providers_admin import AdminError, test_connection
+
+    try:
+        result = test_connection(args.name)
+    except AdminError as exc:
+        print(f"uh providers test: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    if result["ok"]:
+        print(f"{args.name}: ok (HTTP {result['status']})")
+        return EXIT_OK
+    suffix = f" (HTTP {result['status']})" if result.get("status") else ""
+    print(f"{args.name}: failed: {result['error_kind']}{suffix}", file=sys.stderr)
+    return EXIT_FAILURE
+
+
+def cmd_keys_list(_args: argparse.Namespace) -> int:
+    from .providers_admin import provider_rows
+
+    rows = provider_rows()
+    print(f"{'provider':<14}{'keys':<9}{'in chain':<10}verified")
+    for row in rows:
+        count = str(row["keys"]) if row["keys"] else "absent"
+        print(f"{row['name']:<14}{count:<9}{'yes' if row['in_chain'] else 'no':<10}{row['verified']}")
+    print("\nvalues are never displayed: only presence and count")
+    return EXIT_OK
+
+
+def cmd_keys_add(args: argparse.Namespace) -> int:
+    from .providers_admin import AdminError, add_key_to, read_secret
+
+    key = read_secret()
+    if not key:
+        print("uh keys add: no key given (prompt, stdin or UH_PROVIDER_KEY)", file=sys.stderr)
+        return EXIT_FAILURE
+    try:
+        count = add_key_to(args.name, key)
+    except AdminError as exc:
+        print(f"uh keys add: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    print(f"{args.name}: {count} key(s) stored")
+    return EXIT_OK
+
+
+def cmd_keys_remove(args: argparse.Namespace) -> int:
+    from .providers_admin import AdminError, remove_key_index
+
+    try:
+        count = remove_key_index(args.name, args.index)
+    except AdminError as exc:
+        print(f"uh keys remove: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    print(f"{args.name}: {count} key(s) left")
+    return EXIT_OK
+
+
+def cmd_docs(args: argparse.Namespace) -> int:
+    """Print where the documentation lives, optionally open the README."""
+    import webbrowser
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[1]
+    readme = root / "README.md"
+    docs = root / "docs"
+    print(f"README: {readme}")
+    if docs.is_dir():
+        print("docs:")
+        for item in sorted(docs.glob("*.md")):
+            print(f"  {item.name}")
+    if args.open:
+        target = readme if readme.exists() else docs
+        webbrowser.open(target.as_uri())
+        print(f"opened {target}")
     return EXIT_OK
 
 
@@ -1425,9 +1497,26 @@ def build_parser() -> argparse.ArgumentParser:
     providers_add.add_argument("name", help="short name, e.g. groq")
     providers_add.add_argument("--base-url", help="e.g. https://api.groq.com/openai/v1")
     providers_add.add_argument("--model", help="model id used by default")
-    providers_add.add_argument("--key", help="API key (prefer the prompt: it is not echoed)")
+    # No --key on purpose: argv is visible in the process list and in shell
+    # history. The key comes from UH_PROVIDER_KEY, stdin, or a masked prompt.
+    providers_test = providers_sub.add_parser(
+        "test", help="send one 'ping' to a provider (no session content)"
+    )
+    providers_test.add_argument("name")
     providers_remove = providers_sub.add_parser("remove", help="forget a stored provider")
     providers_remove.add_argument("name")
+
+    keys_cmd = sub.add_parser("keys", help="inspect and manage stored keys (values never shown)")
+    keys_sub = keys_cmd.add_subparsers(dest="keys_command", metavar="<action>")
+    keys_sub.add_parser("list", help="present/absent and how many keys per provider")
+    keys_add = keys_sub.add_parser("add", help="store a key (prompt, stdin or UH_PROVIDER_KEY)")
+    keys_add.add_argument("name")
+    keys_remove = keys_sub.add_parser("remove", help="delete a key by index (never by value)")
+    keys_remove.add_argument("name")
+    keys_remove.add_argument("index", type=int)
+
+    docs_cmd = sub.add_parser("docs", help="show the local documentation (no network)")
+    docs_cmd.add_argument("--open", action="store_true", help="open the README in a browser")
 
     router = sub.add_parser("router", help="free-provider router (Jalon 6a)")
     router_sub = router.add_subparsers(dest="router_command", metavar="<action>")
@@ -1527,7 +1616,21 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_providers_add(args)
             if args.providers_command == "remove":
                 return cmd_providers_remove(args)
+            if args.providers_command == "test":
+                return cmd_providers_test(args)
             return _sub_help(parser, "providers")
+        if args.command == "keys":
+            key_handlers: dict[str, Callable[[argparse.Namespace], int]] = {
+                "list": cmd_keys_list,
+                "add": cmd_keys_add,
+                "remove": cmd_keys_remove,
+            }
+            handler = key_handlers.get(args.keys_command)
+            if handler is None:
+                return _sub_help(parser, "keys")
+            return handler(args)
+        if args.command == "docs":
+            return cmd_docs(args)
         if args.command == "router":
             if args.router_command == "status":
                 return cmd_router_status(args)

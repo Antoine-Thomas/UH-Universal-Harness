@@ -96,7 +96,12 @@ def test_providers_list_never_prints_the_key(
     assert "key present" in captured.out
 
 
-def test_cli_add_and_remove(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_add_and_remove(
+    home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No --key option any more: argv is visible in the process list and kept in
+    # the shell history. The key comes from the environment, stdin or a prompt.
+    monkeypatch.setenv("UH_PROVIDER_KEY", SECRET)
     code = cli.main(
         [
             "providers",
@@ -106,8 +111,6 @@ def test_cli_add_and_remove(home: Path, capsys: pytest.CaptureFixture[str]) -> N
             "https://api.groq.com/openai/v1",
             "--model",
             "llama-3.1-8b",
-            "--key",
-            SECRET,
         ]
     )
     captured = capsys.readouterr()
@@ -119,6 +122,14 @@ def test_cli_add_and_remove(home: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert cli.main(["providers", "remove", "groq"]) == 0
     assert keys_mod.get_provider("groq") is None
     assert cli.main(["providers", "remove", "groq"]) == 1
+
+
+def test_cli_refuses_a_key_in_argv(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`uh providers add --key ...` must fail: argparse rejects the option."""
+    with pytest.raises(SystemExit) as failure:
+        cli.main(["providers", "add", "groq", "--key", SECRET])
+    assert failure.value.code == 2
+    assert keys_mod.get_provider("groq") is None
 
 
 def test_cli_add_requires_fields(home: Path, capsys: pytest.CaptureFixture[str]) -> None:

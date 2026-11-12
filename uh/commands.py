@@ -74,19 +74,241 @@ def _cmd_model(session: "ChatSession", args: str) -> CommandResult:
 
 
 def _cmd_provider(session: "ChatSession", args: str) -> CommandResult:
-    name = args.strip().lower()
+    from . import providers_admin
+
+    parts = args.split()
+    action = parts[0].lower() if parts else ""
+    name = parts[1].lower() if len(parts) > 1 else ""
+
+    if action in {"add", "test"}:
+        if not name:
+            return CommandResult(err=f"usage: /provider {action} <name>")
+        if action == "test":
+            try:
+                result = providers_admin.test_connection(name)
+            except providers_admin.AdminError as exc:
+                return CommandResult(err=f"provider: {exc}")
+            if result["ok"]:
+                return CommandResult(out=f"{name}: ok (HTTP {result['status']})")
+            suffix = f" (HTTP {result['status']})" if result.get("status") else ""
+            return CommandResult(err=f"{name}: failed: {result['error_kind']}{suffix}")
+
+        # add: the key never comes from the command line
+        try:
+            if name in providers_admin.catalog():
+                key = providers_admin.read_secret("API key (not echoed): ")
+                if not key:
+                    return CommandResult(err="provider: nothing entered")
+                count = providers_admin.add_key_to(name, key)
+                return CommandResult(out=f"{name}: {count} key(s) stored")
+            base_url = input("base URL (https, e.g. https://api.exemple.fr/v1): ").strip()
+            model = input("model id: ").strip()
+            key = providers_admin.read_secret("API key (optional, not echoed): ")
+            created = providers_admin.create_custom(name, base_url, model, key)
+        except providers_admin.AdminError as exc:
+            return CommandResult(err=f"provider: {exc}")
+        return CommandResult(
+            out=f"added {created['name']} -> {created['base_url']}"
+            f" (model {created['model'] or 'none'})"
+        )
+
     if not name:
         from .providers import all_provider_kinds
 
         return CommandResult(
             out=f"provider: {session.provider_kind}\n"
             f"known:    {', '.join(all_provider_kinds())}\n"
-            "usage:    /provider <name>"
+            "usage:    /provider <name> | add <name> | test <name>"
         )
     try:
         return CommandResult(err=f"uh chat: {session.set_provider(name)}")
     except Exception as exc:  # noqa: BLE001
         return CommandResult(err=f"uh chat: {exc}")
+
+
+def _cmd_key(_session: "ChatSession", args: str) -> CommandResult:
+    """Keys are write-only everywhere, including here: only counts are shown."""
+    from . import providers_admin
+
+    parts = args.split()
+    action = parts[0].lower() if parts else "list"
+
+    if action == "list":
+        lines = ["keys (values are never displayed):"]
+        for row in providers_admin.provider_rows():
+            state = f"{row['keys']} key(s)" if row["keys"] else "absent"
+            lines.append(f"  {row['name']:<12}{state}")
+        return CommandResult(out="\n".join(lines))
+
+    if action not in {"add", "remove"}:
+        return CommandResult(err="usage: /key list | /key add <provider> | /key remove <provider> <index>")
+    if len(parts) < 2:
+        return CommandResult(err="key: a provider name is required")
+
+    name = parts[1]
+    if action == "add":
+        try:
+            key = providers_admin.read_secret("API key (not echoed): ")
+            if not key:
+                return CommandResult(err="key: nothing entered")
+            count = providers_admin.add_key_to(name, key)
+        except providers_admin.AdminError as exc:
+            return CommandResult(err=f"key: {exc}")
+        return CommandResult(out=f"{name.lower()}: {count} key(s) stored")
+
+    if len(parts) < 3:
+        return CommandResult(err="usage: /key remove <provider> <index>")
+    try:
+        index = int(parts[2])
+    except ValueError:
+        return CommandResult(err="key: index must be a number")
+    try:
+        count = providers_admin.remove_key_index(name, index)
+    except providers_admin.AdminError as exc:
+        return CommandResult(err=f"key: {exc}")
+    return CommandResult(out=f"{name.lower()}: {count} key(s) left")
+
+
+def _cmd_router(session: "ChatSession", args: str) -> CommandResult:
+    from . import providers_admin
+
+    if args.strip().lower() == "reset":
+        for _kind, provider in session.chain:
+            pool = getattr(provider, "pool", None)
+            if pool is not None:
+                pool.reset()
+                return CommandResult(out="router: cooldowns and circuit breakers reset")
+        return CommandResult(out="no router in this session: nothing to reset")
+
+    state = providers_admin.settings()
+    rows = [row for row in providers_admin.provider_rows() if row["in_chain"]]
+    lines = [
+        f"allow_remote: {str(state['allow_remote']).lower()}"
+        f"  consent: {'recorded' if state['consent'] else 'none'}"
+        f"  strategy: {state['strategy']}",
+        "chain:",
+    ]
+    if not rows:
+        lines.append("  (empty: no key stored for a catalogued provider)")
+    for row in rows:
+        lines.append(
+            f"  {row['name']:<12}{row['keys']} key(s)  {row['verified']}  {row['model']}"
+        )
+    lines.append("usage: /router reset  clears cooldowns in this session")
+    return CommandResult(out="\n".join(lines))
+
+
+def _cmd_local_only(_session: "ChatSession", args: str) -> CommandResult:
+    """``on`` = nothing leaves the machine; ``off`` needs the same consent as the web UI."""
+    import sys
+
+    from . import providers_admin
+
+    want = args.strip().lower()
+    state = providers_admin.settings()
+    if want not in {"on", "off"}:
+        return CommandResult(
+            out=f"allow_remote: {str(state['allow_remote']).lower()}"
+            "  (usage: /local-only on|off)"
+        )
+
+    if want == "on":
+        providers_admin.update_settings(allow_remote=False, consent=False)
+        return CommandResult(out="local only: no remote provider will be called")
+
+    if state["consent"]:
+        providers_admin.update_settings(allow_remote=True, consent=False)
+        return CommandResult(
+            out=f"remote enabled (consent recorded {state['consent_date']})"
+        )
+
+    if not (sys.stdin is not None and sys.stdin.isatty()):
+        return CommandResult(
+            err="refusing to enable remote providers without an interactive confirmation"
+        )
+    print(state["warning"])
+    answer = input("Type 'yes' to confirm: ").strip().lower()
+    if answer != "yes":
+        return CommandResult(out="cancelled: still local only")
+    updated = providers_admin.update_settings(allow_remote=True, consent=True)
+    return CommandResult(out=f"remote enabled, consent recorded {updated['consent_date']}")
+
+
+def _session_markdown(session: "ChatSession", label: str) -> str:
+    lines = [f"# session {label}", "", f"{len(session.history) - 1} messages", ""]
+    for message in session.history[1:]:
+        role = str(message.get("role") or "?")
+        if role == "system":
+            continue
+        content = str(message.get("content") or "").strip()
+        if role == "tool":
+            name = str(message.get("name") or "")
+            lines.extend([f"### tool `{name}`", "```text", content[:8000], "```", ""])
+            continue
+        lines.extend([f"### {role}", content, ""])
+        for call in message.get("tool_calls") or []:
+            function = (call.get("function") or {}).get("name") or ""
+            lines.extend([f"> tool call: `{function}`", ""])
+    return "\n".join(lines)
+
+
+def _session_label(session: "ChatSession") -> str:
+    from .store import display_id
+
+    return display_id(session.session_id) if session.session_id else "unsaved"
+
+
+def _cmd_save(session: "ChatSession", args: str) -> CommandResult:
+    from pathlib import Path
+
+    label = _session_label(session)
+    raw = args.strip()
+    target = Path(raw).expanduser() if raw else Path(session.workspace) / f"session-{label}.md"
+    if not target.is_absolute():
+        # relative paths land in the workspace: the one directory UH guarantees,
+        # and the one the file tools are confined to
+        target = Path(session.workspace) / target
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_session_markdown(session, label), encoding="utf-8")
+    except OSError as exc:
+        return CommandResult(err=f"save: {exc}")
+    return CommandResult(
+        out=f"saved {target}\n"
+        "note: tool output may contain sensitive data; UH never writes a key"
+    )
+
+
+def _cmd_export(session: "ChatSession", args: str) -> CommandResult:
+    import json
+    from pathlib import Path
+
+    fmt = args.strip().lower() or "md"
+    if fmt in {"markdown"}:
+        fmt = "md"
+    if fmt not in {"md", "json"}:
+        return CommandResult(err="usage: /export [md|json]")
+
+    label = _session_label(session)
+    target = Path(session.workspace) / f"session-{label}.{fmt}"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if fmt == "json":
+            payload = {
+                "session": label,
+                "messages": [
+                    message for message in session.history[1:] if message.get("role") != "system"
+                ],
+            }
+            target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        else:
+            target.write_text(_session_markdown(session, label), encoding="utf-8")
+    except OSError as exc:
+        return CommandResult(err=f"export: {exc}")
+    return CommandResult(
+        out=f"exported {target}\n"
+        "note: tool output may contain sensitive data; UH never writes a key"
+    )
 
 
 def _cmd_tools(session: "ChatSession", _args: str) -> CommandResult:
@@ -189,8 +411,14 @@ REGISTRY: tuple[SlashCommand, ...] = (
                  aliases=("h", "?"), args_hint="[command]", group="Info"),
     SlashCommand("model", "List models, or switch model in this session", _cmd_model,
                  args_hint="[name]", group="Model"),
-    SlashCommand("provider", "Show or switch the provider chain", _cmd_provider,
-                 args_hint="[name]", group="Model"),
+    SlashCommand("provider", "Show, switch, add or test a provider", _cmd_provider,
+                 args_hint="[name|add <name>|test <name>]", group="Model"),
+    SlashCommand("key", "Keys: list, add (masked), remove by index", _cmd_key,
+                 args_hint="[list|add <p>|remove <p> <n>]", group="Model"),
+    SlashCommand("router", "Router state; reset clears cooldowns", _cmd_router,
+                 args_hint="[reset]", group="Model"),
+    SlashCommand("local-only", "Nothing leaves the machine; off needs consent", _cmd_local_only,
+                 args_hint="[on|off]", group="Model"),
     SlashCommand("tools", "List active toolsets and their tools", _cmd_tools, group="Info"),
     SlashCommand("clear", "Clear the conversation, keep the session", _cmd_clear, group="Session"),
     SlashCommand("new", "Start a new session", _cmd_new, aliases=("reset",), group="Session"),
@@ -202,6 +430,10 @@ REGISTRY: tuple[SlashCommand, ...] = (
     SlashCommand("retry", "Resend the last prompt", _cmd_retry, group="Session"),
     SlashCommand("title", "Set the title of the stored session", _cmd_title,
                  args_hint="<text>", group="Session"),
+    SlashCommand("save", "Save this session as Markdown", _cmd_save,
+                 args_hint="[file]", group="Session"),
+    SlashCommand("export", "Export this session (md or json)", _cmd_export,
+                 args_hint="[md|json]", group="Session"),
     SlashCommand("status", "Provider, model, session, context size", _cmd_status, group="Info"),
     SlashCommand("config", "Effective configuration and its sources", _cmd_config, group="Info"),
     SlashCommand("doctor", "Environment report", _cmd_doctor, group="Info"),

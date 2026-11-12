@@ -1,0 +1,329 @@
+"""Provider and key administration, shared by the CLI, the console and the web UI.
+
+Jalon 7b.1: one implementation, three front-ends. The URL rules, the key limits,
+the error kinds and the privacy switch live here; ``uh/web/providers_api.py``
+only translates them into HTTP, and the console/CLI commands call the same
+functions. A rule changed here changes everywhere, which is the point.
+
+Invariants (also listed in ``docs/AUDIT_BRIEF.md``):
+
+* no function in this module returns a key - only counts;
+* a key is never taken from a command-line argument, only from a masked prompt,
+  an environment variable or stdin;
+* the loopback restriction on *writing* a key belongs to the web layer, which
+  knows its bind address; this module exposes :func:`is_loopback_bind` so the two
+  cannot drift.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import re
+from typing import Any, Optional
+from urllib.parse import urlsplit
+
+import httpx
+
+from . import config as uh_config
+from .keys import add_key, add_provider, read_providers, remove_key_at
+from .router.catalog import CatalogError, load_catalog
+from .router.client import classify_status
+from .router.policy import CONSENT_WARNING, has_consent, record_consent
+
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+LINK_LOCAL = ipaddress.ip_network("169.254.0.0/16")
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+PROBE_TIMEOUT = 10.0
+MAX_KEY_LENGTH = 512
+STRATEGIES = ("priority", "round-robin")
+
+
+class AdminError(RuntimeError):
+    """A refusal a front-end can translate without guessing.
+
+    ``kind`` is one of ``invalid`` (400), ``unknown`` (404) and ``forbidden``
+    (403). The message is shown to a user: it never contains a key.
+    """
+
+    def __init__(self, message: str, *, kind: str = "invalid") -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
+# --------------------------------------------------------------------------- #
+# validation
+# --------------------------------------------------------------------------- #
+def is_loopback_bind(host: str) -> bool:
+    raw = (host or "").strip().lower()
+    if raw in LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(raw.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_base_url(raw: str) -> str:
+    """Normalised base URL, or :class:`AdminError`. Never echoes credentials."""
+    value = (raw or "").strip()
+    if not value:
+        raise AdminError("base_url is required")
+    parts = urlsplit(value)
+    if parts.scheme not in {"http", "https"}:
+        raise AdminError("base_url must use http or https")
+    if parts.username or parts.password:
+        raise AdminError("base_url must not embed credentials")
+    host = (parts.hostname or "").strip().lower()
+    if not host:
+        raise AdminError("base_url has no host")
+    if parts.query or parts.fragment:
+        raise AdminError("base_url must not carry a query or a fragment")
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    # Link-local first: 169.254.169.254 is the cloud metadata endpoint, and the
+    # refusal must say so even when the scheme would already be refused.
+    if address is not None and address in LINK_LOCAL:
+        raise AdminError("link-local addresses are refused (cloud metadata endpoint)")
+
+    if not is_loopback_bind(host) and parts.scheme != "https":
+        raise AdminError("base_url must use https (http is allowed on loopback only)")
+    return value.rstrip("/")
+
+
+def validate_key(raw: Any) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        raise AdminError("key is required")
+    value = raw.strip()
+    if len(value) > MAX_KEY_LENGTH:
+        raise AdminError(f"key is too long (max {MAX_KEY_LENGTH} characters)")
+    if any(ord(character) < 0x20 for character in value):
+        raise AdminError("key contains control characters")
+    return value
+
+
+def validate_name(raw: str) -> str:
+    name = (raw or "").strip().lower()
+    if not NAME_RE.match(name):
+        raise AdminError(
+            "name must be lowercase letters, digits, '-' or '_' (max 32 characters)"
+        )
+    return name
+
+
+# --------------------------------------------------------------------------- #
+# read
+# --------------------------------------------------------------------------- #
+def catalog() -> dict[str, Any]:
+    try:
+        return load_catalog()
+    except CatalogError:
+        return {}
+
+
+def _in_chain() -> set[str]:
+    from .router.provider import RouterProvider
+
+    try:
+        router = RouterProvider(cfg=uh_config.load())
+    except Exception:  # noqa: BLE001 - the panel must render even when the router cannot
+        return set()
+    return set(router.pool.states)
+
+
+def provider_rows() -> list[dict[str, Any]]:
+    """Every known provider with a **count** of keys - never a value."""
+    specs = catalog()
+    configured = read_providers()
+    active = _in_chain()
+
+    names = list(specs) + sorted(name for name in configured if name not in specs)
+    rows: list[dict[str, Any]] = []
+    for name in names:
+        spec = specs.get(name)
+        entry = configured.get(name, {})
+        keys = [item for item in (entry.get("keys") or []) if item]
+        first_model = spec.models[0].id if spec and spec.models else ""
+        rows.append(
+            {
+                "name": name,
+                "base_url": entry.get("base_url") or (spec.base_url if spec else ""),
+                "model": entry.get("model") or first_model,
+                "keys": len(keys),
+                "verified": spec.verified if spec else "custom",
+                "custom": spec is None,
+                "in_chain": name in active,
+            }
+        )
+    return rows
+
+
+def _require_known(name: str) -> tuple[Optional[Any], Optional[dict[str, Any]]]:
+    specs = catalog()
+    configured = read_providers()
+    spec = specs.get(name)
+    entry = configured.get(name)
+    if spec is None and entry is None:
+        raise AdminError(f"unknown provider '{name}'", kind="unknown")
+    return spec, entry
+
+
+def settings() -> dict[str, Any]:
+    cfg = uh_config.load()
+    return {
+        "allow_remote": bool(cfg.get("allow_remote")),
+        "consent": has_consent(cfg),
+        "consent_date": str(cfg.get("remote_consent") or ""),
+        "strategy": str(cfg.get("router_strategy") or "priority"),
+        "extra_providers": str(cfg.get("router_extra_providers") or ""),
+        "warning": CONSENT_WARNING,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# write
+# --------------------------------------------------------------------------- #
+def add_key_to(name: str, raw_key: Any) -> int:
+    """Store a key for an existing provider; return the new count."""
+    clean = validate_name(name)
+    key = validate_key(raw_key)
+    specs = catalog()
+    configured = read_providers()
+    spec = specs.get(clean)
+    entry = configured.get(clean)
+    if spec is None and entry is None:
+        raise AdminError(f"unknown provider '{clean}'", kind="unknown")
+    try:
+        if entry is not None:
+            add_key(clean, key)
+        else:
+            model = spec.models[0].id if spec and spec.models else ""
+            add_provider(clean, spec.base_url, model, key)  # type: ignore[union-attr]
+    except (OSError, ValueError) as exc:
+        raise AdminError(f"cannot store the key: {exc}") from exc
+    return len(read_providers().get(clean, {}).get("keys") or [])
+
+
+def remove_key_index(name: str, index: int) -> int:
+    clean = validate_name(name)
+    if not isinstance(index, int) or index < 1:
+        raise AdminError("index must be a positive integer")
+    if not remove_key_at(clean, index):
+        raise AdminError(f"no key at index {index} for '{clean}'", kind="unknown")
+    return len(read_providers().get(clean, {}).get("keys") or [])
+
+
+def save_provider(
+    name: str, base_url: str, model: str = "", raw_key: str = ""
+) -> dict[str, Any]:
+    """Store or update a provider; used by ``uh providers add`` and by the panel."""
+    clean = validate_name(name)
+    url = validate_base_url(base_url)
+    key = validate_key(raw_key) if raw_key else ""
+    try:
+        add_provider(clean, url, (model or "").strip(), key)
+    except (OSError, ValueError) as exc:
+        raise AdminError(f"cannot store the provider: {exc}") from exc
+    return {"name": clean, "base_url": url, "model": (model or "").strip()}
+
+
+def create_custom(name: str, base_url: str, model: str = "", key: str = "") -> dict[str, Any]:
+    clean = validate_name(name)
+    if clean in catalog():
+        raise AdminError(f"'{clean}' is a catalogue provider")
+    return save_provider(clean, base_url, model, key)
+
+
+def read_secret(prompt: str = "API key (not echoed): ", env_var: str = "UH_PROVIDER_KEY") -> str:
+    """Read a key from the environment, from stdin when piped, or masked.
+
+    Never from a command-line argument: ``argv`` is visible in the process list
+    and kept in the shell history. Returns ``""`` when nothing is available.
+    """
+    import getpass
+    import os
+    import sys
+
+    from_env = (os.environ.get(env_var) or "").strip()
+    if from_env:
+        return from_env
+    stdin = sys.stdin
+    if stdin is not None and not stdin.isatty():
+        try:
+            line = stdin.readline().strip()
+        except (OSError, ValueError):  # closed or non-readable stdin (pytest, a pipe)
+            line = ""
+        if line:
+            return line
+    if stdin is not None and stdin.isatty():
+        return getpass.getpass(prompt).strip()
+    return ""
+
+
+def update_settings(
+    *, allow_remote: bool, consent: bool, strategy: str = ""
+) -> dict[str, Any]:
+    current = uh_config.load()
+    if allow_remote and not has_consent(current) and not consent:
+        raise AdminError(
+            "enabling remote providers requires consent: true in the same request"
+        )
+    wanted = (strategy or "").strip().lower()
+    if wanted and wanted not in STRATEGIES:
+        raise AdminError("strategy must be priority or round-robin")
+
+    uh_config.write_layer("user", "allow_remote", bool(allow_remote))
+    if consent:
+        record_consent()
+    if wanted:
+        uh_config.write_layer("user", "router_strategy", wanted)
+    return settings()
+
+
+def test_connection(
+    name: str,
+    *,
+    transport: Optional[httpx.BaseTransport] = None,
+    timeout: float = PROBE_TIMEOUT,
+) -> dict[str, Any]:
+    """One ``ping`` to the provider. No session content ever leaves this function."""
+    clean = validate_name(name)
+    spec, entry = _require_known(clean)
+
+    base_url = (entry or {}).get("base_url") or (spec.base_url if spec else "")
+    if not base_url:
+        return {"ok": False, "status": None, "error_kind": "no_base_url"}
+    model = (entry or {}).get("model") or (spec.models[0].id if spec and spec.models else "")
+    keys = [item for item in ((entry or {}).get("keys") or []) if item]
+    headers = {"Content-Type": "application/json"}
+    if keys:
+        headers["Authorization"] = f"Bearer {keys[0]}"
+
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=False, transport=transport) as client:
+            response = client.post(
+                f"{base_url}/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                },
+                headers=headers,
+            )
+    except httpx.TimeoutException:
+        return {"ok": False, "status": None, "error_kind": "timeout"}
+    except httpx.TransportError:
+        return {"ok": False, "status": None, "error_kind": "transport"}
+
+    if 300 <= response.status_code < 400:
+        # following it would send the key wherever the redirect points
+        return {"ok": False, "status": response.status_code, "error_kind": "redirect_refused"}
+    if response.status_code >= 400:
+        return {
+            "ok": False,
+            "status": response.status_code,
+            "error_kind": classify_status(response.status_code),
+        }
+    return {"ok": True, "status": response.status_code, "error_kind": None}

@@ -18,8 +18,8 @@ pytest.importorskip("fastapi")
 import httpx  # noqa: E402
 
 from uh import keys as keys_mod  # noqa: E402
+from uh.providers_admin import AdminError, is_loopback_bind, validate_base_url  # noqa: E402
 from uh.web.app import create_app  # noqa: E402
-from uh.web.providers_api import is_loopback_bind, validate_base_url  # noqa: E402
 
 TOKEN = "test-token-providers"
 BASE = "http://127.0.0.1:8765"
@@ -92,7 +92,7 @@ def test_valid_base_urls(url: str) -> None:
     ],
 )
 def test_refused_base_urls(url: str, fragment: str) -> None:
-    with pytest.raises(ValueError, match=fragment):
+    with pytest.raises(AdminError, match=fragment):
         validate_base_url(url)
 
 
