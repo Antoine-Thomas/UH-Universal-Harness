@@ -46,6 +46,7 @@ class OllamaProvider(Provider):
     ) -> None:
         if not model:
             raise ProviderError("a model name is required (uh chat --model <name>)")
+        super().__init__()
         self.model = model
         self.base_url = (base_url_override or base_url()).rstrip("/")
         self.timeout = timeout
@@ -94,6 +95,10 @@ class OllamaProvider(Provider):
         if not isinstance(message, dict):
             raise ProviderError("Ollama response has no 'message' object")
 
+        # Ollama reports prompt_eval_count / eval_count at the top level, and the
+        # model it actually served (an alias may resolve to another tag).
+        self._record_meta(model=data.get("model"), usage=data)
+
         return {
             "role": "assistant",
             "content": message.get("content") or "",
@@ -103,6 +108,7 @@ class OllamaProvider(Provider):
     def _chat_streaming(self, payload: dict, on_token: Callable[[str], None]) -> dict:
         parts: List[str] = []
         tool_calls: List[dict] = []
+        final: dict = {}
         try:
             with httpx.stream(
                 "POST", f"{self.base_url}/api/chat", json=payload, timeout=self.timeout
@@ -129,10 +135,13 @@ class OllamaProvider(Provider):
                         if calls:  # Ollama sends the complete list in the final chunk
                             tool_calls = calls
                     if event.get("done"):
+                        final = event
                         break
         except httpx.HTTPError as exc:
             raise self._unreachable(exc) from exc
 
+        # The final NDJSON event carries prompt_eval_count / eval_count.
+        self._record_meta(model=final.get("model"), usage=final)
         return {"role": "assistant", "content": "".join(parts), "tool_calls": tool_calls}
 
     def _unreachable(self, exc: Exception) -> ProviderError:

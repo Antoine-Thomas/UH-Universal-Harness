@@ -213,6 +213,11 @@ class ChatSession:
         self.session_id = session_id
         self.announce = announce
         self.console = console or Console()
+        # Token accounting: provider counters are cumulative, so a turn takes a
+        # diff - a turn that calls the model several times sums all its calls.
+        self.last_usage: Optional[dict] = None
+        self.total_usage: dict = {"prompt": 0, "completion": 0, "total": 0}
+        self.last_real_model: Optional[str] = None
         # Web front-end hooks: no printing, events instead (see uh/web).
         self.events: Optional[Callable[[dict], None]] = None
         self._stop = threading.Event()
@@ -266,6 +271,7 @@ class ChatSession:
         before = len(self.history)
         self.history.append({"role": "user", "content": text})
         chunks: list[str] = []
+        usage_before = self._usage_snapshot()
 
         def on_token(delta: str) -> None:
             if self._stop.is_set():
@@ -314,6 +320,8 @@ class ChatSession:
             content = (last_assistant_message(self.history) or {}).get("content") or ""
 
         self._print_answer(content, chunks)
+        self._record_usage(usage_before)
+        self.console.detail(self.usage_line())
         self._emit("answer", content=content)
         try:
             self._persist(self.history[before:])
@@ -334,6 +342,50 @@ class ChatSession:
         self._emit("error", message="interrupted")
         del self.history[before:]
         return INTERRUPT_EXIT
+
+    # -- token accounting --------------------------------------------------- #
+    def _usage_snapshot(self) -> dict:
+        """Cumulative counters of the current provider (empty when unsupported)."""
+        snapshot = getattr(self.provider, "usage_snapshot", None)
+        data = snapshot() if callable(snapshot) else {}
+        return data if isinstance(data, dict) else {}
+
+    def _record_usage(self, before: dict) -> None:
+        """Fold this turn's counters into the session.
+
+        Interrupted and failed turns never reach here: their tokens are spent but
+        the turn is dropped, and billing a turn that produced nothing would be a
+        lie. ``last_usage`` is ``None`` when the provider reported no counters,
+        which is what makes the console say "tokens non rapportés".
+        """
+        after = self._usage_snapshot()
+        turn = {
+            key: max(0, int(after.get(key) or 0) - int(before.get(key) or 0))
+            for key in ("prompt", "completion", "total")
+        }
+        reported = any(turn.values())
+        self.last_usage = turn if reported else None
+        if reported:
+            for key in self.total_usage:
+                self.total_usage[key] += turn[key]
+        self.last_real_model = getattr(self.provider, "last_real_model", None) or self.last_real_model
+
+    def usage_summary(self) -> str:
+        """``1234 tok (in 312 / out 922)``, or an explicit "not reported"."""
+        if not self.last_usage:
+            return "tokens non rapportés"
+        usage = self.last_usage
+        return (
+            f"{usage['total']} tok (in {usage['prompt']} / out {usage['completion']})"
+        )
+
+    def usage_line(self) -> str:
+        """The dim line printed after every turn: who answered, at what cost."""
+        model = self.last_real_model or self.model or "?"
+        line = f"{self.provider_kind}  {model}  {self.usage_summary()}"
+        if self.last_usage:
+            line += f"  total session {self.total_usage['total']} tok"
+        return line
 
     def _run_into(
         self, chunks: list[str], on_token, extra: list[dict] | None = None
@@ -480,6 +532,8 @@ class ChatSession:
         lines = [
             f"provider: {self.provider_kind or '?'}",
             f"model:    {self.model or '?'}",
+            f"served:   {self.last_real_model or '(nothing answered yet)'}",
+            f"tokens:   last {self.usage_summary()}, session {self.total_usage['total']} tok",
             f"session:  {display_id(self.session_id) if self.session_id else 'unsaved'}",
             f"messages: {len(self.history)} (including the system prompt)",
             f"context:  ~{self.context_estimate()} tokens (estimate: characters / 4)",
@@ -515,7 +569,20 @@ class _ChainProvider(Provider):
     name = "chain"
 
     def __init__(self, chain: list[tuple[str, Provider]]) -> None:
+        super().__init__()
         self.chain = chain
+
+    def usage_snapshot(self) -> dict:
+        """Cumulative counters of every provider in the chain (whoever answered)."""
+        total = {"prompt": 0, "completion": 0, "total": 0}
+        for _kind, provider in self.chain:
+            snapshot = getattr(provider, "usage_snapshot", None)
+            data = snapshot() if callable(snapshot) else {}
+            if not isinstance(data, dict):
+                continue
+            for key in total:
+                total[key] += int(data.get(key) or 0)
+        return total
 
     def chat(
         self,
@@ -537,8 +604,9 @@ class _ChainProvider(Provider):
 
             try:
                 if on_token is not None and provider_supports_streaming(provider):
-                    return provider.chat(messages, tools, on_token=counted)
-                return provider.chat(messages, tools)
+                    result = provider.chat(messages, tools, on_token=counted)
+                else:
+                    result = provider.chat(messages, tools)
             except ProviderError as exc:
                 if emitted:
                     # Half an answer is already on screen: replaying it on the
@@ -552,6 +620,13 @@ class _ChainProvider(Provider):
                         f"(reason: {exc.reason})",
                         file=sys.stderr,
                     )
+                continue
+            # The turn's metrics come from whoever actually answered.
+            self.last_real_model = getattr(provider, "last_real_model", None) or getattr(
+                provider, "model", None
+            )
+            self.last_usage = getattr(provider, "last_usage", None)
+            return result
         if len(self.chain) == 1 and first is not None:
             raise first
         raise ProviderError("all providers failed: " + "; ".join(errors))

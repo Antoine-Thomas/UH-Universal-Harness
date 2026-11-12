@@ -132,6 +132,7 @@ class OmniRouterProvider(Provider):
         self.model = model or DEFAULT_MODEL
         self.api_key = api_key or resolve_api_key()
         self.timeout = timeout
+        super().__init__()
 
     # -- plumbing ---------------------------------------------------------- #
     def _headers(self) -> dict:
@@ -163,7 +164,33 @@ class OmniRouterProvider(Provider):
 
         if on_token is None:
             return self._chat_blocking(payload)
-        return self._chat_streaming(payload, on_token)
+        return self._stream_with_usage(payload, on_token)
+
+    def _stream_with_usage(
+        self, payload: dict, on_token: Callable[[str], None]
+    ) -> dict:
+        """Stream, asking the gateway for its final usage chunk.
+
+        ``stream_options.include_usage`` is the OpenAI way to get token counters
+        on a streamed answer. A gateway that does not know the parameter answers
+        400 before any token is sent; the call is then retried once without it,
+        so streaming never regresses for the sake of metrics.
+        """
+        requested = dict(payload, stream_options={"include_usage": True})
+        emitted = False
+
+        def counted(delta: str) -> None:
+            nonlocal emitted
+            emitted = True
+            on_token(delta)
+
+        try:
+            return self._chat_streaming(requested, counted)
+        except ProviderError as exc:
+            refused = exc.status == 400 and "stream_options" in str(exc).lower()
+            if emitted or not refused:
+                raise
+            return self._chat_streaming(payload, on_token)
 
     def _chat_blocking(self, payload: dict) -> dict:
         try:
@@ -181,6 +208,7 @@ class OmniRouterProvider(Provider):
         if not choices or not isinstance(choices[0], dict):
             raise ProviderError(f"{self.label} response has no 'choices' entry")
         message = choices[0].get("message") or {}
+        self._record_meta(model=data.get("model"), usage=data.get("usage"))
         return {
             "role": "assistant",
             "content": message.get("content") or "",
@@ -190,6 +218,8 @@ class OmniRouterProvider(Provider):
     def _chat_streaming(self, payload: dict, on_token: Callable[[str], None]) -> dict:
         parts: List[str] = []
         fragments: dict = {}
+        served_model: Optional[str] = None
+        usage: object = None
         try:
             with httpx.stream(
                 "POST",
@@ -217,6 +247,12 @@ class OmniRouterProvider(Provider):
                         continue
                     if not isinstance(event, dict):
                         continue
+                    if event.get("model"):
+                        served_model = str(event["model"])
+                    if event.get("usage"):
+                        # Sent in a final chunk with empty "choices" when
+                        # stream_options.include_usage was accepted.
+                        usage = event["usage"]
                     if event.get("error"):
                         detail = event["error"]
                         if isinstance(detail, dict):
@@ -232,6 +268,7 @@ class OmniRouterProvider(Provider):
         except httpx.HTTPError as exc:
             raise self._error(exc) from exc
 
+        self._record_meta(model=served_model, usage=usage)
         return {
             "role": "assistant",
             "content": "".join(parts),

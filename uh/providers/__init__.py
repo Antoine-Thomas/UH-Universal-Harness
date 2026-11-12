@@ -62,10 +62,69 @@ def request_messages(messages: List[dict]) -> List[dict]:
     return cleaned
 
 
+USAGE_KEYS = ("prompt", "completion", "total")
+
+
+def normalise_usage(raw: object) -> Optional[dict]:
+    """``{"prompt", "completion", "total"}`` from OpenAI or Ollama counters.
+
+    OpenAI: ``prompt_tokens`` / ``completion_tokens`` / ``total_tokens``.
+    Ollama: ``prompt_eval_count`` / ``eval_count`` (no total).
+    ``None`` when the provider reported nothing, so "not reported" stays
+    distinguishable from a real zero.
+    """
+    if not isinstance(raw, dict):
+        return None
+    prompt = raw.get("prompt_tokens", raw.get("prompt_eval_count"))
+    completion = raw.get("completion_tokens", raw.get("eval_count"))
+    total = raw.get("total_tokens")
+    if prompt is None and completion is None and total is None:
+        return None
+    try:
+        prompt = int(prompt or 0)
+        completion = int(completion or 0)
+        total = int(total) if total is not None else prompt + completion
+    except (TypeError, ValueError):
+        return None
+    return {"prompt": prompt, "completion": completion, "total": total or prompt + completion}
+
+
 class Provider(ABC):
     """Base class for every provider (local or remote)."""
 
     name = "base"
+
+    # Usage reporting is optional: a provider that cannot report counters leaves
+    # these at their defaults and the console prints "tokens non rapportés".
+    last_real_model: Optional[str] = None
+    last_usage: Optional[dict] = None
+
+    def __init__(self) -> None:
+        self.last_real_model = None
+        self.last_usage = None
+        self._usage_total: dict = {"prompt": 0, "completion": 0, "total": 0}
+
+    def usage_snapshot(self) -> dict:
+        """Cumulative counters since construction (a turn takes a diff of this)."""
+        total = getattr(self, "_usage_total", None)
+        if not isinstance(total, dict):
+            return {"prompt": 0, "completion": 0, "total": 0}
+        return {key: int(total.get(key) or 0) for key in USAGE_KEYS}
+
+    def _record_meta(self, *, model: object = None, usage: object = None) -> None:
+        """Remember what really answered and what it cost on this call."""
+        if model:
+            self.last_real_model = str(model)
+        parsed = normalise_usage(usage)
+        if parsed is None:
+            return
+        self.last_usage = parsed
+        total = getattr(self, "_usage_total", None)
+        if not isinstance(total, dict):
+            total = {"prompt": 0, "completion": 0, "total": 0}
+            self._usage_total = total
+        for key in USAGE_KEYS:
+            total[key] = int(total.get(key) or 0) + parsed[key]
 
     @abstractmethod
     def chat(

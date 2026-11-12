@@ -181,6 +181,8 @@ class RouterProvider(Provider):
                 continue
 
             self.pool.record_success(name, key_state)
+            # The console shows what actually answered, not the configured alias.
+            self.last_real_model = model
             self.last_trace = {
                 "provider": name,
                 "model": model,

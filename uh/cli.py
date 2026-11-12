@@ -996,7 +996,10 @@ def _run_repl(session: console.ChatSession) -> int:
         f"workspace {session.workspace} · session "
         f"{display_id(session.session_id) if session.session_id else 'unsaved'}"
     )
-    ui.detail(f"{len(session.history)} msg · ctx ~{session.context_estimate()} tok")
+    ui.detail(
+        f"{len(session.history)} msg · ctx ~{session.context_estimate()} tok"
+        f" · session {session.total_usage['total']} tok"
+    )
     ui.errout("type /help for commands, /exit to leave")
 
     while True:
