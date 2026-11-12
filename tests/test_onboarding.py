@@ -26,7 +26,8 @@ def test_ram_detection_is_plausible() -> None:
 
 
 def test_recommended_model_scales_and_never_goes_below_1_5b() -> None:
-    assert onboarding.recommended_model(4.0)[0] == "qwen2.5:1.5b"
+    # lfm3 wins the 4 GB tie: measured to call the three toolsets correctly
+    assert onboarding.recommended_model(4.0)[0] == "lfm3"
     assert onboarding.recommended_model(8.0)[0] == "qwen2.5:3b"
     assert onboarding.recommended_model(32.0)[0] == "qwen2.5:7b"
     assert onboarding.recommended_model(None)[0] == "qwen2.5:3b"  # unknown RAM -> 8 GB
@@ -170,3 +171,11 @@ def test_branch_e_guided_setup_saves_the_key_without_printing_it(
     assert saved is not None and saved["key"] == "sk-test-SECRET"
     assert "sk-test-SECRET" not in stream.getvalue(), "the key must never be echoed"
     assert keys_mod.keys_path().is_file()
+
+def test_small_models_stay_tool_capable() -> None:
+    """The first-run suggestion must be a model we actually measured with tools."""
+    names = [name for name, _, _ in onboarding.SMALL_MODELS]
+    assert "lfm3" in names
+    assert names.index("lfm3") < names.index("qwen2.5:3b")
+    edges = [minimum for _, _, minimum in onboarding.SMALL_MODELS]
+    assert edges == sorted(edges), "the list must stay ordered by RAM requirement"

@@ -34,8 +34,13 @@ from .providers.omnirouter import list_remote_models
 # name, approximate size, minimum RAM in GB.
 # Nothing below 1.5b: a 0.5b model calls tools but then answers with an empty
 # message, which looks like a broken harness to a first-time user.
+#
+# At the 4 GB tier, lfm3 comes last so it wins the tie: it is the only one of the
+# two measured to call read_file, terminal and memory_write correctly in UH
+# (~1.5 s per turn), and it carries its own tool renderer/parser in Ollama.
 SMALL_MODELS: tuple[tuple[str, str, int], ...] = (
     ("qwen2.5:1.5b", "~1.0 GB", 4),
+    ("lfm3", "~1.1 GB", 4),
     ("qwen2.5:3b", "~2.0 GB", 8),
     ("qwen2.5:7b", "~4.5 GB", 16),
 )
