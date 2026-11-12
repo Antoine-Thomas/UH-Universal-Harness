@@ -5,14 +5,21 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run(args: list[str], *, encoding_env: str | None = None) -> subprocess.CompletedProcess[str]:
+def _run(
+    args: list[str], *, encoding_env: str | None = None, home: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
-    env.pop("UH_HOME", None)
+    # Never the developer's real ~/.uh. `uh doctor` opens the store, and a clean
+    # close checkpoints the WAL: pointed at a live home it rewrites uh.db and
+    # deletes uh.db-wal/uh.db-shm, which the session guard reports as an
+    # isolation leak (and which can cost a running session its journal).
+    env["UH_HOME"] = str(home or Path(tempfile.mkdtemp(prefix="uh-encoding-")))
     if encoding_env:
         env["PYTHONIOENCODING"] = encoding_env
     return subprocess.run(
@@ -72,3 +79,25 @@ def test_non_ascii_output_does_not_raise(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "accents" in result.stdout
+
+
+def test_the_spawned_cli_never_points_at_the_real_uh_home(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A guard: `uh doctor` on the real ~/.uh checkpoints and deletes its WAL."""
+    seen: dict = {}
+
+    class Done:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        seen.update(kwargs)
+        return Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    _run(["--version"], home=tmp_path / "home")
+
+    assert seen["env"]["UH_HOME"] == str(tmp_path / "home")
+    assert seen["env"]["UH_HOME"] != str(Path.home() / ".uh")
