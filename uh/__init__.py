@@ -5,5 +5,5 @@ onboarding, user-supplied provider keys, CI matrix. Persistence and layered
 configuration came in Jalon 3; the web UI is Jalon 5.
 """
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 __all__ = ["__version__"]
