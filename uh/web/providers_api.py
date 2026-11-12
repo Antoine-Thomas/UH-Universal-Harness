@@ -24,6 +24,7 @@ from ..providers_admin import (
     import_from_omnirouter,
     is_loopback_bind,
     keys_panel,
+    presets_panel,
     provider_rows,
     remove_key_index,
     save_cloudflare,
@@ -61,6 +62,11 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
             "key_entry_allowed": is_loopback_bind(bound_host()),
             "keys": keys_panel(),
         }
+
+    @app.get("/api/providers/presets", dependencies=[Depends(dependency)])
+    def list_presets() -> dict:
+        """Form defaults for the popular providers (nothing is stored here)."""
+        return presets_panel()
 
     @app.post("/api/providers/cloudflare/config", dependencies=[Depends(dependency)])
     def save_cloudflare_config(payload: Annotated[dict, Body()]) -> dict:

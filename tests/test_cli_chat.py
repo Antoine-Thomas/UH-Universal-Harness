@@ -261,3 +261,51 @@ def test_repl_refuses_a_shell_line_without_calling_the_model(
     assert stub.seen == [], "a shell line must never reach the model"
     assert "that looks like a shell command" in captured.err
     assert [m["role"] for m in session.history] == ["system"], "nothing was appended"
+
+
+def test_the_repl_shows_one_discoverable_tip(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("UH_QUIET", raising=False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "/exit")
+
+    assert cli._run_repl(_repl_session(tmp_path, StubProvider())) == 0
+
+    err = capsys.readouterr().err
+    assert "'uh web'" in err
+    assert "'uh providers add <name>'" in err
+    assert "'/help'" in err
+
+
+@pytest.mark.parametrize("value", ["1", "true", "yes", "TRUE"])
+def test_uh_quiet_is_recognised(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("UH_QUIET", value)
+    assert cli.quiet_mode() is True
+
+
+@pytest.mark.parametrize("value", ["", "0", "no", "false"])
+def test_uh_quiet_is_not_triggered_by_anything_else(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("UH_QUIET", value)
+    assert cli.quiet_mode() is False
+
+
+def test_uh_quiet_silences_the_banner_header_and_tip(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("UH_QUIET", "1")
+    answers = iter(["salut", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    assert cli._run_repl(_repl_session(tmp_path, StubProvider())) == 0
+
+    captured = capsys.readouterr()
+    assert "Tip:" not in captured.err
+    assert "provider stub" not in captured.err
+    assert "workspace" not in captured.err
+    assert "█" not in captured.out
+    # the session itself is untouched: the answer still comes through
+    assert "bonjour a toi" in captured.out

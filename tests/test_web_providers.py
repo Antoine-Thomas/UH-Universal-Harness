@@ -554,3 +554,103 @@ def test_settings_reject_unknown_strategy(
             assert response.status_code == 400
 
     run(scenario())
+
+
+# --------------------------------------------------------------------------- #
+# popular provider presets
+# --------------------------------------------------------------------------- #
+def test_presets_carry_a_base_url_and_a_default_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.get("/api/providers/presets", headers=AUTH)
+            assert response.status_code == 200
+            assert_no_key(response.text)
+            presets = {entry["name"]: entry for entry in response.json()["presets"]}
+            assert {
+                "openai",
+                "mistral",
+                "kimi",
+                "gemini",
+                "groq",
+                "together",
+            } <= set(presets)
+            assert presets["openai"]["base_url"] == "https://api.openai.com/v1"
+            assert presets["openai"]["model"] == "gpt-4o-mini"
+            assert presets["mistral"]["base_url"] == "https://api.mistral.ai/v1"
+            assert presets["kimi"]["model"] == "kimi-k2"
+            assert presets["gemini"]["base_url"].endswith("/v1beta/openai/")
+            assert presets["groq"]["model"] == "llama-3.3-70b-versatile"
+            assert presets["together"]["model"].endswith("Instruct-Turbo")
+
+    run(scenario())
+
+
+def test_claude_is_gateway_only_and_never_a_preset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            payload = (await http.get("/api/providers/presets", headers=AUTH)).json()
+            assert "anthropic" not in {entry["name"] for entry in payload["presets"]}
+            note = next(entry for entry in payload["gateway_only"] if entry["name"] == "anthropic")
+            assert "LiteLLM, OpenRouter, or OmniRoute" in note["note"]
+            assert "not natively OpenAI-compatible" in note["note"]
+
+    run(scenario())
+
+
+def test_choosing_a_preset_saves_it_through_the_custom_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The form posts the preset's own fields: it must land as a custom provider."""
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            payload = (await http.get("/api/providers/presets", headers=AUTH)).json()
+            preset = next(entry for entry in payload["presets"] if entry["name"] == "openai")
+
+            created = await http.post(
+                "/api/providers/custom",
+                json={
+                    "name": preset["name"],
+                    "base_url": preset["base_url"],
+                    "model": preset["model"],
+                    "key": KNOWN_KEY,
+                },
+                headers=AUTH,
+            )
+            assert created.status_code == 200
+            assert_no_key(created.text)
+
+            listing = await http.get("/api/providers", headers=AUTH)
+            assert_no_key(listing.text)
+            row = next(
+                item for item in listing.json()["providers"] if item["name"] == "openai"
+            )
+            assert row["base_url"] == preset["base_url"]
+            assert row["model"] == preset["model"]
+            assert row["custom"] is True and row["keys"] == 1
+
+    run(scenario())
+
+
+def test_presets_stay_read_only_while_the_panel_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A preset is a form default, not a provider: nothing is stored by reading."""
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            await http.get("/api/providers/presets", headers=AUTH)
+            listing = (await http.get("/api/providers", headers=AUTH)).json()
+            assert "openai" not in {item["name"] for item in listing["providers"]}
+
+    run(scenario())

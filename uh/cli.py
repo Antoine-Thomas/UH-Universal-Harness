@@ -1027,6 +1027,21 @@ SHELL_WARNING = (
     "or prefix with / to use a chat command."
 )
 
+STARTUP_TIP = (
+    "Tip: run 'uh web' for a browser UI · 'uh providers add <name>' to configure "
+    "a paid provider · '/help' for chat commands"
+)
+
+
+def quiet_mode() -> bool:
+    """``UH_QUIET=1``: banner, header and tip are skipped, the prompt stays.
+
+    Deliberately narrow: answers, tool activity and per-turn metrics are the
+    user's own output, so they keep their stream. This silences the *banner* a
+    script does not want, not the session.
+    """
+    return os.environ.get("UH_QUIET", "").strip().lower() in {"1", "true", "yes"}
+
 
 def shell_command_hint(text: str) -> str | None:
     """The warning when a typed line looks like a shell command, else ``None``.
@@ -1051,20 +1066,23 @@ def _run_repl(session: console.ChatSession) -> int:
     can be compared side by side.
     """
     ui = session.console
-    if bool(session.cfg.get("banner")) and banner.should_show():
+    quiet = quiet_mode()
+    if not quiet and bool(session.cfg.get("banner")) and banner.should_show():
         # Full logo: render() already degrades to the short art under 40 columns.
         ui.show_banner(short=False)
     mode = "stream" if session.stream else "blocking"
-    ui.detail(f"provider {session.provider_kind} · model {session.model} · {mode}")
-    ui.detail(
-        f"workspace {session.workspace} · session "
-        f"{display_id(session.session_id) if session.session_id else 'unsaved'}"
-    )
-    ui.detail(
-        f"{len(session.history)} msg · ctx ~{session.context_estimate()} tok"
-        f" · session {session.total_usage['total']} tok"
-    )
-    ui.errout("type /help for commands, /exit to leave")
+    if not quiet:
+        ui.detail(f"provider {session.provider_kind} · model {session.model} · {mode}")
+        ui.detail(
+            f"workspace {session.workspace} · session "
+            f"{display_id(session.session_id) if session.session_id else 'unsaved'}"
+        )
+        ui.detail(
+            f"{len(session.history)} msg · ctx ~{session.context_estimate()} tok"
+            f" · session {session.total_usage['total']} tok"
+        )
+        # One discoverable line: the three things a first run cannot guess.
+        ui.detail(STARTUP_TIP)
 
     while True:
         ui.out("")  # one blank line before the prompt, always

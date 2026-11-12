@@ -11,6 +11,7 @@ const state = {
   paletteIndex: 0,
   filtered: [],
   keyEntryAllowed: false,
+  presets: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -426,6 +427,13 @@ async function loadProviders() {
   $("providers-hint").textContent = state.keyEntryAllowed
     ? "keys are write-only: only a masked hint is shown"
     : "read-only: key entry needs a loopback bind";
+  if (!state.presets) {
+    try {
+      state.presets = await api("/api/providers/presets");
+    } catch (error) {
+      state.presets = { presets: [], gateway_only: [] };
+    }
+  }
   renderProviders(data.providers || []);
   renderKeysPanel(data.keys);
   renderRouterSettings(await api("/api/router/settings"));
@@ -803,6 +811,94 @@ function omnirouteCard(section) {
   return card;
 }
 
+// Popular providers: picking one only pre-fills this form. Nothing is written
+// until Save, which goes through the ordinary custom-provider route (one write
+// path for keys.toml). A vendor without an OpenAI-compatible endpoint (Claude)
+// gets an explanation instead of a form that would 404 on /v1/chat/completions.
+function presetCard(data) {
+  const card = keyCard("Popular providers", "quick add", "hl");
+  const presets = (data && data.presets) || [];
+  const gatewayOnly = (data && data.gateway_only) || [];
+
+  card.appendChild(
+    el("div", "provider-meta", "Choose one, paste the key, save. Nothing is stored before that."),
+  );
+
+  const form = el("form", "custom-form");
+  const row = el("label", "custom-field");
+  row.appendChild(el("span", null, "preset"));
+  const select = document.createElement("select");
+  select.className = "preset-select";
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "choose a provider…";
+  select.appendChild(blank);
+  for (const preset of presets) {
+    const option = document.createElement("option");
+    option.value = preset.name;
+    option.textContent = `${preset.label} — ${preset.model}`;
+    select.appendChild(option);
+  }
+  for (const entry of gatewayOnly) {
+    const option = document.createElement("option");
+    option.value = `gateway:${entry.name}`;
+    option.textContent = `${entry.label} (gateway required)`;
+    select.appendChild(option);
+  }
+  row.appendChild(select);
+  form.appendChild(row);
+
+  const note = el("div", "provider-meta", "");
+  form.appendChild(note);
+
+  const inputs = {
+    name: keyField(form, "name", { placeholder: "openai" }),
+    base_url: keyField(form, "base_url", { placeholder: "https://…" }),
+    model: keyField(form, "model", { placeholder: "model id" }),
+    key: keyField(form, "key", { type: "password", placeholder: "API key (never shown again)" }),
+  };
+  const result = keyActions(form, "Save");
+
+  select.addEventListener("change", () => {
+    const chosen = presets.find((entry) => entry.name === select.value);
+    const blocked = gatewayOnly.find((entry) => `gateway:${entry.name}` === select.value);
+    note.textContent = blocked ? blocked.note : "";
+    note.className = blocked ? "provider-meta warn" : "provider-meta";
+    if (chosen) {
+      inputs.name.value = chosen.name;
+      inputs.base_url.value = chosen.base_url;
+      inputs.model.value = chosen.model;
+    } else if (!blocked) {
+      inputs.name.value = "";
+      inputs.base_url.value = "";
+      inputs.model.value = "";
+    }
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = {
+      name: inputs.name.value.trim(),
+      base_url: inputs.base_url.value.trim(),
+      model: inputs.model.value.trim(),
+      key: inputs.key.value,
+    };
+    inputs.key.value = ""; // cleared before sending: never re-displayed
+    try {
+      await api("/api/providers/custom", { method: "POST", body: JSON.stringify(payload) });
+      result.textContent = `saved ${payload.name}`;
+      result.className = "test-result ok";
+      await loadProviders();
+    } catch (error) {
+      result.textContent = `error: ${error.message}`;
+      result.className = "test-result warn";
+    }
+  });
+
+  card.appendChild(form);
+  return card;
+}
+
 function renderKeysPanel(keys) {
   const box = $("keys-priority");
   box.textContent = "";
@@ -810,6 +906,7 @@ function renderKeysPanel(keys) {
     box.appendChild(el("div", "panel-hint", "key state unavailable"));
     return;
   }
+  if (state.keyEntryAllowed) box.appendChild(presetCard(state.presets));
   box.appendChild(cloudflareCard(keys.cloudflare || {}));
   box.appendChild(deepseekCard(keys.deepseek || {}));
   box.appendChild(omnirouteCard(keys.omniroute || {}));

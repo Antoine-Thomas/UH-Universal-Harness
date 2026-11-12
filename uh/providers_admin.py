@@ -47,6 +47,65 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-flash"
 HINT_HEAD, HINT_TAIL, HINT_MIN = 3, 4, 12
 
+# Popular OpenAI-compatible providers, as served to the web panel (a preset
+# only pre-fills the custom-provider form: the same create_custom() path stores
+# it, so there is no second way to write keys.toml). Base URLs and model ids
+# are the vendors' documented OpenAI-compatible surfaces; a model id is only a
+# default, the field stays editable.
+PRESETS: tuple[dict[str, str], ...] = (
+    {
+        "name": "openai",
+        "label": "OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+    },
+    {
+        "name": "mistral",
+        "label": "Mistral",
+        "base_url": "https://api.mistral.ai/v1",
+        "model": "mistral-small-latest",
+    },
+    {
+        "name": "kimi",
+        "label": "Kimi (Moonshot)",
+        "base_url": "https://api.moonshot.ai/v1",
+        "model": "kimi-k2",
+    },
+    {
+        "name": "gemini",
+        "label": "Google Gemini",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "model": "gemini-2.0-flash",
+    },
+    {
+        "name": "groq",
+        "label": "Groq",
+        "base_url": "https://api.groq.com/openai/v1",
+        "model": "llama-3.3-70b-versatile",
+    },
+    {
+        "name": "together",
+        "label": "Together",
+        "base_url": "https://api.together.xyz/v1",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    },
+)
+
+# Vendors that do NOT speak the OpenAI wire format. They get an explanation
+# instead of a preset: a prefilled form would send the user into a 404 on
+# /v1/chat/completions and look like a UH bug.
+GATEWAY_ONLY: tuple[dict[str, str], ...] = (
+    {
+        "name": "anthropic",
+        "label": "Anthropic Claude",
+        "note": (
+            "Claude requires a gateway (LiteLLM, OpenRouter, or OmniRoute) - it is "
+            "not natively OpenAI-compatible. Enter the gateway URL below in the "
+            "custom-provider form."
+        ),
+    },
+)
+
 
 class AdminError(RuntimeError):
     """A refusal a front-end can translate without guessing.
@@ -184,6 +243,19 @@ def key_hint(raw: Any) -> str:
 
 def _stored_keys(name: str, configured: dict[str, Any]) -> list[str]:
     return [item for item in ((configured.get(name) or {}).get("keys") or []) if item]
+
+
+def presets_panel() -> dict[str, Any]:
+    """Popular-provider presets, plus the vendors that need a gateway.
+
+    A preset is only a form default: nothing is written to ``keys.toml`` until
+    the user submits it through ``create_custom``, so the panel keeps exactly
+    one write path and a preset can never look like a configured provider.
+    """
+    return {
+        "presets": [dict(entry) for entry in PRESETS],
+        "gateway_only": [dict(entry) for entry in GATEWAY_ONLY],
+    }
 
 
 def keys_panel() -> dict[str, Any]:

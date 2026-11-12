@@ -40,6 +40,7 @@ even when the failing input was one.
 | GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds]}` |
 | POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider}` · `400` |
 | GET | `/api/providers` | — | `{providers: [{name, base_url, model, keys, verified, custom, in_chain}], key_entry_allowed, keys: {cloudflare: {configured, source, account_id, key_hints}, deepseek: {configured, key_hints}, omniroute: {detected, base_url, has_key, config_path}}}` |
+| GET | `/api/providers/presets` | — | `{presets: [{name, label, base_url, model}], gateway_only: [{name, label, note}]}` · form defaults only, nothing is stored |
 | POST | `/api/providers/{name}/keys` | `{key}` | `{stored: true, keys: n}` · `400` · `403` off loopback · `404` unknown |
 | DELETE | `/api/providers/{name}/keys` | `{index}` | `{deleted: true, keys: n}` · `400` · `403` · `404` |
 | POST | `/api/providers/cloudflare/config` | `{account_id, token}` | `{stored: true, account_id, key_hint, source}` · `400` (account id must be 32 hex) · `403` · no full key in the answer |
