@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 
 from uh import commands
@@ -143,3 +144,49 @@ def test_history_shows_messages(session: ChatSession) -> None:
 def test_completion_candidates() -> None:
     assert "model" in commands.completion_candidates("mo")
     assert commands.completion_candidates("zzz") == []
+
+
+SAMPLE_SEARCH_HTML = """
+<html><body>
+<div class="result">
+  <a rel="nofollow" class="result__a"
+     href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage&amp;rut=abc">Example Page</a>
+  <a class="result__snippet">An example snippet.</a>
+</div>
+</body></html>
+"""
+
+
+class _FakeSearchResponse:
+    text = SAMPLE_SEARCH_HTML
+    status_code = 200
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+def test_web_runs_the_search_without_the_model(
+    session: ChatSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: _FakeSearchResponse())
+    before = list(session.history)
+    result = commands.dispatch(session, "/web une requête")
+    assert "Example Page" in result.out
+    assert "https://example.com/page" in result.out
+    assert "An example snippet." in result.out
+    assert session.history == before  # no model call, nothing added to the history
+
+
+def test_web_requires_a_query(session: ChatSession) -> None:
+    assert "usage: /web" in commands.dispatch(session, "/web").err
+
+
+def test_web_reports_search_errors(
+    session: ChatSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args, **kwargs):
+        raise httpx.ConnectError("dns failed")
+
+    monkeypatch.setattr(httpx, "get", broken)
+    result = commands.dispatch(session, "/web test")
+    assert result.err.startswith("web: search failed")

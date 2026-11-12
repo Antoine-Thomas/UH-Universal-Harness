@@ -325,6 +325,32 @@ def _cmd_tools(session: "ChatSession", _args: str) -> CommandResult:
     return CommandResult(out="\n".join(lines))
 
 
+def _cmd_web(session: "ChatSession", args: str) -> CommandResult:
+    """Run the web_search toolset directly - no model call, nothing stored."""
+    query = args.strip()
+    if not query:
+        return CommandResult(err="usage: /web <query>")
+    toolset = (session.toolsets or {}).get("web_search")
+    if toolset is None:
+        from .toolsets.web_search import WebSearchToolset
+
+        toolset = WebSearchToolset()
+    result = toolset.call("web_search", {"query": query})
+    if result.get("error"):
+        return CommandResult(err=f"web: {result['error']}")
+    results = result.get("results") or []
+    if not results:
+        return CommandResult(out=f"web: {result.get('note') or 'no results'}")
+    lines = [f"web search: {result.get('query', query)}"]
+    for position, item in enumerate(results, 1):
+        lines.append(f"  {position}. {item.get('title', '')}")
+        lines.append(f"     {item.get('url', '')}")
+        snippet = " ".join(str(item.get("snippet") or "").split())
+        if snippet:
+            lines.append(f"     {snippet[:160]}")
+    return CommandResult(out="\n".join(lines))
+
+
 def _cmd_clear(session: "ChatSession", _args: str) -> CommandResult:
     return CommandResult(err=f"uh chat: {session.clear_history()}")
 
@@ -426,6 +452,8 @@ REGISTRY: tuple[SlashCommand, ...] = (
     SlashCommand("local-only", "Nothing leaves the machine; off needs consent", _cmd_local_only,
                  args_hint="[on|off]", group="Model"),
     SlashCommand("tools", "List active toolsets and their tools", _cmd_tools, group="Info"),
+    SlashCommand("web", "Search the web directly (no model call)", _cmd_web,
+                 args_hint="<query>", group="Info"),
     SlashCommand("clear", "Clear the conversation, keep the session", _cmd_clear, group="Session"),
     SlashCommand("new", "Start a new session", _cmd_new, aliases=("reset",), group="Session"),
     SlashCommand("sessions", "List stored sessions", _cmd_sessions, group="Session"),
