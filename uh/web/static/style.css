@@ -126,6 +126,37 @@ body {
 .msg.system { align-self: center; font-size: 12px; color: var(--muted); background: transparent; }
 .msg .role { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 
+/* --- markdown rendering in assistant messages ----------------------------- */
+.msg .content.md { white-space: normal; }
+.msg .content.md p { margin: .45em 0; }
+.msg .content.md p:first-child { margin-top: 0; }
+.msg .content.md p:last-child { margin-bottom: 0; }
+.msg .content.md h1, .msg .content.md h2, .msg .content.md h3,
+.msg .content.md h4, .msg .content.md h5, .msg .content.md h6 {
+  margin: .7em 0 .3em; line-height: 1.25;
+}
+.msg .content.md h1 { font-size: 1.2em; }
+.msg .content.md h2 { font-size: 1.12em; }
+.msg .content.md h3 { font-size: 1.06em; }
+.msg .content.md pre {
+  margin: .5em 0; padding: 10px 12px; overflow-x: auto;
+  background: var(--tool); border: 1px solid var(--border); border-radius: 8px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+}
+.msg .content.md code {
+  font-family: var(--mono); font-size: .92em;
+  background: var(--tool); border-radius: 4px; padding: 1px 5px;
+}
+.msg .content.md pre code { background: none; padding: 0; font-size: inherit; }
+.msg .content.md ul, .msg .content.md ol { margin: .35em 0; padding-left: 1.5em; }
+.msg .content.md li { margin: .15em 0; }
+.msg .content.md blockquote {
+  margin: .45em 0; padding-left: 10px;
+  border-left: 3px solid var(--accent); color: var(--muted);
+}
+.msg .content.md a { color: var(--accent); }
+.msg .content.md hr { border: 0; border-top: 1px solid var(--border); margin: .7em 0; }
+
 .tool-card {
   align-self: flex-start; max-width: 780px; border: 1px solid var(--border);
   border-radius: var(--radius); background: var(--tool); font-size: 12px;

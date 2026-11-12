@@ -1,6 +1,8 @@
 // UH web front-end — original code, ES module, no build step, no third party.
 // Served under a strict CSP: no inline script, no inline style, no eval.
 
+import { renderMarkdown } from "./markdown.js";
+
 const state = {
   sessionId: null,
   streaming: false,
@@ -41,7 +43,16 @@ function el(tag, className, text) {
 function appendMessage(role, text) {
   const box = el("div", `msg ${role}`);
   box.appendChild(el("span", "role", role));
-  box.appendChild(document.createTextNode(text));
+  const content = el("div", "content");
+  // Assistant answers are Markdown-rendered (escape-first, see markdown.js);
+  // user and system text stays literal so it always shows exactly what was typed.
+  if (role === "assistant") {
+    content.classList.add("md");
+    content.innerHTML = renderMarkdown(text);
+  } else {
+    content.textContent = text;
+  }
+  box.appendChild(content);
   $("messages").appendChild(box);
   $("messages").scrollTop = $("messages").scrollHeight;
   return box;
@@ -260,9 +271,14 @@ async function sendMessage(text) {
         } else if (event === "error") {
           appendMessage("system", data.message || "error");
         } else if (event === "done") {
-          if (!assistantText && !assistant.textContent.replace("assistant", "").trim()) {
-            assistant.textContent = "";
+          const content = assistant.querySelector(".content");
+          if (!assistantText && !content.textContent.trim()) {
             assistant.remove();
+          } else {
+            // The stream was appended as plain text; swap in the Markdown
+            // rendering now that the answer is complete.
+            content.classList.add("md");
+            content.innerHTML = renderMarkdown(assistantText);
           }
         }
       });
