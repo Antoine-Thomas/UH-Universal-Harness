@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uh-harness"
-version = "0.7.3"
+version = "0.8.0"
 description = "Universal Harness: a provider-agnostic agent harness with a local-first CLI, tool use and an optional web UI"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
