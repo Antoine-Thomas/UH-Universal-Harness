@@ -13,6 +13,50 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.0.1] — 2026-11-12
+
+Patch release: three console defects reported against 1.0.0, plus the upgrade
+command the reported console was missing.
+
+### Fixed
+- **Ctrl+C while a provider streams no longer prints an httpx/httpcore
+  traceback** and no longer kills the console. `KeyboardInterrupt` is a
+  `BaseException`: the provider only catches `httpx.HTTPError` and the CLI's
+  last-resort guard only catches `Exception`, so nothing stopped it. The turn
+  is now dropped (`[interrompu]` on stderr, half-written line closed), the
+  history is rolled back to before the turn, nothing partial is persisted, and
+  the prompt comes back; `uh chat --once` returns 130 instead of a traceback.
+- **The console shows the logo again.** `_run_repl` asked for the short banner,
+  which prints the two-line ASCII art by construction, so no encoding ever
+  mattered there. It now renders the full art (which still degrades to the short
+  banner under 40 columns).
+- **Unicode detection is a capability test**, not a substring search for "utf"
+  in the encoding name: `LOGO_UNICODE.encode(encoding)`. A stream that can carry
+  █ gets the logo (UTF-8 on modern PowerShell / Windows Terminal), a cp1252 or
+  cp850 console and an unknown codec fall back to pure ASCII instead of raising.
+- **Readable session header and spacing**: one blank line before every `you>`
+  prompt and one between the question and the answer; the header is three dim
+  lines (provider · model · stream / workspace · session / messages · context)
+  so a long Windows path no longer garbles a single status bar.
+- Status and error lines use rich when it is installed and the stream is a TTY
+  (grey details, bold red errors), with markup escaped so a message such as
+  `[interrompu]` prints literally; plain text otherwise, no ANSI off a TTY and
+  `NO_COLOR` honoured.
+
+### Added
+- **`uh upgrade`**: reports the running and installed version, runs
+  `python -m pip install --upgrade uh-harness` in the same interpreter, then
+  reports `old -> new`. Refuses outside a virtualenv unless `--user` is passed,
+  keeps the installed version when pip fails, forwards `--dry-run` to pip, and
+  only re-execs `uh` with `--restart` (a re-exec of the old argv would loop).
+
+### Notes
+- `[interrompu]` is the one deliberately French string, documented in
+  `uh/console.py`; every other user-facing message is English.
+- **`1.0.0` has no section of its own**: it shipped as a version bump on top of
+  0.9.0 (the README's "What 1.0.0 contains" lists the surface). Per-release
+  blocks resume here.
+
 ## [0.9.0] — 2026-11-12 *(the release that carries 7a, 7b and 6b)*
 
 ### Added
