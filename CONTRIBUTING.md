@@ -39,6 +39,20 @@ Hooks: trailing whitespace, end-of-file, YAML/TOML syntax, merge conflicts,
 large files, LF endings, `ruff --fix`, and `mypy` on `uh/`. If a hook rewrites
 a file, re-add it and commit again.
 
+## Demo and one-off scripts
+
+Any script that drives UH — a curl demo, an SDK check, a screenshot run — must
+start with `UH_HOME` pointing at a throwaway directory:
+
+```bash
+UH_HOME="$(mktemp -d)" uh router serve --port 8791
+```
+
+Never let a manual script touch the real `~/.uh`. Two incidents came from
+ignoring this: a test wrote a fake provider key into the developer's own
+`keys.toml`, and a demo copied a token into `~/.uh/router-token`. `tests/conftest.py`
+enforces isolation for pytest; this rule covers everything that runs outside it.
+
 ## Line endings
 
 `.editorconfig` sets `end_of_line = lf` for everything, and `.gitattributes`
