@@ -313,8 +313,9 @@ def test_no_token_key_or_prompt_in_responses_logs_or_exceptions(
         assert secret not in logs
 
     assert "v1/chat/completions" in logs  # our own line is there...
-    # ...with the provider that really answered (the router's trace says groq)
-    assert "groq/" in logs
+    # ...with the provider that really answered: the router refused (401), the
+    # stub answered, and the trace belongs to this request only
+    assert "stub/" in logs
 
 
 # --------------------------------------------------------------------------- #
@@ -478,3 +479,53 @@ def test_client_disconnect_releases_the_slot() -> None:
         return app.state.in_flight
 
     assert asyncio.run(scenario()) == 0
+
+
+class ModelBound(StubProvider):
+    """Answers only for one prompt marker, like a provider that lacks the model."""
+
+    def __init__(self, name: str, marker: str) -> None:
+        super().__init__()
+        self.trace_name = name
+        self.marker = marker
+
+    def chat(self, messages, tools, *, on_token=None):
+        text = str(messages[-1].get("content") or "")
+        if self.marker not in text:
+            raise ProviderError(f"{self.trace_name}: no such model")
+        self.last_trace = {"provider": self.trace_name, "model": self.marker}
+        return {"role": "assistant", "content": self.trace_name, "tool_calls": []}
+
+
+def test_log_line_names_the_provider_of_that_request(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A shared last_trace credits a concurrent answer to the wrong provider."""
+    caplog.set_level(logging.INFO, logger="uh.router.serve")
+    app = make_app(chain=[("a", ModelBound("prov-a", "ma")), ("b", ModelBound("prov-b", "mb"))])
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Host": "127.0.0.1:8780", "Authorization": f"Bearer {TOKEN}"}
+        async with httpx.AsyncClient(transport=transport, base_url=BASE) as http:
+            await asyncio.gather(
+                http.post(
+                    "/v1/chat/completions",
+                    json={"model": "auto", "messages": [{"role": "user", "content": "ma"}]},
+                    headers=headers,
+                ),
+                http.post(
+                    "/v1/chat/completions",
+                    json={"model": "auto", "messages": [{"role": "user", "content": "mb"}]},
+                    headers=headers,
+                ),
+            )
+
+    asyncio.run(scenario())
+    lines = [
+        record.getMessage()
+        for record in caplog.records
+        if "chat/completions" in record.getMessage()
+    ]
+    providers = sorted(line.split()[3].split("/")[0] for line in lines if len(line.split()) >= 4)
+    assert providers == ["prov-a", "prov-b"], f"log lines: {lines}"

@@ -122,8 +122,13 @@ def _call_chain(
     messages: list[dict],
     tools: list[dict],
     on_token: Optional[Callable[[str], None]] = None,
-) -> dict:
-    """First provider that answers wins; a failure after emitting never replays."""
+) -> tuple[dict, dict[str, str]]:
+    """First provider that answers wins; a failure after emitting never replays.
+
+    Returns the answer **and** the trace of the provider that produced it: the
+    trace must belong to the request, never to a shared attribute, otherwise a
+    concurrent answer gets credited to the wrong provider in the log.
+    """
     errors: list[str] = []
     emitted = False
 
@@ -139,7 +144,11 @@ def _call_chain(
                 answer: dict = provider.chat(messages, tools, on_token=wrapped)
             else:
                 answer = provider.chat(messages, tools)
-            return answer
+            trace = getattr(provider, "last_trace", None) or {}
+            return answer, {
+                "provider": str(trace.get("provider") or kind),
+                "model": str(trace.get("model") or getattr(provider, "model", "") or "-"),
+            }
         except ProviderError as exc:
             errors.append(f"{kind}: {exc}")
             if emitted:
@@ -166,18 +175,6 @@ async def _read_body(request: Request, limit: int) -> Optional[bytes]:
             return None
         chunks.append(chunk)
     return b"".join(chunks)
-
-
-def _trace_of(chain: list[tuple[str, Any]]) -> dict[str, str]:
-    """The provider that actually answered, from its own trace when it has one."""
-    for kind, provider in chain:
-        trace = getattr(provider, "last_trace", None)
-        if trace:
-            return {
-                "provider": str(trace.get("provider") or kind),
-                "model": str(trace.get("model") or "-"),
-            }
-    return {"provider": chain[0][0] if chain else "-", "model": "-"}
 
 
 def _error(status: int, message: str, type_: str, code: str) -> JSONResponse:
@@ -256,7 +253,6 @@ def create_router_app(
     app.state.max_body = max(1024, int(max_body))
     app.state.in_flight = 0
     app.state.lock = threading.Lock()
-    app.state.last_trace = {"provider": "-", "model": "-"}
 
     def allowed_hosts() -> set[str]:
         return {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"::1:{port}"}
@@ -304,7 +300,7 @@ def create_router_app(
                 app.state.in_flight -= 1
 
         def log_line(status_code: int) -> None:
-            trace = app.state.last_trace
+            trace = getattr(request.state, "trace", None) or {}
             LOG.info(
                 "%s %s %s %s/%s %.1fms",
                 request.method,
@@ -422,26 +418,34 @@ def create_router_app(
 
         if not stream:
             try:
-                answer = await asyncio.to_thread(_call_chain, chain, messages, tools)
+                answer, trace = await asyncio.to_thread(_call_chain, chain, messages, tools)
             except ProviderError as exc:
-                app.state.last_trace = {"provider": "-", "model": model}
                 return _error(502, str(exc), "upstream_error", "provider_error")
-            app.state.last_trace = {**_trace_of(chain), "model": _trace_of(chain)["model"] if _trace_of(chain)["model"] != "-" else model}
+            request.state.trace = trace
             return _completion(answer, model, completion_id)
 
         async def stream_body():
             queue: asyncio.Queue = asyncio.Queue()
             loop = asyncio.get_running_loop()
+            closed = threading.Event()
 
             def emit(kind: str, data: Any) -> None:
-                loop.call_soon_threadsafe(queue.put_nowait, (kind, data))
+                # The client may be gone and the loop closed while the provider is
+                # still working (a blocking HTTP call cannot be interrupted here):
+                # never touch a dead loop, and stop queueing once the stream ended.
+                if closed.is_set():
+                    return
+                try:
+                    loop.call_soon_threadsafe(queue.put_nowait, (kind, data))
+                except RuntimeError:
+                    return
 
             def work() -> None:
                 try:
-                    answer = _call_chain(
+                    answer, trace = _call_chain(
                         chain, messages, tools, on_token=lambda text: emit("token", text)
                     )
-                    app.state.last_trace = _trace_of(chain)
+                    request.state.trace = trace  # read by the log line at the end
                     emit("done", answer)
                 except ProviderError as exc:
                     emit("error", str(exc))
@@ -450,19 +454,30 @@ def create_router_app(
 
             threading.Thread(target=work, daemon=True, name="uh-router-serve").start()
             yield _chunk("", model, completion_id)  # role marker, like OpenAI
-            while True:
-                kind, data = await queue.get()
-                if kind == "error":
-                    # explicit error event, then the end: never a silent truncation
-                    payload_err = {"error": {"message": data, "type": "upstream_error", "code": "stream_error"}}
-                    yield f"data: {json.dumps(payload_err)}\n\n"
-                    yield "data: [DONE]\n\n"
-                    return
-                if kind == "done":
-                    yield _chunk("", model, completion_id, done=True)
-                    yield "data: [DONE]\n\n"
-                    return
-                yield _chunk(str(data), model, completion_id)
+            try:
+                while True:
+                    kind, data = await queue.get()
+                    if kind == "error":
+                        # explicit error event, then the end: never a silent truncation
+                        payload_err = {
+                            "error": {
+                                "message": data,
+                                "type": "upstream_error",
+                                "code": "stream_error",
+                            }
+                        }
+                        yield f"data: {json.dumps(payload_err)}\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+                    if kind == "done":
+                        yield _chunk("", model, completion_id, done=True)
+                        yield "data: [DONE]\n\n"
+                        return
+                    yield _chunk(str(data), model, completion_id)
+            finally:
+                # normal end, error, or client gone: stop queueing and let the
+                # worker finish quietly into a closed loop, if it still runs
+                closed.set()
 
         return StreamingResponse(
             stream_body(),
