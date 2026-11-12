@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import __version__, banner, commands, console, keys
+from . import __version__, banner, commands, console, keys, sandbox
 from . import config as uh_config
 from .providers import (
     Provider,
@@ -143,10 +143,20 @@ def _router_detail() -> tuple[str, str]:
 
 
 def _workspace_path(raw: str | None = None) -> tuple[Path, str]:
-    """Resolve the workspace: explicit argument, then UH_WORKSPACE, then cwd."""
+    """Resolve the workspace: argument, ``UH_WORKSPACE``, cwd, then the fallback.
+
+    Origin ``system-fallback`` means the cwd was a system directory: the caller
+    prints :data:`uh.sandbox.SYSTEM_WORKSPACE_WARNING` so the user knows why the
+    workspace is not where they launched UH.
+    """
     value = raw or os.environ.get("UH_WORKSPACE")
-    origin = "argument" if raw else ("UH_WORKSPACE" if value else "cwd")
-    return (Path(value).expanduser() if value else Path.cwd()).resolve(), origin
+    if value:
+        origin = "argument" if raw else "UH_WORKSPACE"
+        return Path(value).expanduser().resolve(), origin
+    cwd = Path.cwd().resolve()
+    if sandbox.is_system_directory(cwd):
+        return sandbox.fallback_workspace(), "system-fallback"
+    return cwd, "cwd"
 
 
 def _check_workspace() -> tuple[str, str]:
@@ -904,6 +914,10 @@ def _build_chat_session(
     """Resolve workspace/provider/store and build the console session."""
     workspace_raw = args.workspace or str(cfg.get("workspace") or "")
     workspace, _origin = _workspace_path(workspace_raw or None)
+    if _origin == "system-fallback":
+        # Dim when the console can colour, plain text otherwise: the operator
+        # must see why the workspace is not the directory they launched from.
+        console.Console().detail(sandbox.SYSTEM_WORKSPACE_WARNING)
     if not workspace.is_dir():
         print(f"uh chat: workspace not found: {workspace}", file=sys.stderr)
         return None, EXIT_FAILURE

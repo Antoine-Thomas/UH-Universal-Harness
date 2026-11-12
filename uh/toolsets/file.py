@@ -14,7 +14,9 @@ Every path goes through ``_resolve``:
 Anything outside is refused with ``{"error": ...}`` - no exception, no write,
 including when the escape happens through a symlink pointing outside.
 
-Workspace = ``UH_WORKSPACE`` if set, otherwise the current directory.
+Workspace = ``UH_WORKSPACE`` if set, else the current directory - unless that
+directory is system-owned (``C:\\Windows``, ``/usr``, ...), in which case
+``~/uh-workspace`` is used and the console says so (see :mod:`uh.sandbox`).
 """
 
 from __future__ import annotations
@@ -25,16 +27,12 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Iterable, List
 
+from ..sandbox import default_workspace
+
 MAX_READ_BYTES = 1_000_000
 MAX_SEARCH_RESULTS = 100
 MAX_SEARCH_FILE_BYTES = 1_000_000
 SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", "dist", "build", ".pytest_cache"}
-
-
-def default_workspace() -> Path:
-    raw = os.environ.get("UH_WORKSPACE")
-    candidate = Path(raw).expanduser() if raw else Path.cwd()
-    return candidate.resolve()
 
 
 TOOLS: List[dict] = [
