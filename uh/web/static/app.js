@@ -407,6 +407,61 @@ async function loadProviders() {
   const data = await api("/api/providers");
   state.keyEntryAllowed = Boolean(data.key_entry_allowed);
   renderProviders(data.providers || []);
+  renderRouterSettings(await api("/api/router/settings"));
+}
+
+// Remote access is a privacy switch: the warning and the consent box only appear
+// once the user actually asks for it, and the server refuses to enable it
+// without consent: true in the same request.
+function renderRouterSettings(settings) {
+  const box = $("router-settings");
+  box.textContent = "";
+
+  const allowLabel = el("label", "settings-toggle");
+  const allow = document.createElement("input");
+  allow.type = "checkbox";
+  allow.checked = Boolean(settings.allow_remote);
+  allowLabel.appendChild(allow);
+  allowLabel.appendChild(el("span", null, "Allow remote (free) providers"));
+  box.appendChild(allowLabel);
+
+  const warning = el("p", "settings-warning", settings.warning || "");
+  const consentLabel = el("label", "settings-consent");
+  const consent = document.createElement("input");
+  consent.type = "checkbox";
+  consent.checked = Boolean(settings.consent);
+  consentLabel.appendChild(consent);
+  consentLabel.appendChild(el("span", null, "I understand and consent"));
+  warning.hidden = !allow.checked;
+  consentLabel.hidden = !allow.checked;
+  box.appendChild(warning);
+  box.appendChild(consentLabel);
+
+  const status = el("span", "test-result", "");
+  const save = el("button", null, "Save");
+  save.type = "button";
+  allow.addEventListener("change", () => {
+    warning.hidden = !allow.checked;
+    consentLabel.hidden = !allow.checked;
+  });
+  save.addEventListener("click", async () => {
+    status.textContent = "saving…";
+    try {
+      const updated = await api("/api/router/settings", {
+        method: "PUT",
+        body: JSON.stringify({ allow_remote: allow.checked, consent: consent.checked }),
+      });
+      status.textContent = "saved";
+      status.className = "test-result ok";
+      renderRouterSettings(updated);
+      await loadProviders();
+    } catch (error) {
+      status.textContent = `error: ${error.message}`;
+      status.className = "test-result warn";
+    }
+  });
+  box.appendChild(save);
+  box.appendChild(status);
 }
 
 function providerCard(row) {

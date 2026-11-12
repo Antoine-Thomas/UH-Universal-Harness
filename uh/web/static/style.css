@@ -262,3 +262,19 @@ body {
   align-self: flex-end; padding: 4px 12px; font-size: 12px; border-radius: 8px;
   cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff;
 }
+
+.router-settings {
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.settings-toggle, .settings-consent {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+}
+.settings-warning {
+  margin: 0; font-size: 11px; line-height: 1.45; color: var(--error);
+  white-space: pre-wrap; border-left: 2px solid var(--error); padding-left: 8px;
+}
+.router-settings > button {
+  align-self: flex-start; padding: 4px 12px; font-size: 12px; border-radius: 8px;
+  cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff;
+}

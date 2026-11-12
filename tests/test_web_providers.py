@@ -449,3 +449,107 @@ def test_probe_unknown_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
             assert (await http.post("/api/providers/nope/test", headers=AUTH)).status_code == 404
 
     run(scenario())
+
+# --------------------------------------------------------------------------- #
+# 7a.4 — allow_remote and consent
+# --------------------------------------------------------------------------- #
+def test_settings_require_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            assert (await http.get("/api/router/settings")).status_code == 401
+            assert (await http.put("/api/router/settings", json={})).status_code == 401
+
+    run(scenario())
+
+
+def test_settings_default_to_local_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            body = (await http.get("/api/router/settings", headers=AUTH)).json()
+            assert body["allow_remote"] is False
+            assert body["consent"] is False
+            assert "Free tiers" in body["warning"]
+
+    run(scenario())
+
+
+def test_enabling_remote_without_consent_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.put(
+                "/api/router/settings", json={"allow_remote": True}, headers=AUTH
+            )
+            assert response.status_code == 400
+            assert "consent" in response.json()["detail"]
+
+            after = (await http.get("/api/router/settings", headers=AUTH)).json()
+            assert after["allow_remote"] is False
+
+    run(scenario())
+
+
+def test_enabling_remote_with_consent_writes_both(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.put(
+                "/api/router/settings",
+                json={"allow_remote": True, "consent": True, "strategy": "round-robin"},
+                headers=AUTH,
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["allow_remote"] is True
+            assert body["consent"] is True
+            assert body["consent_date"]
+            assert body["strategy"] == "round-robin"
+
+    run(scenario())
+
+    from uh import config as uh_config
+
+    cfg = uh_config.load()
+    assert cfg.get("allow_remote") is True
+    assert str(cfg.get("remote_consent") or "")
+    assert cfg.get("router_strategy") == "round-robin"
+
+
+def test_settings_refuse_off_loopback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch, host="0.0.0.0")
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.put(
+                "/api/router/settings",
+                json={"allow_remote": True, "consent": True},
+                headers=AUTH,
+            )
+            assert response.status_code == 403
+
+    run(scenario())
+
+
+def test_settings_reject_unknown_strategy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.put(
+                "/api/router/settings", json={"strategy": "random"}, headers=AUTH
+            )
+            assert response.status_code == 400
+
+    run(scenario())

@@ -24,6 +24,7 @@ from .. import config as uh_config
 from ..keys import add_key, add_provider, read_providers, remove_key_at
 from ..router.catalog import CatalogError, load_catalog
 from ..router.client import classify_status
+from ..router.policy import CONSENT_WARNING, has_consent
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
@@ -243,6 +244,48 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
                 "error_kind": classify_status(response.status_code),
             }
         return {"ok": True, "status": response.status_code, "error_kind": None}
+
+    def _settings() -> dict:
+        cfg = uh_config.load()
+        return {
+            "allow_remote": bool(cfg.get("allow_remote")),
+            "consent": has_consent(cfg),
+            "consent_date": str(cfg.get("remote_consent") or ""),
+            "strategy": str(cfg.get("router_strategy") or "priority"),
+            "extra_providers": str(cfg.get("router_extra_providers") or ""),
+            "warning": CONSENT_WARNING,
+        }
+
+    @app.get("/api/router/settings", dependencies=[Depends(dependency)])
+    def read_settings() -> dict:
+        return _settings()
+
+    @app.put("/api/router/settings", dependencies=[Depends(dependency)])
+    def write_settings(payload: Annotated[dict, Body()]) -> dict:
+        # Enabling remote providers is a privacy decision: same loopback rule as
+        # key entry, no exception.
+        require_loopback()
+        body = payload or {}
+        want_remote = bool(body.get("allow_remote"))
+        consent = bool(body.get("consent"))
+        strategy = str(body.get("strategy") or "").strip().lower()
+
+        if want_remote and not has_consent(uh_config.load()) and not consent:
+            raise HTTPException(
+                status_code=400,
+                detail="enabling remote providers requires consent: true in the same request",
+            )
+        if strategy and strategy not in {"priority", "round-robin"}:
+            raise HTTPException(status_code=400, detail="strategy must be priority or round-robin")
+
+        uh_config.write_layer("user", "allow_remote", want_remote)
+        if consent:
+            from ..router.policy import record_consent
+
+            record_consent()
+        if strategy:
+            uh_config.write_layer("user", "router_strategy", strategy)
+        return _settings()
 
     @app.delete("/api/providers/{name}/keys", dependencies=[Depends(dependency)])
     def delete_provider_key(name: str, payload: Annotated[dict, Body()]) -> dict:
