@@ -77,8 +77,8 @@ uh doctor
       extended `uh doctor`.
 - [x] **Jalon 4 — Console experience.** `uh` with no argument opens a chat
       console: banner, status bar, slash commands (`docs/SLASH_COMMANDS.md`),
-      zero-configuration onboarding (local model, offer to pull one sized to the
-      RAM, local router, or a guided free key), `uh providers add|remove` with
+      zero-configuration onboarding (local model, automatic pull of
+      qwen2.5:0.5b when Ollama is up but empty, local router, or a guided free key), `uh providers add|remove` with
       keys in `$UH_HOME/keys.toml` (0600), UTF-8 stdio on Windows, CI matrix.
 - [x] **Jalon 5 — Web UI.** `uh web` serves a local interface (sessions column,
       streaming chat, collapsible tool cards, context gauge, per-session model,

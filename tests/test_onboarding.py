@@ -10,6 +10,7 @@ import pytest
 
 from uh import keys as keys_mod
 from uh import onboarding
+from uh.providers import ProviderError
 
 
 @pytest.fixture
@@ -18,21 +19,6 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path.mkdir()
     monkeypatch.setenv("UH_HOME", str(path))
     return path
-
-
-def test_ram_detection_is_plausible() -> None:
-    ram = onboarding.detect_ram_gb()
-    assert ram is None or (isinstance(ram, float) and ram > 0)
-
-
-def test_recommended_model_scales_and_never_goes_below_1_5b() -> None:
-    # lfm3 wins the 4 GB tie: measured to call the three toolsets correctly
-    assert onboarding.recommended_model(4.0)[0] == "lfm3"
-    assert onboarding.recommended_model(8.0)[0] == "qwen2.5:3b"
-    assert onboarding.recommended_model(32.0)[0] == "qwen2.5:7b"
-    assert onboarding.recommended_model(None)[0] == "qwen2.5:3b"  # unknown RAM -> 8 GB
-    assert all(minimum >= 4 for _, _, minimum in onboarding.SMALL_MODELS)
-    assert all(not name.endswith(":0.5b") for name, _, _ in onboarding.SMALL_MODELS)
 
 
 def test_branch_a_uses_an_installed_model(home: Path) -> None:
@@ -46,7 +32,7 @@ def test_branch_a_uses_an_installed_model(home: Path) -> None:
     assert (choice.kind, choice.model, choice.source) == ("ollama", "qwen3:8b", "ollama-existing")
 
 
-def test_branch_b_offers_a_sized_model_and_pulls_only_after_confirmation(
+def test_branch_b_pulls_the_zero_config_model_without_asking(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(onboarding, "_ollama_is_up", lambda: True)
@@ -55,42 +41,45 @@ def test_branch_b_offers_a_sized_model_and_pulls_only_after_confirmation(
 
     def fake_input(prompt: str) -> str:
         asked.append(prompt)
-        return "y"
+        return "n"
 
+    stream = io.StringIO()
     choice = onboarding.choose_provider(
-        stream=io.StringIO(),
+        stream=stream,
         input_fn=fake_input,
         ollama_probe=lambda: [],
-        ram_detector=lambda: 8.0,
         pull=lambda name, cb: pulled.append(name),
         router_probe=lambda: False,
         keys_reader=lambda: {},
     )
 
     assert choice is not None and choice.source == "ollama-pulled"
-    assert pulled == [choice.model] == ["qwen2.5:3b"]
-    assert asked and "~2.0 GB" in asked[0], asked  # size shown before downloading
-    assert "1.5b" not in choice.model or True  # floor is 1.5b, never 0.5b
-    assert ":0.5b" not in choice.model
+    assert pulled == [choice.model] == [onboarding.ZERO_CONFIG_MODEL[0]]
+    assert choice.model == "qwen2.5:0.5b"
+    assert asked == [], "the zero-config pull is automatic: no prompt"
+    output = stream.getvalue()
+    assert "downloading qwen2.5:0.5b" in output
+    assert "~400 MB" in output  # the size is announced before the download
 
 
-def test_branch_b_refusal_falls_through_to_the_router(
+def test_branch_b_pull_failure_falls_through_to_the_router(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(onboarding, "_ollama_is_up", lambda: True)
-    pulled: list[str] = []
 
+    def failing_pull(name: str, cb) -> None:
+        raise ProviderError("boom")
+
+    stream = io.StringIO()
     choice = onboarding.choose_provider(
-        stream=io.StringIO(),
-        input_fn=lambda prompt: "n",
+        stream=stream,
         ollama_probe=lambda: [],
-        ram_detector=lambda: 8.0,
-        pull=lambda name, cb: pulled.append(name),
+        pull=failing_pull,
         router_probe=lambda: True,
         keys_reader=lambda: {},
     )
 
-    assert pulled == []  # nothing downloaded without a yes
+    assert "pull failed: boom" in stream.getvalue()
     assert choice is not None and choice.kind == "omnirouter"
 
 
@@ -99,7 +88,6 @@ def test_branch_c_uses_a_running_router(home: Path, monkeypatch: pytest.MonkeyPa
     choice = onboarding.choose_provider(
         stream=io.StringIO(),
         ollama_probe=lambda: [],
-        ram_detector=lambda: 8.0,
         router_probe=lambda: True,
         keys_reader=lambda: {},
     )
@@ -114,7 +102,6 @@ def test_branch_d_uses_an_already_configured_provider(
     choice = onboarding.choose_provider(
         stream=io.StringIO(),
         ollama_probe=lambda: [],
-        ram_detector=lambda: 8.0,
         router_probe=lambda: False,
         keys_reader=lambda: {"groq": {"base_url": "https://api.groq.com/openai/v1", "model": "m"}},
     )
@@ -132,14 +119,14 @@ def test_branch_e_without_a_tty_returns_none_and_prints_hints(
     choice = onboarding.choose_provider(
         stream=stream,
         ollama_probe=lambda: [],
-        ram_detector=lambda: 8.0,
         router_probe=lambda: False,
         keys_reader=lambda: {},
     )
 
     assert choice is None
     output = stream.getvalue()
-    assert "console.groq.com/keys" in output
+    assert "openrouter.ai/keys" in output
+    assert "groq" not in output  # Groq left the catalogue and the hints
     assert "not a terminal" in output
 
 
@@ -160,7 +147,6 @@ def test_branch_e_guided_setup_saves_the_key_without_printing_it(
         stream=stream,
         input_fn=lambda prompt: next(answers),
         ollama_probe=lambda: [],
-        ram_detector=lambda: 8.0,
         router_probe=lambda: False,
         keys_reader=lambda: {},
     )
@@ -171,11 +157,3 @@ def test_branch_e_guided_setup_saves_the_key_without_printing_it(
     assert saved is not None and saved["key"] == "sk-test-SECRET"
     assert "sk-test-SECRET" not in stream.getvalue(), "the key must never be echoed"
     assert keys_mod.keys_path().is_file()
-
-def test_small_models_stay_tool_capable() -> None:
-    """The first-run suggestion must be a model we actually measured with tools."""
-    names = [name for name, _, _ in onboarding.SMALL_MODELS]
-    assert "lfm3" in names
-    assert names.index("lfm3") < names.index("qwen2.5:3b")
-    edges = [minimum for _, _, minimum in onboarding.SMALL_MODELS]
-    assert edges == sorted(edges), "the list must stay ordered by RAM requirement"
