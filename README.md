@@ -227,7 +227,10 @@ model that **really** answered (a gateway may route `auto/best-free` to a
 concrete model) and what it cost:
 `omnirouter  qwen3:8b  1234 tok (in 312 / out 922)  total session 3456 tok`.
 A provider that reports no counters prints `tokens non rapportés`; `/status`
-repeats both numbers. `/help` lists everything; the full
+repeats both numbers. The startup block ends with one discoverable line naming
+`uh web`, `uh providers add <name>` and `/help`; `UH_QUIET=1` silences the
+banner, the header and that tip (answers, tool activity and metrics stay).
+`/help` lists everything; the full
 inventory and the reason each Hermes command was kept or dropped lives in
 [docs/SLASH_COMMANDS.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/SLASH_COMMANDS.md).
 
@@ -299,6 +302,32 @@ for commercial use below $10M annual revenue, above which you need Liquid's
 permission (check it before monetising); and its own model card says it is not
 meant for agentic coding or long multi-step reasoning. Use it as a router or an
 extractor, keep a bigger model for the rest.
+
+## Popular providers
+
+UH ships with Ollama, OmniRoute, Cloudflare and DeepSeek natively. Any
+OpenAI-compatible provider can be added in one command:
+
+| Provider | Base URL | Example model |
+| --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| Mistral | `https://api.mistral.ai/v1` | `mistral-small-latest` |
+| Kimi (Moonshot) | `https://api.moonshot.ai/v1` | `kimi-k2` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-2.0-flash` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| Together | `https://api.together.xyz/v1` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+
+```bash
+uh providers add openai --base-url https://api.openai.com/v1 --model gpt-4o-mini
+# then paste your key when prompted (it is stored in $UH_HOME/keys.toml, 0600)
+```
+
+Claude is not natively OpenAI-compatible: point UH at a gateway (LiteLLM,
+OpenRouter, or OmniRoute) that exposes `/v1/chat/completions`.
+
+The `uh web` panel has the same presets behind a dropdown in its **API keys**
+tab: picking one fills the base URL and the default model, you paste the key
+and save.
 
 ## Providers and fallback
 
