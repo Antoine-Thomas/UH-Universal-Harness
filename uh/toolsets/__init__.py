@@ -22,11 +22,13 @@ from typing import Dict, List
 from .file import FileToolset
 from .memory import MemoryToolset
 from .terminal import TerminalToolset
+from .web_search import WebSearchToolset
 
 __all__ = [
     "FileToolset",
     "MemoryToolset",
     "TerminalToolset",
+    "WebSearchToolset",
     "build_toolsets",
     "describe_toolsets",
 ]
@@ -39,6 +41,7 @@ def build_toolsets(workspace: str | os.PathLike[str] | None = None) -> Dict[str,
         "file": FileToolset(workspace=ws),
         "terminal": TerminalToolset(workspace=ws),
         "memory": MemoryToolset(),
+        "web_search": WebSearchToolset(),
     }
 
 
