@@ -4,7 +4,8 @@ Precedence, lowest to highest::
 
     defaults  <  ~/.uh/config.toml  <  ./uh.toml  <  UH_* environment  <  CLI flags
 
-Reading uses :mod:`tomllib` (stdlib, Python >= 3.11). Writing uses the small
+Reading uses :mod:`tomllib` (stdlib on 3.11+, the ``tomli`` backport on 3.10,
+through :mod:`uh._compat`). Writing uses the small
 serialiser below, which handles **flat tables only**: booleans, integers and
 strings. Arrays, nested tables and datetimes are deliberately unsupported -
 they raise, they are never silently mangled. A hand-written ``config.toml``
@@ -15,10 +16,11 @@ an error, so a newer file never breaks an older build.
 from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+
+from ._compat import tomllib
 
 DEFAULTS: dict[str, Any] = {
     "default_provider": "ollama",

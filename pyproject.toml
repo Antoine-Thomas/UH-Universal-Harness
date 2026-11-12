@@ -5,24 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "uh-harness"
 version = "0.6.0"
-description = "Universal Harness - a provider-agnostic agent harness CLI (local-first, no vendor lock-in)"
-readme = "README.md"
-requires-python = ">=3.11"
+description = "Universal Harness: a provider-agnostic agent harness with a local-first CLI, tool use and an optional web UI"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Thomas Leroyer" }]
 keywords = ["agent", "harness", "llm", "ollama", "cli", "local-first"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Environment :: Console",
+    "Environment :: Web Environment",
     "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Terminals",
 ]
-dependencies = ["httpx>=0.27"]
+dependencies = [
+    "httpx>=0.27",
+    # tomllib is stdlib from 3.11; on 3.10 the backport is pulled automatically.
+    'tomli>=2; python_version < "3.11"',
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "build>=1", "fastapi>=0.110", "uvicorn>=0.29"]
@@ -34,6 +43,10 @@ uh = "uh.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Antoine-Thomas/UH-Universal-Harness"
+Source = "https://github.com/Antoine-Thomas/UH-Universal-Harness"
+Issues = "https://github.com/Antoine-Thomas/UH-Universal-Harness/issues"
+Documentation = "https://github.com/Antoine-Thomas/UH-Universal-Harness/tree/main/docs"
+Changelog = "https://github.com/Antoine-Thomas/UH-Universal-Harness/releases"
 
 [tool.setuptools.packages.find]
 include = ["uh*"]

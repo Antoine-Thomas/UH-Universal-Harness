@@ -51,7 +51,7 @@ from .toolsets import build_toolsets, describe_toolsets
 from .toolsets.memory import SECTIONS as MEMORY_SECTIONS
 from .toolsets.memory import memory_path, parse as parse_memory, uh_home
 
-MIN_PYTHON = (3, 11)
+MIN_PYTHON = (3, 10)
 OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434"
 DEFAULT_MAX_ITERATIONS = 8
 MIN_FREE_DISK_BYTES = 500 * 1024 * 1024

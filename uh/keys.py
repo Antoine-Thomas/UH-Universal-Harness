@@ -23,9 +23,10 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-import tomllib
 from pathlib import Path
 from typing import Any, Optional
+
+from ._compat import tomllib
 
 FILE_NAME = "keys.toml"
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_\-]{0,31}$")

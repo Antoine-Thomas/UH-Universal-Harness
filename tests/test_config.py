@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import pytest
 
+from uh._compat import tomllib
 from uh import cli
 from uh import config as uh_config
 

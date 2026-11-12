@@ -18,7 +18,7 @@ first launch. A paid provider is an opt-in, never a prerequisite.
 The web UI will be **copied and adapted from Harness Maxxing**, not written from
 scratch and not vendored as a dependency.
 
-- Requires Python ≥ 3.11
+- Requires Python ≥ 3.10 (`tomli` is installed automatically on 3.10)
 - Single runtime dependency: `httpx`
 - Installable on its own: no dependency on `hermes-home-vision` or `uhb`
 
@@ -113,7 +113,7 @@ Security, because a local server is still a server:
 - no provider key is ever returned by the API.
 
 Design notes and the feature-by-feature rationale live in
-[docs/WEB_DESIGN.md](docs/WEB_DESIGN.md).
+[docs/WEB_DESIGN.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/WEB_DESIGN.md).
 
 ## Console and slash commands
 
@@ -121,7 +121,7 @@ Design notes and the feature-by-feature rationale live in
 unchanged). The status bar shows `provider · model · session · messages ·
 context estimate`. `/help` lists everything; the full inventory and the reason
 each Hermes command was kept or dropped lives in
-[docs/SLASH_COMMANDS.md](docs/SLASH_COMMANDS.md).
+[docs/SLASH_COMMANDS.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/SLASH_COMMANDS.md).
 
 `/help`, `/model`, `/provider`, `/tools`, `/clear`, `/new`, `/sessions`,
 `/resume`, `/history`, `/retry`, `/title`, `/status`, `/config`, `/doctor`,
@@ -206,4 +206,4 @@ What the installed gateway actually looks like (OmniRoute 3.8.52):
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/LICENSE).
