@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import urllib.parse
 from html.parser import HTMLParser
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import httpx
 

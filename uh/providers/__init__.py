@@ -68,11 +68,11 @@ class Provider(ABC):
 
 # Imported after Provider/ProviderError exist: the submodules import them back
 # from this package, which works because those names are already bound.
+from .cloudflare import CloudflareProvider  # noqa: E402
+from .deepseek import DeepSeekProvider  # noqa: E402
 from .ollama import OllamaProvider  # noqa: E402
 from .omnirouter import OmniRouterProvider  # noqa: E402
 from .openai_compat import OpenAICompatProvider  # noqa: E402
-from .cloudflare import CloudflareProvider  # noqa: E402
-from .deepseek import DeepSeekProvider  # noqa: E402
 
 
 def _build_router(model: str = "", **kwargs) -> "Provider":

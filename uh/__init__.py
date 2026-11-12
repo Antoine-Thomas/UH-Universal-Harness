@@ -1,9 +1,11 @@
 """Universal Harness (UH) - a provider-agnostic agent harness.
 
-Jalon 4: console experience (banner, status bar, slash commands), zero-config
-onboarding, user-supplied provider keys, CI matrix. Persistence and layered
-configuration came in Jalon 3; the web UI is Jalon 5.
+Stable surface: the agent loop and its toolsets (file, terminal, memory, web
+search), a local model layer with a traced fallback chain (Ollama, Cloudflare,
+DeepSeek, OmniRoute, free providers), persisted sessions with layered
+configuration, the console with zero-config onboarding, and the local web UI
+with its API-key panel.
 """
 
-__version__ = "0.9.0"
+__version__ = "1.0.0"
 __all__ = ["__version__"]

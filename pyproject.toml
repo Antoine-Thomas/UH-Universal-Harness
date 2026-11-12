@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uh-harness"
-version = "0.9.0"
+version = "1.0.0"
 description = "Universal Harness: a provider-agnostic agent harness with a local-first CLI, tool use and an optional web UI"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Thomas Leroyer" }]
 keywords = ["agent", "harness", "llm", "ollama", "cli", "local-first"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Environment :: Web Environment",
     "Intended Audience :: Developers",

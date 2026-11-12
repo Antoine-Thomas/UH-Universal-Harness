@@ -15,11 +15,11 @@ uh                              # console: picks a local model, starts chatting
 pip install "uh-harness[web]" && uh web   # optional: the browser UI
 ```
 
-That is the whole setup. UH finds an Ollama model you already have (or offers to
-pull a small one sized to your RAM), falls back to a local OpenAI-compatible
-router, and only asks for a key if nothing local answers — in which case
-`uh doctor` and the guided setup tell you exactly what to do. Nothing is sent
-anywhere until you type a prompt.
+That is the whole setup. UH finds an Ollama model you already have, pulls
+`qwen2.5:0.5b` automatically when Ollama is running with none installed, falls
+back to a local OpenAI-compatible router, and only asks for a key if nothing
+local answers — in which case `uh doctor` and the guided setup tell you exactly
+what to do. Nothing is sent anywhere until you type a prompt.
 
 ## Why UH?
 
@@ -61,52 +61,52 @@ uh --version
 uh doctor
 ```
 
-## Roadmap — five milestones
+## What 1.0.0 contains
 
-- [x] **Jalon 0 — Skeleton.** PyPI-installable package (`uh-harness`), `uh` CLI
-      surface, `uh --version`, `uh doctor` (python / httpx / git / ollama probe),
-      README, MIT license. No agent loop, no storage, no UI.
-- [x] **Jalon 1 — Agent core.** Synchronous `run_turn` loop, toolsets
-      (`file`, `terminal`, `memory`), in-memory message history, `uh chat`.
-      No persistence yet: a session lives only as long as the process.
-- [x] **Jalon 2 — Local model layer.** Streamed chat (`--no-stream` to disable),
-      real `uh model pull` with progress, provider registry (`ollama`,
-      `omnirouter`), traced fallback chain, `uh providers list`.
-- [x] **Jalon 3 — Sessions and configuration.** Persisted sessions backed by a
-      SQLite FTS5 store (`uh sessions list|show|search|delete|resume`), layered
-      configuration with `uh config show|get|set|path`, `uh memory migrate|show`,
-      extended `uh doctor`.
-- [x] **Jalon 4 — Console experience.** `uh` with no argument opens a chat
-      console: banner, status bar, slash commands (`docs/SLASH_COMMANDS.md`),
-      zero-configuration onboarding (local model, automatic pull of
-      qwen2.5:0.5b when Ollama is up but empty, local router, or a guided free key), `uh providers add|remove` with
-      keys in `$UH_HOME/keys.toml` (0600), UTF-8 stdio on Windows, CI matrix.
-- [x] **Jalon 5 — Web UI.** `uh web` serves a local interface (sessions column,
-      streaming chat, collapsible tool cards, context gauge, per-session model,
-      full-text search, command palette, stop button, light/dark themes, and an
-      API-key panel for Cloudflare, DeepSeek and OmniRoute with masked hints)
-      from three static files with no build step and no third-party JavaScript.
+- **Agent core and toolsets.** A synchronous `run_turn` loop, toolsets with
+  JSON-schema contracts (`file`, `terminal`, `memory`, `web_search`), a hard
+  `max_iterations` budget, `uh chat`.
+- **Local model layer and fallback chain.** Streamed chat (`--no-stream` to
+  disable), `uh model pull` with progress, providers `ollama`, `cloudflare`,
+  `deepseek`, `omnirouter` and the free-provider router. The chain is
+  `ollama → cloudflare → deepseek → omnirouter → router`; a provider without a
+  key is skipped, every switch is printed on stderr, and `/web <query>` runs a
+  search without going through the model.
+- **Sessions and configuration.** SQLite FTS5 store (`uh sessions
+  list|show|search|delete|resume`), layered configuration (`uh config
+  show|get|set|path`), `uh memory migrate|show`, extended `uh doctor`.
+- **Console.** Banner, status bar, slash commands (`docs/SLASH_COMMANDS.md`),
+  zero-config onboarding (automatic `qwen2.5:0.5b` pull when Ollama is up but
+  empty, local router, or a guided free key), `uh providers add|remove` with
+  keys in `$UH_HOME/keys.toml` (0600), UTF-8 stdio on Windows.
+- **Web UI.** `uh web` serves a local interface (sessions column, streaming
+  chat, collapsible tool cards, context gauge, per-session model, full-text
+  search, command palette, stop button, light/dark themes) plus an API-key
+  panel for Cloudflare, DeepSeek and OmniRoute with masked hints, from three
+  static files with no build step and no third-party JavaScript.
+- **Free-provider router.** Catalogue verified per entry
+  (`uh/router/catalog.toml`), key rotation, cooldowns, circuit breaker,
+  tool-capable-model filter, traced failover, opt-in remote access with recorded
+  consent and `--local-only`.
+- **Local gateway.** `uh router serve`: an OpenAI-compatible endpoint on
+  `127.0.0.1` behind its own token, so other tools can use UH's pool, with a
+  byte-based body cap, streaming slots and a per-request trace.
+- **One service layer.** `uh/providers_admin.py` shared by the console, the CLI
+  and the web panel; `docs/API.md` guarded by a drift test.
 
-Jalons 0 to 5 are done. The interface is an **original design**: it borrows the
-feature list of Harness Maxxing (public README) and none of its code, which is
-under a Fair Source Licence. UH stays MIT.
+The web interface is an **original design**: it borrows the feature list of
+Harness Maxxing (public README) and none of its code, which is under a Fair
+Source Licence. UH stays MIT.
 
-Then the provider and interface work:
+346 tests, 1 skipped locally (Windows, Python 3.11); the CI matrix runs the
+suite on Linux, macOS and Windows across Python 3.10 to 3.13.
 
-- [x] **Jalon 6a — Free-provider router.** Catalogue of free OpenAI-compatible
-      providers (`uh/router/catalog.toml`, verified per entry), key rotation,
-      cooldowns, circuit breaker, tool-capable-model filter, traced failover,
-      opt-in remote access with recorded consent and `--local-only`.
-- [x] **Jalon 6b — Local gateway.** `uh router serve`: an OpenAI-compatible
-      endpoint on `127.0.0.1` behind its own token, so other tools can use UH's
-      pool. Hardened in 6b.1: byte-based body cap, streaming slots, per-request
-      trace.
-- [x] **Jalon 7a — Provider panel.** Keys (write-only), custom providers,
-      connection test, `allow_remote` with consent, inside `uh web`.
-- [x] **Jalon 7b — One service layer.** `uh/providers_admin.py` shared by the
-      console, the CLI and the web panel; `docs/API.md` guarded by a drift test.
+## Roadmap (after 1.0.0)
 
-307 tests, 1 skipped, on three operating systems and four Python versions.
+- **UHB integration** — plug the second brain (retrieval, wiki, memory) into the
+  harness as a toolset, shipped as its own package.
+- **Web-session fallback parity** — a browser session currently binds one
+  provider; the chain applies to `uh chat` and the console.
 
 ## CLI surface
 
@@ -192,6 +192,23 @@ export OPENAI_API_KEY="$(cat ~/.uh/router-token)"
 Details, client examples and the threat model:
 [docs/ROUTER_SERVE.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/ROUTER_SERVE.md).
 
+## Tools
+
+Every toolset declares an OpenAI-style JSON schema, refuses unknown arguments
+and returns errors the model can read — an error is a message, not a crash.
+
+| Toolset | Tools | Notes |
+| --- | --- | --- |
+| `file` | `read_file`, `write_file`, `list_dir`, `search` | confined to the workspace |
+| `terminal` | `run_command` | blacklist plus timeout, not a sandbox; off in the web UI unless `--allow-terminal` |
+| `memory` | `memory_read`, `memory_write` | one flat file, sections |
+| `web_search` | `web_search(query, max_results)` | DuckDuckGo HTML endpoint, no API key, up to 5 results (title, url, snippet); `max_results` is capped, parse failures are reported as throttling |
+
+`/web <query>` runs the search toolset directly from the console, without a
+model call and without touching the session history. The toolset returns
+`{"error": ...}` on network/HTTP failures and a `note` when the page looks
+throttled, so the model (or you) can tell the two apart.
+
 ## Console and slash commands
 
 `uh` on a terminal starts the console; piped, it still prints help (scriptable
@@ -203,17 +220,18 @@ each Hermes command was kept or dropped lives in
 The release process (Trusted Publishing, TestPyPI then PyPI, yanking) is in [docs/RELEASING.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/RELEASING.md).
 
 `/help`, `/model`, `/provider`, `/key`, `/router`, `/local-only`, `/tools`,
-`/clear`, `/new`, `/sessions`, `/resume`, `/history`, `/retry`, `/title`,
-`/save`, `/export`, `/status`, `/config`, `/doctor`, `/memory`, `/version`,
-`/exit` (aliases `/h`, `/?`, `/reset`, `/quit`, `/q`, `/v`). An unknown command is never sent to the model: it is refused with the
-closest match suggested.
+`/web`, `/clear`, `/new`, `/sessions`, `/resume`, `/history`, `/retry`,
+`/title`, `/save`, `/export`, `/status`, `/config`, `/doctor`, `/memory`,
+`/version`, `/exit` (aliases `/h`, `/?`, `/reset`, `/quit`, `/q`, `/v`). An
+unknown command is never sent to the model: it is refused with the closest
+match suggested.
 
-First run with nothing configured, in order: an installed Ollama model, else an
-offer to pull a small model sized to the detected RAM (size shown, never
-downloaded without a yes), else a local OmniRouter gateway, else a provider you
-already added, else a guided setup that explains where to get a free key and
-stores it in `$UH_HOME/keys.toml` (0600). UH ships **no key**: a published key
-is a stolen key.
+First run with nothing configured, in order: an installed Ollama model; else,
+when Ollama is running with no model, `qwen2.5:0.5b` is pulled automatically
+(~400 MB, the smallest tool-capable model); else a local OmniRouter gateway;
+else a provider you already added; else a guided setup that explains where to
+get a free key and stores it in `$UH_HOME/keys.toml` (0600). UH ships **no
+key**: a published key is a stolen key.
 
 The console can use [rich](https://rich.readthedocs.io/) when installed
 (`pip install "uh-harness[ui]"`); without it, or off a TTY, everything falls

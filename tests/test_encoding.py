@@ -34,9 +34,11 @@ def test_help_survives_cp1252_console() -> None:
 
 
 def test_version_survives_cp1252_console() -> None:
+    from uh import __version__
+
     result = _run(["--version"], encoding_env="cp1252:strict")
     assert result.returncode == 0, result.stderr
-    assert "uh 0." in result.stdout
+    assert result.stdout.strip() == f"uh {__version__}"
 
 
 def test_doctor_survives_cp1252_console() -> None:
