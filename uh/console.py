@@ -100,18 +100,30 @@ class Console:
         return " · ".join(parts)
 
     def show_status(self, session: "ChatSession") -> None:
-        line = self.status_line(session)
+        self.detail(self.status_line(session))
+
+    def styled(self, text: str, style: str) -> None:
+        """Write ``text`` to stderr with a rich style, plain text otherwise."""
         if self.rich:
             try:
                 from rich.console import Console as RichConsole
+                from rich.markup import escape
 
                 RichConsole(file=self.err or sys.stderr, highlight=False).print(
-                    f"[dim]{line}[/dim]"
+                    f"[{style}]{escape(text)}[/{style}]"
                 )
                 return
             except Exception:  # pragma: no cover - rich misbehaving: plain fallback
                 pass
-        self.errout(line)
+        self.errout(text)
+
+    def detail(self, text: str) -> None:
+        """Secondary information: header, status bar, notices (grey)."""
+        self.styled(text, "dim")
+
+    def error(self, text: str) -> None:
+        """Something the user must notice: provider failures, interrupts (red)."""
+        self.styled(text, "bold red")
 
     def show_banner(self, short: bool = True) -> None:
         from . import banner as banner_mod
@@ -302,7 +314,7 @@ class ChatSession:
         try:
             self._persist(self.history[before:])
         except StoreError as exc:
-            self.console.errout(f"uh chat: cannot record session: {exc}")
+            self.console.error(f"uh chat: cannot record session: {exc}")
         return 0
 
     def _interrupted(self, before: int, chunks: list[str]) -> int:
@@ -314,7 +326,7 @@ class ChatSession:
         """
         if chunks:
             self.console.end_partial_line()
-        self.console.errout(INTERRUPT_NOTE)
+        self.console.error(INTERRUPT_NOTE)
         self._emit("error", message="interrupted")
         del self.history[before:]
         return INTERRUPT_EXIT
@@ -334,10 +346,10 @@ class ChatSession:
                 on_token=on_token if self.stream else None,
             )
         except BudgetExhausted as exc:
-            self.console.errout(f"uh chat: {exc}")
+            self.console.error(f"uh chat: {exc}")
             return 1
         except ProviderError as exc:
-            self.console.errout(f"uh chat: provider error: {exc}")
+            self.console.error(f"uh chat: provider error: {exc}")
             return 1
 
         for message in updated[before:]:

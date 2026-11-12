@@ -6,8 +6,10 @@ Rules encoded here:
   ``uh | cat``, ``uh chat --once`` and every redirected run stay plain text;
 * ``UH_BANNER=0`` disables it even on a TTY; ``UH_ASCII=1`` forces the ASCII
   art; a terminal narrower than 40 columns gets the two-line short banner;
-* Unicode art is chosen when ``sys.stdout.encoding`` mentions ``utf``,
-  otherwise the pure-ASCII fallback (Windows conhost / legacy code pages);
+* Unicode art is chosen when the console encoding can actually carry the
+  box-drawing characters, otherwise the pure-ASCII fallback (Windows conhost /
+  legacy code pages). ``cli.main`` forces stdout to utf-8 first, so a modern
+  PowerShell or Windows Terminal reaches this module as utf-8 and gets the logo;
 * no ANSI sequence is emitted, so ``NO_COLOR`` has no effect here - it is
   documented rather than silently ignored, and colours can be added later
   without changing this contract.
@@ -69,13 +71,29 @@ def should_show() -> bool:
     return _stdout_is_tty()
 
 
+def _stdout_can_encode(text: str) -> bool:
+    """True when the console encoding carries ``text`` without losing glyphs.
+
+    The encoding is the operative signal, not a platform guess: ``cli.main``
+    forces stdout to utf-8 before the banner renders, so a code page that still
+    cannot encode the box-drawing art is a genuinely legacy console (cp1252,
+    cp850). Windows Terminal and PowerShell 5+ report utf-8 once that happened
+    and therefore get the logo.
+    """
+    encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        text.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
+
+
 def _force_ascii(force_ascii: Optional[bool]) -> bool:
     if force_ascii is not None:
         return force_ascii
     if os.environ.get("UH_ASCII", "").strip() in {"1", "true", "yes"}:
         return True
-    encoding = (getattr(sys.stdout, "encoding", None) or "").lower()
-    return "utf" not in encoding
+    return not _stdout_can_encode(LOGO_UNICODE)
 
 
 def render(width: Optional[int] = None, force_ascii: Optional[bool] = None) -> str:

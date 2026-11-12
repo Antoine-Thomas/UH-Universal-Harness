@@ -980,18 +980,19 @@ def _run_repl(session: console.ChatSession) -> int:
     """Interactive loop: prompts go to the model, ``/command`` to the registry."""
     ui = session.console
     if bool(session.cfg.get("banner")) and banner.should_show():
-        ui.show_banner(short=True)
+        # Full logo: render() already degrades to the short art under 40 columns.
+        ui.show_banner(short=False)
     mode = "stream" if session.stream else "blocking"
-    ui.errout(
-        f"uh chat - model {session.model}, provider {session.provider_kind}, "
-        f"{mode}, workspace {session.workspace}"
+    ui.detail(f"provider {session.provider_kind} · model {session.model} · {mode}")
+    ui.detail(
+        f"workspace {session.workspace} · session "
+        f"{display_id(session.session_id) if session.session_id else 'unsaved'}"
     )
-    if session.session_id:
-        ui.errout(f"session {display_id(session.session_id)}")
-    ui.show_status(session)
+    ui.detail(f"{len(session.history)} msg · ctx ~{session.context_estimate()} tok")
     ui.errout("type /help for commands, /exit to leave")
 
     while True:
+        ui.out("")  # one blank line before the prompt, always
         try:
             line = input("you> ")
         except (EOFError, KeyboardInterrupt):
@@ -1010,13 +1011,14 @@ def _run_repl(session: console.ChatSession) -> int:
                 if result.exit:
                     break
                 continue
+            ui.out("")  # and one between the question and the answer
             session.run_text(text)
         except KeyboardInterrupt:
             # Second net: run_text already swallows an interrupt raised by the
             # provider, this one covers a slash command or a provider rebuild.
             # The REPL never dies on Ctrl+C; the prompt comes back.
             print("", file=sys.stderr)
-            ui.errout(console.INTERRUPT_NOTE)
+            ui.error(console.INTERRUPT_NOTE)
 
     if session.session_id:
         ui.errout(f"resume with: uh chat --session {display_id(session.session_id)}")

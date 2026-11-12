@@ -217,9 +217,12 @@ throttled, so the model (or you) can tell the two apart.
 ## Console and slash commands
 
 `uh` on a terminal starts the console; piped, it still prints help (scriptable
-unchanged). The status bar shows `provider · model · session · messages ·
-context estimate`. `/help` lists everything; the full inventory and the reason
-each Hermes command was kept or dropped lives in
+unchanged). The console opens with the logo (the ASCII art takes over only when
+the console encoding cannot carry the box-drawing characters), then a dim header
+in three lines: `provider · model · stream`, `workspace · session`, and
+`messages · context estimate`. A blank line separates the question from the
+answer and precedes every `you>` prompt. `/help` lists everything; the full
+inventory and the reason each Hermes command was kept or dropped lives in
 [docs/SLASH_COMMANDS.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/SLASH_COMMANDS.md).
 
 The release process (Trusted Publishing, TestPyPI then PyPI, yanking) is in [docs/RELEASING.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/RELEASING.md).

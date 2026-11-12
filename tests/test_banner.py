@@ -129,3 +129,42 @@ def test_version_and_doctor_print_no_banner(
 
     cli.main(["doctor"])
     assert "█" not in capsys.readouterr().out
+
+
+class _FakeStdout:
+    """Only the two attributes the banner reads."""
+
+    def __init__(self, encoding: str) -> None:
+        self.encoding = encoding
+        self.written: list[str] = []
+
+    def write(self, text: str) -> int:
+        self.written.append(text)
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+
+def test_a_stream_that_cannot_carry_the_logo_falls_back_to_ascii(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("UH_ASCII", raising=False)
+    monkeypatch.setattr(banner.sys, "stdout", _FakeStdout("cp1252"))
+    assert _ascii_only(banner.render(width=80))
+
+
+def test_a_utf8_stream_gets_the_box_drawing_logo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("UH_ASCII", raising=False)
+    monkeypatch.setattr(banner.sys, "stdout", _FakeStdout("utf-8"))
+    assert "█" in banner.render(width=80)
+
+
+def test_an_unknown_encoding_falls_back_instead_of_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("UH_ASCII", raising=False)
+    monkeypatch.setattr(banner.sys, "stdout", _FakeStdout("no-such-codec"))
+    assert _ascii_only(banner.render(width=80))

@@ -167,3 +167,42 @@ def test_repl_survives_an_interrupt_outside_run_text(
 
     assert cli._run_repl(session) == 0
     assert "[interrompu]" in capsys.readouterr().err
+
+
+def test_repl_prints_the_full_logo_and_a_readable_header(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    import os as _os
+
+    from uh import banner
+
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(banner, "should_show", lambda: True)
+    monkeypatch.setattr(
+        banner.shutil, "get_terminal_size", lambda *a, **kw: _os.terminal_size((100, 30))
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": "/exit")
+
+    assert cli._run_repl(_repl_session(tmp_path, StubProvider())) == 0
+
+    captured = capsys.readouterr()
+    assert "█" in captured.out, "the console must show the logo, not the short banner"
+    assert "provider-agnostic | local-first" not in captured.err
+    assert "provider stub · model stub:1b" in captured.err
+    assert "workspace" in captured.err
+    assert "unsaved" in captured.err
+
+
+def test_repl_leaves_a_blank_line_before_the_prompt_and_the_answer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    answers = iter(["salut", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    assert cli._run_repl(_repl_session(tmp_path, StubProvider())) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("\n"), "a blank line precedes the first prompt"
+    assert "\n\n" in out, "the question and the answer are separated"
+    assert "bonjour a toi" in out

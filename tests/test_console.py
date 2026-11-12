@@ -201,3 +201,25 @@ def test_ctrl_c_is_not_a_traceback_even_in_once_mode(
 
     assert session.run_text("premier") == console.INTERRUPT_EXIT
     assert "Traceback" not in capsys.readouterr().err
+
+
+def test_error_is_plain_text_off_a_tty(capsys: pytest.CaptureFixture[str]) -> None:
+    ui = console.Console()
+    ui.error("[interrompu] tour annulé")
+    captured = capsys.readouterr()
+    assert "[interrompu] tour annulé" in captured.err
+    assert "\x1b" not in captured.err
+
+
+def test_error_escapes_rich_markup() -> None:
+    err = io.StringIO()
+    ui = console.Console(stream=io.StringIO(), err=err)
+    ui.rich = True  # force the rich path: the stream is not a terminal
+    ui.error("[bold]not a tag[/bold]")
+    assert "[bold]not a tag[/bold]" in err.getvalue()
+
+
+def test_detail_prints_the_status_line_verbatim(capsys: pytest.CaptureFixture[str]) -> None:
+    ui = console.Console()
+    ui.detail("provider stub · model stub:1b")
+    assert "provider stub · model stub:1b" in capsys.readouterr().err
