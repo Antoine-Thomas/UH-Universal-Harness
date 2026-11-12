@@ -1,29 +1,36 @@
-/* UH web — original stylesheet, no framework, no build step. */
+/* UH web — original stylesheet, no framework, no build step.
+   Palette: searching-murphy.com (teal #284543 / #0c9f93, gold #fdc502, pale #cbe8e8). */
 
 :root {
-  --bg: #f6f6f4;
+  --bg: #eef6f5;
   --panel: #ffffff;
-  --border: #d9d9d4;
-  --text: #1c1c1a;
-  --muted: #6b6b64;
-  --accent: #2f6f4f;
-  --accent-soft: #e4efe9;
-  --tool: #f1ede2;
+  --border: #cbe8e8;
+  --text: #1b2a29;
+  --muted: #4a6a66;
+  --accent: #0c9f93;
+  --accent-soft: #d9efec;
+  --link: #0b7c74;
+  --highlight: #fdc502;
+  --tool: #eef4f2;
   --error: #a3341f;
+  --on-accent: #06302c;
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 html[data-theme="dark"] {
-  --bg: #16181a;
-  --panel: #1e2124;
-  --border: #2e3236;
-  --text: #e8e6e1;
-  --muted: #9aa0a6;
-  --accent: #6cc08f;
-  --accent-soft: #23302a;
-  --tool: #262a2e;
+  --bg: #1c302e;
+  --panel: #284543;
+  --border: #3f6360;
+  --text: #eef7f7;
+  --muted: #cbe8e8;
+  --accent: #0c9f93;
+  --accent-soft: #2a5450;
+  --link: #4fd1c5;
+  --highlight: #fdc502;
+  --tool: #22403d;
   --error: #ef8a72;
+  --on-accent: #06302c;
 }
 
 * { box-sizing: border-box; }
@@ -37,7 +44,15 @@ body {
   overflow: hidden;
 }
 
-.layout { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+.layout { display: grid; grid-template-columns: 260px 1fr 340px; height: 100vh; }
+.layout.right-collapsed { grid-template-columns: 260px 1fr; }
+
+.rightbar {
+  display: flex; flex-direction: column; min-height: 0;
+  border-left: 1px solid var(--border); background: var(--panel);
+}
+.layout.right-collapsed .rightbar { display: none; }
+.rightbar-scroll { overflow-y: auto; min-height: 0; }
 
 .sidebar {
   display: flex; flex-direction: column;
@@ -154,7 +169,7 @@ body {
   margin: .45em 0; padding-left: 10px;
   border-left: 3px solid var(--accent); color: var(--muted);
 }
-.msg .content.md a { color: var(--accent); }
+.msg .content.md a { color: var(--link); }
 .msg .content.md hr { border: 0; border-top: 1px solid var(--border); margin: .7em 0; }
 
 .tool-card {
@@ -185,7 +200,7 @@ body {
 }
 .composer button {
   padding: 0 18px; border-radius: var(--radius); border: 1px solid var(--accent);
-  background: var(--accent); color: #fff; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--on-accent); font-weight: 600; cursor: pointer;
 }
 .composer button:disabled { opacity: .5; cursor: default; }
 
@@ -211,8 +226,19 @@ body {
 .palette li.active, .palette li:hover { background: var(--accent-soft); }
 .palette .alias { color: var(--muted); font-size: 11px; margin-left: 6px; }
 
+@media (max-width: 1100px) {
+  .layout, .layout.right-collapsed { grid-template-columns: 260px 1fr; }
+  /* The right column becomes an overlay; app.js mirrors this breakpoint
+     (isNarrow) so click-outside only closes it in overlay mode. */
+  .rightbar {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: min(360px, 92vw); z-index: 25;
+    box-shadow: -18px 0 40px rgba(0, 0, 0, .28);
+  }
+}
+
 @media (max-width: 800px) {
-  .layout { grid-template-columns: 1fr; }
+  .layout, .layout.right-collapsed { grid-template-columns: 1fr; }
   .sidebar {
     position: fixed; inset: 0 40% 0 0; z-index: 10;
     transform: translateX(-100%); transition: transform .18s ease;
@@ -224,14 +250,7 @@ body {
   .messages { padding: 12px; }
 }
 
-/* --- providers panel (Jalon 7a) ------------------------------------------ */
-.panel {
-  position: fixed; inset: 6% 50% auto 50%; transform: translateX(-50%);
-  width: min(680px, 94vw); max-height: 84vh; display: flex; flex-direction: column;
-  background: var(--panel); color: var(--text);
-  border: 1px solid var(--border); border-radius: 12px; z-index: 25;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, .28); overflow: hidden;
-}
+/* --- providers: right column (was a fixed panel before Jalon layout) ------- */
 .panel-head {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px; border-bottom: 1px solid var(--border);
@@ -249,7 +268,10 @@ body {
   border: 1px solid var(--border); color: var(--muted);
 }
 .badge.ok { color: var(--accent); border-color: var(--accent); }
+.badge.hl { color: var(--highlight); border-color: var(--highlight); }
 .badge.warn { color: var(--error); border-color: var(--error); }
+
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
 
 .provider-key-form { display: flex; gap: 6px; margin-top: 8px; }
 .provider-key-input {
@@ -259,7 +281,7 @@ body {
 }
 .provider-key-form button {
   padding: 4px 10px; font-size: 12px; border-radius: 8px; cursor: pointer;
-  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
 }
 .key-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .key-chip {
@@ -291,7 +313,7 @@ body {
 }
 .custom-form > button {
   align-self: flex-end; padding: 4px 12px; font-size: 12px; border-radius: 8px;
-  cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
 }
 
 .router-settings {
@@ -307,5 +329,5 @@ body {
 }
 .router-settings > button {
   align-self: flex-start; padding: 4px 12px; font-size: 12px; border-radius: 8px;
-  cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
 }

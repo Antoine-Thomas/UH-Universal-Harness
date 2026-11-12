@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <div class="layout">
+  <div class="layout" id="layout">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
         <span class="brand">UH</span>
@@ -46,16 +46,18 @@
         <button type="submit" id="send">Send</button>
       </form>
     </main>
-  </div>
 
-  <div id="providers-panel" class="panel" hidden>
-    <header class="panel-head">
-      <strong>Providers</strong>
-      <span id="providers-hint" class="panel-hint"></span>
-      <button id="providers-close" class="icon-button" aria-label="Close">×</button>
-    </header>
-    <div id="router-settings" class="router-settings"></div>
-    <div id="providers-list" class="providers-list"></div>
+    <aside class="rightbar" id="providers-panel" aria-label="Configuration">
+      <header class="panel-head">
+        <strong>Providers</strong>
+        <span id="providers-hint" class="panel-hint"></span>
+        <button id="providers-close" class="icon-button" aria-label="Close">×</button>
+      </header>
+      <div class="rightbar-scroll">
+        <div id="router-settings" class="router-settings"></div>
+        <div id="providers-list" class="providers-list"></div>
+      </div>
+    </aside>
   </div>
 
   <div id="palette" class="palette" hidden>

@@ -76,7 +76,7 @@ served by `--static-dir` is free to use its own, but the ones below are the
 contract of the bundled one:
 
 ```
-composer  gauge-fill  gauge-label  input  menu-toggle  messages  model-select
+composer  gauge-fill  gauge-label  input  layout  menu-toggle  messages  model-select
 new-session  palette  palette-input  palette-list  providers-close
 providers-hint  providers-list  providers-open  providers-panel
 router-settings  search  search-results  send  session-list  session-title

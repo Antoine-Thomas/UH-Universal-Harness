@@ -491,7 +491,7 @@ function providerCard(row) {
   const status = row.custom ? "custom" : row.verified;
   const badge = el("span", `badge ${status === "verified" ? "ok" : "warn"}`, status);
   head.appendChild(badge);
-  if (row.in_chain) head.appendChild(el("span", "badge ok", "in chain"));
+  if (row.in_chain) head.appendChild(el("span", "badge hl", "in chain"));
   card.appendChild(head);
   card.appendChild(
     el("div", "provider-meta", `${row.keys} key(s) · ${row.model || "no model configured"}`),
@@ -639,7 +639,7 @@ function renderProviders(rows) {
 }
 
 function openProviders() {
-  $("providers-panel").hidden = false;
+  $("layout").classList.remove("right-collapsed");
   $("providers-hint").textContent = "loading…";
   loadProviders().catch((error) => {
     $("providers-list").textContent = "";
@@ -647,13 +647,32 @@ function openProviders() {
   });
 }
 
+function closeProviders() {
+  $("layout").classList.add("right-collapsed");
+}
+
+function providersAreOpen() {
+  return !$("layout").classList.contains("right-collapsed");
+}
+
+// The right column is inline on wide screens and an overlay on narrow ones
+// (matchMedia mirrors the CSS breakpoint). Click-outside only makes sense in
+// overlay mode; inline, the column is part of the layout and stays put.
+function isNarrow() {
+  return window.matchMedia("(max-width: 1100px)").matches;
+}
+
 function wireProviders() {
   $("providers-open").addEventListener("click", openProviders);
-  $("providers-close").addEventListener("click", () => {
-    $("providers-panel").hidden = true;
+  $("providers-close").addEventListener("click", closeProviders);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && providersAreOpen()) closeProviders();
   });
-  $("providers-panel").addEventListener("click", (event) => {
-    if (event.target === $("providers-panel")) $("providers-panel").hidden = true;
+  document.addEventListener("click", (event) => {
+    if (!isNarrow() || !providersAreOpen()) return;
+    if ($("providers-panel").contains(event.target)) return;
+    if ($("providers-open").contains(event.target)) return;
+    closeProviders();
   });
 }
 
@@ -699,6 +718,8 @@ async function boot() {
   await loadModels();
   await loadCommands();
   await loadSessions();
+  // Narrow screens: the right column starts collapsed (overlay mode).
+  if (isNarrow()) closeProviders();
   // Open the most recent session on first load: an empty pane on arrival looks
   // like a broken app, and the session the user left is the one they want.
   const newest = document.querySelector("#session-list li[data-id]");
