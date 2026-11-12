@@ -1093,6 +1093,42 @@ def cmd_router_status(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------- #
 # uh web (Jalon 5)
 # --------------------------------------------------------------------------- #
+def cmd_router_serve(args: argparse.Namespace) -> int:
+    """Local OpenAI-compatible endpoint. Loopback only, own token."""
+    try:
+        from .router.serve import run_server
+    except ImportError as exc:
+        print(
+            "uh router serve: the [web] extra is required "
+            f"({type(exc).__name__}: {exc}).",
+            file=sys.stderr,
+        )
+        print('  install it with: pip install "uh-harness[web]"', file=sys.stderr)
+        return EXIT_FAILURE
+    return run_server(host=str(args.host), port=int(args.port))
+
+
+def cmd_router_token_show(_args: argparse.Namespace) -> int:
+    from .router.serve import ensure_token, token_path
+
+    token = ensure_token()
+    print(f"token file: {token_path()}")
+    print(token)
+    print("this token is a local secret: it gives access to your provider quotas.")
+    print("copy it into the client; never paste it in a chat, a URL or a commit.")
+    return EXIT_OK
+
+
+def cmd_router_token_rotate(_args: argparse.Namespace) -> int:
+    from .router.serve import rotate_token, token_path
+
+    token = rotate_token()
+    print(f"token file: {token_path()} (replaced)")
+    print(token)
+    print("clients using the previous token now get 401.")
+    return EXIT_OK
+
+
 def cmd_web(args: argparse.Namespace) -> int:
     """Serve the local web interface. The heavy imports stay inside the extra."""
     host = (getattr(args, "host", None) or "127.0.0.1").strip()
@@ -1534,6 +1570,21 @@ def build_parser() -> argparse.ArgumentParser:
     router = sub.add_parser("router", help="free-provider router (Jalon 6a)")
     router_sub = router.add_subparsers(dest="router_command", metavar="<action>")
     router_sub.add_parser("status", help="per-provider state: keys, cooldown, last error")
+    router_serve = router_sub.add_parser(
+        "serve", help="local OpenAI-compatible endpoint (loopback only)"
+    )
+    router_serve.add_argument("--port", type=int, default=8780, help="port (default 8780)")
+    router_serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="loopback only; any other address is refused (no override)",
+    )
+    router_token = router_sub.add_parser(
+        "token", help="token used by `uh router serve` (separate from the web token)"
+    )
+    token_sub = router_token.add_subparsers(dest="token_command", metavar="<action>")
+    token_sub.add_parser("show", help="print the token, creating it on first use")
+    token_sub.add_parser("rotate", help="replace the token; existing clients stop working")
 
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
     web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
@@ -1651,6 +1702,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "router":
             if args.router_command == "status":
                 return cmd_router_status(args)
+            if args.router_command == "serve":
+                return cmd_router_serve(args)
+            if args.router_command == "token":
+                if args.token_command == "show":
+                    return cmd_router_token_show(args)
+                if args.token_command == "rotate":
+                    return cmd_router_token_rotate(args)
+                return _sub_help(parser, "router token")
             return _sub_help(parser, "router")
         if args.command == "web":
             return cmd_web(args)

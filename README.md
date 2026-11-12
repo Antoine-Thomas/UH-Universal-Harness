@@ -159,6 +159,21 @@ Security, because a local server is still a server:
 Design notes and the feature-by-feature rationale live in
 [docs/WEB_DESIGN.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/WEB_DESIGN.md).
 
+## Use UH from another app (`uh router serve`)
+
+`uh router serve` exposes the chain on loopback, OpenAI-compatible, with its own
+token (`uh router token show`). Editors and scripts then use your stored keys
+without reconfiguring anything:
+
+```bash
+uh router serve --port 8780
+export OPENAI_BASE_URL=http://127.0.0.1:8780/v1
+export OPENAI_API_KEY="$(cat ~/.uh/router-token)"
+```
+
+Details, client examples and the threat model:
+[docs/ROUTER_SERVE.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/ROUTER_SERVE.md).
+
 ## Console and slash commands
 
 `uh` on a terminal starts the console; piped, it still prints help (scriptable

@@ -32,8 +32,20 @@ def app():
     )
 
 
+ROUTER_MARK = "## Router API"
+
+
+def _web_section() -> str:
+    return DOC.read_text(encoding="utf-8").split(ROUTER_MARK)[0]
+
+
+def _router_section() -> str:
+    parts = DOC.read_text(encoding="utf-8").split(ROUTER_MARK)
+    return parts[1] if len(parts) > 1 else ""
+
+
 def documented_routes() -> set[tuple[str, str]]:
-    text = DOC.read_text(encoding="utf-8")
+    text = _web_section()
     found: set[tuple[str, str]] = set()
     for method, path in re.findall(r"^\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`", text, re.M):
         path = path.split("?")[0]
@@ -41,6 +53,29 @@ def documented_routes() -> set[tuple[str, str]]:
             continue  # a mount, documented separately, not an app route
         found.add((method, path))
     return found
+
+
+def documented_router_routes() -> set[tuple[str, str]]:
+    found: set[tuple[str, str]] = set()
+    for method, path in re.findall(
+        r"^\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`", _router_section(), re.M
+    ):
+        found.add((method, path.split("?")[0]))
+    return found
+
+
+def router_application_routes() -> set[tuple[str, str]]:
+    from uh.router.serve import create_router_app
+
+    app = create_router_app(token="doc-token", port=8780, chain=[("stub", object())])
+    routes: set[tuple[str, str]] = set()
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        for method in getattr(route, "methods", None) or set():
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            routes.add((method, path))
+    return routes
 
 
 def application_routes() -> set[tuple[str, str]]:
@@ -107,3 +142,13 @@ def test_static_dir_serves_the_replacement_interface(tmp_path: Path) -> None:
             assert (await http.get("/static/../app.py")).status_code in {404, 403}
 
     asyncio.run(scenario())
+
+
+def test_router_routes_are_documented() -> None:
+    missing = router_application_routes() - documented_router_routes()
+    assert not missing, f"router routes missing from docs/API.md: {sorted(missing)}"
+
+
+def test_no_router_route_is_invented() -> None:
+    extra = documented_router_routes() - router_application_routes()
+    assert not extra, f"docs/API.md documents router routes that do not exist: {sorted(extra)}"

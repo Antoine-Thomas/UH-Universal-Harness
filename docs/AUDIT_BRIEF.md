@@ -6,9 +6,9 @@ change, how to run it, and what is admittedly unfinished. An out-of-date brief i
 worse than none — a redesign that breaks an invariant here is a regression, not a
 taste choice.
 
-State at the time of writing: `main` after Jalon 7b, version **0.8.0** in
+State at the time of writing: `main` after Jalon 6b, version **0.8.0** in
 `pyproject.toml`, `uh-harness` on PyPI up to 0.7.2 (0.8.0 tagged, not released
-yet). Tests: 283 passed, 1 skipped.
+yet). Tests: 302 passed, 1 skipped.
 
 ---
 
@@ -33,6 +33,7 @@ runtime dependency (`httpx`). It runs three surfaces over the same core:
 | `uh/agent.py` | the turn loop: model call, tool calls, iteration budget | providers, toolsets |
 | `uh/providers/` | `ollama`, `omnirouter`, `openai_compat` | network (local by default) |
 | `uh/router/` | free-provider router: `catalog.toml` (data), `catalog.py`, `pool.py` (rotation, cooldown, breaker), `client.py` (HTTP + SSE + error classes), `policy.py` (consent, `allow_remote`), `provider.py` | remote HTTP, **only with consent** |
+| `uh/router/serve.py` | `uh router serve`: a second ASGI app, OpenAI-compatible, own token, loopback only | local clients (editors, scripts), providers through the chain |
 | `uh/providers_admin.py` | **the single implementation** of provider/key/settings administration | `keys`, `router`, `config` |
 | `uh/keys.py` | `$UH_HOME/keys.toml`, several keys per provider, atomic write, 0600 where possible | filesystem |
 | `uh/config.py` | layered config (env > project `uh.toml` > user > defaults) | filesystem |
@@ -62,12 +63,16 @@ browser → POST /api/sessions/{id}/chat  (cookie or Bearer token)
 2. **Browser ↔ UH web.** The token is the only authentication. Loopback bind, a
    `Host`/`Origin` check, `SameSite=Strict` cookie, strict CSP with no inline
    script, `X-Frame-Options: DENY`.
-3. **UH ↔ remote providers.** Off by default (`allow_remote=false`). Consent is
+3. **Local programs ↔ `uh router serve`.** Another application uses your quotas
+   with a token of its own (`$UH_HOME/router-token`), loopback only, Bearer
+   header only, with body and concurrency caps. This boundary is *not* the browser
+   one: no cookie, no CORS, no HTML.
+4. **UH ↔ remote providers.** Off by default (`allow_remote=false`). Consent is
    recorded, and every call can carry a key and the user's prompt: this is the
    most sensitive boundary in the project.
-4. **UH ↔ filesystem/shell.** File tools are confined to the workspace; the
+5. **UH ↔ filesystem/shell.** File tools are confined to the workspace; the
    terminal toolset is a blacklist plus a timeout, not a sandbox.
-5. **Keys at rest.** `$UH_HOME/keys.toml`, permissions best-effort, never in git
+6. **Keys at rest.** `$UH_HOME/keys.toml`, permissions best-effort, never in git
    (`.gitignore`), never in logs, never in a response.
 
 ## 3. Invariants — do not break these
@@ -88,7 +93,13 @@ an invariant deliberately, change the test **and** this list in the same commit.
 | `https` required off loopback; link-local (169.254.0.0/16) refused; redirects refused | `providers_admin.validate_base_url`, `test_connection` | `test_refused_base_urls`, `test_probe_refuses_a_redirect`, `test_custom_provider_validation` |
 | SQLite schema is versioned; reopening is idempotent and a newer schema fails closed | `uh/store.py` | `test_fresh_store_applies_schema`, `test_reopen_is_idempotent`, `test_fail_closed_on_newer_schema` |
 | One implementation of provider/key rules for the three surfaces | `uh/providers_admin.py` | `test_providers_commands.py`, `test_web_providers.py` (both call the same layer) |
-| The documented API matches the code | `docs/API.md` | `test_every_route_is_documented`, `test_no_documented_route_is_invented` |
+| `uh router serve` binds loopback only, with no override | `uh/router/serve.py` | `test_non_loopback_bind_is_refused` |
+| The router token is separate from the web token, in its own file, compared in constant time | `uh/router/serve.py` | `test_token_is_created_once_and_rotated`, `test_wrong_token_is_401` |
+| `uh router serve` accepts `Authorization: Bearer` only (no cookie), and checks `Host`; no CORS | `uh/router/serve.py` | `test_cookie_alone_is_not_authentication`, `test_forged_host_is_refused`, `test_valid_request_sets_no_cors_header` |
+| A client's `Authorization` is never forwarded upstream | `uh/router/serve.py` | `test_client_authorization_never_reaches_the_provider` |
+| `uh router serve` caps body size and concurrency (`413`, `429`) | `uh/router/serve.py` | `test_body_too_large_is_413`, `test_concurrency_cap_answers_429` |
+| A broken stream is reported, never replayed | `uh/router/serve.py` | `test_mid_stream_failure_is_explicit_and_never_replayed` |
+| The documented API matches the code | `docs/API.md` | `test_every_route_is_documented`, `test_no_documented_route_is_invented`, `test_router_routes_are_documented` |
 
 Rules that follow from the above, worth repeating to a designer: **the panel must
 not add a "show key" affordance**, must not put a key in a URL, must not weaken
@@ -116,6 +127,8 @@ python scripts/push_gate.py                # same gate, by hand
 uh doctor
 uh web --no-open --port 8765               # then open the tokenised URL it prints
 uh web --static-dir ./my-ui                # serve a replacement interface
+uh router serve                            # OpenAI-compatible endpoint on 8780
+uh router token show                       # the token a local client must use
 ```
 
 `pytest` needs no network: every provider call is mocked with
@@ -129,8 +142,12 @@ gate strips it for exactly that reason).
 - **The real HTTP path of a free provider has never been exercised.** The router
   and the connection test are covered by simulated transports only: no real key
   was ever used. Treat the first real call as an experiment.
-- **`uh router serve` (Jalon 6b) does not exist.** The router is embedded in the
-  session; there is no standalone HTTP entry point yet.
+- **`uh router serve` has no per-client tokens.** One token per machine: revoking
+  access for one client means rotating and updating all of them.
+- **No time-based rate limiting** on `uh router serve`: only concurrency (4) and
+  body size (1 MiB) are capped, so a patient client can still spend the quota.
+- **`usage` is not measured** by `uh router serve`: the OpenAI usage block is
+  zeros, not tokens counted.
 - **No cost accounting.** Tokens are not counted, prices are not known.
 - **The terminal toolset is a blacklist plus a timeout**, not a sandbox: it is
   off by default everywhere, and enabling it is an explicit decision.
@@ -149,9 +166,9 @@ CSP.
 
 **Frozen** — the routes and their semantics in `docs/API.md` (additive changes
 are fine, silent changes are not), the invariants in section 3, the write-only
-nature of keys, the consent gate, the loopback rule for key entry, the SQLite
-schema (additive migrations only), and the "no secret in a response, a log or a
-URL" rule. Changing any of those is a security decision, not a design one: it
+nature of keys, the consent gate, the loopback rules (key entry in the panel, the
+whole `uh router serve`), the SQLite schema (additive migrations only), and the
+"no secret in a response, a log or a URL" rule. Changing any of those is a security decision, not a design one: it
 needs a written justification in the commit message and a test that fails without
 the change.
 

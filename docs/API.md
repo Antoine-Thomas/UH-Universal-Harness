@@ -93,3 +93,34 @@ The folder is mounted at `/static` and its `index.html` is served at `/`, with
 the **same** token, `Host`/`Origin` checks and CSP as the bundled interface (no
 `unsafe-inline`, so the page must load its script from `/static/…`). A missing
 `index.html` is a startup error, not a silent fallback.
+
+## Router API (`uh router serve`)
+
+A **second, separate** application: another port (8780), another token
+(`$UH_HOME/router-token`), no browser interface. Checked against the code by
+`tests/test_web_api_docs.py` like the routes above.
+
+| Method | Path | Body / query | Response |
+| --- | --- | --- | --- |
+| GET | `/v1/models` | — | `{object: "list", data: [{id, object, owned_by, tools}]}` |
+| POST | `/v1/chat/completions` | `{model?, messages, tools?, stream?}` | `chat.completion` object, or an SSE stream |
+
+Rules that apply to both routes: `Authorization: Bearer <router token>` only
+(no cookie), `Host` must be loopback plus the bound port, no CORS header, body
+≤ 1 MiB (`413`), 4 concurrent turns (`429`), and the client's `Authorization`
+never reaches a provider. Errors keep the OpenAI shape:
+`{"error": {"message", "type", "code", "param"}}` with `400`, `401`, `413`, `429`,
+`502` or `503`.
+
+Streaming frames:
+
+```
+data: {"id":"chatcmpl-…","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"…"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-…","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+```
+
+A failure after tokens were emitted sends `{"error": {"code": "stream_error"}}`
+then `[DONE]`: the stream is never replayed to another provider.
