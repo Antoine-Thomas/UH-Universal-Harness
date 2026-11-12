@@ -13,7 +13,57 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [0.8.0] — 2026-11-12
+## [0.9.0] — 2026-11-12 *(the release that carries 7a, 7b and 6b)*
+
+### Added
+- **Provider panel in `uh web` (Jalon 7a)**: list catalogue and custom
+  providers, add and delete keys (write-only: only a count is ever returned),
+  create a custom OpenAI-compatible provider, test a connection with a single
+  `ping`, and switch `allow_remote` with an explicit consent box.
+- **One service layer, three front-ends (Jalon 7b)**: `uh/providers_admin.py`
+  holds the rules; the console, the CLI and the web panel call it, so a refusal
+  is worded identically everywhere.
+- Console and CLI commands: `/key list|add|remove`, `/provider add|test`,
+  `/router [reset]`, `/local-only on|off`, `/save`, `/export`,
+  `uh keys list|add|remove`, `uh providers test`, `uh docs`.
+- **`uh router serve` (Jalon 6b)**: an OpenAI-compatible endpoint on loopback
+  (`GET /v1/models`, `POST /v1/chat/completions`, stream and non-stream) using
+  the stored keys and the existing fallback chain, with its **own token**
+  (`uh router token show|rotate`, `$UH_HOME/router-token`).
+- `uh web --static-dir`, to serve a replacement interface with the same token,
+  `Host`/`Origin` checks and CSP.
+- `docs/API.md` with a drift test, `docs/ROUTER_SERVE.md`, `docs/AUDIT_BRIEF.md`,
+  `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, issue and PR templates,
+  Dependabot configuration.
+- A **pre-push gate** (`scripts/push_gate.py` via pre-commit) and pytest isolation
+  that fails the run if a test writes into the real `~/.uh`.
+
+### Changed
+- `uh providers add` no longer accepts `--key`: a key on the command line is
+  visible in the process list and kept in the shell history. It comes from a
+  masked prompt, stdin, or `UH_PROVIDER_KEY`.
+- The first-run suggestion prefers `lfm3` at the 4 GB tier: measured to call
+  `read_file`, `terminal` and `memory_write` correctly, ~1.5 s per turn.
+
+### Fixed
+- `uh router serve`: the body cap counts bytes actually read (a chunked request
+  has no `Content-Length`); a concurrency slot is held until the stream really
+  ends, including on client disconnect; the access log names the provider of that
+  request instead of a shared one.
+- `SystemExit`/`EOFError` at a consent or provider prompt no longer crashes the
+  console: the command cancels.
+
+> **`v0.8.0` is tagged but was never published to PyPI.** It predates 7a, 7b and
+> 6b — publishing it would have shipped the router alone — and a PyPI version can
+> never be replaced. `0.9.0` is the first release that carries the panel, the key
+> commands and `uh router serve`. Same for `v0.7.0` and `v0.7.1`, whose publish
+> runs failed and which never reached the index.
+
+### Tooling
+- One line-ending convention: `.editorconfig` (LF), `core.autocrlf=false`
+  documented in `CONTRIBUTING.md`.
+
+## [0.8.0] — 2026-11-12 *(tag only, never published)*
 
 ### Added
 - **Free-provider router (Jalon 6a)**: `uh/router/` with a data-only catalogue of

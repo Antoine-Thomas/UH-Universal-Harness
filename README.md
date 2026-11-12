@@ -89,16 +89,24 @@ Jalons 0 to 5 are done. The interface is an **original design**: it borrows the
 feature list of Harness Maxxing (public README) and none of its code, which is
 under a Fair Source Licence. UH stays MIT.
 
-A sixth milestone is in progress:
+Then the provider and interface work:
 
 - [x] **Jalon 6a — Free-provider router.** Catalogue of free OpenAI-compatible
       providers (`uh/router/catalog.toml`, verified per entry), key rotation,
       cooldowns, circuit breaker, tool-capable-model filter, traced failover,
       opt-in remote access with recorded consent and `--local-only`.
-- [ ] **Jalon 6b — Local gateway.** `uh router serve`: an OpenAI-compatible
-      endpoint on `127.0.0.1` behind a token, so other tools can use UH's pool.
+- [x] **Jalon 6b — Local gateway.** `uh router serve`: an OpenAI-compatible
+      endpoint on `127.0.0.1` behind its own token, so other tools can use UH's
+      pool. Hardened in 6b.1: byte-based body cap, streaming slots, per-request
+      trace.
+- [x] **Jalon 7a — Provider panel.** Keys (write-only), custom providers,
+      connection test, `allow_remote` with consent, inside `uh web`.
+- [x] **Jalon 7b — One service layer.** `uh/providers_admin.py` shared by the
+      console, the CLI and the web panel; `docs/API.md` guarded by a drift test.
 
-## CLI surface (Jalon 4)
+307 tests, 1 skipped, on three operating systems and four Python versions.
+
+## CLI surface
 
 ```
 uh                      # interactive console (piped: help, unchanged)
@@ -114,8 +122,16 @@ uh sessions resume <id> # continue a session (--fork copies it into a new one)
 uh config show|get|set  # layered configuration
 uh memory migrate|show  # one-shot import of the flat memory file
 uh providers list       # registered providers and their state
-uh providers add <name> # store an OpenAI-compatible provider (key never printed)
+uh providers add <name> # store a provider (key from a prompt, stdin or UH_PROVIDER_KEY)
+uh providers test <name># one 'ping' to a provider, no session content
 uh providers remove <name>
+uh keys list            # presence and count per provider (values never shown)
+uh keys add <name>      # add a key without exposing it
+uh keys remove <name> 1 # delete by index, never by value
+uh router status        # chain, keys, cooldowns, last error
+uh router serve         # OpenAI-compatible endpoint on 127.0.0.1:8780
+uh router token show    # the token local clients must use (rotate: token rotate)
+uh docs [--open]        # local documentation, no network
 ```
 
 `uh chat` reads stdin or takes a prompt argument; `--once` (or any non-TTY

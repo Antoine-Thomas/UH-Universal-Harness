@@ -6,9 +6,10 @@ change, how to run it, and what is admittedly unfinished. An out-of-date brief i
 worse than none — a redesign that breaks an invariant here is a regression, not a
 taste choice.
 
-State at the time of writing: `main` after Jalon 6b, version **0.8.0** in
-`pyproject.toml`, `uh-harness` on PyPI up to 0.7.2 (0.8.0 tagged, not released
-yet). Tests: 306 passed, 1 skipped.
+State at the time of writing: `main` after Jalon 6b.1, version **0.9.0** in
+`pyproject.toml`, `uh-harness` on PyPI up to 0.7.2 until the `v0.9.0` release is
+published (`v0.7.0`, `v0.7.1`, `v0.8.0` are tags that were never published).
+Tests: 307 passed, 1 skipped.
 
 ---
 

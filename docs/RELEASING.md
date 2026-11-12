@@ -49,14 +49,19 @@ pending publisher for project `uh-harness`, owner `Antoine-Thomas`, repository
 On GitHub: *Settings → Environments* → `testpypi` (no rule) and `pypi` with
 **Required reviewers** listing the maintainer.
 
-> **Measured on 2026-11-12: neither environment has any protection rule**
-> (`gh api repos/:owner/:repo/environments` → `protection_rules: []`). Until you
-> add yourself as a required reviewer on `pypi`, the PyPI job **publishes
-> immediately**, with no approval step. This is a manual setting: nothing in the
-> repository can enforce it.
+> **Measured on 2026-11-12, 12:5x UTC**: `pypi` carries a `required_reviewers`
+> rule with the maintainer's account (`prevent_self_review: false`), so the PyPI
+> job stops at "Waiting for review" until it is approved. `testpypi` has no rule
+> on purpose: a rehearsal should not need a second approval.
 >
-> Leave **"Prevent self-review"** *disabled*: enabled, the only maintainer could
-> never approve their own release, and the job would wait forever.
+> `prevent_self_review` must stay **false**: the maintainer is the only reviewer,
+> and with it enabled nobody could ever approve the release. This is a manual
+> GitHub setting — nothing in the repository can enforce it — so re-check it after
+> any change to the environment:
+>
+> ```bash
+> gh api repos/:owner/:repo/environments --jq '.environments[] | {name, rules: .protection_rules}'
+> ```
 
 ## Release checklist
 
