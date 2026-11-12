@@ -224,6 +224,32 @@ uh memory migrate                                     # MEMORY.md -> one session
   writing a timestamped `.bak`; it is idempotent and leaves the flat file in
   place (the memory toolset still reads and writes it).
 
+## Recommended local models (measured, not quoted)
+
+UH has no preferred model, but two are worth knowing for a 8 GB GPU:
+
+| Model | Pull | Context | Tools | Measured in UH |
+| --- | --- | --- | --- | --- |
+| `qwen3:8b` | 5.2 GB | 32K | yes | slower, better at reasoning |
+| `lfm3` | 1.1 GB | 262 144 | yes (native) | `read_file`, `terminal`, `memory_write` all called correctly, ~1.5 s per turn |
+
+`lfm3` (Liquid AI, 1.7B) is the cheap option for tool routing: it emits native
+`tool_calls` through Ollama's `/api/chat` (the tag carries `renderer lfm3` /
+`parser lfm3`, which is what converts its XML calls into JSON). Requires Ollama
+**0.40.13+**; measured here on 0.40.16 with `ollama pull lfm3`.
+
+```bash
+ollama pull lfm3
+uh chat --model lfm3 --once "combien de lignes fait notes.txt ? utilise read_file"
+uh config set default_model lfm3 --user     # optional, applies to new sessions
+```
+
+Two honest caveats: its **licence is the LFM Open License v1.0**, not MIT — free
+for commercial use below $10M annual revenue, above which you need Liquid's
+permission (check it before monetising); and its own model card says it is not
+meant for agentic coding or long multi-step reasoning. Use it as a router or an
+extractor, keep a bigger model for the rest.
+
 ## Providers and fallback
 
 | Provider | Transport | Endpoint | Streaming |
