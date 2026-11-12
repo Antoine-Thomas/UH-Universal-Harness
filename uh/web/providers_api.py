@@ -16,10 +16,10 @@ import ipaddress
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, HTTPException
 
 from .. import config as uh_config
-from ..keys import read_providers
+from ..keys import add_key, add_provider, read_providers, remove_key_at
 from ..router.catalog import CatalogError, load_catalog
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
@@ -127,4 +127,48 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
 
     @app.get("/api/providers", dependencies=[Depends(dependency)])
     def list_providers() -> dict:
-        return {"providers": provider_rows(app)}
+        return {
+            "providers": provider_rows(app),
+            "key_entry_allowed": is_loopback_bind(getattr(app.state.settings, "host", "")),
+        }
+
+    @app.post("/api/providers/{name}/keys", dependencies=[Depends(dependency)])
+    def add_provider_key(name: str, payload: dict = Body(...)) -> dict:
+        require_loopback()
+        clean = (name or "").strip().lower()
+        raw = (payload or {}).get("key")
+        if not isinstance(raw, str) or not raw.strip():
+            raise HTTPException(status_code=400, detail="key is required")
+        # Never echo the value back, not even in a validation error.
+        if len(raw) > 512:
+            raise HTTPException(status_code=400, detail="key is too long (max 512 characters)")
+        if any(ord(character) < 0x20 for character in raw):
+            raise HTTPException(status_code=400, detail="key contains control characters")
+
+        catalog = _catalog()
+        configured = read_providers()
+        if clean not in catalog and clean not in configured:
+            raise HTTPException(status_code=404, detail=f"unknown provider '{clean}'")
+
+        try:
+            if clean in configured:
+                add_key(clean, raw.strip())
+            else:
+                spec = catalog[clean]
+                model = spec.models[0].id if spec.models else ""
+                add_provider(clean, spec.base_url, model, raw.strip())
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"cannot store the key: {exc}") from exc
+
+        return {"stored": True, "keys": len(read_providers().get(clean, {}).get("keys") or [])}
+
+    @app.delete("/api/providers/{name}/keys", dependencies=[Depends(dependency)])
+    def delete_provider_key(name: str, payload: dict = Body(...)) -> dict:
+        require_loopback()
+        clean = (name or "").strip().lower()
+        index = (payload or {}).get("index")
+        if not isinstance(index, int) or index < 1:
+            raise HTTPException(status_code=400, detail="index must be a positive integer")
+        if not remove_key_at(clean, index):
+            raise HTTPException(status_code=404, detail=f"no key at index {index} for '{clean}'")
+        return {"deleted": True, "keys": len(read_providers().get(clean, {}).get("keys") or [])}

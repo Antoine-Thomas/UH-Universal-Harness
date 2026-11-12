@@ -219,3 +219,24 @@ body {
 }
 .badge.ok { color: var(--accent); border-color: var(--accent); }
 .badge.warn { color: var(--error); border-color: var(--error); }
+
+.provider-key-form { display: flex; gap: 6px; margin-top: 8px; }
+.provider-key-input {
+  flex: 1; padding: 5px 8px; font-size: 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  font-family: var(--mono);
+}
+.provider-key-form button {
+  padding: 4px 10px; font-size: 12px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+}
+.key-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.key-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 4px 2px 8px; border-radius: 9px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.key-remove {
+  border: 0; background: transparent; color: var(--error);
+  cursor: pointer; font-size: 13px; line-height: 1; padding: 0 3px;
+}

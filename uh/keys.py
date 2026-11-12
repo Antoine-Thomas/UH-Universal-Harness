@@ -170,6 +170,27 @@ def add_key(name: str, key: str) -> Path:
     return _write_all(providers)
 
 
+def remove_key_at(name: str, index: int) -> bool:
+    """Drop the key at 1-based position ``index``.
+
+    By index on purpose: deleting "by value" would put the secret in a URL, and
+    a URL ends up in the server's access log.
+    """
+    clean = (name or "").strip().lower()
+    providers = read_providers()
+    entry = providers.get(clean)
+    if not entry:
+        return False
+    keys = [item for item in (entry.get("keys") or []) if item]
+    if index < 1 or index > len(keys):
+        return False
+    del keys[index - 1]
+    entry["keys"] = keys
+    entry["key"] = keys[0] if keys else ""
+    _write_all(providers)
+    return True
+
+
 def remove_key(name: str, key: str) -> bool:
     """Drop one key (by exact value); never prints it back."""
     clean = (name or "").strip().lower()

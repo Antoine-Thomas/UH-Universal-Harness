@@ -8,6 +8,7 @@ const state = {
   commands: [],
   paletteIndex: 0,
   filtered: [],
+  keyEntryAllowed: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -404,6 +405,7 @@ function wirePalette() {
 // use it. No key value ever crosses this boundary.
 async function loadProviders() {
   const data = await api("/api/providers");
+  state.keyEntryAllowed = Boolean(data.key_entry_allowed);
   renderProviders(data.providers || []);
 }
 
@@ -420,6 +422,55 @@ function providerCard(row) {
     el("div", "provider-meta", `${row.keys} key(s) · ${row.model || "no model configured"}`),
   );
   card.appendChild(el("div", "provider-url", row.base_url || ""));
+
+  if (row.keys > 0) {
+    const chips = el("div", "key-chips");
+    for (let index = 1; index <= row.keys; index += 1) {
+      const chip = el("span", "key-chip", `key ${index}`);
+      const remove = el("button", "key-remove", "×");
+      remove.type = "button";
+      remove.title = `delete key ${index}`;
+      remove.addEventListener("click", async () => {
+        await api(`/api/providers/${encodeURIComponent(row.name)}/keys`, {
+          method: "DELETE",
+          body: JSON.stringify({ index }),
+        });
+        await loadProviders();
+      });
+      chip.appendChild(remove);
+      chips.appendChild(chip);
+    }
+    card.appendChild(chips);
+  }
+
+  if (state.keyEntryAllowed) {
+    const form = el("form", "provider-key-form");
+    const input = document.createElement("input");
+    input.type = "password";
+    input.autocomplete = "off";
+    input.placeholder = "paste key (never shown again)";
+    input.className = "provider-key-input";
+    const submit = el("button", null, "Add key");
+    submit.type = "submit";
+    form.appendChild(input);
+    form.appendChild(submit);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const value = input.value;
+      input.value = ""; // cleared before the request: never re-displayed, even on error
+      if (!value) return;
+      try {
+        await api(`/api/providers/${encodeURIComponent(row.name)}/keys`, {
+          method: "POST",
+          body: JSON.stringify({ key: value }),
+        });
+        await loadProviders();
+      } catch (error) {
+        $("providers-hint").textContent = `error: ${error.message}`;
+      }
+    });
+    card.appendChild(form);
+  }
   return card;
 }
 

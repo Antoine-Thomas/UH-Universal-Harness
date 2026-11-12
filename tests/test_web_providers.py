@@ -159,3 +159,131 @@ def test_known_key_never_appears_in_any_response(
             assert groq["keys"] == 1  # the count is public, the value is not
 
     run(scenario())
+
+# --------------------------------------------------------------------------- #
+# 7a.2 — key entry: write-only, loopback only, deletion by index
+# --------------------------------------------------------------------------- #
+def test_key_entry_requires_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.post("/api/providers/groq/keys", json={"key": KNOWN_KEY})
+            assert response.status_code == 401
+
+    run(scenario())
+
+
+def test_key_entry_refused_off_loopback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch, host="0.0.0.0")
+
+    async def scenario():
+        async with client(app) as http:
+            listing = (await http.get("/api/providers", headers=AUTH)).json()
+            assert listing["key_entry_allowed"] is False
+
+            response = await http.post(
+                "/api/providers/groq/keys", json={"key": KNOWN_KEY}, headers=AUTH
+            )
+            assert response.status_code == 403
+            assert_no_key(response.text)
+
+            deletion = await http.request(
+                "DELETE", "/api/providers/groq/keys", json={"index": 1}, headers=AUTH
+            )
+            assert deletion.status_code == 403
+
+    run(scenario())
+    # nothing was written
+    assert keys_mod.get_provider("groq") is None
+
+
+def test_add_key_stores_without_echoing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.post(
+                "/api/providers/groq/keys", json={"key": KNOWN_KEY}, headers=AUTH
+            )
+            assert response.status_code == 200
+            assert response.json() == {"stored": True, "keys": 1}
+            assert_no_key(response.text)
+
+            listing = await http.get("/api/providers", headers=AUTH)
+            assert_no_key(listing.text)
+            groq = next(row for row in listing.json()["providers"] if row["name"] == "groq")
+            assert groq["keys"] == 1
+
+    run(scenario())
+    entry = keys_mod.get_provider("groq")
+    assert entry is not None and entry["keys"] == [KNOWN_KEY]
+    assert oct((tmp_path / "home" / "keys.toml").stat().st_mode & 0o777) in {"0o600", "0o666"}
+
+
+@pytest.mark.parametrize(
+    ("payload", "status"),
+    [
+        ({}, 400),
+        ({"key": ""}, 400),
+        ({"key": "   "}, 400),
+        ({"key": "x" * 600}, 400),
+        ({"key": "abc\ndef"}, 400),
+    ],
+)
+def test_bad_key_payloads_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict, status: int
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.post("/api/providers/groq/keys", json=payload, headers=AUTH)
+            assert response.status_code == status
+
+    run(scenario())
+
+
+def test_unknown_provider_is_404_and_does_not_echo_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.post(
+                "/api/providers/nope/keys", json={"key": KNOWN_KEY}, headers=AUTH
+            )
+            assert response.status_code == 404
+            assert_no_key(response.text)
+
+    run(scenario())
+
+
+def test_delete_key_by_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch)
+    keys_mod.add_provider("groq", "https://api.groq.com/openai/v1", "m", "first-key")
+    keys_mod.add_key("groq", "second-key")
+
+    async def scenario():
+        async with client(app) as http:
+            removed = await http.request(
+                "DELETE", "/api/providers/groq/keys", json={"index": 1}, headers=AUTH
+            )
+            assert removed.status_code == 200
+            assert removed.json() == {"deleted": True, "keys": 1}
+
+            missing = await http.request(
+                "DELETE", "/api/providers/groq/keys", json={"index": 5}, headers=AUTH
+            )
+            assert missing.status_code == 404
+
+            bad = await http.request(
+                "DELETE", "/api/providers/groq/keys", json={"index": 0}, headers=AUTH
+            )
+            assert bad.status_code == 400
+
+    run(scenario())
+    assert keys_mod.get_provider("groq")["keys"] == ["second-key"]
