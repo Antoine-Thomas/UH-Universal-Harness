@@ -13,6 +13,47 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.0.2] — 2026-11-12
+
+Keeps the console usable on a real machine: a strict provider payload, a model
+without tool calling, a shell command typed at the prompt, and a test suite that
+was writing into the developer's live store.
+
+### Added
+- **`uhb_status()` toolset** (UHB Niveau 1): `GET {UH_UHB_URL}/status`,
+  loopback only (default `http://127.0.0.1:8101`), summarised as
+  `{connected, version, mode, harness, providers, modes}` with names only. The
+  toolset is built only when a 1 s probe answers, a remote URL is refused before
+  any request, and a UHB that dies mid-session is a `{"error": "uhb
+  unreachable"}` tool result, never an exception.
+- **Usage metrics after each turn**: providers report the model they really
+  served (`model`) and their counters (`usage`), normalised across OpenAI
+  (`prompt_tokens`/`completion_tokens`/`total_tokens`) and Ollama
+  (`prompt_eval_count`/`eval_count`). The console prints a dim line
+  `omnirouter  qwen3:8b  1234 tok (in 312 / out 922)  total session 3456 tok`,
+  or `tokens non rapportés`; `/status` gains `served:` and `tokens:`. Streamed
+  answers request `stream_options.include_usage` and retry once without it if
+  the gateway refuses the parameter.
+
+### Fixed
+- **DeepSeek `400 Invalid 'messages[N].tool_calls': empty array`**: an assistant
+  message with `tool_calls: []` is replayed on the next turn, and DeepSeek
+  rejects it. The empty key is now stripped from every provider payload (Ollama,
+  the OpenAI-compatible providers, and the free router's transport) while the
+  session history keeps its own shape.
+- **Ollama models that cannot call tools** (tinyllama) now raise
+  `model '<name>' does not support tool calling; try a different model or
+  disable tools.` instead of a raw registry body; the `fallback:` line carries
+  the same clause on its classified reason.
+- **A shell command typed at `you>`** (`uh doctor`, `pip install ...`, `git
+  status`, ...) is refused with a warning instead of being sent to the model:
+  no provider call, no tokens, nothing appended to the history.
+- **The test suite could write into the real `~/.uh`**: `tests/test_encoding.py`
+  spawned `python -m uh doctor` without `UH_HOME`, so doctor opened the live
+  store and its clean close checkpointed the WAL - rewriting `uh.db` and
+  deleting `uh.db-wal`/`uh.db-shm` of a session that was open. Every spawned CLI
+  now gets an isolated home, and a test pins that.
+
 ## [1.0.1] — 2026-11-12
 
 Patch release: three console defects reported against 1.0.0, plus the upgrade
