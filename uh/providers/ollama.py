@@ -78,10 +78,7 @@ class OllamaProvider(Provider):
             raise self._unreachable(exc) from exc
 
         if response.status_code != 200:
-            body = (response.text or "").strip()[:300]
-            raise ProviderError(
-                f"Ollama HTTP {response.status_code}: {body}", status=response.status_code
-            )
+            raise self._http_error(response.status_code, response.text or "")
 
         try:
             data = response.json()
@@ -114,10 +111,8 @@ class OllamaProvider(Provider):
                 "POST", f"{self.base_url}/api/chat", json=payload, timeout=self.timeout
             ) as response:
                 if response.status_code != 200:
-                    body = "".join(response.iter_text())[:300]
-                    raise ProviderError(
-                        f"Ollama HTTP {response.status_code}: {body}",
-                        status=response.status_code,
+                    raise self._http_error(
+                        response.status_code, "".join(response.iter_text())
                     )
                 for line in response.iter_lines():
                     event = _parse_ndjson(line)
@@ -143,6 +138,25 @@ class OllamaProvider(Provider):
         # The final NDJSON event carries prompt_eval_count / eval_count.
         self._record_meta(model=final.get("model"), usage=final)
         return {"role": "assistant", "content": "".join(parts), "tool_calls": tool_calls}
+
+    def _http_error(self, status: int, body: str) -> ProviderError:
+        """Turn Ollama's "this model cannot call tools" 400 into an instruction.
+
+        tinyllama and friends reject the ``tools`` array outright. The raw body
+        (``{"error":{"message":"registry.ollama.ai/library/tinyllama:latest does
+        not support tools"}}``) tells a user nothing actionable, and the fallback
+        line would only say "400 bad request". The message is rewritten and a
+        short ``hint`` rides on the classified reason.
+        """
+        text = (body or "").strip()
+        if status == 400 and "does not support tools" in text.lower():
+            return ProviderError(
+                f"model '{self.model}' does not support tool calling; "
+                "try a different model or disable tools.",
+                status=400,
+                hint=f"model '{self.model}' does not support tool calling",
+            )
+        return ProviderError(f"Ollama HTTP {status}: {text[:300]}", status=status)
 
     def _unreachable(self, exc: Exception) -> ProviderError:
         return ProviderError(

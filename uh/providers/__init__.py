@@ -31,9 +31,13 @@ class ProviderError(RuntimeError):
     instead of the raw message, which can quote the request body.
     """
 
-    def __init__(self, message: str, *, status: Optional[int] = None) -> None:
+    def __init__(self, message: str, *, status: Optional[int] = None, hint: str = "") -> None:
         super().__init__(message)
         self.status = status
+        # One clean clause, safe to print: never a payload excerpt. It rides on
+        # the classified ``reason`` line so a fallback explains itself without
+        # quoting the request.
+        self.hint = hint
 
     @property
     def reason(self) -> str:
@@ -41,7 +45,8 @@ class ProviderError(RuntimeError):
         if self.status is not None:
             from ..router.client import classify_status
 
-            return f"{self.status} {classify_status(self.status).replace('_', ' ')}"
+            base = f"{self.status} {classify_status(self.status).replace('_', ' ')}"
+            return f"{base}: {self.hint}" if self.hint else base
         return type(self).__name__
 
 
