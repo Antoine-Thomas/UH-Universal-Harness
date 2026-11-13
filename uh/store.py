@@ -251,6 +251,29 @@ class Store:
             )
         return cursor.rowcount > 0
 
+    def set_folder(self, session_id: str, folder: str) -> bool:
+        """Put a session in a folder (``""`` removes it). No migration: metadata JSON.
+
+        ``updated_at`` is deliberately untouched: filing a conversation is not
+        talking in it, and re-ordering the sidebar by "last filed" would hide
+        the sessions the user is actually working on.
+        """
+        session = self.get_session(session_id)
+        if session is None:
+            return False
+        metadata = dict(session.get("metadata") or {})
+        name = (folder or "").strip()[:60]
+        if name:
+            metadata["folder"] = name
+        else:
+            metadata.pop("folder", None)
+        with self.conn:
+            cursor = self.conn.execute(
+                "UPDATE sessions SET metadata = ? WHERE id = ?",
+                (json.dumps(metadata, ensure_ascii=False), session_id),
+            )
+        return cursor.rowcount > 0
+
     def find_session_by_metadata(self, key: str, value: Any) -> Optional[dict]:
         """Linear scan over sessions' JSON metadata (no JSON1 dependency assumed)."""
         for session in self.list_sessions(limit=10_000):

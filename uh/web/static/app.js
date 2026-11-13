@@ -145,27 +145,220 @@ async function loadModels() {
 }
 
 // ---------------------------------------------------------------- sessions --
+const LAYOUT_KEY = "uh.layout.v1";
+const LAYOUT_DEFAULTS = { sidebar: 260, right: 340, sidebarCollapsed: false };
+const LAYOUT_LIMITS = { sidebar: [180, 460], right: [200, 560] };
+
+function layoutPrefs() {
+  try {
+    return { ...LAYOUT_DEFAULTS, ...JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}") };
+  } catch {
+    return { ...LAYOUT_DEFAULTS };
+  }
+}
+
+function saveLayoutPrefs(patch) {
+  const next = { ...layoutPrefs(), ...patch };
+  try {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(next));
+  } catch {
+    /* private mode: the layout still works, it just will not survive a reload */
+  }
+  applyLayoutPrefs(next);
+}
+
+function applyLayoutPrefs(prefs = layoutPrefs()) {
+  const style = $("layout").style;
+  style.setProperty("--sidebar-w", `${prefs.sidebar}px`);
+  style.setProperty("--right-w", `${prefs.right}px`);
+  $("layout").classList.toggle("sidebar-collapsed", Boolean(prefs.sidebarCollapsed));
+  const toggle = $("sidebar-toggle");
+  toggle.textContent = prefs.sidebarCollapsed ? "»" : "«";
+  toggle.title = prefs.sidebarCollapsed ? "Show the sessions column" : "Hide the sessions column";
+}
+
+function clamp(value, [low, high]) {
+  return Math.min(high, Math.max(low, Math.round(value)));
+}
+
+// One drag handle per inner edge. Pointer capture keeps the drag alive when the
+// cursor runs over the conversation, which is what every other app does and what
+// a naive mousemove gets wrong.
+function wireSplitter(id, side) {
+  const handle = $(id);
+  let startX = 0;
+  let startWidth = 0;
+  let live = false;
+
+  const widthOf = () =>
+    side === "sidebar"
+      ? $("sidebar").getBoundingClientRect().width
+      : $("providers-panel").getBoundingClientRect().width;
+
+  const finish = () => {
+    if (!live) return;
+    live = false;
+    handle.classList.remove("dragging");
+    const width = Math.round(widthOf());
+    saveLayoutPrefs(side === "sidebar" ? { sidebar: width } : { right: width });
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    live = true;
+    startX = event.clientX;
+    startWidth = widthOf();
+    handle.classList.add("dragging");
+    handle.setPointerCapture(event.pointerId);
+  });
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!live) return;
+    const delta = side === "sidebar" ? event.clientX - startX : startX - event.clientX;
+    const width = clamp(startWidth + delta, LAYOUT_LIMITS[side]);
+    $("layout").style.setProperty(side === "sidebar" ? "--sidebar-w" : "--right-w", `${width}px`);
+  });
+
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+
+  // Double-click resets that column, like a table column edge in a spreadsheet.
+  handle.addEventListener("dblclick", () => {
+    saveLayoutPrefs(side === "sidebar" ? { sidebar: LAYOUT_DEFAULTS.sidebar } : { right: LAYOUT_DEFAULTS.right });
+  });
+
+  handle.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 48 : 16;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const grow = side === "sidebar" ? event.key === "ArrowRight" : event.key === "ArrowLeft";
+    const width = clamp(widthOf() + (grow ? step : -step), LAYOUT_LIMITS[side]);
+    saveLayoutPrefs(side === "sidebar" ? { sidebar: width } : { right: width });
+  });
+}
+
+function wireLayout() {
+  applyLayoutPrefs();
+  wireSplitter("splitter-left", "sidebar");
+  wireSplitter("splitter-right", "right");
+  $("sidebar-toggle").addEventListener("click", () => {
+    saveLayoutPrefs({ sidebarCollapsed: !layoutPrefs().sidebarCollapsed });
+  });
+}
+
+function sessionRow(session) {
+  const item = el("li", "session");
+  item.dataset.id = session.id;
+  if (session.id === state.sessionId) item.classList.add("active");
+  const row1 = el("div", "row1");
+  row1.appendChild(el("span", "sid", session.short_id));
+  row1.appendChild(el("span", "meta", `${session.message_count} msg`));
+  item.appendChild(row1);
+  item.appendChild(el("div", "title", session.title || "(untitled)"));
+  item.appendChild(el("div", "meta", session.provider || "-"));
+
+  const actions = el("div", "session-actions");
+  const folder = el("button", null, "📁");
+  folder.title = "File this session in a folder";
+  folder.setAttribute("aria-label", "File session");
+  folder.addEventListener("click", (event) => {
+    event.stopPropagation();
+    fileSession(session);
+  });
+  const remove = el("button", "danger", "🗑");
+  remove.title = "Delete this session";
+  remove.setAttribute("aria-label", "Delete session");
+  remove.addEventListener("click", (event) => {
+    event.stopPropagation();
+    deleteSession(session);
+  });
+  actions.appendChild(folder);
+  actions.appendChild(remove);
+  item.appendChild(actions);
+
+  item.addEventListener("click", () => openSession(session.id));
+  return item;
+}
+
+// Folders are metadata, not a schema: sessions without a folder stay at the top
+// under "Sessions", the named ones follow in alphabetical order.
+function groupSessions(sessions) {
+  const groups = new Map();
+  for (const session of sessions) {
+    const name = (session.metadata && session.metadata.folder) || "";
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(session);
+  }
+  // Named folders first, alphabetical, and the unfiled sessions last: the work
+  // you organised is the work you meant to find.
+  const names = [...groups.keys()].sort((a, b) => {
+    if (a === "") return 1;
+    if (b === "") return -1;
+    return a.localeCompare(b);
+  });
+  return names.map((name) => ({ name, sessions: groups.get(name) }));
+}
+
 async function loadSessions() {
   const data = await api("/api/sessions");
   const list = $("session-list");
   list.textContent = "";
-  for (const session of data.sessions) {
-    const item = el("li");
-    item.dataset.id = session.id;
-    if (session.id === state.sessionId) item.classList.add("active");
-    const row1 = el("div", "row1");
-    row1.appendChild(el("span", "sid", session.short_id));
-    row1.appendChild(el("span", "meta", `${session.message_count} msg`));
-    item.appendChild(row1);
-    item.appendChild(el("div", "title", session.title || "(untitled)"));
-    item.appendChild(el("div", "meta", session.provider || "-"));
-    item.addEventListener("click", () => openSession(session.id));
-    list.appendChild(item);
+  for (const group of groupSessions(data.sessions)) {
+    if (group.name || data.sessions.some((s) => s.metadata && s.metadata.folder)) {
+      const head = el("li", "folder-head");
+      head.appendChild(el("span", null, group.name || "Sessions"));
+      head.appendChild(el("span", "count", String(group.sessions.length)));
+      list.appendChild(head);
+    }
+    for (const session of group.sessions) list.appendChild(sessionRow(session));
   }
   if (!data.sessions.length) {
     list.appendChild(el("li", "meta", "no sessions yet"));
   }
 }
+
+async function fileSession(session) {
+  const current = (session.metadata && session.metadata.folder) || "";
+  const answer = window.prompt("Folder name (leave empty to remove it):", current);
+  if (answer === null) return;
+  await api(`/api/sessions/${encodeURIComponent(session.id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ folder: answer.trim() }),
+  });
+  await loadSessions();
+}
+
+async function deleteSession(session) {
+  const label = session.title || session.short_id;
+  if (!window.confirm(`Delete "${label}" and its messages?`)) return;
+  await api(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+  if (state.sessionId === session.id) {
+    state.sessionId = null;
+    $("messages").textContent = "";
+    $("session-title").textContent = "No session";
+    updateGauge([]);
+  }
+  await loadSessions();
+}
+
+// "+ Folder" files the *open* session: a folder that contains nothing is not a
+// thing the store can hold, and inventing empty folders would mean a second
+// source of truth for the sidebar.
+async function newFolder() {
+  if (!state.sessionId) {
+    $("folder-hint").textContent = "open a session first";
+    setTimeout(() => { $("folder-hint").textContent = ""; }, 4000);
+    return;
+  }
+  const answer = window.prompt("Folder name for this session:");
+  if (answer === null) return;
+  await api(`/api/sessions/${encodeURIComponent(state.sessionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ folder: answer.trim() }),
+  });
+  await loadSessions();
+}
+
 
 async function openSession(id) {
   state.sessionId = id;
@@ -1020,6 +1213,7 @@ function wireComposer() {
   });
   $("stop").addEventListener("click", stopTurn);
   $("new-session").addEventListener("click", newSession);
+  $("new-folder").addEventListener("click", newFolder);
   $("menu-toggle").addEventListener("click", () => $("sidebar").classList.toggle("open"));
   $("theme-toggle").addEventListener("click", () => {
     const root = document.documentElement;
@@ -1028,6 +1222,7 @@ function wireComposer() {
 }
 
 async function boot() {
+  wireLayout();
   wireComposer();
   wirePalette();
   wireSearch();

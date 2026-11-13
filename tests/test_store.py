@@ -155,3 +155,39 @@ def test_short_id_and_default_path(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
     assert default_store_path() == (tmp_path / "home" / "uh.db").resolve()
     assert short_id("20260101-1200-abcd") == "20260101"
+
+
+def test_set_folder_files_a_session_without_touching_updated_at(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        session_id = store.create_session(title="t")
+        before = store.get_session(session_id)["updated_at"]
+
+        assert store.set_folder(session_id, "  Projets  ") is True
+
+        session = store.get_session(session_id)
+        assert session["metadata"]["folder"] == "Projets", "trimmed, and nothing else lost"
+        assert session["updated_at"] == before, "filing is not talking: no reordering"
+
+
+def test_set_folder_keeps_the_other_metadata_keys(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        session_id = store.create_session(metadata={"pinned": True, "folder": "old"})
+
+        store.set_folder(session_id, "new")
+
+        metadata = store.get_session(session_id)["metadata"]
+        assert metadata == {"pinned": True, "folder": "new"}
+
+
+def test_an_empty_folder_removes_the_key(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        session_id = store.create_session(metadata={"folder": "Projets"})
+
+        store.set_folder(session_id, "")
+
+        assert "folder" not in store.get_session(session_id)["metadata"]
+
+
+def test_set_folder_on_an_unknown_session_is_false(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        assert store.set_folder("nope", "Projets") is False

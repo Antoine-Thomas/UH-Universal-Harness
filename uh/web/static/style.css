@@ -44,8 +44,37 @@ body {
   overflow: hidden;
 }
 
-.layout { display: grid; grid-template-columns: 260px 1fr 340px; height: 100vh; }
-.layout.right-collapsed { grid-template-columns: 260px 1fr; }
+/* Three zones plus two drag handles. The widths are CSS variables so the
+   splitters can resize them without recalculating anything, and so a reload can
+   restore them from localStorage (see layoutPrefs in app.js). */
+.layout {
+  display: grid;
+  grid-template-columns:
+    var(--sidebar-w, 260px) var(--splitter, 6px) 1fr var(--splitter, 6px) var(--right-w, 340px);
+  height: 100vh;
+}
+.layout.sidebar-collapsed {
+  grid-template-columns:
+    0 0 1fr var(--splitter, 6px) var(--right-w, 340px);
+}
+.layout.right-collapsed {
+  grid-template-columns:
+    var(--sidebar-w, 260px) var(--splitter, 6px) 1fr 0 0;
+}
+.layout.sidebar-collapsed.right-collapsed {
+  grid-template-columns: 0 0 1fr 0 0;
+}
+.layout.sidebar-collapsed .sidebar,
+.layout.sidebar-collapsed #splitter-left { display: none; }
+
+.splitter {
+  cursor: col-resize; background: var(--border); opacity: .55;
+  position: relative; touch-action: none;
+}
+.splitter:hover, .splitter:focus-visible, .splitter.dragging { opacity: 1; background: var(--accent); outline: none; }
+.splitter::after {  /* a 6 px target is thin: widen the grab area, not the bar */
+  content: ""; position: absolute; inset: 0 -3px;
+}
 
 .rightbar {
   display: flex; flex-direction: column; min-height: 0;
@@ -84,6 +113,40 @@ body {
 }
 .session-list li:hover { background: var(--accent-soft); }
 .session-list li.active { border-color: var(--accent); background: var(--accent-soft); }
+
+/* The session row carries its own actions: kill the conversation, or file it.
+   They stay out of the way until hover/focus, because a sidebar of permanent
+   icons is unreadable on a 200 px column. */
+.session-list li.session { position: relative; padding-right: 58px; }
+.session-actions {
+  position: absolute; top: 6px; right: 6px;
+  display: flex; gap: 2px; opacity: 0; transition: opacity .12s ease;
+}
+.session-list li.session:hover .session-actions,
+.session-list li.session:focus-within .session-actions { opacity: 1; }
+.session-actions button {
+  width: 22px; height: 22px; padding: 0; line-height: 1;
+  border-radius: 6px; cursor: pointer; font-size: 12px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+}
+.session-actions button:hover { border-color: var(--accent); color: var(--text); }
+.session-actions button.danger:hover { border-color: var(--error); color: var(--error); }
+
+.folder-head {
+  display: flex; align-items: center; gap: 6px;
+  margin: 10px 2px 2px; padding: 2px 4px;
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.folder-head .count { font-family: var(--mono); opacity: .7; }
+.folder-head::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+.folder-bar { display: flex; align-items: center; gap: 8px; padding: 0 12px 6px; }
+.ghost-button {
+  padding: 4px 10px; font-size: 12px; border-radius: 8px; cursor: pointer;
+  border: 1px dashed var(--border); background: transparent; color: var(--muted);
+}
+.ghost-button:hover { border-color: var(--accent); color: var(--text); }
 .session-list .row1 { display: flex; justify-content: space-between; gap: 8px; }
 .session-list .sid { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 .session-list .title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -210,6 +273,7 @@ body {
   font-size: 14px; line-height: 1;
 }
 #menu-toggle { display: none; }
+#sidebar-toggle { font-size: 15px; }
 
 .palette {
   position: fixed; inset: 12% 50% auto 50%; transform: translateX(-50%);
@@ -227,7 +291,13 @@ body {
 .palette .alias { color: var(--muted); font-size: 11px; margin-left: 6px; }
 
 @media (max-width: 1100px) {
-  .layout, .layout.right-collapsed { grid-template-columns: 260px 1fr; }
+  .layout,
+  .layout.right-collapsed,
+  .layout.sidebar-collapsed,
+  .layout.sidebar-collapsed.right-collapsed {
+    grid-template-columns: var(--sidebar-w, 260px) var(--splitter, 6px) 1fr;
+  }
+  #splitter-right { display: none; }  /* the panel is an overlay here */
   /* The right column becomes an overlay; app.js mirrors this breakpoint
      (isNarrow) so click-outside only closes it in overlay mode. */
   .rightbar {
@@ -238,7 +308,12 @@ body {
 }
 
 @media (max-width: 800px) {
-  .layout, .layout.right-collapsed { grid-template-columns: 1fr; }
+  .layout,
+  .layout.right-collapsed,
+  .layout.sidebar-collapsed,
+  .layout.sidebar-collapsed.right-collapsed { grid-template-columns: 1fr; }
+  .splitter { display: none; }
+  #sidebar-toggle { display: none; }
   .sidebar {
     position: fixed; inset: 0 40% 0 0; z-index: 10;
     transform: translateX(-100%); transition: transform .18s ease;

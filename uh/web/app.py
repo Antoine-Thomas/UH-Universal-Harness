@@ -295,12 +295,34 @@ def create_app(
         return {"deleted": deleted, "id": session["id"]}
 
     @app.patch("/api/sessions/{session_id}", dependencies=[Depends(require_token)])
-    async def rename_session(session_id: str, payload: dict) -> dict:
+    async def update_session(session_id: str, payload: dict) -> dict:
+        """Rename a session, file it in a folder, or both.
+
+        ``folder`` is metadata, not a schema: ``""`` (or null) takes the session
+        out of its folder. A body with neither key is refused rather than
+        silently accepted, so a typo in the client shows up as a 400.
+        """
         session = _session_or_404(app, session_id)
-        title = str((payload or {}).get("title") or "")[:120]
+        body = payload or {}
+        if "title" not in body and "folder" not in body:
+            raise HTTPException(status_code=400, detail="nothing to update: send title or folder")
         with _store(app) as store:
-            store.rename_session(session["id"], title)
-        return {"id": session["id"], "title": title}
+            if "title" in body:
+                title = str(body.get("title") or "")[:120]
+                store.rename_session(session["id"], title)
+            if "folder" in body:
+                store.set_folder(session["id"], str(body.get("folder") or ""))
+            updated = store.get_session(session["id"])
+        if updated is None:  # deleted concurrently: report it, do not invent a row
+            raise HTTPException(status_code=404, detail=f"unknown session: {session_id}")
+        # ``id``/``title`` stay at the top level: this route answered that shape
+        # before folders existed, and a client written against it must not break.
+        return {
+            "id": updated["id"],
+            "title": updated["title"],
+            "folder": (updated.get("metadata") or {}).get("folder") or "",
+            "session": {**updated, "short_id": display_id(updated["id"])},
+        }
 
     @app.get("/api/sessions/{session_id}/messages", dependencies=[Depends(require_token)])
     async def messages(session_id: str, limit: Optional[int] = None) -> dict:

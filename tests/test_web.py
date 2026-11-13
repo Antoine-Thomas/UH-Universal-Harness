@@ -423,3 +423,75 @@ def test_session_model_override_is_per_session(
             assert b["model"] == "stub:1b"
 
     run(scenario())
+
+
+def test_folders_are_metadata_on_the_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+
+            filed = (
+                await http.patch(
+                    f"/api/sessions/{session_id}", json={"folder": "Projets"}, headers=AUTH
+                )
+            ).json()
+            assert filed["folder"] == "Projets"
+            assert filed["title"] == "t", "the old shape still answers id/title"
+            assert filed["session"]["metadata"]["folder"] == "Projets"
+
+            listing = (await http.get("/api/sessions", headers=AUTH)).json()
+            assert listing["sessions"][0]["metadata"]["folder"] == "Projets"
+
+            unfiled = (
+                await http.patch(
+                    f"/api/sessions/{session_id}", json={"folder": ""}, headers=AUTH
+                )
+            ).json()
+            assert unfiled["folder"] == ""
+            assert "folder" not in unfiled["session"]["metadata"]
+
+
+def test_patch_refuses_an_empty_body(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+
+            idle = await http.patch(f"/api/sessions/{session_id}", json={}, headers=AUTH)
+            assert idle.status_code == 400, "a typo in the client must not be a silent no-op"
+            unknown = await http.patch("/api/sessions/nope", json={"folder": "x"}, headers=AUTH)
+            assert unknown.status_code == 404
+
+
+def test_a_deleted_session_takes_its_messages_with_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """What the trash icon in the sidebar relies on: no orphan rows to reload."""
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+            await http.post(
+                f"/api/sessions/{session_id}/chat",
+                json={"message": "bonjour"},
+                headers=AUTH,
+            )
+            assert (await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)).json()[
+                "messages"
+            ]
+
+            assert (
+                await http.delete(f"/api/sessions/{session_id}", headers=AUTH)
+            ).json()["deleted"] is True
+
+            assert (
+                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
+            ).status_code == 404
+            assert (await http.get("/api/sessions", headers=AUTH)).json()["sessions"] == []
+
+    run(scenario())

@@ -32,7 +32,7 @@ even when the failing input was one.
 | GET | `/api/sessions` | `?limit=` | `{sessions: [{…, short_id}]}` |
 | POST | `/api/sessions` | `{title?}` | `{session: {…, short_id}}` |
 | DELETE | `/api/sessions/{session_id}` | — | `{deleted: bool, id}` · `404` |
-| PATCH | `/api/sessions/{session_id}` | `{title}` | `{id, title}` · `404` |
+| PATCH | `/api/sessions/{session_id}` | `{title}` and/or `{folder}` | `{id, title, folder, session}` · `400` empty body · `404` |
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
 | POST | `/api/sessions/{session_id}/chat` | `{message}` | **SSE stream** (below) · `400` empty message · `404` · `503` provider unreachable |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
@@ -89,13 +89,19 @@ served by `--static-dir` is free to use its own, but the ones below are the
 contract of the bundled one:
 
 ```
-composer  gauge-fill  gauge-label  input  keys-priority  keys-view  layout
-menu-toggle  messages  model-select  new-session  palette  palette-input
-palette-list  providers-close  providers-hint  providers-list  providers-open
-providers-panel  providers-view  router-settings  search  search-results  send
-session-list  session-title  sidebar  status-provider  stop  tab-keys
-tab-providers  terminal-warning  theme-toggle
+composer  folder-hint  gauge-fill  gauge-label  input  keys-priority  keys-view
+layout  menu-toggle  messages  model-select  new-folder  new-session  palette
+palette-input  palette-list  providers-close  providers-hint  providers-list
+providers-open  providers-panel  providers-view  router-settings  search
+search-results  send  session-list  session-title  sidebar  sidebar-toggle
+splitter-left  splitter-right  status-provider  stop  tab-keys  tab-providers
+terminal-warning  theme-toggle
 ```
+
+The layout is three CSS grid columns plus two drag handles
+(`splitter-left`, `splitter-right`). The handles write `--sidebar-w` / `--right-w`
+on `#layout`; the widths live in `localStorage` (`uh.layout.v1`) so a reload keeps
+them, and `#sidebar-toggle` collapses the sessions column (`sidebar-collapsed`).
 
 ## Serving a replacement interface
 
