@@ -1488,6 +1488,84 @@ def cmd_web(args: argparse.Namespace) -> int:
         uhb_spawn.stop_running()
 
 
+def cmd_dream(args: argparse.Namespace) -> int:
+    """`uh dream`: snapshots and the journal. The pass itself lands in P4.2."""
+    from . import dream as dream_mod
+
+    only_now = args.now and not (
+        args.snapshot is not None or args.rollback or args.journal or args.list_snapshots
+    )
+    if only_now:
+        # A placeholder that says so: a pass that silently does nothing would be
+        # worse than one that does not exist yet.
+        print("uh dream: the scheduler is planned in P4.2 - nothing runs on its own yet.")
+        print("  available now: --snapshot, --rollback, --journal, --list-snapshots")
+        return EXIT_OK
+
+    if args.list_snapshots:
+        found = dream_mod.list_snapshots()
+        if not found:
+            print(f"no snapshot in {dream_mod.dreams_dir()}")
+            return EXIT_OK
+        for item in found:
+            files = "?" if item["files"] is None else item["files"]
+            size = "?" if item["bytes"] is None else f"{item['bytes'] / 1024:.0f} KB"
+            print(f"  {item['id']:<26} {str(item['created'] or '?'):<20} {files:>4} files  {size}")
+        return EXIT_OK
+
+    if args.journal:
+        entries = dream_mod.DreamJournal().read(args.date)
+        if not entries:
+            print(f"uh dream: no entry for {args.date or 'today'}")
+            return EXIT_OK
+        for entry in entries:
+            reason = f"  ({entry['reason']})" if entry.get("reason") else ""
+            print(
+                f"  {entry.get('timestamp', '?')}  {str(entry.get('type', '?')):<7}"
+                f"  {entry.get('path', '')}{reason}"
+            )
+        return EXIT_OK
+
+    if args.rollback:
+        snapshot_id = args.snapshot or None
+        target = snapshot_id or "the latest snapshot"
+        if not args.yes:
+            if not sys.stdin.isatty():
+                print(
+                    "uh dream: refusing to roll back without a terminal; pass --yes.",
+                    file=sys.stderr,
+                )
+                return EXIT_FAILURE
+            answer = input(f"Restore {target} over the current files? [y/N] ").strip().lower()
+            if answer not in ("y", "yes", "o", "oui"):
+                print("uh dream: nothing done")
+                return EXIT_OK
+        try:
+            restored = dream_mod.rollback(snapshot_id)
+        except dream_mod.DreamError as exc:
+            print(f"uh dream: {exc}", file=sys.stderr)
+            return EXIT_FAILURE
+        print(f"restored {restored} file(s) from {target}")
+        print(f"  safety copy kept in {dream_mod.dreams_dir()}")
+        return EXIT_OK
+
+    if args.snapshot is not None:
+        try:
+            created = dream_mod.create_snapshot(journal=dream_mod.DreamJournal())
+        except dream_mod.DreamError as exc:
+            print(f"uh dream: {exc}", file=sys.stderr)
+            return EXIT_FAILURE
+        manifest = json.loads((created / "manifest.json").read_text(encoding="utf-8"))
+        print(f"snapshot: {created}")
+        print(f"  {len(manifest['files'])} file(s), {manifest['total_bytes'] / 1024:.0f} KB")
+        if not manifest["files"]:
+            print("  (nothing to copy: no wiki/, docs/ or MEMORY.md here)")
+        return EXIT_OK
+
+    print("uh dream: nothing to do. Use --snapshot, --rollback, --journal or --list-snapshots.")
+    return EXIT_FAILURE
+
+
 def cmd_install_shortcut(_args: argparse.Namespace) -> int:
     """Windows-only: a desktop shortcut that starts the web UI in one click."""
     from . import shortcut
@@ -1949,6 +2027,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="create a desktop shortcut to the web UI (Windows only)",
     )
 
+    dream_cmd = sub.add_parser(
+        "dream",
+        help="journal and snapshots for the dream pass (P4.1: nothing runs on its own yet)",
+    )
+    dream_cmd.add_argument(
+        "--snapshot",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="ID",
+        help="create a snapshot; with --rollback, the snapshot to restore",
+    )
+    dream_cmd.add_argument(
+        "--rollback", action="store_true", help="restore a snapshot (the latest by default)"
+    )
+    dream_cmd.add_argument("--journal", action="store_true", help="print the journal of a day")
+    dream_cmd.add_argument("--date", default=None, metavar="YYYY-MM-DD", help="day for --journal")
+    dream_cmd.add_argument("--list-snapshots", action="store_true", help="list available snapshots")
+    dream_cmd.add_argument("--now", action="store_true", help="run a pass (planned in P4.2)")
+    dream_cmd.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
     web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
     web.add_argument("--port", type=int, default=8765, help="port (default 8765)")
@@ -2085,6 +2184,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_web(args)
         if args.command == "install-shortcut":
             return cmd_install_shortcut(args)
+        if args.command == "dream":
+            return cmd_dream(args)
         if args.command == "sessions":
             session_handlers: dict[str, Callable[[argparse.Namespace], int]] = {
                 "list": cmd_sessions_list,
