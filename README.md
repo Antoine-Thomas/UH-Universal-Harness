@@ -161,10 +161,19 @@ pip install "uh-harness[web]"
 uh web                      # http://127.0.0.1:8765/?token=...
 uh web --port 9000 --no-open
 uh web --allow-terminal     # enable the shell toolset in the browser (off by default)
+uh install-shortcut         # Windows: a Desktop shortcut that runs `uh web`
 ```
 
 `uh web` without the extra prints the exact install command and exits 1. The
 core package stays on `httpx`; `fastapi`/`uvicorn` only exist in `[web]`.
+
+`uh install-shortcut` is Windows-only and refuses elsewhere with one line. It
+writes `uh-web.ps1` and `uh-web.ico` into `$UH_HOME`, then creates `UH web.lnk`
+on the Desktop through `WScript.Shell`: no admin rights, no registry key, no
+autostart. The icon is generated (zlib PNG in an ICO, standard library) in the
+site colours — ink `#284543`, accent `#fdc502` — and the launcher prints its
+banner in the same two 24-bit colours, falling back to the nearest console
+colours when the terminal refuses virtual-terminal processing.
 
 Security, because a local server is still a server:
 

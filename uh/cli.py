@@ -1470,6 +1470,32 @@ def cmd_web(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_install_shortcut(_args: argparse.Namespace) -> int:
+    """Windows-only: a desktop shortcut that starts the web UI in one click."""
+    from . import shortcut
+
+    if not shortcut.windows():
+        print(
+            f"uh install-shortcut: Windows only (this is {sys.platform}).",
+            file=sys.stderr,
+        )
+        print(
+            "  elsewhere, point your desktop launcher at `uh web` yourself.",
+            file=sys.stderr,
+        )
+        return EXIT_FAILURE
+    try:
+        created = shortcut.install()
+    except shortcut.ShortcutError as exc:
+        print(f"uh install-shortcut: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    print(f"shortcut: {created.link}")
+    print(f"  launcher: {created.script}")
+    print(f"  icon: {created.icon}")
+    print("  double-click to open the web UI; no admin rights, nothing starts at boot")
+    return EXIT_OK
+
+
 # --------------------------------------------------------------------------- #
 # uh sessions
 # --------------------------------------------------------------------------- #
@@ -1900,6 +1926,11 @@ def build_parser() -> argparse.ArgumentParser:
     token_sub.add_parser("show", help="print the token, creating it on first use")
     token_sub.add_parser("rotate", help="replace the token; existing clients stop working")
 
+    sub.add_parser(
+        "install-shortcut",
+        help="create a desktop shortcut to the web UI (Windows only)",
+    )
+
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
     web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
     web.add_argument("--port", type=int, default=8765, help="port (default 8765)")
@@ -2029,6 +2060,8 @@ def main(argv: list[str] | None = None) -> int:
             return _sub_help(parser, "router")
         if args.command == "web":
             return cmd_web(args)
+        if args.command == "install-shortcut":
+            return cmd_install_shortcut(args)
         if args.command == "sessions":
             session_handlers: dict[str, Callable[[argparse.Namespace], int]] = {
                 "list": cmd_sessions_list,
