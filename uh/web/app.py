@@ -324,6 +324,46 @@ def create_app(
             "session": {**updated, "short_id": display_id(updated["id"])},
         }
 
+    # -- folders ----------------------------------------------------------- #
+    # A folder is a value in session metadata, so these two routes are bulk
+    # updates of one key. The list route exists because a folder with no session
+    # in it does not exist at all: the sidebar cannot invent one.
+    @app.get("/api/folders", dependencies=[Depends(require_token)])
+    async def list_folders() -> dict:
+        with _store(app) as store:
+            counts = store.folders()
+        return {"folders": [{"name": name, "count": count} for name, count in sorted(counts.items())]}
+
+    def _folder_name(value: str) -> str:
+        name = (value or "").strip()[:60]
+        if not name:
+            raise HTTPException(status_code=400, detail="the folder name is empty")
+        if "/" in name:
+            raise HTTPException(
+                status_code=400,
+                detail="a folder name cannot contain '/': it would be unreachable by URL",
+            )
+        return name
+
+    @app.patch("/api/folders/{name}", dependencies=[Depends(require_token)])
+    async def rename_folder(name: str, payload: dict) -> dict:
+        target = _folder_name(str((payload or {}).get("name") or ""))
+        if target == name.strip():
+            raise HTTPException(status_code=400, detail="the folder already has that name")
+        with _store(app) as store:
+            moved = store.rename_folder(name, target)
+        if not moved:
+            raise HTTPException(status_code=404, detail=f"unknown folder: {name}")
+        return {"name": target, "previous": name, "moved": moved}
+
+    @app.delete("/api/folders/{name}", dependencies=[Depends(require_token)])
+    async def delete_folder(name: str) -> dict:
+        with _store(app) as store:
+            cleared = store.delete_folder(name)
+        if not cleared:
+            raise HTTPException(status_code=404, detail=f"unknown folder: {name}")
+        return {"deleted": name, "unfiled": cleared}
+
     @app.get("/api/sessions/{session_id}/messages", dependencies=[Depends(require_token)])
     async def messages(session_id: str, limit: Optional[int] = None) -> dict:
         session = _session_or_404(app, session_id)

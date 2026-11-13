@@ -144,6 +144,16 @@ body {
 /* Where a dragged session can land: the whole header, not just the text. */
 .folder-head { border-radius: 8px; min-height: 20px; }
 .folder-head.drop-target { background: var(--accent-soft); color: var(--text); }
+.folder-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .12s ease; }
+.folder-head:hover .folder-actions,
+.folder-head:focus-within .folder-actions { opacity: 1; }
+.folder-actions button {
+  width: 20px; height: 20px; padding: 0; line-height: 1;
+  border-radius: 6px; cursor: pointer; font-size: 11px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+}
+.folder-actions button:hover { border-color: var(--accent); color: var(--text); }
+.folder-actions button.danger:hover { border-color: var(--error); color: var(--error); }
 .folder-head.drop-target::after { background: var(--accent); }
 
 .folder-bar { display: flex; align-items: center; gap: 8px; padding: 0 12px 6px; }

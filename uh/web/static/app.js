@@ -354,6 +354,20 @@ async function loadSessions() {
       head.dataset.folder = group.name;
       head.appendChild(el("span", null, group.name || "Sessions"));
       head.appendChild(el("span", "count", String(group.sessions.length)));
+      if (group.name) {  // the ungrouped header has nothing to rename or delete
+        const actions = el("div", "folder-actions");
+        const edit = el("button", null, "✏");
+        edit.title = "Rename this folder";
+        edit.setAttribute("aria-label", "Rename folder");
+        edit.addEventListener("click", () => renameFolder(head));
+        const kill = el("button", "danger", "🗑");
+        kill.title = "Delete this folder (its sessions are kept)";
+        kill.setAttribute("aria-label", "Delete folder");
+        kill.addEventListener("click", () => removeFolder(head));
+        actions.appendChild(edit);
+        actions.appendChild(kill);
+        head.appendChild(actions);
+      }
       wireFolderDrop(head);
       list.appendChild(head);
     }
@@ -362,6 +376,30 @@ async function loadSessions() {
   if (!data.sessions.length) {
     list.appendChild(el("li", "meta", "no sessions yet"));
   }
+}
+
+async function renameFolder(head) {
+  const previous = head.dataset.folder || "";
+  const answer = window.prompt("New folder name:", previous);
+  if (answer === null) return;
+  const name = answer.trim();
+  if (!name || name === previous) return;
+  await api(`/api/folders/${encodeURIComponent(previous)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+  await loadSessions();
+}
+
+async function removeFolder(head) {
+  const name = head.dataset.folder || "";
+  if (!name) return;
+  const count = head.querySelector(".count")?.textContent || "?";
+  if (!window.confirm(`Delete the folder "${name}"? Its ${count} session(s) are kept, unfiled.`)) {
+    return;
+  }
+  await api(`/api/folders/${encodeURIComponent(name)}`, { method: "DELETE" });
+  await loadSessions();
 }
 
 async function fileSession(session) {

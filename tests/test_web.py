@@ -495,3 +495,69 @@ def test_a_deleted_session_takes_its_messages_with_it(tmp_path: Path, monkeypatc
             assert (await http.get("/api/sessions", headers=AUTH)).json()["sessions"] == []
 
     run(scenario())
+
+
+def test_folders_can_be_listed_renamed_and_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            made = []
+            for title in ("a", "b", "c"):
+                created = (await http.post("/api/sessions", json={"title": title}, headers=AUTH)).json()
+                made.append(created["session"]["id"])
+            await http.patch(f"/api/sessions/{made[0]}", json={"folder": "Projets"}, headers=AUTH)
+            await http.patch(f"/api/sessions/{made[1]}", json={"folder": "Projets"}, headers=AUTH)
+            await http.patch(f"/api/sessions/{made[2]}", json={"folder": "Autre"}, headers=AUTH)
+
+            listed = (await http.get("/api/folders", headers=AUTH)).json()
+            assert listed["folders"] == [
+                {"name": "Autre", "count": 1},
+                {"name": "Projets", "count": 2},
+            ]
+
+            renamed = (
+                await http.patch("/api/folders/Projets", json={"name": "Maison"}, headers=AUTH)
+            ).json()
+            assert renamed == {"name": "Maison", "previous": "Projets", "moved": 2}
+            sessions = (await http.get("/api/sessions", headers=AUTH)).json()["sessions"]
+            folders = sorted((s["metadata"].get("folder") or "") for s in sessions)
+            assert folders == ["Autre", "Maison", "Maison"]
+
+            cleared = (await http.delete("/api/folders/Autre", headers=AUTH)).json()
+            assert cleared == {"deleted": "Autre", "unfiled": 1}
+            assert [f["name"] for f in (await http.get("/api/folders", headers=AUTH)).json()["folders"]] == [
+                "Maison"
+            ]
+            after = (await http.get("/api/sessions", headers=AUTH)).json()["sessions"]
+            assert sorted((s["metadata"].get("folder") or "") for s in after) == ["", "Maison", "Maison"]
+            assert len(after) == 3, "deleting a folder must never delete a session"
+
+    run(scenario())
+
+
+def test_folder_routes_refuse_what_they_cannot_represent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+            await http.patch(f"/api/sessions/{session_id}", json={"folder": "Projets"}, headers=AUTH)
+
+            empty = await http.patch("/api/folders/Projets", json={"name": "  "}, headers=AUTH)
+            assert empty.status_code == 400
+            same = await http.patch("/api/folders/Projets", json={"name": "Projets"}, headers=AUTH)
+            assert same.status_code == 400
+            slash = await http.patch("/api/folders/Projets", json={"name": "a/b"}, headers=AUTH)
+            assert slash.status_code == 400, "a name with a slash could never be reached by URL"
+            unknown = await http.patch("/api/folders/Nope", json={"name": "x"}, headers=AUTH)
+            assert unknown.status_code == 404
+            missing = await http.delete("/api/folders/Nope", headers=AUTH)
+            assert missing.status_code == 404
+
+    run(scenario())

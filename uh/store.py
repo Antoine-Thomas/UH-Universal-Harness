@@ -274,6 +274,46 @@ class Store:
             )
         return cursor.rowcount > 0
 
+    def folders(self) -> dict[str, int]:
+        """Folder name -> session count. Folders are metadata values, not rows."""
+        counts: dict[str, int] = {}
+        for session in self.list_sessions(limit=10_000):
+            name = (session.get("metadata") or {}).get("folder")
+            if name:
+                counts[str(name)] = counts.get(str(name), 0) + 1
+        return counts
+
+    def rename_folder(self, old: str, new: str) -> int:
+        """Rename a folder on every session that carries it. Returns the count.
+
+        A folder is a value in ``metadata.folder``, so a rename is N updates of
+        the same key - no folder table, no migration. Sessions with an empty
+        folder are untouched, and ``""`` as ``new`` would silently unfile them,
+        which is what :meth:`delete_folder` is for.
+        """
+        source = (old or "").strip()
+        target = (new or "").strip()
+        if not source or not target:
+            return 0
+        renamed = 0
+        for session in self.list_sessions(limit=10_000):
+            if (session.get("metadata") or {}).get("folder") == source:
+                if self.set_folder(session["id"], target):
+                    renamed += 1
+        return renamed
+
+    def delete_folder(self, name: str) -> int:
+        """Empty a folder: its sessions stay, unfiled. Returns the count."""
+        target = (name or "").strip()
+        if not target:
+            return 0
+        cleared = 0
+        for session in self.list_sessions(limit=10_000):
+            if (session.get("metadata") or {}).get("folder") == target:
+                if self.set_folder(session["id"], ""):
+                    cleared += 1
+        return cleared
+
     def find_session_by_metadata(self, key: str, value: Any) -> Optional[dict]:
         """Linear scan over sessions' JSON metadata (no JSON1 dependency assumed)."""
         for session in self.list_sessions(limit=10_000):

@@ -191,3 +191,43 @@ def test_an_empty_folder_removes_the_key(tmp_path: Path) -> None:
 def test_set_folder_on_an_unknown_session_is_false(tmp_path: Path) -> None:
     with Store(tmp_path / "uh.db") as store:
         assert store.set_folder("nope", "Projets") is False
+
+
+def test_rename_folder_moves_every_session_and_keeps_the_rest(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        keep = store.create_session(metadata={"pinned": True, "folder": "old"})
+        other = store.create_session(metadata={"folder": "elsewhere"})
+        unfiled = store.create_session()
+
+        assert store.rename_folder("old", "new") == 1
+
+        assert store.get_session(keep)["metadata"] == {"pinned": True, "folder": "new"}
+        assert store.get_session(other)["metadata"]["folder"] == "elsewhere"
+        assert store.get_session(unfiled)["metadata"] == {}
+        assert store.folders() == {"new": 1, "elsewhere": 1}
+
+
+def test_rename_folder_refuses_empty_names(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        session = store.create_session(metadata={"folder": "old"})
+        assert store.rename_folder("old", "   ") == 0
+        assert store.get_session(session)["metadata"]["folder"] == "old"
+
+
+def test_delete_folder_unfiles_but_keeps_the_sessions(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        filed = store.create_session(metadata={"folder": "gone"})
+        store.append_message(filed, {"role": "user", "content": "keep me"})
+
+        assert store.delete_folder("gone") == 1
+
+        assert store.get_session(filed) is not None
+        assert "folder" not in store.get_session(filed)["metadata"]
+        assert store.message_count(filed) == 1
+        assert store.folders() == {}
+
+
+def test_delete_an_unknown_or_empty_folder_is_a_no_op(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        assert store.delete_folder("nope") == 0
+        assert store.delete_folder("") == 0
