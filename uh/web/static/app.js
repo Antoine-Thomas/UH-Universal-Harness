@@ -1719,6 +1719,188 @@ async function loadMemory() {
   box.appendChild(siyuan);
 }
 
+// --- decision (P3.3): why the last turn looked the way it did ----------------
+function decisionBlock(title, body) {
+  const block = el("section", "decision-block");
+  block.appendChild(el("h3", "decision-title", title));
+  block.appendChild(body);
+  return block;
+}
+
+function tierDot(tier) {
+  const dot = el("span", "uhb-dot");
+  dot.style.background = TIER_COLOURS[tier] || "var(--muted)";
+  return dot;
+}
+
+function renderDecision(data, reload) {
+  const box = $("decision-panel");
+  box.textContent = "";
+
+  if (!data.available) {
+    box.appendChild(el("p", "panel-hint", data.reason || "nothing recorded yet"));
+    return;
+  }
+
+  // 1 - the prompt, as classified (or the honest absence)
+  const prompt = data.prompt || {};
+  const promptBody = el("div", "decision-body");
+  if (prompt.complexity) {
+    promptBody.appendChild(el("p", "decision-headline", String(prompt.complexity)));
+    if (prompt.mode) promptBody.appendChild(el("p", "decision-sub", `mode ${prompt.mode}`));
+    if (prompt.reason) promptBody.appendChild(el("p", "decision-note", prompt.reason));
+  } else {
+    promptBody.appendChild(el("p", "decision-note", prompt.note || "UHB was not consulted"));
+  }
+  box.appendChild(decisionBlock("Prompt", promptBody));
+
+  // 2 - the model that answered
+  const model = data.model || {};
+  const modelBody = el("div", "decision-body");
+  const chosen = el("p", "decision-headline");
+  chosen.appendChild(el("span", "decision-model", String(model.model || "?")));
+  chosen.appendChild(el("span", "decision-sub", `${model.provider || "?"}`));
+  modelBody.appendChild(chosen);
+  if (model.substituted) {
+    // An alias resolved to another tag: say it, do not hide it.
+    modelBody.appendChild(
+      el("p", "decision-note", `chosen ${model.chosen || model.model} → served ${model.served}`)
+    );
+  }
+  box.appendChild(decisionBlock("Model", modelBody));
+
+  // 3 - the chain, in order, chosen first
+  const chainBody = el("div", "decision-body");
+  if ((data.chain || []).length) {
+    for (const candidate of data.chain) {
+      const row = el("div", "uhb-candidate");
+      row.appendChild(tierDot(candidate.tier));
+      row.appendChild(el("span", "uhb-ref", String(candidate.ref || "?")));
+      row.appendChild(el("span", "uhb-tier", String(candidate.tier || "?")));
+      if (candidate.ref && candidate.ref === data.model.chosen) row.classList.add("chosen");
+      chainBody.appendChild(row);
+    }
+  } else {
+    chainBody.appendChild(el("p", "decision-note", "no chain: UHB did not plan this turn"));
+  }
+  box.appendChild(decisionBlock("UHB chain", chainBody));
+
+  // 4 - context: what was sent, against the budget
+  const context = data.context || {};
+  const usage = data.usage || {};
+  const contextBody = el("div", "decision-body");
+  const track = el("div", "decision-bar");
+  const fill = el("div", "decision-bar-fill");
+  // The bar compares the payload the pruner measured with the budget it had to
+  // respect. The usage counters below are a different quantity: they sum every
+  // call of the turn, so using them here would show a false overflow.
+  const payload = Number(context.payload_tokens || 0);
+  const budget = Number(context.budget || 0);
+  fill.style.width = `${budget > 0 ? Math.min(100, Math.round((payload / budget) * 100)) : 0}%`;
+  track.appendChild(fill);
+  contextBody.appendChild(track);
+  contextBody.appendChild(
+    el(
+      "p",
+      "decision-note",
+      `payload ${payload} / ${budget || "?"} tok · ${data.tool_calls || 0} tool calls`
+    )
+  );
+  if (usage.reported) {
+    contextBody.appendChild(
+      el("p", "decision-note", `in ${usage.prompt} · out ${usage.completion}`)
+    );
+  } else {
+    contextBody.appendChild(el("p", "decision-note", "the provider reported no counters"));
+  }
+  if (context.mode === "summary" && context.summarised_exchanges) {
+    contextBody.appendChild(
+      el(
+        "p",
+        "decision-note",
+        `${context.summarised_exchanges} exchanges summarised · ${context.kept_exchanges} kept`
+      )
+    );
+  } else if (context.mode === "trim") {
+    // The middle was dropped, not summarised: saying "summarised" would describe
+    // text the model never received.
+    contextBody.appendChild(
+      el("p", "decision-note", "the middle was dropped without a summary (budget too small)")
+    );
+  }
+  box.appendChild(decisionBlock("Context", contextBody));
+
+  // 5 - the summary itself, collapsed, because it replaced messages
+  if (context.summary) {
+    const summaryBody = el("div", "decision-body");
+    const details = el("details", "decision-summary");
+    details.appendChild(el("summary", null, `summary (replaces ${context.summarised_exchanges} exchanges)`));
+    details.appendChild(el("pre", "memory-reader", context.summary));
+    summaryBody.appendChild(details);
+    box.appendChild(decisionBlock("Summary", summaryBody));
+  }
+
+  // 6 - duration, this turn and the average
+  const turn = data.turn || {};
+  const durationBody = el("div", "decision-body");
+  durationBody.appendChild(el("p", "decision-headline", `${(Number(turn.duration_ms || 0) / 1000).toFixed(2)}s`));
+  durationBody.appendChild(
+    el(
+      "p",
+      "decision-note",
+      `average of the last ${turn.turns || 0}: ${(Number(turn.average_ms || 0) / 1000).toFixed(2)}s`
+    )
+  );
+  box.appendChild(decisionBlock("Duration", durationBody));
+
+  // A plan UHB would give now, clearly marked as not applied.
+  const ask = el("button", "hardware-pull", "Ask UHB about this prompt");
+  const out = el("div", "decision-body");
+  ask.addEventListener("click", async () => {
+    ask.disabled = true;
+    out.textContent = "";
+    try {
+      const last = [...document.querySelectorAll(".msg.user")].pop();
+      const promptText = (last && last.textContent.trim()) || "test";
+      const plan = await api("/api/uhb/route", {
+        method: "POST",
+        body: JSON.stringify({ prompt: promptText }),
+      });
+      out.appendChild(el("p", "decision-note", "not applied to the turn: a plan only"));
+      for (const candidate of plan.chain || []) {
+        const row = el("div", "uhb-candidate");
+        row.appendChild(tierDot(candidate.tier));
+        row.appendChild(el("span", "uhb-ref", String(candidate.ref || "?")));
+        row.appendChild(el("span", "uhb-tier", String(candidate.tier || "?")));
+        out.appendChild(row);
+      }
+    } catch (error) {
+      out.appendChild(el("p", "panel-hint", `route: ${error.message}`));
+    } finally {
+      ask.disabled = false;
+    }
+  });
+  const extras = el("div", "decision-extra");
+  extras.appendChild(ask);
+  extras.appendChild(out);
+  box.appendChild(extras);
+}
+
+async function loadDecision() {
+  const box = $("decision-panel");
+  box.textContent = "";
+  if (!state.sessionId) {
+    box.appendChild(el("p", "panel-hint", "open a session to see how its last turn was decided"));
+    return;
+  }
+  try {
+    const data = await api(`/api/sessions/${state.sessionId}/decision`);
+    renderDecision(data);
+  } catch (error) {
+    box.appendChild(el("p", "panel-hint", `decision: ${error.message}`));
+  }
+}
+
 function showPanelTab(name) {
   for (const [tab, view] of [
     ["keys", "keys-view"],
@@ -1726,6 +1908,7 @@ function showPanelTab(name) {
     ["models", "models-view"],
     ["uhb", "uhb-view"],
     ["memory", "memory-view"],
+    ["decision", "decision-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -1735,6 +1918,7 @@ function showPanelTab(name) {
   if (name === "models") loadCapabilities().catch(() => {});
   if (name === "uhb") loadUhb().catch(() => {});
   if (name === "memory") loadMemory().catch(() => {});
+  if (name === "decision") loadDecision().catch(() => {});
 }
 
 function openProviders() {
@@ -1769,6 +1953,7 @@ function wireProviders() {
   $("tab-models").addEventListener("click", () => showPanelTab("models"));
   $("tab-uhb").addEventListener("click", () => showPanelTab("uhb"));
   $("tab-memory").addEventListener("click", () => showPanelTab("memory"));
+  $("tab-decision").addEventListener("click", () => showPanelTab("decision"));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && providersAreOpen()) closeProviders();
   });

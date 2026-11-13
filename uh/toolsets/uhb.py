@@ -336,6 +336,9 @@ class Uhbtoolset:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self.client = client
+        #: The last plan UHB returned in this session. The Decision view reads it
+        #: to report what the model actually asked, instead of guessing.
+        self.last_route: Optional[dict] = None
 
     @classmethod
     def from_environment(cls, probe_fn=None) -> Optional["Uhbtoolset"]:
@@ -412,7 +415,9 @@ class Uhbtoolset:
         payload = _json(response)
         if payload is None:
             return _invalid()
-        return compact_decision(payload)
+        plan = compact_decision(payload)
+        self.last_route = plan
+        return plan
 
 
 __all__ = [

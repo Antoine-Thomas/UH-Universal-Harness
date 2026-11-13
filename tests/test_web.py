@@ -1072,3 +1072,38 @@ def test_memory_rag_and_siyuan_answer_without_a_checkout(
             assert "no route" in siyuan["reason"]
 
     run(scenario())
+
+
+def test_a_turn_records_a_decision_for_the_panel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The panel reads a record written at the end of a real turn."""
+    provider = ScriptedProvider()
+    app = make_app(tmp_path, monkeypatch, provider=provider)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "d"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+
+            empty = (await http.get(f"/api/sessions/{session_id}/decision", headers=AUTH)).json()
+            assert empty["available"] is False, "no turn yet, no invented numbers"
+
+            await http.post(
+                f"/api/sessions/{session_id}/chat", json={"message": "bonjour"}, headers=AUTH
+            )
+
+            data = (
+                await http.get(f"/api/sessions/{session_id}/decision", headers=AUTH)
+            ).json()
+            assert data["available"] is True
+            assert data["model"]["model"]
+            assert data["turn"]["duration_ms"] >= 0
+            assert data["context"]["budget"] > 0
+            assert data["uhb_consulted"] is False, "the stub never called uhb_route"
+            assert data["prompt"]["note"]
+
+            missing = await http.get("/api/sessions/inconnu/decision", headers=AUTH)
+            assert missing.status_code == 404
+
+    run(scenario())

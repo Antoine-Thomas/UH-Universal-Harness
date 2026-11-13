@@ -274,6 +274,15 @@ class Store:
             )
         return cursor.rowcount > 0
 
+    def set_session_metadata(self, session_id: str, metadata: dict) -> bool:
+        """Replace a session's metadata blob. The caller owns its shape."""
+        payload = json.dumps(metadata or {}, ensure_ascii=False)
+        cursor = self.conn.execute(
+            "UPDATE sessions SET metadata = ? WHERE id = ?", (payload, session_id)
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
     def folders(self) -> dict[str, int]:
         """Folder name -> session count. Folders are metadata values, not rows."""
         counts: dict[str, int] = {}

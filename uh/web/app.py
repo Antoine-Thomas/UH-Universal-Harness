@@ -581,6 +581,17 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(plan.get("error")))
         return plan
 
+    # -- decision ---------------------------------------------------------- #
+    @app.get("/api/sessions/{session_id}/decision", dependencies=[Depends(require_token)])
+    async def session_decision(session_id: str) -> dict:
+        """Why the last turn looked the way it did. Facts only, no reconstruction."""
+        from .. import decision as uh_decision
+
+        with _store(app) as store:
+            if store.get_session(session_id) is None:
+                raise HTTPException(status_code=404, detail="unknown session")
+            return uh_decision.payload(store, session_id)
+
     # -- memory ------------------------------------------------------------ #
     # Read-only views of what UH remembers. No route here writes, and none of
     # them invents a RAG/SiYuan endpoint that UHB does not expose.

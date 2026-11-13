@@ -121,3 +121,30 @@ def test_the_memory_tab_never_promises_a_button_it_cannot_honour() -> None:
     assert "indexer.py" in script
     assert "memory_write" in script, "MEMORY.md absence explains how it appears"
     assert "reindex" not in script.lower(), "no fake reindex button"
+
+
+@KEEP
+def test_the_decision_tab_reads_the_recorded_payload() -> None:
+    script = APP.read_text(encoding="utf-8")
+    page = INDEX.read_text(encoding="utf-8")
+
+    assert 'id="tab-decision"' in page
+    assert 'id="decision-panel"' in page
+    assert "/decision`" in script, "the tab must ask the session, not the provider"
+
+    # "complexity" may only appear bound to data: the turn's payload, or the
+    # answer of /api/uhb/route. A hardcoded label would survive UHB being off
+    # and would be a lie.
+    allowed = ("prompt.complexity", "plan.complexity")
+    occurrences = [line.strip() for line in script.splitlines() if "complexity" in line]
+    assert occurrences, "the tab must show the classified prompt"
+    for line in occurrences:
+        assert any(binding in line for binding in allowed), f"unbound complexity: {line}"
+
+
+@KEEP
+def test_the_decision_tab_says_when_uhb_was_not_consulted() -> None:
+    script = APP.read_text(encoding="utf-8")
+
+    assert "UHB was not consulted" in script
+    assert "not applied to the turn" in script, "the on-demand plan must be labelled as a plan"

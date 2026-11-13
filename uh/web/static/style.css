@@ -511,6 +511,29 @@ body {
 .uhb-ref { font-family: var(--mono); }
 .uhb-tier { margin-left: auto; color: var(--muted); }
 
+/* --- decision tab (P3.3) -------------------------------------------------- */
+.decision-panel { padding: 12px 14px 18px; display: flex; flex-direction: column; gap: 14px; }
+.decision-block { display: flex; flex-direction: column; gap: 6px; }
+.decision-title {
+  margin: 0; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600;
+}
+.decision-body { display: flex; flex-direction: column; gap: 4px; }
+.decision-headline { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.decision-model { font-family: var(--mono); font-size: 13px; }
+.decision-sub { margin-left: 8px; font-size: 11px; color: var(--muted); font-weight: 400; }
+.decision-note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.decision-bar {
+  height: 6px; border-radius: 3px; background: var(--border); overflow: hidden;
+}
+.decision-bar-fill { height: 100%; background: var(--accent); transition: width .2s ease; }
+.decision-summary summary {
+  cursor: pointer; font-size: 11px; color: var(--muted);
+}
+.decision-summary .memory-reader { margin-top: 6px; max-height: 30vh; }
+.decision-extra { display: flex; flex-direction: column; gap: 8px; }
+.uhb-candidate.chosen .uhb-ref { color: var(--accent); font-weight: 600; }
+
 /* --- memory tab (P3.2) ---------------------------------------------------- */
 .memory-panel { padding: 12px 14px 18px; display: flex; flex-direction: column; gap: 16px; }
 .memory-banner {

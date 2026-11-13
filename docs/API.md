@@ -41,6 +41,7 @@ even when the failing input was one.
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
 | POST | `/api/sessions/{session_id}/chat` | `{message, attachments?: [path]}` | **SSE stream** (below) · `400` empty message or refused attachment · `404` · `503` provider unreachable |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
+| GET | `/api/sessions/{session_id}/decision` | — | `{available, turn: {duration_ms, average_ms, turns}, prompt: {complexity, mode, reason, source, note}, model: {provider, model, served, substituted, chosen}, chain, usage, context: {budget, summarised_exchanges, kept_exchanges, summary}, uhb_consulted, tool_calls, turns}` · `404` unknown session |
 | GET | `/api/memory/sources` | — | `{wiki: {available, label, path, notes, reason}, memory, rag, siyuan, sessions}` |
 | GET | `/api/memory/wiki` | — | `{available, label, root, notes: [{path, name, size, modified, source}]}` |
 | GET | `/api/memory/wiki/{note:path}` | — | `{path, source, size, text}` · `404` unknown or outside the wiki |
@@ -106,15 +107,15 @@ contract of the bundled one:
 ```
 attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
-hardware-card  input  keys-priority  keys-view  memory-panel  memory-view
-models-view
+decision-panel  decision-view  hardware-card  input  keys-priority  keys-view
+memory-panel  memory-view  models-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
 providers-open  providers-panel  providers-view  router-settings  search
 remote-banner  search-results  send  session-list  session-title  sidebar
 sidebar-toggle
 splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
-tab-memory  tab-providers  tab-uhb  terminal-warning  theme-toggle  uhb-panel
+tab-decision  tab-memory  tab-providers  tab-uhb  terminal-warning  theme-toggle  uhb-panel
 uhb-view
 ```
 

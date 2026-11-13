@@ -21,10 +21,12 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import config as uh_config
+from . import decision as uh_decision
 from . import sandbox
 from .agent import (
     BudgetExhausted,
@@ -331,6 +333,8 @@ class ChatSession:
 
     # -- one turn ---------------------------------------------------------- #
     def run_text(self, text: str) -> int:
+        started = time.perf_counter()
+        route_before = self._route_snapshot()
         before = len(self.history)
         self.history.append({"role": "user", "content": text})
         chunks: list[str] = []
@@ -391,7 +395,53 @@ class ChatSession:
             self._persist(self.history[before:])
         except StoreError as exc:
             self.console.error(f"uh chat: cannot record session: {exc}")
+        self._record_decision(started, route_before, self.history[before:])
         return 0
+
+    def _route_snapshot(self) -> Optional[dict]:
+        """The UHB plan on the toolset before a turn (identity, not equality).
+
+        A toolset keeps ``last_route`` across turns, so only a *new* object means
+        the model asked UHB during this turn. Comparing contents would attribute
+        last turn's plan to this one when the prompt happens to repeat.
+        """
+        toolset = self.toolsets.get("uhb")
+        return getattr(toolset, "last_route", None)
+
+    def _record_decision(
+        self, started: float, route_before: Optional[dict], produced: list
+    ) -> None:
+        """Store what this turn decided, for the Decision view. Never fatal.
+
+        The panel is a reading of past turns: a store that refuses the write must
+        not turn an answered question into an error.
+        """
+        if self.store is None or not self.session_id:
+            return
+        route = self._route_snapshot()
+        if route is route_before:
+            route = None
+        context_state = self.context.snapshot()
+        tool_calls = sum(1 for message in produced if message.get("role") == "tool")
+        entry = uh_decision.build_entry(
+            provider=self.provider_kind,
+            model=self.model,
+            served=self.last_real_model or getattr(self.provider, "last_real_model", None),
+            usage=self.last_usage,
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            budget=int(context_state.get("budget") or 0),
+            summary=str(context_state.get("summary") or ""),
+            summarised_exchanges=int(context_state.get("summarised_exchanges") or 0),
+            kept_exchanges=int(context_state.get("kept_exchanges") or 0),
+            context_mode=str(context_state.get("mode") or "none"),
+            payload_tokens=int(context_state.get("payload_tokens") or 0),
+            route=route,
+            tool_calls=tool_calls,
+        )
+        try:
+            uh_decision.record(self.store, self.session_id, entry)
+        except Exception:  # noqa: BLE001 - a view must not break a turn
+            pass
 
     def _note_context(self) -> None:
         """Say it once per session when the payload had to be pruned.

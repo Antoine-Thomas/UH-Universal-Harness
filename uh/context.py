@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 #: Kept intact at the end of the payload: the messages the turn is about.
 KEEP_TAIL = 5
@@ -319,22 +319,49 @@ class ContextManager:
         self._last_summary = ""
         self._last_middle: tuple = (0, 0)  # (messages, characters) the summary covers
         self.last_summary = ""
+        #: Turns the *used* summary covers, and how the last payload was built:
+        #: "none" (it fit), "summary" (a summary replaced the middle) or "trim"
+        #: (nothing fit, so the middle was dropped without summarising).
+        self.last_summary_turns = 0
+        self.last_mode = "none"
+        self.last_payload_tokens = 0
+
+    def snapshot(self) -> Dict[str, Any]:
+        """What the last prune did: budget, summary and the window it covers.
+
+        Public because the Decision view has to report the pruning as a fact,
+        and reaching into ``_last_middle`` from another module would make that
+        private state a contract by accident.
+        """
+        return {
+            "budget": self.budget,
+            "summary": self.last_summary,
+            "summarised_exchanges": int(self.last_summary_turns),
+            "kept_exchanges": self.keep_tail,
+            "mode": self.last_mode,
+            "payload_tokens": self.last_payload_tokens,
+        }
 
     # -- the public entry point -------------------------------------------- #
     def prepare(self, messages: Sequence[dict]) -> List[dict]:
         """Return a payload that fits the budget. Same order, fewer tokens."""
         original = list(messages)
         if estimate_messages(original) <= self.budget:
-            return original
+            self.last_mode = "none"
+            return self._sent(original)
 
         trimmed = [truncate_tool(message, self.tool_limit) for message in original]
         if estimate_messages(trimmed) <= self.budget:
-            return trimmed
+            # Tool results were cut, but nothing was replaced by a summary.
+            self.last_mode = "trim"
+            self.last_summary = ""
+            self.last_summary_turns = 0
+            return self._sent(trimmed)
 
         systems = [message for message in trimmed if message.get("role") == "system"]
         rest = [message for message in trimmed if message.get("role") != "system"]
         if not rest:
-            return trimmed
+            return self._sent(trimmed)
 
         # Head: the first user message, plus the first assistant when it directly
         # follows (it sets the voice of the conversation).
@@ -356,9 +383,28 @@ class ContextManager:
             )
             if estimate_messages(candidate) <= self.budget:
                 self.last_summary = summary
-                return candidate
-        # Nothing fits even at keep_tail=1: hard-trim the oldest survivors.
-        return self._last_resort(systems, rest)
+                self.last_summary_turns = sum(
+                    1 for message in middle if message.get("role") == "user"
+                )
+                self.last_mode = "summary"
+                return self._sent(candidate)
+        # Nothing fits even at keep_tail=1: hard-trim the oldest survivors. The
+        # payload carries no summary, so saying "N exchanges summarised" here
+        # would describe something the model never saw.
+        self.last_mode = "trim"
+        self.last_summary = ""
+        self.last_summary_turns = 0
+        return self._sent(self._last_resort(systems, rest))
+
+    def _sent(self, payload: List[dict]) -> List[dict]:
+        """Remember the size of the payload that goes out.
+
+        The budget is a per-call limit; a turn's usage counters sum several
+        calls. Comparing the two would show "over budget" on a turn that was
+        never over budget.
+        """
+        self.last_payload_tokens = estimate_messages(payload)
+        return payload
 
     def _tail_sizes(self) -> List[int]:
         sizes = [self.keep_tail]

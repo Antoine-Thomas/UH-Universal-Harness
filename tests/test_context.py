@@ -364,3 +364,58 @@ def test_a_huge_jump_does_trigger_a_new_summary() -> None:
     manager.prepare(conversation(40))
 
     assert len(calls) > before, "a much longer middle gets a fresh summary"
+
+
+def test_snapshot_says_when_nothing_was_pruned() -> None:
+    manager = context.ContextManager(budget_tokens=100000)
+    manager.prepare([{"role": "user", "content": "court"}])
+
+    state = manager.snapshot()
+
+    assert state["mode"] == "none"
+    assert state["summary"] == ""
+    assert state["summarised_exchanges"] == 0
+
+
+def test_snapshot_says_when_a_summary_was_used() -> None:
+    manager = context.ContextManager(budget_tokens=120, summarizer=lambda messages: "- a resume")
+    messages = [{"role": "system", "content": "s"}]
+    for index in range(8):
+        messages.append({"role": "user", "content": f"question {index} " + "x" * 40})
+        messages.append({"role": "assistant", "content": f"reponse {index} " + "y" * 40})
+    manager.prepare(messages)
+
+    state = manager.snapshot()
+
+    assert state["mode"] == "summary"
+    assert state["summary"].startswith("- a resume")
+    # A reused summary says how much of the middle it actually covers.
+    assert "earlier exchanges summarised" in state["summary"]
+    assert state["summarised_exchanges"] >= 1
+
+
+def test_snapshot_never_claims_a_summary_that_was_dropped() -> None:
+    """A budget so small that even the summary cannot fit: mode is "trim"."""
+    manager = context.ContextManager(budget_tokens=20, summarizer=lambda messages: "un resume " * 20)
+    messages = [{"role": "user", "content": "q" * 200}, {"role": "assistant", "content": "a" * 200}]
+    for index in range(6):
+        messages.append({"role": "user", "content": f"question {index} " + "x" * 60})
+        messages.append({"role": "assistant", "content": f"reponse {index} " + "y" * 60})
+    manager.prepare(messages)
+
+    state = manager.snapshot()
+
+    assert state["mode"] == "trim"
+    assert state["summary"] == ""
+    assert state["summarised_exchanges"] == 0
+
+
+def test_snapshot_reports_the_payload_size_not_the_usage() -> None:
+    """The bar compares the payload with the budget; usage sums every call."""
+    manager = context.ContextManager(budget_tokens=100000)
+    payload = manager.prepare([{"role": "user", "content": "court"}])
+
+    state = manager.snapshot()
+
+    assert state["payload_tokens"] == context.estimate_messages(payload)
+    assert state["payload_tokens"] > 0
