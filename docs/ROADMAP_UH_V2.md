@@ -475,10 +475,14 @@ cloud, and `pytest -q` stays green.
 
 ## 9. P9 - Distribution and branding (opened 2026-11-13)
 
-**State: in progress.** The metadata work is delivered in the repository; it only
-becomes visible on the indexes with a release, and 1.3.0 is that release. The shop
-page, the clean-venv wheel install and the collision hunt on the other ecosystems
-are what remains.
+**State: in progress.** Metadata delivered and now **live**: `uh-harness 1.3.0` on
+PyPI (2026-11-13) carries the new summary ("uh-harness (UH): a local-first,
+provider-agnostic agent harness for your desktop"), the ten specific keywords and
+the README with the disambiguation section; `pip install uh-harness==1.3.0` in a
+clean venv answers `uh 1.3.0` and `uh doctor` exits 0. piwheels had not rebuilt its
+page at the time of writing (it still served 1.2.0 and the old summary - its sync
+is periodic, and a pure-Python project gives it no wheel to build). What remains:
+the shop page, and the same collision hunt on npm/crates/Homebrew.
 
 A name that collides is a bug in the packaging. Measured on 2026-11-13: PyPI
 carries **`universal-harness`** (author "AI King", AGPL-3.0, Beta) while this
@@ -513,3 +517,45 @@ result is where a user decides, not a README footnote.
 
 Constraint for every item above: the naming work touches metadata and docs only.
 No feature is renamed to look different, and `pytest -q` stays green.
+
+
+## 10. P10 - What the cockpit still cannot do (proposed 2026-11-13)
+
+Two candidates were on the table: a native desktop shell (Tauri/Electron) and an
+MCP client. Measured before choosing:
+
+- **MCP is absent, and the UI says so**: `GET /api/tools/status` answers
+  `"mcp": {"supported": false, "reason": "UH has no MCP client yet: no MCP server
+  can be attached"}`. The dot in the Data panel is honest, and it is the only
+  capability on that screen that is not there.
+- **A desktop shell is 80 % there without a new toolchain**: `uh install-shortcut`
+  already writes a hidden launcher, a `.lnk` and a generated icon. What is missing
+  is a window without browser chrome - which Chromium and Edge give with
+  `--app=<url>` and nothing else.
+- **Tauri is a toolchain, not a feature**: Rust (~1.5 GB), the WebView2 runtime,
+  and code signing before Windows stops calling the installer a virus.
+
+**Recommendation, in this order** (each step justified by what it adds):
+
+1. **`uh web --app` (hours)** - open the cockpit in its own window (Edge/Chrome
+   `--app=`), no tab bar, no address bar; `install-shortcut` points at it. Zero new
+   dependency, and the "desktop app" impression stops depending on F11.
+2. **An MCP client (the real gap)** - `uh/mcp.py`: JSON-RPC 2.0 over stdio
+   (`initialize` → `tools/list` → `tools/call`), one process per configured server,
+   timeouts, clean shutdown. Tools are exposed to the agent loop as
+   `mcp__<server>__<tool>` with a namespaced name, a size cap on results, and
+   errors returned as tool output - never a crashed turn. Configuration in
+   `config.toml` (`[[mcp.servers]]`: command, args, cwd, env), a per-server
+   allowlist, no auto-install suggested by a model. `GET /api/tools/status` then
+   reports `supported: true` with per-server state, the Data panel lists servers
+   with a "test" button, and the dot means what it says.
+   Tests: a fake stdio server (initialize/list/call), a server that hangs
+   (timeout), one that dies mid-call (error surfaced), one that returns 10 MB
+   (truncated).
+3. **A real shell, later and only on demand** - pywebview (system WebView2) before
+   Tauri: one dependency, the same UI, a tray icon and a real title bar. An
+   installer plus signing belongs to the shop-page milestone (P9), because an
+   unsigned `.exe` is a worse first impression than no `.exe`.
+
+**State: proposed, not started.** Nothing here is implemented; the order above is
+the argument, and it needs a GO before the first line of code.
