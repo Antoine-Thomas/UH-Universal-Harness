@@ -30,14 +30,19 @@ inside an allowed path (``~/Desktop``, ``~/Documents``, ``~/Downloads``,
 ``~/uh-workspace``, ``UH_ALLOWED_PATHS``), and never a system directory.
 
 Refused shapes: ``> target``, ``>> target``, ``mkdir``, ``md``, ``touch``,
-``tee``, ``cp``/``copy``/``mv``/``move``/``install``/``ln`` destinations.
+``tee``; the destination of ``cp``/``copy``/``mv``/``move``/``install``/``ln``;
+and **deletions** - ``rm``,
+``rmdir``, ``rd``, ``del``, ``erase``, ``unlink``, ``shred``, ``truncate`` - whose
+targets leave the workspace and the whitelist. Removing a file outside the
+sandbox is refused at the same title as writing one: it is just as
+irreversible, and worse.
 
 Write absolute paths in a shell command: ``cmd.exe`` does not expand ``~`` (a
 POSIX shell does), so ``> ~/Desktop/x`` is accepted by the guard and then fails
 in the shell. The file toolset expands ``~``; here, pass the resolved path or
 use ``%USERPROFILE%``.
 
-This is a guard on *obvious* writes, not a sandbox. ``python -c
+This is a guard on *obvious* writes and deletes, not a sandbox. ``python -c
 "open('/etc/passwd','w')"``, a script the model writes into the workspace and
 then runs, ``cmd /c``, an editor, or any program that writes on its own still
 goes through - by design: the shell executes programs, and pretending otherwise
@@ -102,7 +107,8 @@ BLACKLIST: tuple[tuple[str, str], ...] = (
 _COMPILED = tuple((re.compile(pattern, re.IGNORECASE), reason) for pattern, reason in BLACKLIST)
 
 # Commands whose arguments are write destinations: "all" = every non-flag
-# argument, "last" = the final one (cp/mv/install/ln put the destination last).
+# argument, "last" = the final one (cp/mv/install/ln put the destination last),
+
 WRITE_COMMANDS: dict[str, str] = {
     "mkdir": "all",
     "md": "all",
@@ -115,6 +121,34 @@ WRITE_COMMANDS: dict[str, str] = {
     "install": "last",
     "ln": "last",
 }
+
+# Deletions follow the same rule as writes: a file outside the workspace is not
+# "not written", it is destroyed - which is worse and just as irreversible.
+DELETE_COMMANDS: dict[str, str] = {
+    "rm": "all",
+    "rmdir": "all",
+    "rd": "all",
+    "del": "all",
+    "erase": "all",
+    "unlink": "all",
+    "shred": "all",
+    "truncate": "last",
+}
+
+# Windows tools take their switches as "/S", "/Q", "/MIR". Only uppercase short
+# words are treated as switches: a lowercase "/etc" stays a path, so `rm /etc`
+# is still checked (and `rm` is not in this set at all).
+WINDOWS_FLAG_COMMANDS = {
+    "md",
+    "mkdir",
+    "rd",
+    "rmdir",
+    "del",
+    "erase",
+    "copy",
+    "move",
+}
+WINDOWS_FLAG_RE = re.compile(r"^/[A-Z?]{1,4}$")
 
 # Redirection targets that write nothing on disk.
 NULL_TARGETS = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "nul", "nul:"}
@@ -214,8 +248,8 @@ def _scan_command(command: str) -> tuple[list[list[str]], list[str]]:
     return [segment for segment in segments if segment], targets
 
 
-def _destinations(segment: list[str]) -> list[str]:
-    """Write destinations declared by one command segment (empty for the rest)."""
+def _path_arguments(segment: list[str], table: dict[str, str]) -> list[str]:
+    """Path arguments declared by one command segment (empty for the rest)."""
     words = list(segment)
     while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
         words.pop(0)  # FOO=bar mkdir ...: the assignment is not the command
@@ -226,13 +260,21 @@ def _destinations(segment: list[str]) -> list[str]:
     program = os.path.basename(words[0].lower())
     if program.endswith(".exe"):
         program = program[:-4]
-    mode = WRITE_COMMANDS.get(program)
+    mode = table.get(program)
     if mode is None:
         return []
+
     arguments = [word for word in words[1:] if not word.startswith("-")]
+    if program in WINDOWS_FLAG_COMMANDS:
+        arguments = [word for word in arguments if not WINDOWS_FLAG_RE.match(word)]
     if not arguments:
         return []
-    return arguments if mode == "all" else arguments[-1:]
+
+    if mode == "all":
+        return arguments
+    if mode == "last":
+        return arguments[-1:]
+    return []  # pragma: no cover - table typo
 
 
 def check_writes(
@@ -240,17 +282,20 @@ def check_writes(
     workspace: str | os.PathLike[str] | None = None,
     allowed: list[Path] | None = None,
 ) -> dict | None:
-    """Refuse an *obvious* write whose destination leaves workspace + whitelist.
+    """Refuse an *obvious* write or deletion outside workspace + whitelist.
 
-    Same rule as the file toolset, and the same refusal text. It looks at
-    redirections and at the handful of commands whose arguments are paths; a
-    program that writes on its own (``python -c``, an editor, a script the model
-    just created) is out of reach, and the module docstring says so.
+    Same rule as the file toolset, and the same refusal text: a destination, or
+    a file being removed, must be inside the workspace or inside an allowed path,
+    and never under a system directory. It looks at redirections and at the
+    commands whose arguments are paths; a program that writes or deletes on its
+    own (``python -c``, an editor, a script the model just created) is out of
+    reach, and the module docstring says so.
     """
     segments, targets = _scan_command(command)
     destinations = list(targets)
     for segment in segments:
-        destinations.extend(_destinations(segment))
+        destinations.extend(_path_arguments(segment, WRITE_COMMANDS))
+        destinations.extend(_path_arguments(segment, DELETE_COMMANDS))
 
     for destination in destinations:
         if destination in NULL_TARGETS or destination.startswith("&"):

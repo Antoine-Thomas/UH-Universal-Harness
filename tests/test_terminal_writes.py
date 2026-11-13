@@ -125,6 +125,61 @@ def test_a_system_destination_is_refused_as_a_system_path(
     assert "is a system path, which UH never writes to" in refusal["error"]
 
 
+# --------------------------------------------------------------------------- #
+# deletions follow the same rule
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm ./note.txt",
+        "rm build/out.bin",
+        "rmdir vieux",
+        "del note.txt",
+        "del /Q brouillon.txt",
+        "truncate -s 0 note.txt",
+        "rm ~/Desktop/vieux.txt",
+    ],
+)
+def test_deletions_inside_the_sandbox_are_not_refused(
+    toolset: TerminalToolset, command: str
+) -> None:
+    assert check_writes(command, toolset.workspace, toolset.allowed) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"rm {SYSTEM_TARGET}/foo.dll",
+        f"del /S {SYSTEM_TARGET}/x.dll",
+        "rm ~/secret.txt",
+        "rm ../dehors.txt",
+        "rmdir /Q ~/secret",
+        "erase ../dehors.txt",
+        "unlink ~/secret.txt",
+        f"truncate -s 0 {SYSTEM_TARGET}/conf",
+    ],
+)
+def test_deletions_outside_the_sandbox_are_refused(
+    toolset: TerminalToolset, command: str
+) -> None:
+    refusal = check_writes(command, toolset.workspace, toolset.allowed)
+
+    assert refusal is not None, command
+    assert refusal["refused"] is True
+
+
+def test_a_refused_deletion_never_reaches_the_shell(
+    toolset: TerminalToolset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        terminal_mod.subprocess, "run", lambda *a, **k: pytest.fail("shell spawned")
+    )
+
+    result = toolset.terminal(f"rm {SYSTEM_TARGET}/critical.dll")
+
+    assert result["refused"] is True
+
+
 @pytest.mark.parametrize(
     "command",
     [
