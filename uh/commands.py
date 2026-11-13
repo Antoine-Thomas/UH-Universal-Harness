@@ -15,6 +15,8 @@ import difflib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
+from . import sandbox
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .console import ChatSession
 
@@ -355,6 +357,24 @@ def _cmd_clear(session: "ChatSession", _args: str) -> CommandResult:
     return CommandResult(err=f"uh chat: {session.clear_history()}")
 
 
+def _cmd_workspace(session: "ChatSession", args: str) -> CommandResult:
+    """Show the workspace and the writable paths, or move both to ``args``."""
+    text = args.strip()
+    if not text:
+        roots = sandbox.allowed_paths(session.workspace)
+        return CommandResult(
+            out=(
+                f"workspace: {session.workspace}\n"
+                f"allowed:   {sandbox.display_paths(roots)}\n"
+                "usage: /workspace <path>"
+            )
+        )
+    try:
+        return CommandResult(out=session.set_workspace(text))
+    except ValueError as exc:
+        return CommandResult(err=str(exc))
+
+
 def _cmd_new(session: "ChatSession", _args: str) -> CommandResult:
     return CommandResult(err=f"uh chat: {session.new_session()}")
 
@@ -455,6 +475,13 @@ REGISTRY: tuple[SlashCommand, ...] = (
     SlashCommand("web", "Search the web directly (no model call)", _cmd_web,
                  args_hint="<query>", group="Info"),
     SlashCommand("clear", "Clear the conversation, keep the session", _cmd_clear, group="Session"),
+    SlashCommand(
+        "workspace",
+        "Show the workspace and the writable paths, or switch workspace",
+        _cmd_workspace,
+        args_hint="<path>",
+        group="Session",
+    ),
     SlashCommand("new", "Start a new session", _cmd_new, aliases=("reset",), group="Session"),
     SlashCommand("sessions", "List stored sessions", _cmd_sessions, group="Session"),
     SlashCommand("resume", "Reload a stored session", _cmd_resume,

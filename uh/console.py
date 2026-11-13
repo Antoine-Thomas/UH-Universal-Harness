@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import config as uh_config
+from . import sandbox
 from .agent import (
     BudgetExhausted,
     last_assistant_message,
@@ -461,6 +462,47 @@ class ChatSession:
     def clear_history(self) -> str:
         self.history[:] = [system_message(self.workspace)]
         return "history cleared (session kept)"
+
+    def set_workspace(self, raw: str) -> str:
+        """Move the workspace and every filesystem toolset. Raises ``ValueError``.
+
+        ``memory`` is deliberately not moved: ``MEMORY.md`` is UH's own state,
+        not project data, and following the workspace would fork the user's
+        notes once per project.
+        """
+        text = (raw or "").strip()
+        if not text:
+            raise ValueError("usage: /workspace <path>")
+        target = Path(text).expanduser()
+        if not target.exists():
+            raise ValueError(f"no such directory: {target}")
+        if not target.is_dir():
+            raise ValueError(f"not a directory: {target}")
+        resolved = target.resolve()
+        if sandbox.is_system_directory(resolved):
+            raise ValueError(
+                f"refused: {resolved} is a system directory; pick a project directory"
+            )
+
+        self.workspace = resolved
+        moved: list[str] = []
+        for name, toolset in self.toolsets.items():
+            setter = getattr(toolset, "set_workspace", None)
+            if callable(setter):
+                setter(resolved)
+                moved.append(name)
+        # The system prompt names the workspace: refresh it, keeping the rest of
+        # the conversation so the user does not lose context by moving.
+        if self.history and self.history[0].get("role") == "system":
+            self.history[0] = system_message(resolved)
+        roots = sandbox.allowed_paths(resolved)
+        lines = [
+            f"workspace set to {resolved}",
+            f"allowed:   {sandbox.display_paths(roots)}",
+        ]
+        if moved:
+            lines.append(f"moved:     {', '.join(sorted(moved))}")
+        return "\n".join(lines)
 
     def new_session(self) -> str:
         self.history[:] = [system_message(self.workspace)]
