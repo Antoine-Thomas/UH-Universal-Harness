@@ -208,7 +208,7 @@ and returns errors the model can read — an error is a message, not a crash.
 | `terminal` | `run_command` | blacklist plus timeout, not a sandbox; off in the web UI unless `--allow-terminal` |
 | `memory` | `memory_read`, `memory_write` | one flat file, sections |
 | `web_search` | `web_search(query, max_results)` | DuckDuckGo HTML endpoint, no API key, up to 5 results (title, url, snippet); `max_results` is capped, parse failures are reported as throttling |
-| `uhb` | `uhb_status()` | UHB control plane, loopback only (`UH_UHB_URL`, default `http://127.0.0.1:8101`); the toolset exists only when `GET /status` answers within 1 s, and returns version, mode, harness plus provider and mode **names** only |
+| `uhb` | `uhb_status()`, `uhb_modes()`, `uhb_route(prompt, mode?, complexity?)` | UHB control plane, loopback only (`UH_UHB_URL`, default `http://127.0.0.1:8101`); the toolset exists only when `GET /modes` answers within 1 s, so a UHB older than that contract contributes nothing. `uhb_status` returns version, mode, harness plus provider and mode **names**; `uhb_modes` returns each mode's read/write globs, denied paths and tools; `uhb_route` returns the plan UHB would follow (complexity, reason, ordered failover chain) **without running it** — no token is spent. Errors carry a `kind`: `invalid_request` (400), `unroutable` (409), `configuration` (500), `transport`, `invalid_response` |
 
 `/web <query>` runs the search toolset directly from the console, without a
 model call and without touching the session history. The toolset returns

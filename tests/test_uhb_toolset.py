@@ -121,12 +121,16 @@ def test_provider_names_are_deduplicated() -> None:
 # --------------------------------------------------------------------------- #
 def test_a_dead_uhb_is_a_tool_error_not_an_exception() -> None:
     toolset = uhb_mod.Uhbtoolset(URL, client=client_for(raise_connect_error))
-    assert toolset.call("uhb_status", {}) == {"error": "uhb unreachable"}
+    assert toolset.call("uhb_status", {}) == {"error": "uhb unreachable", "kind": "transport"}
 
 
 def test_an_http_error_is_reported_with_its_code() -> None:
     toolset = uhb_mod.Uhbtoolset(URL, client=answer({}, status=503))
-    assert toolset.call("uhb_status", {}) == {"error": "uhb HTTP 503"}
+    assert toolset.call("uhb_status", {}) == {
+        "error": "uhb HTTP 503",
+        "kind": "http",
+        "status": 503,
+    }
 
 
 def test_invalid_json_is_reported() -> None:
@@ -134,12 +138,18 @@ def test_invalid_json_is_reported() -> None:
         return httpx.Response(200, content=b"<html>nope</html>")
 
     toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler))
-    assert toolset.call("uhb_status", {}) == {"error": "uhb returned invalid JSON"}
+    assert toolset.call("uhb_status", {}) == {
+        "error": "uhb returned invalid JSON",
+        "kind": "invalid_response",
+    }
 
 
 def test_a_json_list_is_not_a_status_payload() -> None:
     toolset = uhb_mod.Uhbtoolset(URL, client=answer([1, 2, 3]))
-    assert toolset.call("uhb_status", {}) == {"error": "uhb returned invalid JSON"}
+    assert toolset.call("uhb_status", {}) == {
+        "error": "uhb returned invalid JSON",
+        "kind": "invalid_response",
+    }
 
 
 def test_an_unknown_tool_is_reported() -> None:
@@ -249,8 +259,8 @@ def test_toolset_is_built_when_uhb_answers(
 
     assert "uhb" in toolsets
     names = [spec["function"]["name"] for spec in toolsets["uhb"].tools]
-    assert names == ["uhb_status"]
-    assert "uhb: uhb_status" in describe_toolsets(toolsets)
+    assert names == ["uhb_status", "uhb_modes", "uhb_route"]
+    assert "uhb: uhb_status, uhb_modes, uhb_route" in describe_toolsets(toolsets)
 
 
 def test_the_tool_result_reaches_the_agent_loop_as_a_tool_message() -> None:
