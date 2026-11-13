@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__
+from .. import __version__, attachments
 from .. import commands as uh_commands
 from .. import config as uh_config
 from ..console import ChatSession, Console
@@ -396,13 +396,53 @@ def create_app(
             )
         return {"deleted": message_id, "session_id": session["id"], "remaining": remaining}
 
+    # -- attachments ------------------------------------------------------- #
+    # Raw-body upload, not multipart: FastAPI needs ``python-multipart`` for form
+    # uploads, which is not in the ``[web]`` extra. A Blob posted as the body with
+    # the name in the query string needs neither the dependency nor a parser.
+    @app.post("/api/sessions/{session_id}/upload", dependencies=[Depends(require_token)])
+    async def upload(session_id: str, request: Request, name: str = "file") -> dict:
+        session = _session_or_404(app, session_id)
+        declared = int(request.headers.get("content-length") or 0)
+        if declared > attachments.MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"the file is larger than {attachments.human_size(attachments.MAX_BYTES)}",
+            )
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > attachments.MAX_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        "the file is larger than "
+                        f"{attachments.human_size(attachments.MAX_BYTES)}"
+                    ),
+                )
+            chunks.append(chunk)
+        try:
+            stored = attachments.save(session["id"], name, b"".join(chunks))
+        except attachments.AttachmentError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"attachment": stored.as_dict()}
+
     # -- chat (SSE) -------------------------------------------------------- #
     @app.post("/api/sessions/{session_id}/chat", dependencies=[Depends(require_token)])
     async def chat(session_id: str, payload: dict, request: Request) -> StreamingResponse:
-        text = str((payload or {}).get("message") or "").strip()
-        if not text:
+        body = payload or {}
+        text = str(body.get("message") or "").strip()
+        raw_paths = [str(item) for item in (body.get("attachments") or [])]
+        if not text and not raw_paths:
             raise HTTPException(status_code=400, detail="message is required")
         session = _session_or_404(app, session_id)
+        try:
+            # Inlined under 4 KB, referenced above it: the turn is pruned here,
+            # before the history grows by a file.
+            text = attachments.compose(text, raw_paths, session["id"])
+        except attachments.AttachmentError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
             kind, model, provider = _provider_for(app, session["id"])
         except ProviderError as exc:

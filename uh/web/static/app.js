@@ -10,6 +10,7 @@ const state = {
   commands: [],
   paletteIndex: 0,
   filtered: [],
+  attachments: [],
   keyEntryAllowed: false,
   presets: null,
 };
@@ -165,6 +166,107 @@ async function loadModels() {
     if (state.sessionId) payload.session_id = state.sessionId;
     await api("/api/model", { method: "POST", body: JSON.stringify(payload) });
   });
+}
+
+// ------------------------------------------------------------- attachments --
+// Files are uploaded as they are dropped, not when Send is pressed: the server
+// decides inlined vs referenced at upload time, and the chip shows that decision
+// before the user commits the turn.
+function attachmentChip(attachment) {
+  const chip = el("span", "attachment");
+  chip.dataset.path = attachment.path;
+  chip.appendChild(el("span", "attachment-name", attachment.name));
+  chip.appendChild(
+    el("span", "attachment-meta", `${Math.round(attachment.size / 1024)} KB · ${attachment.status}`)
+  );
+  chip.title = attachment.note || attachment.path;
+  const drop = el("button", "attachment-remove", "×");
+  drop.setAttribute("aria-label", `Remove ${attachment.name}`);
+  drop.addEventListener("click", () => {
+    state.attachments = state.attachments.filter((item) => item.path !== attachment.path);
+    renderAttachments();
+  });
+  chip.appendChild(drop);
+  return chip;
+}
+
+function renderAttachments() {
+  const box = $("attachments");
+  box.textContent = "";
+  for (const attachment of state.attachments) box.appendChild(attachmentChip(attachment));
+  box.hidden = state.attachments.length === 0;
+}
+
+async function ensureSession() {
+  if (state.sessionId) return state.sessionId;
+  const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
+  state.sessionId = data.session.id;
+  await loadSessions();
+  return state.sessionId;
+}
+
+async function uploadFile(file) {
+  const sessionId = await ensureSession();
+  // Raw body, not FormData: the server needs no multipart parser, and a File is
+  // already a Blob. The name travels in the query string.
+  const response = await fetch(
+    `/api/sessions/${encodeURIComponent(sessionId)}/upload?name=${encodeURIComponent(file.name)}`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    }
+  );
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || `HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  state.attachments.push(data.attachment);
+  renderAttachments();
+}
+
+async function uploadFiles(files) {
+  for (const file of files) {
+    try {
+      await uploadFile(file);
+    } catch (error) {
+      appendMessage("system", `attachment refused: ${file.name} — ${error.message}`);
+    }
+  }
+}
+
+function wireAttachments() {
+  $("attach").addEventListener("click", () => $("files").click());
+  $("files").addEventListener("change", async (event) => {
+    const files = [...event.target.files];
+    event.target.value = "";  // same file twice must upload twice
+    await uploadFiles(files);
+  });
+  const zone = $("messages").parentElement;
+  let depth = 0;
+  zone.addEventListener("dragover", (event) => {
+    if (!event.dataTransfer || ![...event.dataTransfer.types].includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  });
+  zone.addEventListener("dragenter", () => {
+    depth += 1;
+    zone.classList.add("dropzone");
+  });
+  zone.addEventListener("dragleave", () => {
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) zone.classList.remove("dropzone");
+  });
+  zone.addEventListener("drop", async (event) => {
+    if (!event.dataTransfer || !event.dataTransfer.files.length) return;
+    event.preventDefault();
+    depth = 0;
+    zone.classList.remove("dropzone");
+    await uploadFiles([...event.dataTransfer.files]);
+  });
+  renderAttachments();
 }
 
 // ---------------------------------------------------------------- sessions --
@@ -470,6 +572,8 @@ async function newFolder() {
 
 async function openSession(id) {
   state.sessionId = id;
+  state.attachments = [];
+  renderAttachments();
   const data = await api(`/api/sessions/${encodeURIComponent(id)}/messages?limit=200`);
   $("session-title").textContent = data.session.title || data.session.short_id;
   if (data.model) {
@@ -490,6 +594,8 @@ async function openSession(id) {
 async function newSession() {
   const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
   state.sessionId = data.session.id;
+  state.attachments = [];
+  renderAttachments();
   $("messages").textContent = "";
   $("session-title").textContent = "(untitled)";
   updateGauge([]);
@@ -522,10 +628,11 @@ async function sendMessage(text) {
   if (state.streaming) return;
   if (!state.sessionId) await newSession();
 
+  const attachments = state.attachments.map((item) => item.path);
   state.streaming = true;
   $("send").disabled = true;
   $("stop").disabled = false;
-  appendMessage("user", text);
+  appendMessage("user", attachments.length ? `${text}\n\n[${attachments.length} file(s) attached]` : text);
   let assistant = appendMessage("assistant", "");
   let assistantText = "";
   let openCard = null;
@@ -537,7 +644,7 @@ async function sendMessage(text) {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: text, attachments }),
       signal: controller.signal,
     });
     if (response.status === 401) {
@@ -548,6 +655,10 @@ async function sendMessage(text) {
       const detail = await response.json().catch(() => ({}));
       throw new Error(detail.detail || `HTTP ${response.status}`);
     }
+    // Accepted: the files belong to the turn that just started. A refusal above
+    // keeps them on screen, so the user can retry without dropping them again.
+    state.attachments = [];
+    renderAttachments();
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
@@ -1331,6 +1442,7 @@ function wireComposer() {
 
 async function boot() {
   wireLayout();
+  wireAttachments();
   wireComposer();
   wirePalette();
   wireSearch();

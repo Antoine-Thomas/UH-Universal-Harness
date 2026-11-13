@@ -49,8 +49,13 @@
 
       <section id="messages" class="messages" aria-live="polite"></section>
 
+      <div id="attachments" class="attachments" aria-live="polite"></div>
+
       <form id="composer" class="composer">
-        <textarea id="input" rows="1" placeholder="Ask UH…  (Ctrl/Cmd-K for commands)" autocomplete="off"></textarea>
+        <button type="button" id="attach" class="icon-button" title="Attach files" aria-label="Attach files">📎</button>
+        <input id="files" class="visually-hidden" type="file" multiple
+               accept=".txt,.md,.markdown,.csv,.json,.yaml,.yml,.toml,.log,.py,.js,.ts,.html,.css,.sh,.ps1,.pdf,.png,.jpg,.jpeg,.webp,.gif,.mp4,.mov,.webm,.mkv">
+        <textarea id="input" rows="1" placeholder="Ask UH…  (Ctrl/Cmd-K for commands · drop a file here)" autocomplete="off"></textarea>
         <button type="submit" id="send">Send</button>
       </form>
     </main>

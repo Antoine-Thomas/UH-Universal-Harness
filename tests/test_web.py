@@ -606,3 +606,150 @@ def test_delete_one_message_through_the_api(
             assert unknown_session.status_code == 404
 
     run(scenario())
+
+
+def test_upload_stores_the_file_and_reports_its_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+
+            small = await http.post(
+                f"/api/sessions/{session_id}/upload?name=notes.md",
+                content=b"# Titre\nune note courte",
+                headers={**AUTH, "Content-Type": "application/octet-stream"},
+            )
+            assert small.status_code == 200
+            attachment = small.json()["attachment"]
+            assert attachment["status"] == "inlined"
+            assert attachment["kind"] == "text"
+            assert Path(attachment["path"]).read_bytes() == b"# Titre\nune note courte"
+
+            big = await http.post(
+                f"/api/sessions/{session_id}/upload?name=journal.txt",
+                content=b"x" * 9000,
+                headers={**AUTH, "Content-Type": "application/octet-stream"},
+            )
+            assert big.json()["attachment"]["status"] == "referenced"
+
+            image = await http.post(
+                f"/api/sessions/{session_id}/upload?name=photo.png",
+                content=b"\x89PNG" + b"0" * 40,
+                headers={**AUTH, "Content-Type": "application/octet-stream"},
+            )
+            assert image.json()["attachment"]["kind"] == "image"
+            assert "cannot see it" in image.json()["attachment"]["note"]
+
+    run(scenario())
+
+
+def test_upload_refuses_a_traversal_name_and_a_huge_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh import attachments
+
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+
+            escaped = await http.post(
+                f"/api/sessions/{session_id}/upload?name=../../evil.txt",
+                content=b"x",
+                headers={**AUTH, "Content-Type": "application/octet-stream"},
+            )
+            assert escaped.status_code == 200
+            stored = Path(escaped.json()["attachment"]["path"])
+            assert stored.parent == attachments.session_dir(session_id), "the name is stripped"
+            assert stored.name == "evil.txt"
+
+            monkeypatch.setattr(attachments, "MAX_BYTES", 10)
+            too_big = await http.post(
+                f"/api/sessions/{session_id}/upload?name=big.bin",
+                content=b"y" * 11,
+                headers={**AUTH, "Content-Type": "application/octet-stream"},
+            )
+            assert too_big.status_code == 413
+
+            unknown = await http.post(
+                "/api/sessions/nope/upload?name=a.txt",
+                content=b"x",
+                headers={**AUTH, "Content-Type": "application/octet-stream"},
+            )
+            assert unknown.status_code == 404
+
+    run(scenario())
+
+
+def test_chat_injects_a_small_attachment_and_references_a_big_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = ScriptedProvider()
+    app = make_app(tmp_path, monkeypatch, provider=provider)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+            small = (
+                await http.post(
+                    f"/api/sessions/{session_id}/upload?name=notes.md",
+                    content=b"CONTENU-INJECTE",
+                    headers={**AUTH, "Content-Type": "application/octet-stream"},
+                )
+            ).json()["attachment"]
+            big = (
+                await http.post(
+                    f"/api/sessions/{session_id}/upload?name=gros.txt",
+                    content=b"z" * 9000,
+                    headers={**AUTH, "Content-Type": "application/octet-stream"},
+                )
+            ).json()["attachment"]
+
+            reply = await http.post(
+                f"/api/sessions/{session_id}/chat",
+                json={"message": "resume", "attachments": [small["path"], big["path"]]},
+                headers=AUTH,
+            )
+            assert reply.status_code == 200
+
+            stored = (
+                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
+            ).json()["messages"]
+            user = next(m for m in stored if m["role"] == "user")
+            assert "CONTENU-INJECTE" in user["content"]
+            assert "[inlined]" in user["content"]
+            assert "[referenced]" in user["content"]
+            assert big["path"] in user["content"]
+            assert "z" * 9000 not in user["content"]
+
+    run(scenario())
+
+
+def test_chat_refuses_an_attachment_from_another_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+            outside = tmp_path / "secret.txt"
+            outside.write_text("secret", encoding="utf-8")
+
+            answer = await http.post(
+                f"/api/sessions/{session_id}/chat",
+                json={"message": "lis", "attachments": [str(outside)]},
+                headers=AUTH,
+            )
+            assert answer.status_code == 400
+            assert "not an attachment" in answer.json()["detail"]
+
+    run(scenario())
