@@ -151,13 +151,83 @@ def _boost(days: int = 30) -> dict:
                     local += 1
         except OSError:
             pass
-    average = 4700  # measured across six passes on 2026-11-13
+    cloud = 0
+    cloud_tokens = 0
+    if log.is_file():
+        try:
+            for line in log.read_text(encoding="utf-8", errors="replace").splitlines()[-2000:]:
+                match = pattern.search(line)
+                size = re.search(r"([0-9]+) tokens", line)
+                if not match or not size:
+                    continue
+                if not match.group(1).lower().startswith(("ollama/", "qwen", "lfm")):
+                    cloud += 1
+                    cloud_tokens += int(size.group(1))
+        except OSError:
+            pass
+    average = int(cloud_tokens / cloud) if cloud else 0
+    saved = local * average
+    basis = (
+        f"{local} local passes x {average} avg cloud tokens (from {cloud} cloud passes)"
+        if average
+        else f"{local} local passes, no cloud pass to average yet"
+    )
     return {
         "local_passes": local,
+        "cloud_passes": cloud,
         "passes_logged": seen,
-        "tokens_saved_estimate": local * average,
-        "basis": f"{local} of {seen} logged passes routed locally x ~{average} tokens",
+        "average_cloud_tokens": average,
+        "tokens_saved_estimate": saved,
+        "basis": basis,
     }
+
+
+#: Models known to hold a JSON instruction. Ordered by usefulness for a review
+#: pass, not by size: an 8B that answers beats a 14B that rambles.
+PREFERRED_MODELS = ("qwen3:8b", "qwen2.5:7b", "qwen2.5:3b", "qwen3:4b")
+#: Below this, a model is not asked to produce a structured report.
+MIN_PARAMETERS_B = 3.0
+MODEL_ENV = "UH_OLLAMA_MODEL"
+
+
+def _parameters(name: str) -> float:
+    """``qwen2.5:3b`` -> 3.0. ``None``-ish when the tag carries no size."""
+    tag = name.rsplit(":", 1)[-1].lower()
+    number = ""
+    for char in tag:
+        if char.isdigit() or char == ".":
+            number += char
+        elif char == "b" and number:
+            try:
+                return float(number)
+            except ValueError:
+                return 0.0
+        else:
+            break
+    return 0.0
+
+
+def pick_model(names: Optional[list] = None) -> Optional[str]:
+    """The local model a pass should use, or ``None`` if none is capable.
+
+    Alphabetical order gave ``lfm3:latest`` - a model that answered with no JSON
+    and produced an empty report. A free pass that produces nothing is not a
+    saving, so capability decides: ``UH_OLLAMA_MODEL`` first, then the preferred
+    list, then any installed model of at least 3B.
+    """
+    override = (os.environ.get(MODEL_ENV) or "").strip()
+    installed = [str(name) for name in (names if names is not None else models())]
+    if override:
+        if override in installed:
+            return override
+        return None
+    for candidate in PREFERRED_MODELS:
+        if candidate in installed:
+            return candidate
+    sized = [name for name in installed if _parameters(name) >= MIN_PARAMETERS_B]
+    if sized:
+        return sorted(sized, key=_parameters)[-1]
+    return None
 
 
 def status(target: Optional[str] = None) -> dict:

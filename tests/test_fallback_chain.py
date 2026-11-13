@@ -90,7 +90,7 @@ def test_default_order_is_ollama_cloudflare_deepseek_omnirouter(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli, "list_models", lambda: [{"name": "llama3", "size": 1, "modified_at": ""}])
+    monkeypatch.setattr(cli, "list_models", lambda: [{"name": "llama3:8b", "size": 1, "modified_at": ""}])
     monkeypatch.setattr(cli, "_make_provider", stub_factory)
     monkeypatch.setenv("UH_CLOUDFLARE_ACCOUNT_ID", "0123456789abcdef0123456789abcdef")
     monkeypatch.setenv("UH_CLOUDFLARE_API_TOKEN", "cf-fallback-token-1234")
@@ -98,7 +98,7 @@ def test_default_order_is_ollama_cloudflare_deepseek_omnirouter(
 
     chain, model = cli._build_chain(None, None)
     assert [kind for kind, _ in chain] == ["ollama", "cloudflare", "deepseek", "omnirouter"]
-    assert model == "llama3"
+    assert model == "llama3:8b"
 
 
 def test_missing_cloudflare_credentials_skip_straight_to_deepseek(
@@ -119,7 +119,7 @@ def test_preferred_provider_moves_to_the_front_without_dropping_the_rest(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli, "list_models", lambda: [{"name": "llama3", "size": 1, "modified_at": ""}])
+    monkeypatch.setattr(cli, "list_models", lambda: [{"name": "llama3:8b", "size": 1, "modified_at": ""}])
     monkeypatch.setattr(cli, "_make_provider", stub_factory)
     monkeypatch.setenv("UH_DEEPSEEK_API_KEY", "ds-fallback-key-5678")
 

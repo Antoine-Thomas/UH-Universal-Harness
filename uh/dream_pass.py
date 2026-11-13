@@ -253,6 +253,11 @@ class DreamScheduler:
         # Measure before writing: render() reads tokens and wall time, and a
         # report that says "0 tokens, 0.0s" while the log says 5244 is a lie in
         # the one artefact the operator actually reads.
+        if inventory and not any(state.get("available") for state in inventory.values()):
+            # Nothing read, nothing to review: calling that "ok" is how an empty
+            # report looks like a successful night.
+            report.status = "partial"
+            report.reason = "no source could be read (UHB up, but every source failed)"
         self._finish(report)
         self._write(report)
         return report

@@ -481,8 +481,17 @@ def _build_chain(
 
     if not ollama_model:
         try:
+            from .ollama_spawn import pick_model
+
             local = list_models()
-            ollama_model = str(local[0]["name"]) if local else None
+            names = [str(item["name"]) for item in local]
+            ollama_model = pick_model(names)
+            if ollama_model is None and names:
+                # Alphabetical order used to pick lfm3, which answered with no
+                # JSON: a free pass that produces nothing is not a saving.
+                reasons.append(
+                    "ollama: available but no capable model (need >= 3B), falling back to cloud"
+                )
         except ProviderError as exc:
             reasons.append(f"ollama: {exc}")
             ollama_model = None
@@ -1582,6 +1591,17 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
     # What answered, not what UHB would have preferred: the plan and the provider
     # chain are two different things, and only one of them spent the tokens.
     chosen = f"{provider_kind}/{model}" if provider_kind else "?"
+    if provider_kind and provider_kind != "ollama":
+        try:
+            from . import ollama_spawn
+
+            if ollama_spawn.is_up():
+                _log_pass(
+                    "ollama: available but no capable model (need >= 3B), falling back to cloud",
+                    time.time(),
+                )
+        except Exception:  # noqa: BLE001 - a log line never fails a pass
+            pass
     _log_pass(
         f"{report.status} - {len(report.ideas)} idea(s), {report.tokens.get('total', 0)} tokens, "
         f"{report.wall_time_s:.0f}s, routed: {chosen}"
