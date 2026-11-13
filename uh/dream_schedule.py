@@ -176,7 +176,10 @@ def pass_arguments(budget: int = DEFAULT_BUDGET) -> List[str]:
     """The ``uh.cli`` arguments one nightly pass runs."""
     # --start-uhb: at 03:00 nothing else is running, and a pass that needs UHB
     # while `uh web` is closed would be skipped every night.
-    return ["dream", "--now", "--budget", str(budget), "--start-uhb", "--yes"]
+    return [
+        "dream", "--now", "--budget", str(budget),
+        "--start-uhb", "--start-ollama", "--yes",
+    ]
 
 
 def task_arguments(budget: int = DEFAULT_BUDGET) -> List[str]:

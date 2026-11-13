@@ -1540,6 +1540,23 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
             _log_pass(f"uhb start failed: {type(exc).__name__}: {exc}", time.time())
             print(f"uh dream: could not start UHB ({type(exc).__name__}: {exc})", file=sys.stderr)
 
+    if getattr(args, "start_ollama", False):
+        # Best effort, in this order of importance: a local model is cheaper, an
+        # absent Ollama is normal, and the pass must run either way.
+        from . import ollama_spawn
+
+        try:
+            state = ollama_spawn.ensure()
+        except Exception as exc:  # noqa: BLE001 - a start failure is a log line
+            _log_pass(f"ollama: failed {type(exc).__name__}: {exc}", time.time())
+        else:
+            _log_pass(
+                f"ollama: {state}"
+                if state == ollama_spawn.NOT_INSTALLED
+                else f"ollama: {state}",
+                time.time(),
+            )
+
     engine = DreamScheduler(config=config, provider=provider)
     started = time.time()
     try:
@@ -1549,9 +1566,16 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
         # a file. Without this, Task Scheduler says "success" and nothing happened.
         _log_pass(f"crashed: {type(exc).__name__}: {exc}", started)
         raise
+    routing = report.classification or {}
+    planned = routing.get("chosen") or routing.get("chain")
+    if isinstance(planned, list) and planned:
+        chosen = str(planned[0].get("ref") if isinstance(planned[0], dict) else planned[0])
+    else:
+        chosen = str(planned or "?")
     _log_pass(
         f"{report.status} - {len(report.ideas)} idea(s), {report.tokens.get('total', 0)} tokens, "
-        f"{report.wall_time_s:.0f}s" + (f", {report.artifacts[0]}" if report.artifacts else ""),
+        f"{report.wall_time_s:.0f}s, routed: {chosen}"
+        + (f", {report.artifacts[0]}" if report.artifacts else ""),
         started,
     )
     if getattr(args, "start_uhb", False):
@@ -2183,6 +2207,11 @@ def build_parser() -> argparse.ArgumentParser:
     dream_cmd.add_argument("--status", action="store_true", help="is it installed, when did it last run")
     dream_cmd.add_argument(
         "--start-uhb", action="store_true", help="start UHB for this pass, then stop it"
+    )
+    dream_cmd.add_argument(
+        "--start-ollama",
+        action="store_true",
+        help="start Ollama if it is installed (never installed, never required)",
     )
     dream_cmd.add_argument("--yes", action="store_true", help="do not ask for confirmation")
 
