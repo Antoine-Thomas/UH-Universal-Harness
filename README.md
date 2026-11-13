@@ -168,8 +168,19 @@ pip install "uh-harness[web]"
 uh web                      # http://127.0.0.1:8765/?token=...
 uh web --port 9000 --no-open
 uh web --allow-terminal     # enable the shell toolset in the browser (off by default)
+uh web --no-uhb             # do not start UHB alongside the UI
 uh install-shortcut         # Windows: a Desktop shortcut that runs `uh web`
 ```
+
+`uh web` starts UHB itself when it can find a checkout — `UH_UHB_URL` for the
+address (loopback only), `UH_UHB_PATH` for an unusual folder; the public
+`UHB-Universal-Harness-Backend` and `hermes-home-vision/uhb` next to the home
+directory are probed otherwise. The child runs without a console window, writes
+to `$UH_HOME/uhb.log`, is waited for on `GET /status` (5 s), and is killed with
+the UI — including when the window is closed rather than interrupted (a job
+object, so the shim's grandchild goes too). A failure is one warning line: the
+UI runs, the `uhb` tools are simply absent. Nothing is started if something
+already listens on the port.
 
 `uh web` without the extra prints the exact install command and exits 1. The
 core package stays on `httpx`; `fastapi`/`uvicorn` only exist in `[web]`.

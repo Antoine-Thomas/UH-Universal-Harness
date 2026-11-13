@@ -366,6 +366,7 @@ def _web_search(session: "ChatSession", query: str) -> CommandResult:
 
 def _web_ui(session: "ChatSession") -> CommandResult:
     """Start the UI in a thread, or report the one already serving."""
+    from . import uhb_spawn
     from .web import embedded
 
     try:
@@ -376,10 +377,19 @@ def _web_ui(session: "ChatSession") -> CommandResult:
         return CommandResult(
             out=f"web UI already running: {server.url}\n  /exit stops it"
         )
+    note = ""
+    try:
+        child = uhb_spawn.ensure()
+    except uhb_spawn.SpawnError as exc:
+        note = f"\n  UHB: not started ({exc})"
+    else:
+        if child is not None:
+            note = f"\n  UHB: started (pid {child.pid}) · {child.url}"
     return CommandResult(
         out=f"web UI: {server.url}\n"
         "  opened on the session workspace · the console keeps working · "
         "/exit stops the server"
+        f"{note}"
     )
 
 

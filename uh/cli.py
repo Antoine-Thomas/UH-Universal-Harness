@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import __version__, banner, commands, console, keys, sandbox
+from . import __version__, banner, commands, console, keys, sandbox, uhb_spawn
 from . import config as uh_config
 from .providers import (
     Provider,
@@ -1085,15 +1085,18 @@ def shell_command_hint(text: str) -> str | None:
 
 
 def _stop_embedded_web() -> None:
-    """Stop a UI started by ``/web``. Never raises: the console is closing."""
+    """Stop a UI started by ``/web``, and the UHB it may have started. Never raises."""
     try:
         from .web import embedded
     except ImportError:  # pragma: no cover - uh.web is always importable
-        return
-    try:
-        embedded.stop_running()
-    except Exception:  # noqa: BLE001 - a shutdown must not mask the exit code
-        pass
+        embedded = None  # type: ignore[assignment]
+    for stopper in (getattr(embedded, "stop_running", None), uhb_spawn.stop_running):
+        if stopper is None:
+            continue
+        try:
+            stopper()
+        except Exception:  # noqa: BLE001 - a shutdown must not mask the exit code
+            pass
 
 
 def _run_repl(session: console.ChatSession) -> int:
@@ -1460,14 +1463,29 @@ def cmd_web(args: argparse.Namespace) -> int:
             )
             return EXIT_FAILURE
 
-    return run_server(
-        host=host,
-        port=int(args.port or 8765),
-        open_browser=not getattr(args, "no_open", False),
-        allow_terminal=bool(getattr(args, "allow_terminal", False)),
-        workspace=workspace,
-        static_dir=static_dir,
-    )
+    # The second brain starts with the cockpit: without it the desktop shortcut
+    # opens an interface whose tools are all absent. A failure here is a warning,
+    # never a crash - the UI is useful on its own.
+    if not getattr(args, "no_uhb", False):
+        try:
+            child = uhb_spawn.ensure()
+        except uhb_spawn.SpawnError as exc:
+            print(f"uh web: UHB not started ({exc})", file=sys.stderr)
+        else:
+            if child is not None:
+                print(f"uh web: UHB started (pid {child.pid}) - {child.url} - log {child.log}")
+    try:
+        return run_server(
+            host=host,
+            port=int(args.port or 8765),
+            open_browser=not getattr(args, "no_open", False),
+            allow_terminal=bool(getattr(args, "allow_terminal", False)),
+            workspace=workspace,
+            static_dir=static_dir,
+        )
+    finally:
+        # Ctrl+C, an error, a normal exit: the child goes with the parent.
+        uhb_spawn.stop_running()
 
 
 def cmd_install_shortcut(_args: argparse.Namespace) -> int:
@@ -1935,6 +1953,11 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
     web.add_argument("--port", type=int, default=8765, help="port (default 8765)")
     web.add_argument("--no-open", action="store_true", help="do not open a browser")
+    web.add_argument(
+        "--no-uhb",
+        action="store_true",
+        help="do not start UHB alongside the UI (the uhb tools are then absent)",
+    )
     web.add_argument(
         "--allow-terminal",
         action="store_true",
