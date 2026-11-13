@@ -50,11 +50,11 @@ below is the contract that shipped, not a plan: the console tasks (6, 8) and the
 web tasks (1-5, 7, 9) were independent, so they landed in the order the day
 allowed.
 
-Four did not ship and are **carried into P2** with the sharper wording that
-using the result produced: the slash-command chips with a tier gauge (2), the
-session sidebar's folders (3, folder half only — delete shipped), the UHB status
-tab in the right panel (4) and `uh web` starting UHB (5). Ticking them here
-would have been a lie.
+Three did not ship in P1 and are **carried into P2** with the sharper wording
+that using the result produced: the slash-command chips with a tier gauge (2),
+the session sidebar's folders (3, folder half only — delete shipped) and the UHB
+status tab in the right panel (4). Task 5 (`uh web` starting UHB) shipped in P2
+the same day it was promised; see below.
 
 | ✔ | # | Task | Contract |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ would have been a lie.
 | ⏳ | 2 | Slash commands as **buttons with gauges** | `/api/commands` already lists the registry. Render the useful ones as chips above the composer; a chip that plans carries a tier gauge (free / eco / paid) taken from the last `uhb_route` decision, not from a hard-coded colour. |
 | 🟡 | 3 | **Delete + folders** in the session sidebar | `DELETE /api/sessions/{id}` exists and cascades (`PRAGMA foreign_keys=ON` verified). Trash icon on hover with a confirm step. "Folder" = a `folder` key in session metadata, `PATCH /api/sessions/{id}` accepting it, sidebar grouping. |
 | ⏳ | 4 | **UHB status widget** in the right panel | New tab "Second brain": `GET /api/uhb/status` (UH → UHB, loopback only) showing `connected`, `mode`, `version`, `harness`. The browser never calls UHB directly (CSP stays `'self'`). |
-| ⏳ | 5 | **`uh web` starts UHB** | Spawn only if the local UHB checkout exists and nothing already listens on the port; wait for `/status` with a timeout; terminate on exit (including Ctrl+C); `--no-uhb` to opt out. Failure to start is a warning, never a crash. |
+| ✅ | 5 | **`uh web` starts UHB** | Spawn only if the local UHB checkout exists and nothing already listens on the port; wait for `/status` with a timeout; terminate on exit (including Ctrl+C); `--no-uhb` to opt out. Failure to start is a warning, never a crash. Shipped as `uh/uhb_spawn.py`: loopback only, `CREATE_NO_WINDOW`, log in `$UH_HOME/uhb.log`, and a **job object** so the kill reaches the grandchild (`sys.executable` is a shim on Windows). |
 | ✅ | 6 | **Explicit console header** | `_run_repl` prints three lines instead of today's single `STARTUP_TIP`: `Web UI: run 'uh web'`, `Update: run 'uh upgrade' (current: vX.Y.Z)`, `Session: /new for a new session · /help for commands`. The version comes from `uh.__version__`, not from installed metadata (a checkout and its wheel disagree). Respects `UH_QUIET`. |
 | ✅ | 7 | **UHB status in the header** | When the `uhb` toolset exists (it is built only if `GET /modes` answers), the console adds `UHB: connected (vX.Y.Z) · mode: <mode> · <n> providers`. Absent toolset ⇒ no line, not a warning: a missing UHB is a normal state. One `status()` call at startup, already-bounded by the 1 s probe. |
 | ✅ | 8 | **`/web` in the REPL** | **Name already taken**: `/web <query>` runs the direct web search (registry, `_cmd_web`). Contract: `/web` **without argument** starts `uh web` (server + browser) in a background thread and keeps the session alive; `/web <query>` keeps searching. A second `/web` reports the URL already served instead of binding twice. Console keeps working while the UI runs; `/exit` stops the server. |
@@ -89,7 +89,11 @@ SSE stream.
   per-session folder button;
 - **no console window**: the desktop shortcut runs the launcher hidden
   (`-WindowStyle Hidden`), logs to `$UH_HOME/uh-web.log` and shows a MessageBox
-  on failure — the browser is the only window.
+  on failure — the browser is the only window;
+- **`uh web` starts UHB** (P1 #5, late): found through `UH_UHB_PATH` or the two
+  usual layouts, waited for on `GET /status` (5 s), logged, invisible, and killed
+  with the UI — including on a close-button kill, through a job object. A
+  failure is one warning line; `--no-uhb` opts out.
 
 Still open, and this is the real P2 backlog:
 
@@ -100,10 +104,13 @@ Still open, and this is the real P2 backlog:
 - **delete a single message** (`DELETE /api/messages/{id}` does not exist; the
   body is the unit the user sees, so a wrong answer cannot be pruned today);
 - the two web-side P1 leftovers: UHB status tab (`GET /api/uhb/status`, loopback
-  only) and the slash-command chips carrying a tier gauge;
-- **`uh web` starting UHB** as a child process (P1 #5): one entry point, and no
-  second terminal — the console is hidden, so a missing UHB must be a state in
-  the UI, never a message nobody sees.
+  only) and the slash-command chips carrying a tier gauge. The status tab now
+  matters more than it did: the console is hidden, so "UHB did not start" is a
+  line in `uhb.log` nobody reads unless the UI shows it;
+- **the quickstart**: `pip install -e .` is still required before the desktop
+  shortcut exercises a working copy. A release, or a `uh install-shortcut
+  --from-checkout`, would remove the trap — the shortcut currently runs whatever
+  `uh` is on PATH.
 
 ### P3 — memory made visible
 
