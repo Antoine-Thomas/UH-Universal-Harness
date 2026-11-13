@@ -117,7 +117,8 @@ body {
 /* The session row carries its own actions: kill the conversation, or file it.
    They stay out of the way until hover/focus, because a sidebar of permanent
    icons is unreadable on a 200 px column. */
-.session-list li.session { position: relative; padding-right: 58px; }
+.session-list li.session { position: relative; padding-right: 58px; cursor: grab; }
+.session-list li.session.dragging { opacity: .45; cursor: grabbing; }
 .session-actions {
   position: absolute; top: 6px; right: 6px;
   display: flex; gap: 2px; opacity: 0; transition: opacity .12s ease;
@@ -140,6 +141,10 @@ body {
 }
 .folder-head .count { font-family: var(--mono); opacity: .7; }
 .folder-head::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+/* Where a dragged session can land: the whole header, not just the text. */
+.folder-head { border-radius: 8px; min-height: 20px; }
+.folder-head.drop-target { background: var(--accent-soft); color: var(--text); }
+.folder-head.drop-target::after { background: var(--accent); }
 
 .folder-bar { display: flex; align-items: center; gap: 8px; padding: 0 12px 6px; }
 .ghost-button {

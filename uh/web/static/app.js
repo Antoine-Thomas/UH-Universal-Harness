@@ -246,6 +246,39 @@ function wireLayout() {
   });
 }
 
+// The session being dragged: kept here because HTML5 drag events carry data but
+// no reliable source element across browsers.
+let dragSession = null;
+
+async function fileInto(sessionId, folder) {
+  await api(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ folder }),
+  });
+  await loadSessions();
+}
+
+// A folder header is the drop target. The empty name means "Sessions" - dropping
+// there takes a session out of its folder, which is the only way to undo a filing
+// without opening a prompt.
+function wireFolderDrop(head) {
+  const target = head.dataset.folder || "";
+  head.addEventListener("dragover", (event) => {
+    if (!dragSession) return;
+    event.preventDefault();  // a drop only fires when dragover is cancelled
+    event.dataTransfer.dropEffect = "move";
+    head.classList.add("drop-target");
+  });
+  head.addEventListener("dragleave", () => head.classList.remove("drop-target"));
+  head.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    head.classList.remove("drop-target");
+    const id = event.dataTransfer.getData("text/plain") || dragSession;
+    if (!id) return;
+    await fileInto(id, target);
+  });
+}
+
 function sessionRow(session) {
   const item = el("li", "session");
   item.dataset.id = session.id;
@@ -275,6 +308,18 @@ function sessionRow(session) {
   actions.appendChild(folder);
   actions.appendChild(remove);
   item.appendChild(actions);
+
+  item.draggable = true;
+  item.addEventListener("dragstart", (event) => {
+    dragSession = session.id;
+    event.dataTransfer.setData("text/plain", session.id);
+    event.dataTransfer.effectAllowed = "move";
+    item.classList.add("dragging");
+  });
+  item.addEventListener("dragend", () => {
+    dragSession = null;
+    item.classList.remove("dragging");
+  });
 
   item.addEventListener("click", () => openSession(session.id));
   return item;
@@ -306,8 +351,10 @@ async function loadSessions() {
   for (const group of groupSessions(data.sessions)) {
     if (group.name || data.sessions.some((s) => s.metadata && s.metadata.folder)) {
       const head = el("li", "folder-head");
+      head.dataset.folder = group.name;
       head.appendChild(el("span", null, group.name || "Sessions"));
       head.appendChild(el("span", "count", String(group.sessions.length)));
+      wireFolderDrop(head);
       list.appendChild(head);
     }
     for (const session of group.sessions) list.appendChild(sessionRow(session));
