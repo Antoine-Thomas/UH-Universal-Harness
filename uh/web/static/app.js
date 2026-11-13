@@ -1906,16 +1906,26 @@ function renderDecision(data, reload) {
   // The bar compares the payload the pruner measured with the budget it had to
   // respect. The usage counters below are a different quantity: they sum every
   // call of the turn, so using them here would show a false overflow.
+  // The gauge tracks what the pruner measured. Turns recorded before 1.2.0
+  // carry no payload size, and showing "0 / 300" next to 1573 tokens counted by
+  // the provider reads like a bug in the pruner: fall back to the provider's own
+  // count and say which number is on screen.
   const payload = Number(context.payload_tokens || 0);
   const budget = Number(context.budget || 0);
-  fill.style.width = `${budget > 0 ? Math.min(100, Math.round((payload / budget) * 100)) : 0}%`;
+  const counted = Number(usage.prompt || 0);
+  const measured = payload > 0 ? payload : counted;
+  fill.style.width = `${budget > 0 ? Math.min(100, Math.round((measured / budget) * 100)) : 0}%`;
   track.appendChild(fill);
   contextBody.appendChild(track);
   contextBody.appendChild(
     el(
       "p",
       "decision-note",
-      `payload ${payload} / ${budget || "?"} tok · ${data.tool_calls || 0} tool calls`
+      payload > 0
+        ? `payload ${payload} / ${budget || "?"} tok · ${data.tool_calls || 0} tool calls`
+        : `payload not recorded for this turn (before 1.2.0) · provider counted ${counted} / ${
+            budget || "?"
+          } tok`
     )
   );
   if (usage.reported) {

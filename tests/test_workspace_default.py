@@ -8,6 +8,8 @@ model went looking for another way. The rule now starts with the directory.
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -139,12 +141,23 @@ def test_the_cli_reports_where_the_workspace_went(
     assert "[WARN] cwd is a system directory; using ~/uh-workspace instead" in capsys.readouterr().err
 
 
-def test_workspace_path_reports_its_origin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.delenv("UH_WORKSPACE", raising=False)
-    monkeypatch.setattr(sandbox.Path, "home", staticmethod(lambda: tmp_path))
-    monkeypatch.setattr(sandbox.Path, "cwd", staticmethod(lambda: SYSTEM_CWD))
-    assert cli._workspace_path() == ((tmp_path / "uh-workspace").resolve(), "system-fallback")
+def test_workspace_path_reports_its_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``Path.home`` is global: the fake home must not live in ``tmp_path``.
 
-    monkeypatch.setenv("UH_WORKSPACE", str(tmp_path / "explicit"))
-    assert cli._workspace_path()[1] == "UH_WORKSPACE"
-    assert cli._workspace_path(str(tmp_path))[1] == "argument"
+    The fallback creates ``~/uh-workspace``; when the fake home was a
+    ``tmp_path``, pytest's own cleanup raced a leaked thread still calling
+    ``Path.home()`` and the test ERRORed at teardown (once in three runs, only on
+    Windows). A directory this test owns and removes itself has no such race.
+    """
+    home = Path(tempfile.mkdtemp(prefix="uh-home-"))
+    try:
+        monkeypatch.delenv("UH_WORKSPACE", raising=False)
+        monkeypatch.setattr(sandbox.Path, "home", staticmethod(lambda: home))
+        monkeypatch.setattr(sandbox.Path, "cwd", staticmethod(lambda: SYSTEM_CWD))
+        assert cli._workspace_path() == ((home / "uh-workspace").resolve(), "system-fallback")
+
+        monkeypatch.setenv("UH_WORKSPACE", str(home / "explicit"))
+        assert cli._workspace_path()[1] == "UH_WORKSPACE"
+        assert cli._workspace_path(str(home))[1] == "argument"
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
