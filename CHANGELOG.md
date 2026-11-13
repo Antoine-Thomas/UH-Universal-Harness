@@ -13,7 +13,9 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [Unreleased]
+## [1.4.0] — 2026-11-13
+
+A window, a protocol, and a night pass that knows what the harness can do.
 
 ### Added
 
@@ -30,6 +32,23 @@ Conventions worth knowing:
   `GET /api/tools/status` reports `supported: true` with per-server state;
   `POST /api/mcp/{name}/test` starts one server on demand, and the Data panel
   lists servers with a test button.
+- **Dream pass reads the tooling too** (`uh/dream_pass.py`) — `skills` and `mcp`
+  joined `siyuan` and `rag` as sources, and neither needs UHB: the pass
+  inventories the installed skills and the configured MCP servers (with the tools
+  of the ones already connected), and asks the model for `workflows` that name a
+  real tool. Names the inventory cannot prove are dropped, and the pass never
+  calls a tool — a 03:00 job that can write through somebody else's server with
+  nobody awake is a data-loss story with a cron entry. With UHB down, the local
+  sources are still inventoried and written; the model is not called.
+  `uh dream --source` defaults to `siyuan,rag,skills,mcp`.
+
+### Changed
+
+- README rewritten around what 1.4.0 is: the cockpit first, the window, MCP and
+  the night pass, with a real screenshot replacing the 1.3.0 one
+  (`docs/assets/cockpit.png`: a turn answered by `qwen3:8b` through an MCP
+  filesystem server), CI/licence/Python badges, and the test count corrected from
+  638 to 1108.
 
 ## [1.3.0] — 2026-11-13
 
