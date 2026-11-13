@@ -91,6 +91,20 @@ PRESETS: tuple[dict[str, str], ...] = (
     },
 )
 
+#: Vendors UH already speaks natively. A preset cannot go through
+#: ``create_custom()`` - that route refuses a catalogue name - so these carry
+#: their own endpoint: the form sends the key, never a base URL the model layer
+#: already knows. ``endpoint`` is what the panel posts to.
+BUILTIN_PRESETS: tuple[dict[str, str], ...] = (
+    {
+        "name": "deepseek",
+        "label": "DeepSeek",
+        "base_url": DEEPSEEK_BASE_URL,
+        "model": DEEPSEEK_MODEL,
+        "endpoint": "/api/providers/deepseek/key",
+    },
+)
+
 # Vendors that do NOT speak the OpenAI wire format. They get an explanation
 # instead of a preset: a prefilled form would send the user into a 404 on
 # /v1/chat/completions and look like a UH bug.
@@ -246,14 +260,18 @@ def _stored_keys(name: str, configured: dict[str, Any]) -> list[str]:
 
 
 def presets_panel() -> dict[str, Any]:
-    """Popular-provider presets, plus the vendors that need a gateway.
+    """Popular-provider presets, the natively-supported ones, and the gateways.
 
-    A preset is only a form default: nothing is written to ``keys.toml`` until
-    the user submits it through ``create_custom``, so the panel keeps exactly
-    one write path and a preset can never look like a configured provider.
+    A custom preset is only a form default: nothing is written to ``keys.toml``
+    until the user submits it through ``create_custom``, so the panel keeps
+    exactly one write path and a preset can never look like a configured
+    provider. A *builtin* preset (DeepSeek) is different by necessity: UH
+    already ships that provider, and ``create_custom`` refuses a catalogue name,
+    so the panel posts the key to the provider's own endpoint.
     """
     return {
         "presets": [dict(entry) for entry in PRESETS],
+        "builtin": [dict(entry) for entry in BUILTIN_PRESETS],
         "gateway_only": [dict(entry) for entry in GATEWAY_ONLY],
     }
 

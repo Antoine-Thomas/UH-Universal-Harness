@@ -589,6 +589,45 @@ def test_presets_carry_a_base_url_and_a_default_model(
     run(scenario())
 
 
+def test_deepseek_is_a_builtin_preset_not_a_custom_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """UH ships DeepSeek: create_custom() refuses that name, so it has its own route."""
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            payload = (await http.get("/api/providers/presets", headers=AUTH)).json()
+            assert_no_key(json.dumps(payload))
+
+            builtin = {entry["name"]: entry for entry in payload["builtin"]}
+            assert "deepseek" in builtin
+            assert builtin["deepseek"]["base_url"] == "https://api.deepseek.com"
+            assert builtin["deepseek"]["model"]
+            assert builtin["deepseek"]["endpoint"] == "/api/providers/deepseek/key"
+            # Not in the custom presets: a click there would end in a 400.
+            assert "deepseek" not in {entry["name"] for entry in payload["presets"]}
+
+    run(scenario())
+
+
+def test_a_builtin_preset_saves_its_key_through_the_provider_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.post(
+                "/api/providers/deepseek/key", json={"key": KNOWN_KEY}, headers=AUTH
+            )
+            assert response.status_code == 200
+            assert_no_key(response.text)
+            assert response.json()["stored"] is True
+
+    run(scenario())
+
+
 def test_claude_is_gateway_only_and_never_a_preset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

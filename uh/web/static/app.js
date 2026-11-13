@@ -818,6 +818,7 @@ function omnirouteCard(section) {
 function presetCard(data) {
   const card = keyCard("Popular providers", "quick add", "hl");
   const presets = (data && data.presets) || [];
+  const builtin = (data && data.builtin) || [];
   const gatewayOnly = (data && data.gateway_only) || [];
 
   card.appendChild(
@@ -833,10 +834,18 @@ function presetCard(data) {
   blank.value = "";
   blank.textContent = "choose a provider…";
   select.appendChild(blank);
-  for (const preset of presets) {
+  for (const entry of presets) {
     const option = document.createElement("option");
-    option.value = preset.name;
-    option.textContent = `${preset.label} — ${preset.model}`;
+    option.value = entry.name;
+    option.textContent = `${entry.label} — ${entry.model}`;
+    select.appendChild(option);
+  }
+  for (const entry of builtin) {
+    const option = document.createElement("option");
+    // "builtin:" prefix: these post the key to the provider's own endpoint, and
+    // create_custom() would refuse the name - UH already ships the provider.
+    option.value = `builtin:${entry.name}`;
+    option.textContent = `${entry.label} — built-in`;
     select.appendChild(option);
   }
   for (const entry of gatewayOnly) {
@@ -859,15 +868,32 @@ function presetCard(data) {
   };
   const result = keyActions(form, "Save");
 
+  let native = null;
+  const lockFields = (locked) => {
+    for (const input of [inputs.name, inputs.base_url, inputs.model]) {
+      input.disabled = locked;
+    }
+  };
+
   select.addEventListener("change", () => {
     const chosen = presets.find((entry) => entry.name === select.value);
+    native = builtin.find((entry) => `builtin:${entry.name}` === select.value) || null;
     const blocked = gatewayOnly.find((entry) => `gateway:${entry.name}` === select.value);
-    note.textContent = blocked ? blocked.note : "";
+    note.textContent = blocked
+      ? blocked.note
+      : native
+        ? `${native.label} ships with UH: paste the key, there is no URL to set.`
+        : "";
     note.className = blocked ? "provider-meta warn" : "provider-meta";
+    lockFields(Boolean(native));
     if (chosen) {
       inputs.name.value = chosen.name;
       inputs.base_url.value = chosen.base_url;
       inputs.model.value = chosen.model;
+    } else if (native) {
+      inputs.name.value = native.name;
+      inputs.base_url.value = native.base_url;
+      inputs.model.value = native.model;
     } else if (!blocked) {
       inputs.name.value = "";
       inputs.base_url.value = "";
@@ -877,16 +903,22 @@ function presetCard(data) {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const payload = {
-      name: inputs.name.value.trim(),
-      base_url: inputs.base_url.value.trim(),
-      model: inputs.model.value.trim(),
-      key: inputs.key.value,
-    };
+    // A built-in provider has no base URL to store: the key goes to its own
+    // route, which knows the endpoint and the default model.
+    const target = native ? native.endpoint : "/api/providers/custom";
+    const payload = native
+      ? { key: inputs.key.value }
+      : {
+          name: inputs.name.value.trim(),
+          base_url: inputs.base_url.value.trim(),
+          model: inputs.model.value.trim(),
+          key: inputs.key.value,
+        };
+    const savedName = native ? native.name : payload.name;
     inputs.key.value = ""; // cleared before sending: never re-displayed
     try {
-      await api("/api/providers/custom", { method: "POST", body: JSON.stringify(payload) });
-      result.textContent = `saved ${payload.name}`;
+      await api(target, { method: "POST", body: JSON.stringify(payload) });
+      result.textContent = `saved ${savedName}`;
       result.className = "test-result ok";
       await loadProviders();
     } catch (error) {
