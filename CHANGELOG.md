@@ -13,6 +13,59 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.0.3] — 2026-11-13
+
+The sandbox episode: a console started from `C:\Windows\System32` took the OS as
+its workspace, `write_file` refused, and the model went round it with `terminal`.
+Both halves are closed here, plus the workspace rules a user needs to work in
+`~/Desktop` without friction.
+
+### Added
+- **Workspace resolution** (`uh/sandbox.py`): `--workspace`, then
+  `UH_WORKSPACE`, then the cwd - **unless** the cwd is a system directory
+  (`C:\Windows`, `C:\Program Files[ (x86)]`, `C:\ProgramData`, `/usr`, `/etc`,
+  `/bin`, `/sbin`, `/System`, `/Library`), in which case `~/uh-workspace` is
+  used, created on first use and announced:
+  `[WARN] cwd is a system directory; using ~/uh-workspace instead.`
+- **Write whitelist**: besides the workspace, writes may target `~/Desktop`,
+  `~/Documents`, `~/Downloads`, `~/uh-workspace`, plus `UH_ALLOWED_PATHS`
+  (`os.pathsep`) and a hand-written `[providers.file] allowed_paths` table.
+  That table is read-only - the config writer is flat and refuses to rewrite a
+  file containing one rather than dropping it. System directories are never
+  writable, whatever the list says.
+- **`/workspace [path]`**: prints the workspace and the writable paths, or
+  moves the session and the `file`/`terminal` toolsets (and the system prompt).
+  `memory` stays in `$UH_HOME`.
+- **System prompt** forbids bypassing a sandbox refusal with `terminal` and
+  gives the model the sentence to relay to the user.
+- **Startup tip** names `uh web`, `uh providers add`, `/workspace` and `/help`.
+- **README**: "Where does UH write?" - precedence, whitelist, refusal text, and
+  the honest limit of the terminal guard.
+
+### Fixed
+- **`terminal` refuses obvious writes** outside workspace + whitelist
+  (`>`, `>>`, `mkdir`, `md`, `touch`, `tee`, and the destinations of
+  `cp`/`copy`/`mv`/`move`/`install`/`ln`) before the shell sees the line - the
+  hole the incident went through.
+- **Deletions are checked the same way**: `rm`, `rmdir`, `rd`, `del`, `erase`,
+  `unlink`, `shred`, `truncate`. Removing a file outside the sandbox is refused
+  at the same title as writing one.
+- **`xcopy`, `robocopy`, `mklink`** destinations are checked where they really
+  are (last, second and first argument).
+- **Refusal messages** carry the allowed paths, the `system path` wording, and
+  the two exits (`/workspace <path>` or `uh --workspace <path>`).
+- **Test isolation**: the `~/.uh` snapshot guard no longer trips on a live `uh`
+  session (store files excluded) and a `Store()` wrapper catches a real leak;
+  every spawned CLI gets an isolated `UH_HOME` (a `uh doctor` run without one
+  was checkpointing the developer's WAL).
+
+### Notes
+- `terminal` is a seatbelt, not a sandbox: `python -c`, a script created and
+  then run, `cmd /c` or an editor still write freely. The file toolset is the
+  enforced path; the README and the module docstring say so.
+- `cmd.exe` does not expand `~`: in a shell command, use an absolute path or
+  `%USERPROFILE%`.
+
 ## [1.0.2] — 2026-11-12
 
 Keeps the console usable on a real machine: a strict provider payload, a model
