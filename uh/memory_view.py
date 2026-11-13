@@ -191,8 +191,9 @@ def rag_state() -> dict:
         return {
             "available": False,
             "reason": (
-                "the index is not built: run uhb/services/rag/indexer.py; "
-                "UH does not build it for you"
+                "the index is not built: it is compiled from your own notes by "
+                "tooling that is not in this repository (uhb/services/rag/README.md). "
+                "UH reports the index, it never builds it"
             ),
             "queryable": False,
             "path": str(folder),

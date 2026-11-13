@@ -124,7 +124,7 @@ def test_rag_without_an_index_names_the_indexer(
     state = memory_view.rag_state()
 
     assert state["available"] is False
-    assert "indexer.py" in state["reason"], "the message must say what to run"
+    assert "README.md" in state["reason"], "the message must say where the index comes from"
 
 
 def test_rag_with_an_index_reports_it_but_stays_unqueryable(

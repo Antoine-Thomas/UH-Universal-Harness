@@ -118,7 +118,7 @@ def test_the_memory_tab_never_promises_a_button_it_cannot_honour() -> None:
     script = APP.read_text(encoding="utf-8")
 
     assert "RAG not built yet" in script
-    assert "indexer.py" in script
+    assert "README.md" in script
     assert "memory_write" in script, "MEMORY.md absence explains how it appears"
     assert "reindex" not in script.lower(), "no fake reindex button"
 

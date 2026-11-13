@@ -1698,7 +1698,7 @@ async function loadMemory() {
       el(
         "p",
         "panel-hint",
-        "RAG not built yet - run uhb/services/rag/indexer.py to build the index."
+        "RAG not built yet - the index is compiled from your own notes; see uhb/services/rag/README.md."
       )
     );
   }
