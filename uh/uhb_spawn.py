@@ -281,7 +281,10 @@ def _job_for(process: subprocess.Popen) -> Optional[int]:
         import ctypes
         from ctypes import wintypes
 
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        windll = getattr(ctypes, "WinDLL", None)  # absent hors Windows
+        if windll is None:
+            return None
+        kernel32 = windll("kernel32", use_last_error=True)
         kernel32.CreateJobObjectW.restype = wintypes.HANDLE
         job = kernel32.CreateJobObjectW(None, None)
         if not job:
@@ -335,7 +338,10 @@ def _close_job(handle: int) -> None:
     try:
         import ctypes
 
-        ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(handle))
+        windll = getattr(ctypes, "windll", None)  # absent hors Windows
+        if windll is None:
+            return
+        windll.kernel32.CloseHandle(ctypes.c_void_p(handle))
     except Exception:  # noqa: BLE001 - best effort, the terminate() path follows
         pass
 

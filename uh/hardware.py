@@ -146,9 +146,12 @@ def _ram_from_windows() -> Optional[float]:
                 ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
             ]
 
+        windll = getattr(ctypes, "windll", None)  # absent hors Windows, par design
+        if windll is None:
+            return None
         status = MemoryStatus()
         status.dwLength = ctypes.sizeof(MemoryStatus)
-        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        if not windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             return None
         return float(status.ullTotalPhys) / (1024**3)
     except Exception:  # noqa: BLE001 - never fatal

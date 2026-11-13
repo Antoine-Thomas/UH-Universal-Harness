@@ -118,6 +118,23 @@ fixes often ship with a patch version.
 
 Both are listed with their exact menu paths in `docs/JALON7.md`.
 
+## Cross-platform CI gates
+
+Before any release, run `mypy --platform linux uh` — a Windows-only mypy run
+hides ctypes attributes (`ctypes.windll`, `ctypes.WinDLL`) that do not exist on
+Linux or macOS, and the lint job will fail after the tag is already pushed.
+
+Tests must not depend on the hardware tier. When testing budget rules, mock
+`hardware.budget_for_tier`: a machine in the `xl` tier passes a 75 %-of-window
+assertion that a 7 GB runner fails, which makes the suite green locally and red
+in CI.
+
+**The one exception to "tags are never moved"**: a tag that has never been
+published (no GitHub release, no upload on either index) may be deleted and
+recreated on the fixed commit. Once a release exists it is immutable — delete
+the release is not a thing this repository does, so the rule below still holds
+from that moment on.
+
 ## Version rules
 
 - PyPI and TestPyPI refuse to replace an existing version: an upload is final,

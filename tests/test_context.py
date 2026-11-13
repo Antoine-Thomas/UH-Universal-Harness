@@ -77,10 +77,24 @@ def test_config_is_second(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_seventy_five_percent_of_the_native_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    from uh import hardware
+
     monkeypatch.delenv("UH_CONTEXT_BUDGET", raising=False)
+    # Le tier est un plafond choisi pour la machine ; ce test porte sur la
+    # fenetre du modele, donc le plafond est ecarte.
+    monkeypatch.setattr(hardware, "budget_for_tier", lambda: 10**9)
     assert context.default_budget("qwen2.5:7b", native=4000) == 3000
     assert context.default_budget("qwen2.5:7b", native=8000) == 6000
     assert context.default_budget("qwen2.5:7b", native=32000) == 24000
+
+
+def test_the_tier_caps_the_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un budget plus grand que le tier de la machine n'est pas le budget de la machine."""
+    from uh import hardware
+
+    monkeypatch.delenv("UH_CONTEXT_BUDGET", raising=False)
+    monkeypatch.setattr(hardware, "budget_for_tier", lambda: 6000)
+    assert context.default_budget("qwen2.5:7b", native=32000) == 6000
 
 
 def test_the_default_when_nothing_is_known(monkeypatch: pytest.MonkeyPatch) -> None:
