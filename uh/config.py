@@ -186,6 +186,14 @@ def write_layer(layer: str, key: str, raw_value: Any) -> Path:
     path = user_config_path() if layer == "user" else project_config_path()
 
     existing = read_toml(path)
+    nested = {key: value for key, value in existing.items() if isinstance(value, dict)}
+    if nested:
+        # The writer is flat: rewriting this file would silently drop the table.
+        raise ConfigError(
+            f"{path} contains a nested table ({', '.join(sorted(nested))}); UH's "
+            "writer is flat and would drop it - edit the file by hand, or set "
+            "UH_ALLOWED_PATHS instead"
+        )
     for other_key in list(existing):
         if other_key not in KEY_TYPES:
             del existing[other_key]  # unknown key from a newer build: dropped, warned at load
@@ -201,12 +209,32 @@ class Config:
     values: dict[str, Any] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    # Nested tables read from the files (``[providers.file]``). They are never
+    # written back: the serialiser is flat on purpose, and a nested table is a
+    # hand-written escape hatch, not a configuration UH manages.
+    tables: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str) -> Any:
         return self.values.get(key, DEFAULTS.get(key))
 
     def source(self, key: str) -> str:
         return self.sources.get(key, "default")
+
+    def file_allowed_paths(self) -> list[Path]:
+        """``[providers.file] allowed_paths`` from the config files (read-only).
+
+        Accepts a list of strings or a single string. Missing, empty or
+        malformed values yield an empty list: the sandbox falls back to its
+        defaults instead of failing to start.
+        """
+        section = self.tables.get("providers") or {}
+        file_section = section.get("file") if isinstance(section, dict) else None
+        raw = (file_section or {}).get("allowed_paths") if isinstance(file_section, dict) else None
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, list):
+            return []
+        return [Path(item.strip()).expanduser() for item in raw if isinstance(item, str) and item.strip()]
 
     def resolved_store_path(self) -> Path:
         raw = str(self.get("store_path") or "")
@@ -228,6 +256,13 @@ def load(cli_overrides: Optional[dict[str, Any]] = None, cwd: Optional[Path] = N
             config.warnings.append(str(exc))
             continue
         for key, value in data.items():
+            if key == "providers" and isinstance(value, dict):
+                # A nested table is read-only (see Config.tables): honour it
+                # instead of warning about an unknown key. Later layers win.
+                merged = {**(config.tables.get("providers") or {}), **value}
+                config.tables["providers"] = merged
+                config.sources["providers"] = layer_name
+                continue
             if key not in KEY_TYPES:
                 config.warnings.append(f"{path}: unknown config key '{key}' ignored")
                 continue

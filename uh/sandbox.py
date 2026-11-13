@@ -37,6 +37,12 @@ SYSTEM_DIRECTORIES: tuple[str, ...] = (
 
 FALLBACK_DIRNAME = "uh-workspace"
 
+# Directories a session may write to even when they are not the workspace.
+# ~/Desktop for a file the user asked to see on their desktop, ~/Documents for a
+# document, ~/Downloads for something fetched, ~/uh-workspace for scratch files.
+ALLOWED_HOME_DIRS: tuple[str, ...] = ("Desktop", "Documents", "Downloads", FALLBACK_DIRNAME)
+ENV_ALLOWED_PATHS = "UH_ALLOWED_PATHS"
+
 SYSTEM_WORKSPACE_WARNING = (
     "[WARN] cwd is a system directory; using ~/uh-workspace instead. "
     "Use /workspace <path> to switch."
@@ -93,11 +99,138 @@ def default_workspace() -> Path:
     return cwd
 
 
+# --------------------------------------------------------------------------- #
+# write whitelist
+# --------------------------------------------------------------------------- #
+def home_directories(home: Path | None = None) -> list[Path]:
+    """The four directories a session may write to without changing workspace."""
+    root = Path(home) if home is not None else Path.home()
+    return [root / name for name in ALLOWED_HOME_DIRS]
+
+
+def configured_paths() -> list[Path]:
+    """Extra allowed paths: ``UH_ALLOWED_PATHS``, then ``[providers.file]``.
+
+    The environment variable is the supported way to make the list persistent:
+    UH's config writer is flat (``config.toml`` holds scalars only), so a nested
+    table can be *read* but never written by ``uh config set``. A hand-written
+    ``[providers.file] allowed_paths = [...]`` is honoured on read - that is the
+    documented escape hatch, not a limitation to work around.
+    """
+    paths: list[Path] = []
+    raw = os.environ.get(ENV_ALLOWED_PATHS, "")
+    for item in raw.split(os.pathsep):
+        item = item.strip()
+        if item:
+            paths.append(Path(item).expanduser())
+    try:
+        from . import config as uh_config
+
+        paths.extend(uh_config.load().file_allowed_paths())
+    except Exception:  # noqa: BLE001 - a broken config must not lock the toolsets
+        pass
+    return paths
+
+
+def allowed_paths(
+    workspace: str | os.PathLike[str] | None = None, home: Path | None = None
+) -> list[Path]:
+    """Everything a write may target, resolved and de-duplicated.
+
+    The workspace comes first: it is what the refusal messages and ``/workspace``
+    talk about, and it is always the directory the terminal runs in.
+    """
+    candidates: list[Path] = []
+    if workspace is not None:
+        candidates.append(Path(workspace))
+    candidates.extend(home_directories(home))
+    candidates.extend(configured_paths())
+
+    resolved: list[Path] = []
+    seen: set[str] = set()
+    for item in candidates:
+        try:
+            path = Path(item).expanduser().resolve()
+        except OSError:  # pragma: no cover - exotic paths only
+            continue
+        key = os.path.normcase(str(path))
+        if key not in seen:
+            seen.add(key)
+            resolved.append(path)
+    return resolved
+
+
+def display_paths(paths: list[Path]) -> str:
+    """``~/Desktop, ~/Documents, ...`` - shortened for a refusal message."""
+    home = str(Path.home())
+    rendered: list[str] = []
+    for path in paths:
+        text = str(path)
+        if text == home:
+            text = "~"
+        elif text.startswith(home + os.sep):
+            # forward slashes on purpose: the message is read, not executed
+            text = "~/" + text[len(home) + 1 :].replace("\\", "/")
+        else:
+            text = text.replace("\\", "/")
+        rendered.append(text)
+    return ", ".join(dict.fromkeys(rendered))
+
+
+def _under(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def is_allowed(
+    path: str | os.PathLike[str],
+    workspace: str | os.PathLike[str] | None = None,
+    allowed: list[Path] | None = None,
+) -> bool:
+    """True when ``path`` may be written to: inside the workspace or the whitelist.
+
+    A system directory is refused whatever the whitelist says: adding ``/etc``
+    to ``UH_ALLOWED_PATHS`` must not turn the sandbox into a root shell.
+    """
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except OSError:  # pragma: no cover - exotic paths only
+        return False
+    if is_system_directory(resolved):
+        return False
+    if workspace is not None:
+        try:
+            if _under(resolved, Path(workspace).expanduser().resolve()):
+                return True
+        except OSError:  # pragma: no cover
+            pass
+    roots = allowed if allowed is not None else allowed_paths(workspace)
+    return any(_under(resolved, root) for root in roots)
+
+
+def outside_message(
+    raw: str, workspace: str | os.PathLike[str] | None = None, allowed: list[Path] | None = None
+) -> str:
+    """The refusal text: why, where it may write, and how to change that."""
+    roots = allowed if allowed is not None else allowed_paths(workspace)
+    return (
+        f"refused: '{raw}' is outside the workspace and outside the allowed paths "
+        f"({display_paths(roots)}). Use /workspace <path> to switch."
+    )
+
+
 __all__ = [
     "SYSTEM_DIRECTORIES",
     "SYSTEM_WORKSPACE_WARNING",
     "FALLBACK_DIRNAME",
+    "ALLOWED_HOME_DIRS",
+    "ENV_ALLOWED_PATHS",
     "is_system_directory",
     "fallback_workspace",
     "default_workspace",
+    "home_directories",
+    "configured_paths",
+    "allowed_paths",
+    "display_paths",
+    "is_allowed",
+    "outside_message",
 ]

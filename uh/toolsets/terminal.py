@@ -31,6 +31,7 @@ import subprocess
 from pathlib import Path
 from typing import List
 
+from ..sandbox import allowed_paths
 from .file import default_workspace
 
 MAX_OUTPUT_CHARS = 20_000
@@ -100,8 +101,20 @@ class TerminalToolset:
     name = "terminal"
     tools = TOOLS
 
-    def __init__(self, workspace: str | os.PathLike[str] | None = None) -> None:
-        self.workspace = Path(workspace).expanduser().resolve() if workspace else default_workspace()
+    def __init__(
+        self,
+        workspace: str | os.PathLike[str] | None = None,
+        allowed: list[Path] | None = None,
+    ) -> None:
+        self.workspace = (
+            Path(workspace).expanduser().resolve() if workspace else default_workspace()
+        )
+        self.allowed = list(allowed) if allowed is not None else allowed_paths(self.workspace)
+
+    def set_workspace(self, workspace: str | os.PathLike[str]) -> None:
+        """Move the shell's cwd and the write whitelist with it."""
+        self.workspace = Path(workspace).expanduser().resolve()
+        self.allowed = allowed_paths(self.workspace)
 
     def call(self, name: str, args: dict | None = None) -> dict:
         args = dict(args or {})

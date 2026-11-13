@@ -27,7 +27,12 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Iterable, List
 
-from ..sandbox import default_workspace
+from ..sandbox import (
+    allowed_paths,
+    default_workspace,
+    is_allowed,
+    outside_message,
+)
 
 MAX_READ_BYTES = 1_000_000
 MAX_SEARCH_RESULTS = 100
@@ -120,8 +125,22 @@ class FileToolset:
     name = "file"
     tools = TOOLS
 
-    def __init__(self, workspace: str | os.PathLike[str] | None = None) -> None:
-        self.workspace = Path(workspace).expanduser().resolve() if workspace else default_workspace()
+    def __init__(
+        self,
+        workspace: str | os.PathLike[str] | None = None,
+        allowed: list[Path] | None = None,
+    ) -> None:
+        self.workspace = (
+            Path(workspace).expanduser().resolve() if workspace else default_workspace()
+        )
+        # Writes may leave the workspace for a whitelisted directory; reads may
+        # not, which keeps the model from wandering the disk.
+        self.allowed = list(allowed) if allowed is not None else allowed_paths(self.workspace)
+
+    def set_workspace(self, workspace: str | os.PathLike[str]) -> None:
+        """Move the sandbox: the old workspace stops being writable."""
+        self.workspace = Path(workspace).expanduser().resolve()
+        self.allowed = allowed_paths(self.workspace)
 
     # -- plumbing ---------------------------------------------------------- #
     def call(self, name: str, args: dict | None = None) -> dict:
@@ -148,7 +167,7 @@ class FileToolset:
         except OSError as exc:
             return {"error": f"{type(exc).__name__}: {exc}"}
 
-    def _resolve(self, raw: Any) -> tuple[Path | None, dict | None]:
+    def _resolve(self, raw: Any, *, write: bool = False) -> tuple[Path | None, dict | None]:
         text = str(raw or "").strip()
         if not text:
             return None, {"error": "path is required"}
@@ -169,13 +188,19 @@ class FileToolset:
         except OSError as exc:
             return None, {"error": f"cannot resolve path '{text}': {exc}"}
 
-        if resolved != self.workspace and not resolved.is_relative_to(self.workspace):
+        if resolved == self.workspace or resolved.is_relative_to(self.workspace):
+            return resolved, None
+        if not write:
+            # Reading stays workspace-only: a write leaves files behind, a read
+            # would let the model wander the disk for anything interesting.
             return None, {
                 "error": (
                     f"refused: '{text}' resolves to {resolved}, "
                     f"outside the workspace {self.workspace}"
                 )
             }
+        if not is_allowed(resolved, self.workspace, self.allowed):
+            return None, {"error": outside_message(text, self.workspace, self.allowed)}
         return resolved, None
 
     def _relative(self, resolved: Path) -> str:
@@ -206,7 +231,7 @@ class FileToolset:
         }
 
     def write_file(self, path: str, content: str) -> dict:
-        target, error = self._resolve(path)
+        target, error = self._resolve(path, write=True)
         if error:
             return error
         assert target is not None
@@ -228,7 +253,7 @@ class FileToolset:
         new_string: str,
         replace_all: bool = False,
     ) -> dict:
-        target, error = self._resolve(path)
+        target, error = self._resolve(path, write=True)
         if error:
             return error
         assert target is not None
