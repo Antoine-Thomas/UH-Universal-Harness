@@ -39,7 +39,7 @@ even when the failing input was one.
 | POST | `/api/sessions/{session_id}/upload?name=<file>` | raw bytes as the body (no multipart) | `{attachment: {name, path, size, kind, status, note}}` · `400` empty/refused · `413` over 20 MB |
 | DELETE | `/api/sessions/{session_id}/messages/{message_id}` | — | `{deleted, session_id, remaining}` · `404` (unknown session or message) |
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
-| POST | `/api/sessions/{session_id}/chat` | `{message, attachments?: [path]}` | **SSE stream** (below) · `400` empty message or refused attachment · `404` · `503` provider unreachable |
+| POST | `/api/sessions/{session_id}/chat` | `{message, attachments?: [path], skill?: name}` | **SSE stream** (below) · `400` empty message, refused attachment, or unknown skill · `404` · `503` provider unreachable. `skill` names a markdown file from `$UH_HOME/skills` or the shipped `uh/skills`; its instructions ride on the system message for that turn only |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
 | GET | `/api/sessions/{session_id}/decision` | — | `{available, turn: {duration_ms, average_ms, turns}, prompt: {complexity, mode, reason, source, note}, model: {provider, model, served, substituted, chosen}, chain, usage, context: {budget, summarised_exchanges, kept_exchanges, summary}, uhb_consulted, tool_calls, turns}` · `404` unknown session |
 | GET | `/api/memory/sources` | — | `{wiki: {available, label, path, notes, reason}, memory, rag, siyuan, sessions}` |
@@ -50,6 +50,7 @@ even when the failing input was one.
 | POST | `/api/memory/rag/reload` | — | `{reloaded, service: {fragments?}, at}` · `409 {error, hint: "start it with: python uhb/services/rag/serveur_rag.py", kind: "service_offline"}` · `502 {error: "UHB unreachable", kind: "uhb_offline"}` |
 | GET | `/api/memory/siyuan/blocks` | `?path=&limit=` | `{count, path, blocks: [{id, type, hpath, content}]}` · `400 {kind: "config_missing"}` · `401 {kind: "auth"}` · `502 {kind: "transport"}` |
 | GET | `/api/memory/search` | `?q=<text>&limit=` | `{query, hits: [{kind: memory\|wiki\|session, title, path, snippet}]}` · `400` empty q |
+| GET | `/api/memory/graph` | — | `{nodes: [{id, label, column, count, unit, state: on\|empty\|off, detail}], edges: [{from, to, label, wired}], wired}` — `state` is about the source (`off` = unreadable), `wired` is about the edge (UH really consults it for a turn) |
 | GET | `/api/uhb/status` | — | `{connected, version, mode, harness, providers, modes}` · `{connected: false, reason}` when UHB is down or disabled |
 | POST | `/api/uhb/route` | `{prompt, mode?, complexity?}` | `{mode, complexity, chosen, chain: [{ref, tier, model_id}], reason, allow_paid}` · `400` no prompt · `503` UHB unreachable |
 | GET | `/api/dreams` | — | `{dreams: [{stamp, status, tokens, summary, ideas}], daemon: {...}}` |
@@ -106,7 +107,7 @@ Frames follow the usual `event: <name>\ndata: <json>\n\n` shape.
 
 | Event | Data | Meaning |
 | --- | --- | --- |
-| `open` | `{session, model}` | the turn started |
+| `open` | `{session, model, skill}` | the turn started; `skill` is empty unless one was attached |
 | `token` | `{text}` | one streamed fragment |
 | `tool` | `{name, …}` | one tool call, before and after |
 | `message` | `{…}` | a whole assistant message when streaming is off |
@@ -126,6 +127,7 @@ attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  input  keys-priority  keys-view
 data-open  data-panel  data-view  tab-data
+memory-graph  skill-badge  skill-open
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette

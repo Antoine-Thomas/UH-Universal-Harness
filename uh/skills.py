@@ -228,6 +228,22 @@ def create(
     }
 
 
+def prompt_block(name: str, home: Optional[Path] = None) -> Optional[str]:
+    """The block a turn receives when a skill is selected.
+
+    Labelled as coming from the user, not from the system: the model must be able
+    to tell an instruction the operator attached from the harness's own rules.
+    ``None`` when the skill does not exist, so the caller can refuse with a name.
+    """
+    found = read_skill(name, home)
+    if found is None:
+        return None
+    body = (found["instructions"] or found["text"] or "").strip()[:MAX_INSTRUCTIONS]
+    if not body:
+        return None
+    return f"## Active skill: {found['title']} ({found['name']})\n\n{body}"
+
+
 __all__ = [
     "MAX_DESCRIPTION",
     "MAX_INSTRUCTIONS",
@@ -240,6 +256,7 @@ __all__ = [
     "list_skills",
     "native_dir",
     "parse",
+    "prompt_block",
     "read_skill",
     "user_dir",
 ]

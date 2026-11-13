@@ -246,6 +246,23 @@ def test_the_telemetry_tab_reads_the_route_without_a_chart_library() -> None:
 
 
 @KEEP
+def test_the_second_brain_draws_the_graph_and_a_turn_can_carry_a_skill() -> None:
+    """The graph and the skill badge are the two promises of P6/P8 in the UI."""
+    script = APP.read_text(encoding="utf-8")
+    page = INDEX.read_text(encoding="utf-8")
+
+    assert 'id="memory-graph"' in page
+    assert "/api/memory/graph" in script
+    assert "memoryGraph(" in script
+    assert 'id="skill-open"' in page
+    assert 'id="skill-badge"' in page
+    assert "skill: state.skill" in script, "the turn must name the skill it carries"
+    # No diagramming library in the markup: the SVG is drawn from the payload.
+    assert "mermaid" not in page.lower()
+    assert "/static/mermaid" not in script.lower()
+
+
+@KEEP
 def test_the_data_tab_wires_backup_and_skills() -> None:
     """A panel that promises an export must call the routes that do it."""
     script = APP.read_text(encoding="utf-8")

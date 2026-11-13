@@ -319,9 +319,26 @@ sees while it runs. Items are listed with their state, not their ambition.
   no CDN (the CSP is `'self'`). **Cost is not computed**: UH has no price table,
   so the payload says `cost: {value: null, reason}` and the panel prints the
   reason. Polling stops when the tab is not in front.
-- **Second brain, drawn** - Mermaid, animated, showing what the memory holds
-  (SiYuan blocks, RAG chunks, wiki notes) and which way a decision travelled.
-  Read-only: the diagram never writes. *To do.*
+- **Second brain, drawn** - *delivered*, in SVG rather than Mermaid.
+  `GET /api/memory/graph` returns seven nodes (MEMORY.md, wiki, RAG, SiYuan, the
+  turn, sessions, dreams) and six edges, and an edge is `wired` only when UH
+  really consults that source for a turn: MEMORY.md (the `memory` toolset) and
+  the session history, nothing else. The three unwired ones are dashed and
+  labelled ("pas d'outil", "sans route", "via UHB"), and the panel says
+  "2 / 6 liens branchés". **Why not Mermaid**: it renders through inline
+  `<style>` elements, which the CSP (`style-src 'self'`, no `unsafe-inline`)
+  blocks, and vendoring ~1 MB of JS to draw seven boxes contradicts "no new
+  runtime dependency without a written reason". The drawing is ours: rects,
+  bezier curves, a flowing dash animation on the wired edges (stopped by
+  `prefers-reduced-motion`), hover highlights the hovered node's edges, click
+  prints the node's detail. Mermaid stays possible the day the graph needs
+  arbitrary shapes, and would then need a deliberate CSP change.
+- **Skills attached to a turn** - *delivered*. The composer's ⚑ button lists the
+  .md skills, the badge above the input says which one is active, and
+  `POST /chat` receives `skill: <name>`: the instructions ride on the **system
+  message** (labelled "## Active skill: …"), never as a stored user message, so
+  the transcript still says who said what. An unknown name is a `400` before the
+  provider is called.
 - **Maintenance** - temp files, caches, orphaned uploads, with the reclaimed space
   reported before and after. Deletion is explicit, never silent. *To do.*
 - **Voice and text helpers** - TTS and dictation through the Web Speech API (no
@@ -399,9 +416,12 @@ losing either costs nothing. P8 makes the files visible, portable and restorable
   neither ships a native skill yet, so the panel says that instead of showing a
   badge nobody can find. `POST /api/skills` writes the template and refuses any
   name that is not a filename, so nothing walks out of the folder.
-- **Skills that are actually used** - *not yet*. The files are listed, readable
-  and portable; the model does not load one into a turn. That is the skill
-  routing work, and pretending otherwise would be the same lie as a fake gauge.
+- **Skills that are actually used** - *delivered* (see P6, "Skills attached to a
+  turn"). The block is built by `uh/skills.prompt_block`, labelled, and sent on
+  the system message; the console can pass one too through
+  `ChatSession(extra_system=...)`. What is *not* done: choosing a skill
+  automatically from the prompt - that is routing, and it waits for the skill
+  routing work rather than pretending to guess.
 - **Tools view** - *delivered*. `GET /api/tools/status`: the toolsets built in
   this process, UHB connected *or its reason*, Ollama's three states, terminal
   on/off, and MCP `supported: false` with the reason. No green light that means

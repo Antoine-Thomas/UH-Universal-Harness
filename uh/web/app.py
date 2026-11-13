@@ -463,6 +463,16 @@ def create_app(
             kind, model, provider = _provider_for(app, session["id"])
         except ProviderError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # A skill is attached to this turn only: the block rides on the system
+        # message, so the transcript keeps saying who said what.
+        skill_name = str(body.get("skill") or "").strip()
+        skill_block = ""
+        if skill_name:
+            from .. import skills as uh_skills
+
+            skill_block = uh_skills.prompt_block(skill_name) or ""
+            if not skill_block:
+                raise HTTPException(status_code=400, detail=f"unknown skill: {skill_name}")
 
         loop = asyncio.get_running_loop()
         queue: "asyncio.Queue[dict]" = asyncio.Queue()
@@ -489,6 +499,7 @@ def create_app(
                     session_id=session["id"],
                     announce=False,
                     console=Console(stream=io.StringIO(), err=io.StringIO()),
+                    extra_system=skill_block,
                 )
                 session_obj.events = emit
                 app.state.active[session["id"]] = session_obj
@@ -516,7 +527,7 @@ def create_app(
         threading.Thread(target=work, daemon=True, name=f"uh-chat-{session['id']}").start()
 
         async def stream():
-            yield frame("open", {"session": display_id(session["id"]), "model": model})
+            yield frame("open", {"session": display_id(session["id"]), "model": model, "skill": skill_name})
             while True:
                 event = await queue.get()
                 if event.get("type") == "__end__":
@@ -768,6 +779,125 @@ def create_app(
 
         result = memory_actions.siyuan_blocks(_uhb_url(), path=path, limit=limit)
         return JSONResponse(status_code=int(result["status"]), content=result["payload"])
+
+    @app.get("/api/memory/graph", dependencies=[Depends(require_token)])
+    async def memory_graph() -> dict:
+        """Where the memory lives, and what actually reaches a turn.
+
+        Counts come from the same sources the Memory tab reads. An edge is
+        ``wired`` only when UH really consults that source for a turn: the wiki is
+        searchable from the UI but no tool reads it, RAG has no route, SiYuan goes
+        through a UHB that is not asked. Drawing those three as connected would be
+        a prettier lie than a sentence, so they are dashed and labelled.
+        """
+        from .. import dream_store, memory_view
+
+        sources = memory_view.sources()
+        wiki = sources.get("wiki") or {}
+        memory = sources.get("memory") or {}
+        rag = sources.get("rag") or {}
+        siyuan = sources.get("siyuan") or {}
+        dreams = dream_store.list_dreams()
+        with _store(app) as store:
+            sessions = store.list_sessions(limit=10_000)
+        messages = sum(int(row.get("message_count") or 0) for row in sessions)
+        ideas = sum(len(dream.get("ideas") or []) for dream in dreams)
+        memory_available = bool(memory.get("available"))
+        wiki_available = bool(wiki.get("available"))
+        rag_available = bool(rag.get("available"))
+
+        def state(available: bool, count: object) -> str:
+            """``on`` has content, ``empty`` exists but holds nothing, ``off`` is
+            not readable at all. ``sections`` on a missing MEMORY.md is the list
+            of *default* sections, which is not content: showing "3 sections"
+            next to an absent file would be the kind of detail that makes a
+            diagram lie."""
+            if not available:
+                return "off"
+            return "on" if count else "empty"
+
+        nodes = [
+            {
+                "id": "memory",
+                "label": "MEMORY.md",
+                "column": "in",
+                "count": len(memory.get("sections") or []) if memory_available else None,
+                "unit": "section(s)",
+                "state": state(memory_available, memory.get("sections") if memory_available else None),
+                "detail": str(
+                    memory.get("path")
+                    if memory_available
+                    else "MEMORY.md absent : le fichier s'écrit au premier `memory_write`"
+                ),
+            },
+            {
+                "id": "wiki",
+                "label": "Wiki",
+                "column": "in",
+                "count": int(wiki.get("notes") or 0),
+                "unit": "note(s)",
+                "state": state(wiki_available, wiki.get("notes")),
+                "detail": str(wiki.get("path") or wiki.get("reason") or ""),
+            },
+            {
+                "id": "rag",
+                "label": "RAG",
+                "column": "in",
+                "count": rag.get("chunks"),
+                "unit": "chunk(s)",
+                "state": state(rag_available, rag.get("chunks")),
+                "detail": str(rag.get("reason") or "index présent"),
+            },
+            {
+                "id": "siyuan",
+                "label": "SiYuan",
+                "column": "in",
+                "count": None,
+                "unit": "bloc(s)",
+                "state": "off",
+                "detail": str(siyuan.get("reason") or ""),
+            },
+            {
+                "id": "turn",
+                "label": "Tour UH",
+                "column": "core",
+                "count": None,
+                "unit": "",
+                "state": "on",
+                "detail": "prompt système + contexte + outils",
+            },
+            {
+                "id": "sessions",
+                "label": "Sessions",
+                "column": "out",
+                "count": len(sessions),
+                "unit": "session(s)",
+                "state": state(True, sessions),
+                "detail": f"{messages} message(s) en base",
+            },
+            {
+                "id": "dreams",
+                "label": "Rêves",
+                "column": "out",
+                "count": len(dreams),
+                "unit": "passe(s)",
+                "state": state(True, dreams),
+                "detail": f"{ideas} idée(s) proposée(s)",
+            },
+        ]
+        edges = [
+            {"from": "memory", "to": "turn", "label": "outil memory", "wired": True},
+            {"from": "sessions", "to": "turn", "label": "historique", "wired": True},
+            {"from": "dreams", "to": "turn", "label": "propositions", "wired": False},
+            {"from": "wiki", "to": "turn", "label": "pas d'outil", "wired": False},
+            {"from": "rag", "to": "turn", "label": "sans route", "wired": False},
+            {"from": "siyuan", "to": "turn", "label": "via UHB", "wired": False},
+        ]
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "wired": sum(1 for edge in edges if edge["wired"]),
+        }
 
     @app.get("/api/memory/search", dependencies=[Depends(require_token)])
     async def memory_search(q: str = "", limit: int = 20) -> dict:

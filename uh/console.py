@@ -221,20 +221,27 @@ class Console:
 # --------------------------------------------------------------------------- #
 # session state
 # --------------------------------------------------------------------------- #
-def system_message(workspace: Path) -> dict:
-    return {
-        "role": "system",
-        "content": (
-            "You are UH, a local agent harness. Use the provided tools to inspect and modify "
-            f"files inside the workspace {workspace}, to run shell commands, and to keep notes "
-            "in long-term memory. Prefer the file tools over the shell for file edits. "
-            "Answer without calling a tool once the task is done. "
-            "If a tool refuses for sandbox reasons, NEVER try to bypass it with `terminal`. "
-            "Tell the user: 'Le sandbox refuse : <raison>. Utilise `/workspace <path>` pour "
-            "changer de dossier, ou demande-moi d'écrire dans `~/Desktop` / `~/Documents` / "
-            "`~/uh-workspace` qui sont autorisés.'"
-        ),
-    }
+def system_message(workspace: Path, extra_system: str = "") -> dict:
+    """The system prompt, plus whatever the operator attached to this turn.
+
+    ``extra_system`` is a skill's instructions, labelled as such by
+    :func:`uh.skills.prompt_block`. It rides on the system message instead of
+    being stored as a user message: it is context for this turn, not something
+    the user said, and the transcript must stay honest about who said what.
+    """
+    content = (
+        "You are UH, a local agent harness. Use the provided tools to inspect and modify "
+        f"files inside the workspace {workspace}, to run shell commands, and to keep notes "
+        "in long-term memory. Prefer the file tools over the shell for file edits. "
+        "Answer without calling a tool once the task is done. "
+        "If a tool refuses for sandbox reasons, NEVER try to bypass it with `terminal`. "
+        "Tell the user: 'Le sandbox refuse : <raison>. Utilise `/workspace <path>` pour "
+        "changer de dossier, ou demande-moi d'écrire dans `~/Desktop` / `~/Documents` / "
+        "`~/uh-workspace` qui sont autorisés.'"
+    )
+    if extra_system.strip():
+        content = f"{content}\n\n{extra_system.strip()}"
+    return {"role": "system", "content": content}
 
 
 class ChatSession:
@@ -256,6 +263,7 @@ class ChatSession:
         session_id: Optional[str] = None,
         announce: bool = True,
         console: Optional["Console"] = None,
+        extra_system: str = "",
     ) -> None:
         self.provider_factory = provider_factory
         self.provider_kind = provider_kind
@@ -286,7 +294,10 @@ class ChatSession:
             summarizer=lambda messages: summarise_with(self.provider, messages),
         )
         self._context_noted = False
-        self.history: list[dict] = [system_message(workspace)]
+        # Kept so a workspace move can rebuild the system prompt without dropping
+        # the skill the operator attached to this turn.
+        self.extra_system = extra_system
+        self.history: list[dict] = [system_message(workspace, extra_system)]
         if session_id and store is not None:
             self.history.extend(self._stored_messages(session_id))
 
@@ -622,7 +633,7 @@ class ChatSession:
         # The system prompt names the workspace: refresh it, keeping the rest of
         # the conversation so the user does not lose context by moving.
         if self.history and self.history[0].get("role") == "system":
-            self.history[0] = system_message(resolved)
+            self.history[0] = system_message(resolved, self.extra_system)
         roots = sandbox.allowed_paths(resolved)
         lines = [
             f"workspace set to {resolved}",

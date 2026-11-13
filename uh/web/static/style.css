@@ -926,3 +926,68 @@ body {
   .data-open { padding: 0 8px; }
   .data-actions { flex-direction: column; }
 }
+
+/* --- skills attached to a turn (P8) --------------------------------------- */
+.skill-open {
+  flex: 0 0 auto; width: 30px; height: 30px; padding: 0;
+  border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); cursor: pointer;
+  font-size: 14px; line-height: 1;
+}
+.skill-open:hover { border-color: var(--accent); color: var(--accent); }
+.skill-badge {
+  display: flex; align-items: center; gap: 8px; align-self: flex-start;
+  margin: 0 16px 4px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--highlight);
+  background: color-mix(in srgb, var(--highlight) 12%, transparent);
+  font-size: 11px; color: var(--text);
+}
+.skill-badge[hidden] { display: none; }
+.skill-badge-clear {
+  border: 0; background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0;
+}
+.skill-badge-clear:hover { color: var(--error); }
+.skill-menu {
+  position: fixed; z-index: 320; width: 264px; max-height: 46vh; overflow: auto;
+  display: flex; flex-direction: column; gap: 2px; padding: 8px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+}
+.skill-menu-head {
+  margin: 0 0 4px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--muted);
+}
+.skill-menu-item {
+  display: flex; flex-direction: column; gap: 1px; text-align: left;
+  border: 0; background: transparent; color: var(--text); font: inherit;
+  padding: 6px 8px; border-radius: 8px; cursor: pointer;
+}
+.skill-menu-item:hover { background: var(--accent-soft); }
+.skill-menu-title { font-size: 12px; }
+.skill-menu-hint { font-size: 10px; color: var(--muted); }
+
+/* --- the memory graph: drawn, not generated (P6/P8) ----------------------- */
+.memory-graph { padding: 10px 14px 0; }
+.mem { display: flex; flex-direction: column; gap: 6px; }
+.mem-svg { display: block; width: 100%; height: 300px; }
+.mem-edge { fill: none; stroke-width: 1.5; }
+.mem-edge-wired { stroke: var(--accent); stroke-dasharray: 5 4; animation: mem-flow 1.6s linear infinite; }
+.mem-edge-off { stroke: var(--border); stroke-dasharray: 2 4; }
+.mem-edge-hot { stroke-width: 3; }
+.mem-node { cursor: pointer; }
+.mem-node rect { fill: var(--bg); stroke: var(--border); stroke-width: 1; }
+.mem-node-in rect { fill: var(--accent-soft); stroke: var(--accent); }
+.mem-node-core rect { fill: var(--accent); stroke: var(--accent); }
+.mem-node-out rect { fill: color-mix(in srgb, var(--highlight) 18%, var(--bg)); stroke: var(--highlight); }
+.mem-node-state-empty rect { fill: transparent; stroke-dasharray: 5 2; }
+.mem-node-state-off rect { fill: transparent; stroke-dasharray: 3 3; }
+.mem-label { fill: var(--text); font-size: 10px; font-weight: 600; text-anchor: middle; }
+.mem-node-core .mem-label { fill: var(--on-accent); }
+.mem-count { fill: var(--muted); font-size: 8px; text-anchor: middle; }
+.mem-node-core .mem-count { fill: var(--on-accent); opacity: .8; }
+.mem-detail { margin: 0; font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+@keyframes mem-flow { to { stroke-dashoffset: -18; } }
+@media (prefers-reduced-motion: reduce) {
+  .mem-edge-wired { animation: none; }
+}

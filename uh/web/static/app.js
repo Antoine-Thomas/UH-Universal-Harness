@@ -13,6 +13,7 @@ const state = {
   attachments: [],
   keyEntryAllowed: false,
   presets: null,
+  skill: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -660,7 +661,11 @@ async function sendMessage(text) {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, attachments }),
+      body: JSON.stringify({
+        message: text,
+        attachments,
+        skill: state.skill ? state.skill.name : "",
+      }),
       signal: controller.signal,
     });
     if (response.status === 401) {
@@ -2072,7 +2077,10 @@ function showPanelTab(name) {
     $(view).hidden = !active;
   }
   if (name === "models") loadCapabilities().catch(() => {});
-  if (name === "uhb") loadUhb().catch(() => {});
+  if (name === "uhb") {
+    loadMemoryGraph().catch(() => {});
+    loadUhb().catch(() => {});
+  }
   if (name === "memory") loadMemory().catch(() => {});
   if (name === "decision") loadDecision().catch(() => {});
   if (name === "telemetry") {
@@ -2734,9 +2742,211 @@ async function loadData() {
   }
 }
 
+// --- skills (P8): attach one .md to this turn --------------------------------- //
+// The badge is the honest part: a skill changes the system prompt, so it stays on
+// screen until it is removed, and it is sent with every turn it applies to.
+function renderSkillBadge() {
+  const badge = $("skill-badge");
+  badge.textContent = "";
+  badge.hidden = !state.skill;
+  if (!state.skill) return;
+  badge.appendChild(el("span", "skill-badge-label", `Skill : ${state.skill.title}`));
+  const clear = el("button", "skill-badge-clear", "×");
+  clear.type = "button";
+  clear.title = "Retirer le skill de ce tour";
+  clear.addEventListener("click", () => {
+    state.skill = null;
+    renderSkillBadge();
+  });
+  badge.appendChild(clear);
+}
+
+function closeSkillMenu() {
+  const menu = $("skill-menu");
+  if (menu) menu.remove();
+}
+
+async function openSkillMenu() {
+  if ($("skill-menu")) {
+    closeSkillMenu();
+    return;
+  }
+  let data;
+  try {
+    data = await api("/api/skills");
+  } catch (error) {
+    return;
+  }
+  const menu = el("div", "skill-menu");
+  menu.id = "skill-menu";
+  menu.appendChild(el("p", "skill-menu-head", data.skills.length ? "Skill pour ce tour" : "Aucun skill"));
+
+  const row = (title, hint, onClick) => {
+    const item = el("button", "skill-menu-item");
+    item.type = "button";
+    item.appendChild(el("span", "skill-menu-title", title));
+    if (hint) item.appendChild(el("span", "skill-menu-hint", hint));
+    item.addEventListener("click", () => {
+      onClick();
+      closeSkillMenu();
+    });
+    menu.appendChild(item);
+  };
+  row("Aucun", "le prompt système seul", () => {
+    state.skill = null;
+    renderSkillBadge();
+  });
+  data.skills.forEach((skill) => {
+    row(skill.title, skill.description || `${skill.origin === "native" ? "natif" : "utilisateur"} · ${skill.name}`, () => {
+      state.skill = { name: skill.name, title: skill.title };
+      renderSkillBadge();
+    });
+  });
+  document.body.appendChild(menu);
+
+  // Above the composer button, kept inside the window.
+  const rect = $("skill-open").getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 280))}px`;
+  menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+
+  setTimeout(() => {
+    const away = (event) => {
+      if (menu.contains(event.target) || $("skill-open").contains(event.target)) return;
+      closeSkillMenu();
+      document.removeEventListener("click", away);
+    };
+    document.addEventListener("click", away);
+  }, 0);
+}
+
+// --- the memory graph (P6/P8): what feeds a turn, and what does not ---------- //
+// Drawn as SVG from /api/memory/graph: no Mermaid, no library, no new CSP hole.
+// Solid and animated = wired; dashed and grey = "UH cannot read this yet", which
+// is exactly what the roadmap says in prose.
+function memoryGraph(data) {
+  const W = 320;
+  const H = 300;
+  const box = { in: [10, 104], core: [132, 86], out: [232, 78] };
+  const spots = {
+    memory: [18, "in"],
+    wiki: [78, "in"],
+    rag: [138, "in"],
+    siyuan: [198, "in"],
+    turn: [124, "core"],
+    sessions: [56, "out"],
+    dreams: [190, "out"],
+  };
+  const nodes = new Map((data.nodes || []).map((node) => [node.id, node]));
+  const center = (id) => {
+    const spot = spots[id];
+    if (!spot) return null;
+    const [y, column] = spot;
+    const [x, width] = box[column];
+    return { x, y, width, height: 40, midY: y + 20, midX: x + width / 2 };
+  };
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    class: "mem-svg",
+    role: "img",
+    "aria-label": "Memory sources and what reaches a turn",
+  });
+  const detail = el("p", "mem-detail", "Survole un nœud pour son détail.");
+
+  const edges = [];
+  (data.edges || []).forEach((edge) => {
+    const from = center(edge.from);
+    const to = center(edge.to);
+    if (!from || !to) return;
+    // Always draw left to right, whatever the edge direction: a cubic that starts
+    // to the right of its target doubles back through the boxes.
+    const [left, right] = from.midX <= to.midX ? [from, to] : [to, from];
+    const startX = left.x + left.width;
+    const endX = right.x;
+    const gap = Math.max(4, endX - startX);
+    const dx = Math.min(14, Math.max(6, gap / 2));
+    const path = svgEl("path", {
+      d: `M${startX},${left.midY} C${startX + dx},${left.midY} ${endX - dx},${right.midY} ${endX},${right.midY}`,
+      class: `mem-edge ${edge.wired ? "mem-edge-wired" : "mem-edge-off"}`,
+    });
+    const title = svgEl("title");
+    title.textContent = `${edge.label} · ${edge.wired ? "branché" : "non branché"}`;
+    path.appendChild(title);
+    svg.appendChild(path);
+    edges.push({ path, edge });
+  });
+
+  (data.nodes || []).forEach((node) => {
+    const spot = spots[node.id];
+    if (!spot) return;
+    const area = center(node.id);
+    const group = svgEl("g", {
+      class: `mem-node mem-node-${node.column} mem-node-state-${node.state || "off"}`,
+    });
+    group.appendChild(
+      svgEl("rect", { x: area.x, y: area.y, width: area.width, height: area.height, rx: 8 })
+    );
+    const label = svgEl("text", { x: area.midX, y: area.y + 16, class: "mem-label" });
+    label.textContent = node.label;
+    group.appendChild(label);
+    const value = svgEl("text", { x: area.midX, y: area.y + 30, class: "mem-count" });
+    // No count means no measurement: "—", never a zero that would read as "empty".
+    value.textContent =
+      node.count === null || node.count === undefined ? "—" : `${node.count} ${node.unit}`;
+    group.appendChild(value);
+    const title = svgEl("title");
+    title.textContent = `${node.label}${node.count === null ? "" : ` · ${node.count} ${node.unit}`} · ${node.detail}`;
+    group.appendChild(title);
+    group.addEventListener("click", () => {
+      detail.textContent = `${node.label} — ${node.detail || "aucun détail"}${
+        node.count === null || node.count === undefined ? "" : ` (${node.count} ${node.unit})`
+      }`;
+    });
+    svg.appendChild(group);
+    // Highlight the edges of the hovered node: the graph answers "does this reach
+    // the turn?" with a gesture, not with a legend to memorise.
+    group.addEventListener("mouseenter", () => {
+      edges.forEach(({ path, edge }) => {
+        if (edge.from === node.id || edge.to === node.id) path.classList.add("mem-edge-hot");
+      });
+    });
+    group.addEventListener("mouseleave", () => {
+      edges.forEach(({ path }) => path.classList.remove("mem-edge-hot"));
+    });
+  });
+
+  const wrapper = el("div", "mem");
+  const head = el("div", "telem-head");
+  head.appendChild(el("span", null, "Second cerveau · ce qui alimente un tour"));
+  head.appendChild(el("span", "telem-stamp", `${data.wired || 0} / ${(data.edges || []).length} liens branchés`));
+  wrapper.appendChild(head);
+  wrapper.appendChild(svg);
+  wrapper.appendChild(detail);
+  wrapper.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Trait plein = UH consulte cette source pour un tour. Pointillés = il ne peut pas encore : pas d'outil pour le wiki, pas de route pour le RAG, SiYuan passe par UHB."
+    )
+  );
+  return wrapper;
+}
+
+async function loadMemoryGraph() {
+  const box = $("memory-graph");
+  try {
+    const data = await api("/api/memory/graph");
+    box.textContent = "";
+    box.appendChild(memoryGraph(data));
+  } catch (error) {
+    box.textContent = "";
+    box.appendChild(el("p", "panel-hint", `graphe indisponible : ${error.message}`));
+  }
+}
+
 // -------------------------------------------------------------------- boot --
 function wireComposer() {
   const input = $("input");
+  $("skill-open").addEventListener("click", openSkillMenu);
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
