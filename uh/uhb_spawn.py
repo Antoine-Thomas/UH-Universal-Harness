@@ -253,6 +253,11 @@ def _log_tail(log: Path, lines: int = 3) -> str:
     return " | ".join(kept[-lines:])[:400]
 
 
+def log_tail(lines: int = 5) -> str:
+    """The UHB log's last lines, for a panel that has to explain a failure."""
+    return _log_tail(_log_path(), lines)
+
+
 @dataclass
 class Spawned:
     """A UHB this process started: its child, its log, the way to stop it."""

@@ -1490,6 +1490,37 @@ async function loadCapabilities() {
 // --- second brain (UHB, proxied by UH) ---------------------------------------
 const TIER_COLOURS = { free: "var(--accent)", eco: "var(--highlight)", paid: "var(--error)" };
 
+//: One automatic attempt per page load. UHB is a real process: retrying a dead
+//: one in a loop would be a fork bomb with good intentions.
+let uhbAutoTried = false;
+
+async function connectUhb(box, button, out) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Connexion… (jusqu'à 25 s)";
+  out.hidden = false;
+  out.textContent = "";
+  out.appendChild(el("p", "panel-hint", "UH démarre UHB en arrière-plan."));
+  try {
+    const result = await api("/api/uhb/start", { method: "POST" });
+    if (result.connected) {
+      await loadUhb();
+      return;
+    }
+    out.textContent = "";
+    out.appendChild(
+      el("p", "uhb-offline", `Toujours injoignable : ${result.reason || "raison inconnue"}`)
+    );
+    out.appendChild(el("pre", "uhb-log", result.log || "journal vide"));
+  } catch (error) {
+    out.textContent = "";
+    out.appendChild(el("p", "uhb-offline", `Le démarrage a échoué : ${error.message}`));
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
 async function loadUhb() {
   const box = $("uhb-panel");
   box.textContent = "";
@@ -1501,13 +1532,41 @@ async function loadUhb() {
     return;
   }
   if (!data.connected) {
+    // The user should not have to run a shell command to switch on a panel they
+    // can see. One button, one attempt, and the log only if it fails.
+    box.appendChild(el("p", "uhb-offline", "Le second cerveau n'est pas joignable."));
     box.appendChild(
       el(
         "p",
-        "uhb-offline",
-        `UHB not connected (${data.reason || "unreachable"}). Run 'uh web' (it starts UHB) or set UH_UHB_PATH.`
+        "panel-hint",
+        "Il apporte SiYuan, le RAG et le routage des modèles. UH fonctionne sans lui — le chat et les outils restent disponibles."
       )
     );
+    const actions = el("div", "uhb-actions");
+    const connect = el("button", "data-button primary", "Connecter le second cerveau");
+    const details = el("button", "data-button", "Détails");
+    const out = el("div", "uhb-decision");
+    out.hidden = true;
+    actions.appendChild(connect);
+    actions.appendChild(details);
+    box.appendChild(actions);
+    box.appendChild(out);
+
+    connect.addEventListener("click", () => connectUhb(box, connect, out));
+    details.addEventListener("click", () => {
+      out.hidden = !out.hidden;
+      if (!out.hidden) {
+        out.textContent = "";
+        out.appendChild(el("p", "panel-hint", `raison : ${data.reason || "inconnue"}`));
+        if (data.checkout) out.appendChild(el("p", "panel-hint", `dossier : ${data.checkout}`));
+        out.appendChild(el("pre", "uhb-log", data.log || "journal vide"));
+      }
+    });
+    // Opening the panel is the intent to use it: try once, silently.
+    if (!uhbAutoTried && !String(data.reason || "").includes("disabled")) {
+      uhbAutoTried = true;
+      setTimeout(() => connectUhb(box, connect, out), 500);
+    }
     return;
   }
   const facts = el("dl", "hardware-facts");
@@ -1522,6 +1581,24 @@ async function loadUhb() {
   }
   box.appendChild(el("p", "hardware-sentence", "UHB connected."));
   box.appendChild(facts);
+
+  // A backend the user cannot switch off is one they will kill from the task
+  // manager instead. Chat and tools keep working without it.
+  const stopUhb = el("button", "data-button", "Arrêter le second cerveau");
+  stopUhb.type = "button";
+  stopUhb.addEventListener("click", async () => {
+    stopUhb.disabled = true;
+    stopUhb.textContent = "Arrêt…";
+    try {
+      await api("/api/uhb/stop", { method: "POST" });
+      await loadUhb();
+    } catch (error) {
+      stopUhb.disabled = false;
+      stopUhb.textContent = "Arrêter le second cerveau";
+      box.appendChild(el("p", "uhb-offline", `Arrêt impossible : ${error.message}`));
+    }
+  });
+  box.appendChild(stopUhb);
 
   const test = el("button", "hardware-pull", "Test routing");
   const out = el("div", "uhb-decision");

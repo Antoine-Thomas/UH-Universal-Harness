@@ -46,6 +46,17 @@ def test_the_dream_button_is_wired_to_a_real_route() -> None:
 
 
 @KEEP
+def test_the_second_brain_panel_offers_a_button_not_a_shell_command() -> None:
+    """An error message that tells the user to run a command is a bug in the UI."""
+    script = APP.read_text(encoding="utf-8")
+
+    assert "Run 'uh web'" not in script, "no shell instruction in a browser panel"
+    assert "Connecter le second cerveau" in script
+    assert '"/api/uhb/start"' in script and '"/api/uhb/stop"' in script
+    assert "Arrêter le second cerveau" in script
+
+
+@KEEP
 def test_the_three_breakpoints_are_declared() -> None:
     css = CSS.read_text(encoding="utf-8")
 

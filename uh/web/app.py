@@ -627,6 +627,7 @@ def create_app(
 
     @app.get("/api/uhb/status", dependencies=[Depends(require_token)])
     async def uhb_state() -> dict:
+        from .. import uhb_spawn
         from ..toolsets.uhb import Uhbtoolset, resolve_url
 
         url = resolve_url()
@@ -637,8 +638,56 @@ def create_app(
             }
         payload = Uhbtoolset(url, timeout=1.0).status()
         if "error" in payload:
-            return {"connected": False, "reason": str(payload.get("error") or "unreachable")}
+            return {
+                "connected": False,
+                "reason": str(payload.get("error") or "unreachable"),
+                # The panel offers "Détails": the log is what actually explains a
+                # failed start, and the user should not have to find it.
+                "log": uhb_spawn.log_tail(),
+                "checkout": str(uhb_spawn.find_checkout() or ""),
+            }
         return {"connected": True, **payload}
+
+    @app.post("/api/uhb/start", dependencies=[Depends(require_token)])
+    async def uhb_start() -> dict:
+        """Start the second brain from the panel: the button, not a shell command.
+
+        ``uh web`` already spawns UHB at startup, so this covers the two other
+        cases: it died during the session, or the panel belongs to a window whose
+        process is not the one that spawned it. Off the event loop (a cold start
+        takes seconds) and with the same budget as the CLI.
+        """
+        from .. import uhb_spawn
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        if url is None:
+            raise HTTPException(
+                status_code=400,
+                detail="UHB is disabled: UH_UHB_URL is empty or not loopback",
+            )
+        try:
+            await asyncio.to_thread(lambda: uhb_spawn.ensure(timeout=25.0))
+        except uhb_spawn.SpawnError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        payload = await asyncio.to_thread(lambda: Uhbtoolset(url, timeout=2.0).status())
+        if "error" in payload:
+            return {
+                "connected": False,
+                "reason": str(payload.get("error") or "still unreachable"),
+                "log": uhb_spawn.log_tail(),
+                "checkout": str(uhb_spawn.find_checkout() or ""),
+            }
+        return {"connected": True, **payload}
+
+    @app.post("/api/uhb/stop", dependencies=[Depends(require_token)])
+    async def uhb_stop() -> dict:
+        """Stop the UHB this process started. Chat and tools keep working without it."""
+        from .. import uhb_spawn
+
+        child = uhb_spawn.running()
+        await asyncio.to_thread(uhb_spawn.stop_running)
+        return {"connected": False, "stopped": child is not None}
 
     @app.post("/api/uhb/route", dependencies=[Depends(require_token)])
     async def uhb_plan(payload: dict) -> dict:

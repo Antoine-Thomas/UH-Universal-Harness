@@ -331,3 +331,89 @@ def test_a_bad_dream_budget_is_a_400(tmp_path: Path, monkeypatch: pytest.MonkeyP
             return await http.post("/api/dreams/run", headers=AUTH, json={"budget": "lots"})
 
     assert run(scenario()).status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# the second brain, from the panel
+# --------------------------------------------------------------------------- #
+def test_the_panel_can_start_uhb(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A panel the user can see must be switchable on without a shell command."""
+    from uh import uhb_spawn
+    from uh.toolsets.uhb import Uhbtoolset
+
+    app = make_app(tmp_path, monkeypatch)
+    monkeypatch.setenv("UH_UHB_URL", "http://127.0.0.1:8101")
+    monkeypatch.setattr(uhb_spawn, "running", lambda: None)
+    calls: list = []
+    monkeypatch.setattr(uhb_spawn, "ensure", lambda **kwargs: calls.append(kwargs) or None)
+    monkeypatch.setattr(
+        Uhbtoolset, "status", lambda self: {"version": "0.1.2", "mode": "chat"}
+    )
+
+    async def scenario():
+        async with client(app) as http:
+            return await http.post("/api/uhb/start", headers=AUTH)
+
+    response = run(scenario())
+
+    assert response.status_code == 200
+    assert response.json()["connected"] is True
+    assert calls and calls[0]["timeout"] == 25.0, "the panel waits as long as the CLI does"
+
+
+def test_a_failed_start_answers_503_with_the_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh import uhb_spawn
+
+    app = make_app(tmp_path, monkeypatch)
+    monkeypatch.setenv("UH_UHB_URL", "http://127.0.0.1:8101")
+
+    def explode(**kwargs):
+        raise uhb_spawn.SpawnError("UHB exited during startup (code 1): ImportError")
+
+    monkeypatch.setattr(uhb_spawn, "ensure", explode)
+
+    async def scenario():
+        async with client(app) as http:
+            return await http.post("/api/uhb/start", headers=AUTH)
+
+    response = run(scenario())
+
+    assert response.status_code == 503
+    assert "ImportError" in response.json()["detail"], "the cause reaches the user"
+
+
+def test_start_is_refused_when_uhb_is_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The conftest isolates UH_UHB_URL="" - that is a disabled brain, not a broken one."""
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            return await http.post("/api/uhb/start", headers=AUTH)
+
+    response = run(scenario())
+
+    assert response.status_code == 400
+    assert "disabled" in response.json()["detail"]
+
+
+def test_the_panel_can_stop_uhb(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from uh import uhb_spawn
+
+    app = make_app(tmp_path, monkeypatch)
+    stopped: list = []
+    monkeypatch.setattr(uhb_spawn, "running", lambda: object())
+    monkeypatch.setattr(uhb_spawn, "stop_running", lambda: stopped.append(True))
+
+    async def scenario():
+        async with client(app) as http:
+            return await http.post("/api/uhb/stop", headers=AUTH)
+
+    response = run(scenario())
+
+    assert response.status_code == 200
+    assert response.json()["stopped"] is True
+    assert stopped == [True], "a stop that does nothing is worse than no button"

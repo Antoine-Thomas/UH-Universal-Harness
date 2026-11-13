@@ -569,6 +569,14 @@ body {
 .uhb-panel { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .uhb-offline { margin: 0; font-size: 12px; line-height: 1.5; color: var(--error); }
 .uhb-decision { display: flex; flex-direction: column; gap: 6px; }
+.uhb-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The log is evidence, not decoration: monospaced, scrollable, and never taller
+   than the panel it lives in. */
+.uhb-log {
+  margin: 0; max-height: 140px; overflow: auto; font-size: 10px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted);
+  border-left: 2px solid var(--border); padding-left: 6px;
+}
 .uhb-line { margin: 0; font-size: 12px; color: var(--muted); }
 .uhb-candidate { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .uhb-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }

@@ -52,7 +52,7 @@ even when the failing input was one.
 | GET | `/api/memory/search` | `?q=<text>&limit=` | `{query, hits: [{kind: memory\|wiki\|session, title, path, snippet}]}` · `400` empty q |
 | GET | `/api/memory/graph` | — | `{nodes: [{id, label, column, count, unit, state: on\|empty\|off, detail}], edges: [{from, to, label, wired}], wired}` — `state` is about the source (`off` = unreadable), `wired` is about the edge (UH really consults it for a turn) |
 | GET | `/api/llm/settings` | `?session_id=` | `{provider, model, support: {provider, model, applied, ignored: [{name, reason}], supports_reasoning}, spec: {key: {kind, min?, max?, step?, choices?, default, label, hint}}, defaults: {enabled, values}, provider_keys}` — the panel draws itself from this; `support` says what the provider will drop |
-| GET | `/api/uhb/status` | — | `{connected, version, mode, harness, providers, modes}` · `{connected: false, reason}` when UHB is down or disabled |
+| GET | `/api/uhb/status` | — | `{connected, version, mode, harness, providers, modes}` · `{connected: false, reason, log?, checkout?}` when UHB is down or disabled |
 | POST | `/api/uhb/route` | `{prompt, mode?, complexity?}` | `{mode, complexity, chosen, chain: [{ref, tier, model_id}], reason, allow_paid}` · `400` no prompt · `503` UHB unreachable |
 | GET | `/api/dreams` | — | `{dreams: [{stamp, status, tokens, summary, ideas}], daemon: {...}}` |
 | GET | `/api/dreams/{stamp}` | — | one dream, including `report`; `404` if unknown |
@@ -72,6 +72,8 @@ even when the failing input was one.
 | GET | `/api/tools/status` | — | `{toolsets: {name: [tools]}, ollama, uhb: {connected, reason}, mcp: {supported: true, configured, servers: [{name, command, connected, state, protocol, server, version, tools, reason?}], problems?}, terminal, workspace}` · `state` is `connected`, `idle` (configured, not started) or `failed`; a server is never reported connected without a live process |
 | POST | `/api/mcp/{name}/test` | — | starts that server, `{name, command, connected: true, state: "connected", protocol, server, version, tools: [names]}`, then stops it · `404` unknown name · `502` the server failed (timeout, crash, JSON-RPC error) |
 | POST | `/api/dreams/run` | `{budget?}` | one pass now, in its own process: `{started: true, pid, budget, log}` · `400` budget not an integer · `409` a pass is already running |
+| POST | `/api/uhb/start` | — | starts UHB from the panel (off the event loop, 25 s budget): `{connected: true, …status}` · `{connected: false, reason, log, checkout}` when it still does not answer · `400` `UH_UHB_URL` disabled · `503` the spawn itself failed |
+| POST | `/api/uhb/stop` | — | stops the UHB this process started: `{connected: false, stopped}` |
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
 | GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds], pulling: [names]}` |

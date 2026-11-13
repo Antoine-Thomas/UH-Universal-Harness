@@ -39,6 +39,15 @@ Conventions worth knowing:
 
 ### Added
 
+- **The second brain is a button, not a command.** The panel used to answer
+  "UHB not connected. Run 'uh web' or set UH_UHB_PATH" - a shell instruction in a
+  browser, for a feature the user can see. It now offers "Connecter le second
+  cerveau" (`POST /api/uhb/start`, off the event loop, 25 s budget), tries once
+  automatically when the panel opens, and a "Détails" disclosure shows the reason,
+  the checkout it looked for and the last lines of `$UH_HOME/uhb.log`. When it is
+  connected, a discreet "Arrêter le second cerveau" (`POST /api/uhb/stop`) switches
+  it off: chat and tools keep working, which is the whole reason the two processes
+  are separate.
 - **A dream in one click.** `POST /api/dreams/run` starts one pass in its own
   process (never on the event loop, never twice: `409` while one runs) and writes
   it to `$UH_HOME/dreams/manual-run.log`; the Dreams panel gets an accent
