@@ -25,7 +25,9 @@ def test_the_launcher_runs_uh_web_and_forwards_arguments() -> None:
 
     assert "& $uh.Source web @args" in text
     assert "Get-Command uh" in text, "a missing uh must be explained, not flashed away"
-    assert "Read-Host 'Press Enter to close'" in text
+    assert "MessageBox" in text, "a hidden window cannot show a message in the console"
+    assert "uh-web.log" in text, "the failure has to be readable after the dialog is closed"
+    assert "Read-Host" not in text, "no prompt: nobody is watching the window"
 
 
 def test_the_launcher_is_ascii_so_powershell_51_reads_it() -> None:
@@ -43,7 +45,7 @@ def test_the_launcher_carries_the_searching_murphy_colours() -> None:
     assert "38;2;40;69;67" in text, "ink #284543 as a 24-bit foreground"
     assert shortcut.INK in text and shortcut.ACCENT in text
     assert "Add-Type" in text, "virtual-terminal processing has to be enabled"
-    assert "-ForegroundColor Yellow" in text, "fallback when the console refuses VT"
+    assert "$ink = ''" in text, "fallback when the console refuses VT: plain text"
 
 
 # --------------------------------------------------------------------------- #
@@ -152,6 +154,8 @@ def test_install_writes_the_launcher_and_the_link(tmp_path: Path) -> None:
     assert f"-File \"{created.script}\"" in script
     assert str(created.icon) in script
     assert shortcut.LINK_DESCRIPTION in script
+    assert "-WindowStyle Hidden" in script, "no console window on top of the browser"
+    assert "$lnk.WindowStyle = 7" in script, "minimized in the taskbar, not focused"
 
 
 def test_install_refuses_a_desktop_that_does_not_exist(tmp_path: Path) -> None:
