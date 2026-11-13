@@ -188,6 +188,17 @@ def test_reading_stays_workspace_only(toolset: FileToolset, home: Path) -> None:
     assert "outside the workspace" in result["error"]
 
 
+def test_the_system_veto_survives_macos_symlinks() -> None:
+    """macOS resolves /etc to /private/etc: both spellings must be refused."""
+    assert sandbox.is_system_directory("/private/etc/hosts") is True
+    assert sandbox.is_system_directory("/private/etc") is True
+    assert sandbox.is_system_directory("/private/var/log") is False  # /var is not a system root
+
+
+def test_is_allowed_refuses_a_private_spelling(toolset: FileToolset) -> None:
+    assert sandbox.is_allowed("/private/etc/passwd", toolset.workspace) is False
+
+
 def test_display_paths_uses_the_tilde(home: Path) -> None:
     rendered = sandbox.display_paths([home / "Desktop", Path("/tmp/x")])
 

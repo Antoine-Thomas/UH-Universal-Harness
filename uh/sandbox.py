@@ -66,14 +66,21 @@ def is_system_directory(path: str | os.PathLike[str] | None) -> bool:
     Textual on purpose: the answer must be right for a directory that does not
     exist on this platform (``C:/Windows`` on Linux), and the caller has already
     resolved its own candidate, so no second ``resolve()`` is applied here.
+
+    macOS resolves ``/etc`` to ``/private/etc`` (and ``/var`` to ``/private/var``):
+    both spellings are recognised, so a resolved path cannot slip past the veto.
     """
     if not path:
         return False
     candidate = _normalised(path)
+    spellings = [candidate]
+    if candidate.startswith("/private/"):
+        spellings.append(candidate[len("/private") :])
     for entry in SYSTEM_DIRECTORIES:
         root = _normalised(entry)
-        if candidate == root or candidate.startswith(root + "/"):
-            return True
+        for spelling in spellings:
+            if spelling == root or spelling.startswith(root + "/"):
+                return True
     return False
 
 
@@ -195,7 +202,10 @@ def is_allowed(
         resolved = Path(path).expanduser().resolve()
     except OSError:  # pragma: no cover - exotic paths only
         return False
-    if is_system_directory(resolved):
+    # Both spellings are checked: resolution follows symlinks, and on macOS
+    # /etc is /private/etc - testing only the resolved form would let a symlink
+    # walk around the veto.
+    if is_system_directory(path) or is_system_directory(resolved):
         return False
     if workspace is not None:
         try:
