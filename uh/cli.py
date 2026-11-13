@@ -1537,6 +1537,46 @@ def cmd_dream(args: argparse.Namespace) -> int:
     """`uh dream`: snapshots and the journal. The pass itself lands in P4.2."""
     from . import dream as dream_mod
 
+    if args.status:
+        from . import dream_schedule
+
+        state = dream_schedule.status(args.at)
+        print(f"installed : {state['installed']} ({state['mechanism'] or 'nothing'})")
+        print(f"task      : {'yes' if state['task'] else 'no'}")
+        print(f"startup   : {state['startup'] or 'no'}")
+        print(f"last pass : {state['last_pass'] or 'never'}")
+        print(f"next run  : {state['next_run'] or '-'}")
+        return EXIT_OK
+
+    if args.uninstall:
+        from . import dream_schedule
+
+        try:
+            removed = dream_schedule.uninstall()["removed"]
+        except dream_schedule.ScheduleError as exc:
+            print(f"uh dream: {exc}", file=sys.stderr)
+            return EXIT_FAILURE
+        if removed:
+            for item in removed:
+                print(f"removed: {item}")
+        else:
+            print("uh dream: nothing was installed")
+        return EXIT_OK
+
+    if args.schedule:
+        from . import dream_schedule
+
+        try:
+            installed = dream_schedule.install(at=args.at)
+        except dream_schedule.ScheduleError as exc:
+            print(f"uh dream: {exc}", file=sys.stderr)
+            return EXIT_FAILURE
+        print(f"scheduled: {installed['detail']}")
+        if installed["path"]:
+            print(f"  script: {installed['path']}")
+        print(f"  command: {installed['command']}")
+        return EXIT_OK
+
     if args.now:
         return _run_dream_pass(args)
 
@@ -2090,6 +2130,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--source", default=None, metavar="siyuan,rag", help="sources to read (default siyuan,rag)"
     )
     dream_cmd.add_argument("--no-write", action="store_true", help="print the report, write nothing")
+    dream_cmd.add_argument(
+        "--schedule", action="store_true", help="install the nightly pass (Task Scheduler or Startup)"
+    )
+    dream_cmd.add_argument("--at", default="03:00", metavar="HH:MM", help="hour of the nightly pass")
+    dream_cmd.add_argument("--uninstall", action="store_true", help="remove the nightly pass")
+    dream_cmd.add_argument("--status", action="store_true", help="is it installed, when did it last run")
     dream_cmd.add_argument("--yes", action="store_true", help="do not ask for confirmation")
 
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
