@@ -1521,12 +1521,211 @@ function wireChips() {
   }
 }
 
+// --- memory (P3.2): wiki, search, RAG/SiYuan state, MEMORY.md ---------------
+// Everything here is read-only. A source that cannot be read says why, and a
+// button that could not work is simply not drawn.
+function memorySection(title) {
+  const section = el("section", "memory-section");
+  section.appendChild(el("h3", "memory-title", title));
+  return section;
+}
+
+function memoryNoteList(notes, reader) {
+  const list = el("div", "memory-note-list");
+  if (!notes.length) {
+    list.appendChild(el("p", "panel-hint", "no notes in this wiki"));
+    return list;
+  }
+  for (const note of notes) {
+    const row = el("button", "memory-note");
+    row.appendChild(el("span", "memory-note-name", note.path));
+    row.appendChild(el("span", "memory-note-meta", `${Math.round(note.size / 1024)} KB`));
+    row.addEventListener("click", async () => {
+      reader.textContent = "loading…";
+      try {
+        const data = await api(`/api/memory/wiki/${note.path}`);
+        reader.textContent = data.text;
+      } catch (error) {
+        reader.textContent = `error: ${error.message}`;
+      }
+    });
+    list.appendChild(row);
+  }
+  return list;
+}
+
+function stateBlock(pairs, note) {
+  const box = el("div", "memory-state");
+  for (const [label, value] of pairs) {
+    if (value === undefined || value === null || value === "") continue;
+    box.appendChild(el("span", "memory-state-label", label));
+    box.appendChild(el("span", "memory-state-value", String(value)));
+  }
+  if (note) box.appendChild(el("p", "memory-state-note", note));
+  return box;
+}
+
+async function runMemorySearch(query, results) {
+  results.textContent = "searching…";
+  try {
+    const data = await api(`/api/memory/search?q=${encodeURIComponent(query)}`);
+    results.textContent = "";
+    if (!data.hits.length) {
+      results.appendChild(el("p", "panel-hint", "no hit"));
+      return;
+    }
+    for (const kind of ["wiki", "session", "memory"]) {
+      const group = data.hits.filter((hit) => hit.kind === kind);
+      if (!group.length) continue;
+      results.appendChild(el("h4", "memory-group", kind === "session" ? "Sessions" : kind === "wiki" ? "Wiki" : "MEMORY.md"));
+      for (const hit of group) {
+        const row = el("div", "memory-hit");
+        row.appendChild(el("span", "memory-hit-title", hit.title || hit.path));
+        row.appendChild(el("p", "memory-hit-snippet", hit.snippet || ""));
+        results.appendChild(row);
+      }
+    }
+  } catch (error) {
+    results.textContent = `error: ${error.message}`;
+  }
+}
+
+async function loadMemory() {
+  const box = $("memory-panel");
+  box.textContent = "";
+  let data;
+  let uhb = { connected: false };
+  try {
+    data = await api("/api/memory/sources");
+  } catch (error) {
+    box.appendChild(el("p", "panel-hint", `memory: ${error.message}`));
+    return;
+  }
+  try {
+    uhb = await api("/api/uhb/status");
+  } catch {
+    uhb = { connected: false };
+  }
+
+  if (!uhb.connected) {
+    box.appendChild(
+      el(
+        "p",
+        "memory-banner",
+        "UHB offline: the wiki folder and UH's own store still work; RAG and SiYuan do not."
+      )
+    );
+  }
+
+  // -- search ---------------------------------------------------------------
+  const search = memorySection("Search");
+  const form = el("form", "memory-search");
+  const input = el("input", "memory-search-input");
+  input.placeholder = "search the wiki, MEMORY.md and the sessions";
+  input.setAttribute("aria-label", "Search memory");
+  const go = el("button", null, "Search");
+  go.type = "submit";
+  form.appendChild(input);
+  form.appendChild(go);
+  const results = el("div", "memory-results");
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const query = input.value.trim();
+    if (query) runMemorySearch(query, results);
+  });
+  search.appendChild(form);
+  search.appendChild(results);
+  box.appendChild(search);
+
+  // -- wiki -----------------------------------------------------------------
+  const wiki = memorySection(`Wiki${data.wiki.notes ? ` (${data.wiki.notes})` : ""}`);
+  if (data.wiki.available) {
+    let listing = { notes: [] };
+    try {
+      listing = await api("/api/memory/wiki");
+    } catch (error) {
+      wiki.appendChild(el("p", "panel-hint", `wiki: ${error.message}`));
+    }
+    const reader = el("pre", "memory-reader");
+    reader.textContent = "select a note";
+    wiki.appendChild(el("p", "memory-state-note", data.wiki.path || ""));
+    wiki.appendChild(memoryNoteList(listing.notes || [], reader));
+    wiki.appendChild(reader);
+  } else {
+    wiki.appendChild(el("p", "panel-hint", data.wiki.reason || "no wiki found"));
+  }
+  box.appendChild(wiki);
+
+  // -- MEMORY.md ------------------------------------------------------------
+  const memory = memorySection("MEMORY.md");
+  if (data.memory.available) {
+    const sections = Object.entries(data.memory.bytes_by_section || {});
+    memory.appendChild(
+      stateBlock(
+        sections.map(([name, size]) => [name, `${size} B`]),
+        data.memory.path
+      )
+    );
+    if (!sections.length) memory.appendChild(el("p", "panel-hint", "the file exists but has no content"));
+  } else {
+    memory.appendChild(
+      el(
+        "p",
+        "panel-hint",
+        "MEMORY.md not created yet - it appears after the first memory_write."
+      )
+    );
+  }
+  box.appendChild(memory);
+
+  // -- RAG ------------------------------------------------------------------
+  const rag = memorySection("RAG");
+  const ragState = data.rag || {};
+  rag.appendChild(
+    stateBlock(
+      [
+        ["index", ragState.available ? "built" : "not built"],
+        ["size", ragState.index_mb ? `${ragState.index_mb} MB` : ""],
+        ["chunks", ragState.chunks],
+        ["documents", ragState.documents],
+        ["modified", ragState.modified],
+      ],
+      ragState.reason
+    )
+  );
+  if (!ragState.available) {
+    rag.appendChild(
+      el(
+        "p",
+        "panel-hint",
+        "RAG not built yet - run uhb/services/rag/indexer.py to build the index."
+      )
+    );
+  }
+  box.appendChild(rag);
+
+  // -- SiYuan ---------------------------------------------------------------
+  const siyuan = memorySection("SiYuan");
+  const siyuanState = data.siyuan || {};
+  siyuan.appendChild(
+    stateBlock(
+      [
+        ["configured", siyuanState.configured ? "yes" : "no"],
+        ["url", siyuanState.url || ""],
+      ],
+      siyuanState.reason
+    )
+  );
+  box.appendChild(siyuan);
+}
+
 function showPanelTab(name) {
   for (const [tab, view] of [
     ["keys", "keys-view"],
     ["providers", "providers-view"],
     ["models", "models-view"],
     ["uhb", "uhb-view"],
+    ["memory", "memory-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -1535,6 +1734,7 @@ function showPanelTab(name) {
   }
   if (name === "models") loadCapabilities().catch(() => {});
   if (name === "uhb") loadUhb().catch(() => {});
+  if (name === "memory") loadMemory().catch(() => {});
 }
 
 function openProviders() {
@@ -1568,6 +1768,7 @@ function wireProviders() {
   $("tab-providers").addEventListener("click", () => showPanelTab("providers"));
   $("tab-models").addEventListener("click", () => showPanelTab("models"));
   $("tab-uhb").addEventListener("click", () => showPanelTab("uhb"));
+  $("tab-memory").addEventListener("click", () => showPanelTab("memory"));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && providersAreOpen()) closeProviders();
   });

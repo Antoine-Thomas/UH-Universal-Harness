@@ -93,3 +93,31 @@ def test_the_remote_banner_is_wired_to_the_capabilities_endpoint() -> None:
     assert "showRemoteBanner" in script
     assert "api/system/capabilities" in script
     assert 'data.tier !== "small" && data.tier !== "remote"' in script
+
+
+@KEEP
+def test_the_memory_tab_wires_the_read_only_routes() -> None:
+    """A tab that calls a route nobody wrote is a blank panel; this pins the wiring."""
+    script = APP.read_text(encoding="utf-8")
+    page = INDEX.read_text(encoding="utf-8")
+
+    assert 'id="tab-memory"' in page
+    assert 'id="memory-panel"' in page
+    for route in (
+        "api/memory/sources",
+        "api/memory/wiki",
+        "api/memory/search",
+        "api/uhb/status",
+    ):
+        assert route in script, f"the Memory tab must call {route}"
+
+
+@KEEP
+def test_the_memory_tab_never_promises_a_button_it_cannot_honour() -> None:
+    """RAG has no route and SiYuan has no client: the tab says so, it does not act."""
+    script = APP.read_text(encoding="utf-8")
+
+    assert "RAG not built yet" in script
+    assert "indexer.py" in script
+    assert "memory_write" in script, "MEMORY.md absence explains how it appears"
+    assert "reindex" not in script.lower(), "no fake reindex button"

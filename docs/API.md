@@ -106,14 +106,16 @@ contract of the bundled one:
 ```
 attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
-hardware-card  input  keys-priority  keys-view  models-view
+hardware-card  input  keys-priority  keys-view  memory-panel  memory-view
+models-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
 providers-open  providers-panel  providers-view  router-settings  search
 remote-banner  search-results  send  session-list  session-title  sidebar
 sidebar-toggle
 splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
-tab-providers  tab-uhb  terminal-warning  theme-toggle  uhb-panel  uhb-view
+tab-memory  tab-providers  tab-uhb  terminal-warning  theme-toggle  uhb-panel
+uhb-view
 ```
 
 The layout is three CSS grid columns plus two drag handles
