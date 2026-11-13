@@ -35,6 +35,9 @@ from ..sandbox import (
 )
 
 MAX_READ_BYTES = 1_000_000
+#: A PDF read is capped both ways: pages, then characters of extracted text.
+MAX_PDF_PAGES = 50
+MAX_PDF_CHARS = 10_000
 MAX_SEARCH_RESULTS = 100
 MAX_SEARCH_FILE_BYTES = 1_000_000
 SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", "dist", "build", ".pytest_cache"}
@@ -111,6 +114,7 @@ ALLOWED_ARGS = {
     "write_file": {"path", "content"},
     "patch": {"path", "old_string", "new_string", "replace_all"},
     "search_files": {"pattern", "path", "file_glob"},
+    "read_pdf": {"path", "pages"},
 }
 
 REQUIRED_ARGS = {
@@ -118,6 +122,43 @@ REQUIRED_ARGS = {
     "write_file": {"path", "content"},
     "patch": {"path", "old_string", "new_string"},
     "search_files": {"pattern"},
+    "read_pdf": {"path"},
+}
+
+
+def pdf_available() -> bool:
+    """True when ``pypdf`` can be imported. No error, no warning: it is optional."""
+    try:
+        import pypdf  # noqa: F401
+    except Exception:  # noqa: BLE001 - a broken install counts as absent
+        return False
+    return True
+
+
+READ_PDF = {
+    "type": "function",
+    "function": {
+        "name": "read_pdf",
+        "description": (
+            "Extract the text of a PDF inside the workspace. Use it instead of "
+            "read_file for .pdf files: their bytes are not text. Returns the page "
+            "count, the text, and whether it was truncated."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workspace-relative path"},
+                "pages": {
+                    "type": "string",
+                    "description": (
+                        "Page range, 1-based: '3', '2-7' or '1,4,9'. Omit for the "
+                        "first pages, up to 50."
+                    ),
+                },
+            },
+            "required": ["path"],
+        },
+    },
 }
 
 
@@ -136,6 +177,9 @@ class FileToolset:
         # Writes may leave the workspace for a whitelisted directory; reads may
         # not, which keeps the model from wandering the disk.
         self.allowed = list(allowed) if allowed is not None else allowed_paths(self.workspace)
+        # read_pdf exists only when pypdf does: a tool that fails on every call is
+        # worse than a tool that is not offered.
+        self.tools = (TOOLS + [READ_PDF]) if pdf_available() else list(TOOLS)
 
     def set_workspace(self, workspace: str | os.PathLike[str]) -> None:
         """Move the sandbox: the old workspace stops being writable."""
@@ -151,6 +195,8 @@ class FileToolset:
             "patch": self.patch,
             "search_files": self.search_files,
         }
+        if "read_pdf" in {spec["function"]["name"] for spec in self.tools}:
+            handlers["read_pdf"] = self.read_pdf
         handler = handlers.get(name)
         if handler is None:
             return {"error": f"unknown file tool '{name}'. Known: {sorted(ALLOWED_ARGS)}"}
@@ -210,6 +256,87 @@ class FileToolset:
             return str(resolved)
 
     # -- tools ------------------------------------------------------------- #
+    def read_pdf(self, path: str, pages: str = "") -> dict:
+        """Text of a PDF, page range optional. Refuses what it cannot do, clearly."""
+        target, error = self._resolve(path)
+        if error:
+            return error
+        assert target is not None
+        if not target.exists():
+            return {"error": f"not found: {self._relative(target)}"}
+        if target.suffix.lower() != ".pdf":
+            return {"error": f"not a PDF: {self._relative(target)} (use read_file)"}
+        try:
+            from pypdf import PdfReader
+        except Exception:  # noqa: BLE001 - absent or broken: same answer
+            return {"error": "read_pdf needs pypdf: pip install pypdf"}
+        try:
+            reader = PdfReader(str(target))
+            total = len(reader.pages)
+        except Exception as exc:  # noqa: BLE001 - a corrupt file is a tool error
+            return {"error": f"cannot open the PDF ({type(exc).__name__}: {exc})"}
+
+        wanted = self._pdf_pages(pages, total)
+        if isinstance(wanted, dict):
+            return wanted
+        chunks: List[str] = []
+        used = 0
+        truncated = False
+        for number in wanted:
+            try:
+                text = reader.pages[number - 1].extract_text() or ""
+            except Exception as exc:  # noqa: BLE001 - one bad page, not one bad file
+                text = f"[page {number} unreadable: {type(exc).__name__}]"
+            chunk = f"--- page {number} ---\n{text.strip()}"
+            if used + len(chunk) > MAX_PDF_CHARS:
+                keep = max(0, MAX_PDF_CHARS - used)
+                chunks.append(chunk[:keep] + "\n…[text truncated]")
+                truncated = True
+                break
+            chunks.append(chunk)
+            used += len(chunk)
+        body = "\n\n".join(chunks)
+        if len(wanted) < total and not truncated:
+            truncated = True
+        return {
+            "path": self._relative(target),
+            "pages": total,
+            "read_pages": list(wanted),
+            "text": body,
+            "truncated": truncated,
+            "chars": len(body),
+        }
+
+    @staticmethod
+    def _pdf_pages(spec: str, total: int) -> list[int] | dict:
+        """1-based page numbers from '3', '2-7' or '1,4,9'; empty means the head."""
+        text = (spec or "").strip()
+        if not text:
+            return list(range(1, min(total, MAX_PDF_PAGES) + 1)) or [1]
+        wanted: list[int] = []
+        for part in text.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "-" in part:
+                low, _, high = part.partition("-")
+                try:
+                    start, stop = int(low), int(high)
+                except ValueError:
+                    return {"error": f"cannot read the page range '{spec}' (use '3', '2-7', '1,4')"}
+                wanted.extend(range(start, stop + 1))
+            else:
+                try:
+                    wanted.append(int(part))
+                except ValueError:
+                    return {"error": f"cannot read the page range '{spec}' (use '3', '2-7', '1,4')"}
+        if not wanted:
+            return {"error": f"cannot read the page range '{spec}'"}
+        bad = [page for page in wanted if page < 1 or page > total]
+        if bad:
+            return {"error": f"page {bad[0]} does not exist (the PDF has {total} pages)"}
+        return sorted(dict.fromkeys(wanted))[:MAX_PDF_PAGES]
+
     def read_file(self, path: str) -> dict:
         target, error = self._resolve(path)
         if error:

@@ -231,7 +231,7 @@ and returns errors the model can read — an error is a message, not a crash.
 
 | Toolset | Tools | Notes |
 | --- | --- | --- |
-| `file` | `read_file`, `write_file`, `list_dir`, `search` | confined to the workspace |
+| `file` | `read_file`, `write_file`, `patch`, `search_files`, `read_pdf` | confined to the workspace. `read_pdf(path, pages?)` extracts a PDF's text (50 pages / 10 KB per call, ranges like `2-7`) and is **only offered when `pypdf` is installed** — absent, it simply does not appear in `/tools` |
 | `terminal` | `run_command` | blacklist plus timeout, not a sandbox; off in the web UI unless `--allow-terminal` |
 | `memory` | `memory_read`, `memory_write` | one flat file, sections |
 | `web_search` | `web_search(query, max_results)` | DuckDuckGo HTML endpoint, no API key, up to 5 results (title, url, snippet); `max_results` is capped, parse failures are reported as throttling |
