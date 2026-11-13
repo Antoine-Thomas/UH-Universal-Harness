@@ -251,9 +251,15 @@ body {
   border: 1px solid var(--border); background: var(--bg); color: var(--text);
   font-size: 12px; max-width: 220px;
 }
+/* One model in the header by default; the full list is this button away. An icon,
+   not a word: the header is a single row and every pixel is taken. */
+.model-advanced {
+  margin-left: 4px; padding: 5px 7px; font-size: 12px; font-family: inherit;
+  line-height: 1; white-space: nowrap;
+}
 
 .gauge {
-  position: relative; width: 160px; height: 18px;
+  position: relative; width: 160px; height: 18px; flex: 0 0 auto;
   border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
   background: var(--bg);
 }
@@ -570,6 +576,11 @@ body {
 .uhb-offline { margin: 0; font-size: 12px; line-height: 1.5; color: var(--error); }
 .uhb-decision { display: flex; flex-direction: column; gap: 6px; }
 .uhb-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Connected: one line. The dot carries the state, the text carries the facts. */
+.uhb-connected {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  font-size: 12px; font-weight: 600; color: var(--text);
+}
 /* The log is evidence, not decoration: monospaced, scrollable, and never taller
    than the panel it lives in. */
 .uhb-log {

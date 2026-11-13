@@ -13,6 +13,17 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [Unreleased]
+
+### Changed
+
+- **One model in the header.** The selector listed every installed model; it now
+  shows the current one, and a "⋯" button (persisted per browser) reveals the
+  full list. `default_model` in `config.toml` decides which one is current.
+- **The Second brain panel says "connected" once.** A dot, a version and a mode
+  instead of a paragraph, with the harness/providers/modes behind "Détails" -
+  the explanation only appears when something is wrong.
+
 ## [1.4.2] — 2026-11-14
 
 The patch for the first hour of real testing: an old `uh web` no longer hides in

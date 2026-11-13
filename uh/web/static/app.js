@@ -193,22 +193,61 @@ async function loadStatus() {
   }
 }
 
+// Which models the header offers. The full list is one click away; by default the
+// current one is the only line, because a dropdown of five local models is a
+// question nobody asked while trying to type a message.
+const MODELS_ADVANCED_KEY = "uh.models.advanced";
+
+function modelsAdvanced() {
+  try {
+    return window.localStorage.getItem(MODELS_ADVANCED_KEY) === "1";
+  } catch (error) {
+    return false;
+  }
+}
+
 async function loadModels() {
   const data = await api("/api/models");
   const select = $("model-select");
   select.textContent = "";
-  const names = new Set([...(data.ollama || [])]);
-  if (data.model) names.add(data.model);
-  for (const name of names) {
+  const all = new Set([...(data.ollama || [])]);
+  if (data.model) all.add(data.model);
+  const advanced = modelsAdvanced();
+  const current = data.model || [...all][0] || "";
+  const shown = advanced ? [...all] : [current].filter(Boolean);
+  for (const name of shown) {
     const option = el("option", null, name);
     option.value = name;
-    if (name === data.model) option.selected = true;
+    if (name === current) option.selected = true;
     select.appendChild(option);
   }
-  select.addEventListener("change", async () => {
+  const toggle = $("model-advanced");
+  if (toggle) {
+    // An icon: the header is one row, and a word here costs the context gauge.
+    toggle.textContent = advanced ? "▾" : "⋯";
+    toggle.setAttribute("aria-label", advanced ? "Réduire la liste" : "Tous les modèles");
+    toggle.title = advanced
+      ? "N'afficher que le modèle courant"
+      : `Voir les ${all.size} modèles installés`;
+  }
+  // onchange, not addEventListener: loadModels runs more than once.
+  select.onchange = async () => {
     const payload = { model: select.value };
     if (state.sessionId) payload.session_id = state.sessionId;
     await api("/api/model", { method: "POST", body: JSON.stringify(payload) });
+  };
+}
+
+function wireModelToggle() {
+  const toggle = $("model-advanced");
+  if (!toggle) return;
+  toggle.addEventListener("click", async () => {
+    try {
+      window.localStorage.setItem(MODELS_ADVANCED_KEY, modelsAdvanced() ? "0" : "1");
+    } catch (error) {
+      /* a private window has no storage: the list simply stays simple */
+    }
+    await loadModels();
   });
 }
 
@@ -1592,17 +1631,31 @@ async function loadUhb() {
     }
     return;
   }
+  // Connected is one line: a dot, a version, a mode. What UHB is and what it
+  // brings is a paragraph nobody reads twice - it lives behind "Détails".
+  const head = el("p", "uhb-connected");
+  head.appendChild(el("span", "dot dot-ok"));
+  head.appendChild(
+    el("span", null, `Connecté · v${data.version || "?"} · mode ${data.mode || "?"}`)
+  );
+  box.appendChild(head);
+
   const facts = el("dl", "hardware-facts");
+  facts.hidden = true;
   for (const [label, value] of [
-    ["mode", data.mode || "?"],
-    ["version", data.version || "?"],
     ["harness", data.harness || "?"],
     ["providers", (data.providers || []).join(", ") || "none"],
+    ["modes", (data.modes || []).join(", ") || "none"],
   ]) {
     facts.appendChild(el("dt", null, label));
     facts.appendChild(el("dd", null, String(value)));
   }
-  box.appendChild(el("p", "hardware-sentence", "UHB connected."));
+  const factsToggle = el("button", "data-button", "Détails");
+  factsToggle.type = "button";
+  factsToggle.addEventListener("click", () => {
+    facts.hidden = !facts.hidden;
+  });
+  box.appendChild(factsToggle);
   box.appendChild(facts);
 
   // A backend the user cannot switch off is one they will kill from the task
@@ -3766,6 +3819,7 @@ async function boot() {
   wireProviders();
   wireDock();
   wirePanes();
+  wireModelToggle();
   await loadStatus();
   // The settings table first, so the first session opened knows its defaults.
   await loadLlmPanel().catch(() => {});
