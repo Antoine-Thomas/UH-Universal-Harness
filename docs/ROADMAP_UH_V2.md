@@ -93,16 +93,30 @@ SSE stream.
 - **`uh web` starts UHB** (P1 #5, late): found through `UH_UHB_PATH` or the two
   usual layouts, waited for on `GET /status` (5 s), logged, invisible, and killed
   with the UI — including on a close-button kill, through a job object. A
-  failure is one warning line; `--no-uhb` opts out.
+  failure is one warning line; `--no-uhb` opts out;
+- **drag a session into a folder**: rows are draggable, folder headers are the
+  targets, and the empty-name header unfiles (the only way to undo a filing
+  without typing);
+- **rename or delete a folder** from its header. A folder is metadata, not a
+  row: rename updates every session carrying the value, delete clears it — the
+  conversations stay, unfiled, which is what the confirm says;
+- **delete a single message** (`DELETE /api/sessions/{id}/messages/{mid}`,
+  session-scoped, FTS trigger keeps the index honest): the wrong answer, not the
+  whole day;
+- **file attachments** with a 4 KB threshold: under it the text is inlined into
+  the message, above it only name/size/path go out with a note. Images and videos
+  are referenced and labelled honestly (the providers read text). Uploads are
+  `$UH_HOME/uploads/<session>/`, a path outside that folder is refused, and
+  deleting a session deletes its files;
+- **context pruning** (`uh/context.py`): the history is never trimmed, the
+  payload is. System prompt + first question + first answer + one summary line +
+  the last five messages, tool results over 2 KB truncated, budget from
+  `UH_CONTEXT_BUDGET` / config / 75% of the model's native window / 3000;
+- **`read_pdf`**: PDF text through pypdf, page ranges, 50 pages and 10 KB per
+  call, and the tool only exists when pypdf imports.
 
 Still open, and this is the real P2 backlog:
 
-- **drag and drop** a session into a folder (today the folder button asks for a
-  name — the feature works, the gesture is missing);
-- **rename or delete a folder** (today a folder disappears when its last session
-  leaves it, which is a side effect, not a command);
-- **delete a single message** (`DELETE /api/messages/{id}` does not exist; the
-  body is the unit the user sees, so a wrong answer cannot be pruned today);
 - the two web-side P1 leftovers: UHB status tab (`GET /api/uhb/status`, loopback
   only) and the slash-command chips carrying a tier gauge. The status tab now
   matters more than it did: the console is hidden, so "UHB did not start" is a
@@ -113,6 +127,11 @@ Still open, and this is the real P2 backlog:
   `uh` is on PATH.
 
 ### P3 — memory made visible
+
+Context summary fidelity is the first thing to improve here: the summary is
+written by the **current** provider today, because routing it through UHB needs a
+resolver from a route `ref` to a (provider kind, model) pair. When that exists,
+a small model can summarise and a large one can keep the decisions.
 
 Panels for the three memory sources (llmwiki, SiYuan, RAG) and a "decision"
 view that shows `uhb_route`'s chain, why it was chosen, and what it costs.
@@ -163,6 +182,14 @@ Testable contract:
 "What it does *not* do" is part of the contract: it does not modify `uh/`,
 `tests/` or `pyproject.toml`, and its ideas are **proposals**, never applied
 patches. Self-improvement stays `route → review → propose → human applies`.
+
+**Multimodal, when a provider actually reads images.** Attachments label images
+and videos "the model cannot see it" because UH sends text only. When a provider
+adapter supports vision (Claude, GPT-4o, Gemini), the attachment should become a
+`content` array in the OpenAI vision shape — `{"type": "image_url", "image_url":
+{"url": "data:image/png;base64,…"}}` — built from the stored upload, and the note
+becomes "sent inline". Until then the honest note stays: a path in a text message
+does not make a picture visible.
 
 ### P5 — Wazuh and packaging
 
