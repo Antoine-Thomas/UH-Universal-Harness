@@ -117,10 +117,11 @@ SSE stream.
 
 Still open, and this is the real P2 backlog:
 
-- the two web-side P1 leftovers: UHB status tab (`GET /api/uhb/status`, loopback
-  only) and the slash-command chips carrying a tier gauge. The status tab now
-  matters more than it did: the console is hidden, so "UHB did not start" is a
-  line in `uhb.log` nobody reads unless the UI shows it;
+- ~~the two web-side P1 leftovers~~ — landed late in P2: the **Second brain**
+  tab (`GET /api/uhb/status` and `POST /api/uhb/route`, both proxied by UH so the
+  CSP stays `'self'`) and the **command chips** (`/tools`, `/web`, `/new`,
+  `/clear`, `/help`), which only became meaningful once `POST /chat` sent a
+  leading `/` through `uh_commands.dispatch` instead of to the model;
 - **the quickstart**: `pip install -e .` is still required before the desktop
   shortcut exercises a working copy. A release, or a `uh install-shortcut
   --from-checkout`, would remove the trap — the shortcut currently runs whatever
@@ -128,14 +129,50 @@ Still open, and this is the real P2 backlog:
 
 ### P3 — memory made visible
 
-Context summary fidelity is the first thing to improve here: the summary is
-written by the **current** provider today, because routing it through UHB needs a
-resolver from a route `ref` to a (provider kind, model) pair. When that exists,
-a small model can summarise and a large one can keep the decisions.
-
-Panels for the three memory sources (llmwiki, SiYuan, RAG) and a "decision"
-view that shows `uhb_route`'s chain, why it was chosen, and what it costs.
 Read-only first: the cockpit observes before it acts.
+
+**Landed** (2026-11-13):
+
+- **P3.1 — memory routes** (`ec88165`, `uh/memory_view.py`): the wiki is files,
+  found through `UH_WIKI_DIR`, `wiki/`, `llmwiki/` or `uhb/hub/wiki`; notes are
+  listed with size and date, served only after the path resolves inside the
+  root, 200 KB per note. RAG is `index.faiss` + `chunks.jsonl` +
+  `manifeste.json` on disk and UHB has **no** route for it, so the payload says
+  what is built and `queryable: false` with the reason — it does not fake an
+  endpoint. SiYuan reports `configured` and that configuration is necessary but
+  not sufficient. `/api/memory/search` crosses `MEMORY.md`, the wiki and the
+  FTS5 store in one answer;
+- **P3.2 — the Memory tab** (`a006cca`): wiki list and reader, search grouped by
+  kind, RAG and SiYuan states, `MEMORY.md` sections. Works with UHB down (a
+  banner says which views are limited). No Reindex button: a test forbids the
+  word in the JS, because a button that can only fail is worse than a sentence;
+- **P3.3 — the Decision view** (`83e0eb8`, `uh/decision.py`): complexity, chain,
+  chosen model, **served** model, tokens, budget, payload size, summary,
+  duration and its average, recorded at the end of each turn in
+  `sessions.metadata.decisions` (last ten) — no migration, a decision belongs to
+  a session, not to a message.
+
+**The Decision view is honest about what was not consulted; it must never invent
+a datum.** UH does not route every turn through UHB: the router runs when the
+model calls the `uhb_route` tool or when the user asks. A turn without it shows
+"UHB was not consulted", and a plan requested from the tab is labelled "not
+applied to the turn". Two guards pin that down: the panel may only read
+`complexity` from the payload or from `/api/uhb/route`, and `ContextManager`
+records how the last payload was built (`none` / `summary` / `trim`) so a turn
+that dropped its middle is never described as summarised. The context bar
+compares the **payload** with the budget, not the turn's cumulative usage.
+
+Still open:
+
+- **P3.5 — two routes in UHB**: `POST /rag/reindex` (+ `GET /rag/status`) and
+  `GET /siyuan/blocks`. UHB is a separate repository: the change lands there, and
+  only then can UH grow a Reindex button instead of an explanation;
+- **P3.6 — wiring**: Reindex and Sync buttons in the Memory tab, once the routes
+  exist;
+- **summary fidelity**: the summary is written by the **current** provider,
+  because routing it through UHB needs a resolver from a route `ref` to a
+  (provider kind, model) pair. When that exists, a small model can summarise and
+  a large one can keep the decisions.
 
 ### P4 — dream mode and self-repair
 
@@ -195,6 +232,11 @@ does not make a picture visible.
 
 Wazuh REST integration (alerts feed in the cockpit), then the `uh-suite`
 meta-package so one `pip install` brings UH + UHB.
+
+**Opt-in auto-routing, not a default.** Today UHB is consulted only when the user
+asks or when the model calls `uhb_route`; the Decision view says so. A future
+`--uhb-auto-route` flag may route every turn through `/route`, but it changes
+which model answers every question, so it stays opt-in and off.
 
 ---
 
