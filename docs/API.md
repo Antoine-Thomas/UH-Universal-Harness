@@ -47,6 +47,8 @@ even when the failing input was one.
 | GET | `/api/memory/wiki/{note:path}` | — | `{path, source, size, text}` · `404` unknown or outside the wiki |
 | GET | `/api/memory/rag` | — | `{available, queryable, reason, path?, chunks?, documents?, index_mb?, modified?}` — never queryable from UH: UHB has no RAG route |
 | GET | `/api/memory/siyuan` | — | `{available: false, configured, reason, url}` — a UHB adapter, no route |
+| POST | `/api/memory/rag/reload` | — | `{reloaded, service: {fragments?}, at}` · `409 {error, hint: "start it with: python uhb/services/rag/serveur_rag.py", kind: "service_offline"}` · `502 {error: "UHB unreachable", kind: "uhb_offline"}` |
+| GET | `/api/memory/siyuan/blocks` | `?path=&limit=` | `{count, path, blocks: [{id, type, hpath, content}]}` · `400 {kind: "config_missing"}` · `401 {kind: "auth"}` · `502 {kind: "transport"}` |
 | GET | `/api/memory/search` | `?q=<text>&limit=` | `{query, hits: [{kind: memory\|wiki\|session, title, path, snippet}]}` · `400` empty q |
 | GET | `/api/uhb/status` | — | `{connected, version, mode, harness, providers, modes}` · `{connected: false, reason}` when UHB is down or disabled |
 | POST | `/api/uhb/route` | `{prompt, mode?, complexity?}` | `{mode, complexity, chosen, chain: [{ref, tier, model_id}], reason, allow_paid}` · `400` no prompt · `503` UHB unreachable |

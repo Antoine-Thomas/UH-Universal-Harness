@@ -226,16 +226,24 @@ def rag_state() -> dict:
 
 
 def siyuan_state() -> dict:
-    """Whether UH could reach SiYuan at all - today, it cannot."""
+    """Whether UH can read SiYuan - not directly: UHB exposes /siyuan/blocks.
+
+    ``available`` stays false because UH does not speak SiYuan; ``reads_via``
+    says which layer does, and ``ready`` says whether that layer has what it
+    needs. Three states a panel can show honestly, instead of one boolean.
+    """
     token = bool((os.environ.get("SIYUAN_TOKEN") or "").strip())
     url = (os.environ.get("SIYUAN_URL") or "").strip()
+    configured_for_blocks = bool(token and url)
     return {
         "available": False,
-        "configured": bool(token and url),
+        "reads_via": "uhb",
+        "ready": configured_for_blocks,
+        "configured": configured_for_blocks,
         "reason": (
-            "SiYuan is read by a UHB adapter; UHB exposes no route for it, and UH "
-            "does not speak SiYuan directly. Setting SIYUAN_URL and SIYUAN_TOKEN "
-            "is necessary, not sufficient."
+            "blocks are read through UHB (GET /siyuan/blocks)"
+            if configured_for_blocks
+            else "SiYuan needs SIYUAN_URL and SIYUAN_TOKEN before UHB can read blocks"
         ),
         "url": url or None,
     }

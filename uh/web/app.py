@@ -600,6 +600,20 @@ def create_app(
         from .. import memory_view
 
         data = memory_view.sources()
+        # UHB knows what the RAG service holds; our disk scan only sees the
+        # checkout. When UHB answers, its view wins and `source` says so.
+        try:
+            from ..toolsets.uhb import resolve_url
+
+            url = resolve_url()
+            if url is not None:
+                from .. import memory_actions
+
+                asked = memory_actions.rag_status(url)
+                if asked["status"] == 200 and asked["payload"]:
+                    data["rag"] = {**asked["payload"], "via": "uhb"}
+        except Exception:  # noqa: BLE001 - a memory view never fails a load
+            pass
         with _store(app):
             # Opening the store proves it is readable; the count is what the tab shows.
             data["sessions"] = {
@@ -640,6 +654,35 @@ def create_app(
         from .. import memory_view
 
         return memory_view.siyuan_state()
+
+    # -- memory actions ----------------------------------------------------- #
+    # The two routes below are the first that act instead of observing. They are
+    # proxies: the browser stays on 'self', UH is the only one that knows
+    # UH_UHB_URL, and UHB's own sentence is passed through instead of rewritten.
+    def _uhb_url() -> str:
+        from ..toolsets.uhb import resolve_url
+
+        url = resolve_url()
+        if url is None:
+            raise HTTPException(
+                status_code=502,
+                detail="UHB is disabled: UH_UHB_URL is empty or not a loopback URL",
+            )
+        return url
+
+    @app.post("/api/memory/rag/reload", dependencies=[Depends(require_token)])
+    async def memory_rag_reload() -> JSONResponse:
+        from .. import memory_actions
+
+        result = memory_actions.rag_reload(_uhb_url())
+        return JSONResponse(status_code=int(result["status"]), content=result["payload"])
+
+    @app.get("/api/memory/siyuan/blocks", dependencies=[Depends(require_token)])
+    async def memory_siyuan_blocks(path: str = "", limit: int = 20) -> JSONResponse:
+        from .. import memory_actions
+
+        result = memory_actions.siyuan_blocks(_uhb_url(), path=path, limit=limit)
+        return JSONResponse(status_code=int(result["status"]), content=result["payload"])
 
     @app.get("/api/memory/search", dependencies=[Depends(require_token)])
     async def memory_search(q: str = "", limit: int = 20) -> dict:

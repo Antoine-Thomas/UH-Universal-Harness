@@ -579,6 +579,22 @@ body {
 .memory-state-note {
   grid-column: 1 / -1; margin: 4px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45;
 }
+.memory-action { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.memory-action .hardware-pull { margin-left: 0; }
+.memory-path-input {
+  flex: 1; min-width: 90px; padding: 5px 8px; font-size: 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.memory-ok { color: var(--accent); }
+.memory-error { color: var(--error); }
+.memory-blocks { display: flex; flex-direction: column; gap: 3px; max-height: 40vh; overflow-y: auto; }
+.memory-block {
+  display: grid; grid-template-columns: 18px auto 1fr; gap: 6px;
+  font-size: 11px; padding: 3px 0; border-bottom: 1px solid var(--border);
+}
+.memory-block-type { color: var(--accent); font-family: var(--mono); }
+.memory-block-path { color: var(--muted); font-family: var(--mono); }
+.memory-block-content { color: var(--text); overflow-wrap: anywhere; }
 
 /* --- hardware card (Models tab) ------------------------------------------ */
 .hardware-card { padding: 14px; display: flex; flex-direction: column; gap: 12px; }

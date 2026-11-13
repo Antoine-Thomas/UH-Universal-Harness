@@ -148,3 +148,29 @@ def test_the_decision_tab_says_when_uhb_was_not_consulted() -> None:
 
     assert "UHB was not consulted" in script
     assert "not applied to the turn" in script, "the on-demand plan must be labelled as a plan"
+
+
+@KEEP
+def test_the_memory_actions_go_through_uh() -> None:
+    """The browser never speaks to UHB: CSP is 'self', and the token stays server-side."""
+    script = APP.read_text(encoding="utf-8")
+
+    assert "/api/memory/rag/reload" in script
+    assert "/api/memory/siyuan/blocks" in script
+    assert "127.0.0.1:8101" not in script, "a direct UHB URL in the page would bypass UH"
+    for line in script.splitlines():
+        if "siyuan/blocks" in line:
+            assert "/api/memory/siyuan/blocks" in line, f"unnamed route: {line.strip()}"
+    assert "rag/status" not in script, "UH reports the RAG state; the page does not call UHB"
+
+
+@KEEP
+def test_the_memory_tab_says_reloaded_never_reindexed() -> None:
+    """POST /rag/reindex reloads the index; claiming a rebuild would be a lie."""
+    script = APP.read_text(encoding="utf-8").lower()
+
+    assert "reload rag" in script
+    assert "reloaded at" in script
+    assert "reindexed" not in script
+    assert "index rebuilt" not in script
+    assert "rebuilt" not in script

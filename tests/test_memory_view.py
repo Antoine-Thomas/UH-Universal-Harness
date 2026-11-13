@@ -154,9 +154,10 @@ def test_siyuan_is_reported_as_unavailable_with_the_configured_flag(
 
     state = memory_view.siyuan_state()
 
-    assert state["available"] is False
-    assert state["configured"] is True
-    assert "no route" in state["reason"]
+    assert state["available"] is False, "UH itself does not speak SiYuan"
+    assert state["reads_via"] == "uhb"
+    assert state["ready"] is True
+    assert "siyuan/blocks" in state["reason"], "the sentence names the route that reads it"
 
 
 # --------------------------------------------------------------------------- #

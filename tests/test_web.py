@@ -1069,7 +1069,7 @@ def test_memory_rag_and_siyuan_answer_without_a_checkout(
 
             siyuan = (await http.get("/api/memory/siyuan", headers=AUTH)).json()
             assert siyuan["available"] is False
-            assert "no route" in siyuan["reason"]
+            assert siyuan["reads_via"] == "uhb"
 
     run(scenario())
 
@@ -1105,5 +1105,189 @@ def test_a_turn_records_a_decision_for_the_panel(
 
             missing = await http.get("/api/sessions/inconnu/decision", headers=AUTH)
             assert missing.status_code == 404
+
+    run(scenario())
+
+
+def _uhb_transport(handler) -> None:
+    """Point the memory actions at a fake UHB (no socket, no server)."""
+    import httpx
+
+    from uh import memory_actions
+
+    memory_actions.set_client_factory(
+        lambda timeout: httpx.Client(transport=httpx.MockTransport(handler), timeout=timeout)
+    )
+
+
+@pytest.fixture(autouse=True)
+def _restore_memory_factory():
+    import httpx
+
+    from uh import memory_actions
+
+    yield
+    memory_actions.set_client_factory(lambda timeout: httpx.Client(timeout=timeout))
+
+
+def test_rag_reload_is_proxied_and_reports_the_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh.toolsets import uhb as uhb_mod
+
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
+    _uhb_transport(
+        lambda request: httpx.Response(200, json={"reloaded": True, "service": {"fragments": 4893}})
+    )
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            answer = await http.post("/api/memory/rag/reload", headers=AUTH)
+            assert answer.status_code == 200
+            body = answer.json()
+            assert body["reloaded"] is True
+            assert body["service"]["fragments"] == 4893
+            assert "at" in body
+
+    run(scenario())
+
+
+def test_rag_reload_keeps_the_409_and_its_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh.toolsets import uhb as uhb_mod
+
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
+    _uhb_transport(
+        lambda request: httpx.Response(409, json={"error": {"message": "the RAG service is down"}})
+    )
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            answer = await http.post("/api/memory/rag/reload", headers=AUTH)
+            assert answer.status_code == 409
+            body = answer.json()
+            assert body["kind"] == "service_offline"
+            assert "start it with" in body["hint"]
+
+    run(scenario())
+
+
+def test_rag_reload_without_uhb_is_a_502(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh.toolsets import uhb as uhb_mod
+
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: None)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            answer = await http.post("/api/memory/rag/reload", headers=AUTH)
+            assert answer.status_code == 502
+            assert "UHB" in answer.json()["detail"]
+
+    run(scenario())
+
+
+def test_siyuan_blocks_are_proxied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from uh.toolsets import uhb as uhb_mod
+
+    seen: dict = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            json={"count": 1, "path": "veille", "blocks": [
+                {"id": "a", "type": "h", "hpath": "/veille", "content": "Titre"}
+            ]},
+        )
+
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
+    _uhb_transport(handler)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            answer = await http.get("/api/memory/siyuan/blocks?path=veille&limit=20", headers=AUTH)
+            assert answer.status_code == 200
+            assert answer.json()["count"] == 1
+            assert "path=veille" in seen["url"]
+
+    run(scenario())
+
+
+@pytest.mark.parametrize(
+    "upstream,expected,kind,fragment",
+    [
+        (400, 400, "config_missing", "SIYUAN_TOKEN"),
+        (401, 401, "auth", "check SIYUAN_TOKEN"),
+        (502, 502, "transport", "unreachable"),
+    ],
+)
+def test_siyuan_blocks_map_their_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, upstream: int, expected: int, kind: str, fragment: str
+) -> None:
+    from uh.toolsets import uhb as uhb_mod
+
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
+    _uhb_transport(
+        lambda request: httpx.Response(upstream, json={"error": {"message": "SiYuan is not reachable at http://x"}})
+    )
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            answer = await http.get("/api/memory/siyuan/blocks", headers=AUTH)
+            assert answer.status_code == expected
+            body = answer.json()
+            assert body["kind"] == kind
+            assert fragment in (body.get("hint") or "") + (body.get("error") or "")
+
+    run(scenario())
+
+
+def test_the_rag_state_comes_from_uhb_when_it_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The disk scan sees a checkout; UHB sees the service that holds the index."""
+    from uh.toolsets import uhb as uhb_mod
+
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
+    _uhb_transport(
+        lambda request: httpx.Response(
+            200,
+            json={"built": True, "source": "service", "chunks": 4893, "index_bytes": 0,
+                  "service": True},
+        )
+    )
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            data = (await http.get("/api/memory/sources", headers=AUTH)).json()
+            assert data["rag"]["chunks"] == 4893
+            assert data["rag"]["via"] == "uhb", "the panel must say where the number came from"
+
+    run(scenario())
+
+
+def test_a_dead_uhb_leaves_the_local_disk_view(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh.toolsets import uhb as uhb_mod
+
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
+    _uhb_transport(lambda request: (_ for _ in ()).throw(httpx.ConnectError("refused", request=request)))
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            data = (await http.get("/api/memory/sources", headers=AUTH)).json()
+            assert "via" not in data["rag"], "no service answer, no claim about the service"
+            assert "available" in data["rag"]
 
     run(scenario())

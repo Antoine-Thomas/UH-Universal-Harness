@@ -17,6 +17,22 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+// Like api(), but a refusal keeps its body: these routes answer {error, hint,
+// kind} on purpose, and throwing away the hint would throw away the fix.
+async function apiResult(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    document.body.textContent = "Session expired: reopen the URL printed by `uh web`.";
+    return { ok: false, status: 401, body: {} };
+  }
+  return { ok: response.ok, status: response.status, body };
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -1680,20 +1696,28 @@ async function loadMemory() {
 
   // -- RAG ------------------------------------------------------------------
   const rag = memorySection("RAG");
+  // Two shapes describe the same thing: the local disk scan (`available`,
+  // `index_mb`) and UHB's view of the service (`built`, `index_bytes`, `chunks`).
   const ragState = data.rag || {};
+  const ragBuilt = Boolean(ragState.available || ragState.built || ragState.chunks > 0);
+  const size = ragState.index_mb
+    ? `${ragState.index_mb} MB`
+    : ragState.index_bytes
+      ? `${Math.round(ragState.index_bytes / (1024 * 1024))} MB`
+      : "";
   rag.appendChild(
     stateBlock(
       [
-        ["index", ragState.available ? "built" : "not built"],
-        ["size", ragState.index_mb ? `${ragState.index_mb} MB` : ""],
+        ["index", ragBuilt ? `built (${ragState.source || ragState.via || "disk"})` : "not built"],
+        ["size", size],
         ["chunks", ragState.chunks],
         ["documents", ragState.documents],
-        ["modified", ragState.modified],
+        ["modified", ragState.modified || ragState.last_indexed],
       ],
       ragState.reason
     )
   );
-  if (!ragState.available) {
+  if (!ragBuilt) {
     rag.appendChild(
       el(
         "p",
@@ -1702,6 +1726,43 @@ async function loadMemory() {
       )
     );
   }
+  // The only real action that exists: ask the running service to re-read the
+  // index it already has. The button says reload because that is what happens.
+  const reload = el("button", "hardware-pull", "Reload RAG");
+  const reloadState = el("p", "memory-state-note", "");
+  reload.addEventListener("click", async () => {
+    reload.disabled = true;
+    reload.textContent = "reloading…";
+    reloadState.className = "memory-state-note";
+    reloadState.textContent = "";
+    const answer = await apiResult("/api/memory/rag/reload", { method: "POST" });
+    reload.disabled = false;
+    reload.textContent = "Reload RAG";
+    if (answer.ok) {
+      const chunks = (answer.body.service && answer.body.service.fragments) || "?";
+      const when = new Date(answer.body.at).toLocaleTimeString();
+      reloadState.className = "memory-state-note memory-ok";
+      reloadState.textContent = `Reloaded at ${when} · ${chunks} chunks`;
+      setTimeout(() => {
+        reloadState.textContent = "";
+        reloadState.className = "memory-state-note";
+      }, 5000);
+      return;
+    }
+    const body = answer.body || {};
+    reloadState.className = "memory-state-note memory-error";
+    if (body.kind === "service_offline") {
+      reloadState.textContent = body.hint || "the RAG service is not running";
+    } else if (body.kind === "uhb_offline") {
+      reloadState.textContent = "UHB offline - memory actions unavailable";
+    } else {
+      reloadState.textContent = body.error || `reload failed (HTTP ${answer.status})`;
+    }
+  });
+  const ragAction = el("div", "memory-action");
+  ragAction.appendChild(reload);
+  ragAction.appendChild(reloadState);
+  rag.appendChild(ragAction);
   box.appendChild(rag);
 
   // -- SiYuan ---------------------------------------------------------------
@@ -1716,6 +1777,57 @@ async function loadMemory() {
       siyuanState.reason
     )
   );
+  // Blocks are read through UH, never straight from the kernel: the CSP is
+  // 'self' and the token stays on the server side.
+  const pathInput = el("input", "memory-path-input");
+  pathInput.value = "veille";
+  pathInput.placeholder = "path (hpath filter)";
+  pathInput.setAttribute("aria-label", "SiYuan path filter");
+  const load = el("button", "hardware-pull", "Load blocks");
+  const list = el("div", "memory-blocks");
+  const note = el("p", "memory-state-note", "");
+  load.addEventListener("click", async () => {
+    load.disabled = true;
+    load.textContent = "loading…";
+    note.className = "memory-state-note";
+    note.textContent = "";
+    list.textContent = "";
+    const path = pathInput.value.trim();
+    const query = path ? `?path=${encodeURIComponent(path)}&limit=20` : "?limit=20";
+    const answer = await apiResult(`/api/memory/siyuan/blocks${query}`);
+    load.disabled = false;
+    load.textContent = "Load blocks";
+    if (answer.ok) {
+      const blocks = answer.body.blocks || [];
+      note.textContent = `${answer.body.count || 0} block(s)${path ? ` in ${path}` : ""}`;
+      for (const block of blocks) {
+        const row = el("div", "memory-block");
+        row.appendChild(el("span", "memory-block-type", String(block.type || "?")));
+        row.appendChild(el("span", "memory-block-path", String(block.hpath || "")));
+        row.appendChild(el("span", "memory-block-content", String(block.content || "")));
+        list.appendChild(row);
+      }
+      if (!blocks.length) list.appendChild(el("p", "panel-hint", "no block for this path"));
+      return;
+    }
+    const body = answer.body || {};
+    note.className = "memory-state-note memory-error";
+    if (body.kind === "config_missing") {
+      note.textContent = body.hint || "SIYUAN_TOKEN not set";
+    } else if (body.kind === "auth") {
+      note.textContent = "SiYuan rejected the token - check SIYUAN_TOKEN";
+    } else if (body.kind === "uhb_offline") {
+      note.textContent = "UHB offline - memory actions unavailable";
+    } else {
+      note.textContent = body.error || `blocks failed (HTTP ${answer.status})`;
+    }
+  });
+  const siyuanForm = el("div", "memory-action");
+  siyuanForm.appendChild(pathInput);
+  siyuanForm.appendChild(load);
+  siyuan.appendChild(siyuanForm);
+  siyuan.appendChild(note);
+  siyuan.appendChild(list);
   box.appendChild(siyuan);
 }
 
