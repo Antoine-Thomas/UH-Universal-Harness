@@ -1084,6 +1084,18 @@ def shell_command_hint(text: str) -> str | None:
     return None
 
 
+def _stop_embedded_web() -> None:
+    """Stop a UI started by ``/web``. Never raises: the console is closing."""
+    try:
+        from .web import embedded
+    except ImportError:  # pragma: no cover - uh.web is always importable
+        return
+    try:
+        embedded.stop_running()
+    except Exception:  # noqa: BLE001 - a shutdown must not mask the exit code
+        pass
+
+
 def _run_repl(session: console.ChatSession) -> int:
     """Interactive loop: prompts go to the model, ``/command`` to the registry.
 
@@ -1150,6 +1162,10 @@ def _run_repl(session: console.ChatSession) -> int:
             # The REPL never dies on Ctrl+C; the prompt comes back.
             print("", file=sys.stderr)
             ui.error(console.INTERRUPT_NOTE)
+
+    # `/web` starts a UI in a thread: it dies with the console, whatever ended
+    # the loop (/exit, EOF, Ctrl+C), so nothing keeps port 8765 afterwards.
+    _stop_embedded_web()
 
     if session.session_id:
         ui.errout(f"resume with: uh chat --session {display_id(session.session_id)}")

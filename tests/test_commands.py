@@ -177,10 +177,6 @@ def test_web_runs_the_search_without_the_model(
     assert session.history == before  # no model call, nothing added to the history
 
 
-def test_web_requires_a_query(session: ChatSession) -> None:
-    assert "usage: /web" in commands.dispatch(session, "/web").err
-
-
 def test_web_reports_search_errors(
     session: ChatSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:

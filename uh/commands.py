@@ -328,10 +328,21 @@ def _cmd_tools(session: "ChatSession", _args: str) -> CommandResult:
 
 
 def _cmd_web(session: "ChatSession", args: str) -> CommandResult:
-    """Run the web_search toolset directly - no model call, nothing stored."""
+    """``/web <query>`` searches; ``/web`` alone serves the browser UI.
+
+    Two jobs on one name because they are the same intent from the user's side:
+    "the web". The query path is the direct toolset call - no model, nothing
+    stored; the no-argument path starts the UI in a background thread so the
+    console keeps working.
+    """
     query = args.strip()
-    if not query:
-        return CommandResult(err="usage: /web <query>")
+    if query:
+        return _web_search(session, query)
+    return _web_ui(session)
+
+
+def _web_search(session: "ChatSession", query: str) -> CommandResult:
+    """Run the web_search toolset directly - no model call, nothing stored."""
     toolset = (session.toolsets or {}).get("web_search")
     if toolset is None:
         from .toolsets.web_search import WebSearchToolset
@@ -351,6 +362,25 @@ def _cmd_web(session: "ChatSession", args: str) -> CommandResult:
         if snippet:
             lines.append(f"     {snippet[:160]}")
     return CommandResult(out="\n".join(lines))
+
+
+def _web_ui(session: "ChatSession") -> CommandResult:
+    """Start the UI in a thread, or report the one already serving."""
+    from .web import embedded
+
+    try:
+        server, started = embedded.start_in_background(workspace=session.workspace)
+    except embedded.WebStartError as exc:
+        return CommandResult(err=f"web: {exc}")
+    if not started:
+        return CommandResult(
+            out=f"web UI already running: {server.url}\n  /exit stops it"
+        )
+    return CommandResult(
+        out=f"web UI: {server.url}\n"
+        "  opened on the session workspace · the console keeps working · "
+        "/exit stops the server"
+    )
 
 
 def _cmd_clear(session: "ChatSession", _args: str) -> CommandResult:
@@ -472,8 +502,8 @@ REGISTRY: tuple[SlashCommand, ...] = (
     SlashCommand("local-only", "Nothing leaves the machine; off needs consent", _cmd_local_only,
                  args_hint="[on|off]", group="Model"),
     SlashCommand("tools", "List active toolsets and their tools", _cmd_tools, group="Info"),
-    SlashCommand("web", "Search the web directly (no model call)", _cmd_web,
-                 args_hint="<query>", group="Info"),
+    SlashCommand("web", "Search the web, or start the browser UI", _cmd_web,
+                 args_hint="[query]", group="Info"),
     SlashCommand("clear", "Clear the conversation, keep the session", _cmd_clear, group="Session"),
     SlashCommand(
         "workspace",

@@ -71,7 +71,7 @@ uh doctor
   `deepseek`, `omnirouter` and the free-provider router. The chain is
   `ollama → cloudflare → deepseek → omnirouter → router`; a provider without a
   key is skipped, every switch is printed on stderr, and `/web <query>` runs a
-  search without going through the model.
+  search without going through the model (`/web` alone opens the browser UI).
 - **Sessions and configuration.** SQLite FTS5 store (`uh sessions
   list|show|search|delete|resume`), layered configuration (`uh config
   show|get|set|path`), `uh memory migrate|show`, extended `uh doctor`.
@@ -214,6 +214,14 @@ and returns errors the model can read — an error is a message, not a crash.
 model call and without touching the session history. The toolset returns
 `{"error": ...}` on network/HTTP failures and a `note` when the page looks
 throttled, so the model (or you) can tell the two apart.
+
+`/web` with no argument is the other half of the same intent: it serves the web
+UI of `uh web` in a background thread, on the session's workspace and on the
+same tokenised loopback URL, and the console keeps answering prompts while it
+runs. A second `/web` reports the URL already served instead of binding the
+port twice; `/exit` (or EOF, or Ctrl+C) stops the server, so no orphan process
+keeps port 8765. A missing `[web]` extra, or a busy port, is one line on stderr
+— never a traceback.
 
 ## Second brain (UHB)
 
