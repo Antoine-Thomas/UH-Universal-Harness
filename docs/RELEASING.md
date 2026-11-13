@@ -66,6 +66,13 @@ On GitHub: *Settings → Environments* → `testpypi` (no rule) and `pypi` with
 ## Release checklist
 
 ```bash
+# 0. the platform gate: this suite is written on Windows and must be green on
+#    Linux too, or CI will stop the release (it did, on 1.3.0: two tests patched
+#    os.name, which breaks pathlib on a runner, and three assumed the maintainer's
+#    ~/.omniroute/.env existed). One venv, once:
+#      wsl -e bash -lc 'python3 -m venv ~/uhlin && ~/uhlin/bin/pip install -e ".[dev,web]"'
+#      wsl -e bash -lc 'cd /mnt/c/.../UH-Universal-Harness && ~/uhlin/bin/python -m pytest -q'
+
 # 1. version in BOTH files (they must agree: uh --version reads uh/__init__.py)
 #    pyproject.toml  -> version = "X.Y.Z"
 #    uh/__init__.py  -> __version__ = "X.Y.Z"

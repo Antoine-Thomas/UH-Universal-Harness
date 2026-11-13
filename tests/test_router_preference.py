@@ -12,6 +12,11 @@ import pytest
 def _chain_kinds(monkeypatch: pytest.MonkeyPatch, *, ollama_up: bool, prefer: str | None = None):
     from uh import cli, providers
 
+    # The chain skips a provider that is not configured, and "configured" used to
+    # mean "this machine has ~/.omniroute/.env": the test passed on the maintainer's
+    # Windows box and failed on Linux, where no gateway config exists. A test states
+    # what it needs.
+    monkeypatch.setenv("UH_OMNIROUTER_URL", "http://127.0.0.1:20128")
     monkeypatch.setattr(cli, "list_models", lambda: [{"name": "qwen3:8b"}] if ollama_up else [])
     monkeypatch.setattr(cli, "_make_provider", lambda kind, model: providers.OllamaProvider("qwen3:8b") if kind == "ollama" else providers.OmniRouterProvider("auto/best-free"))
     monkeypatch.setattr(cli, "_cloudflare_entry", lambda: None)

@@ -54,9 +54,23 @@ def parse_at(at: str) -> Tuple[int, int]:
     return hour, minute
 
 
+def _windows() -> bool:
+    """Is this Windows? Through a function on purpose.
+
+    The tests used to patch ``os.name`` to exercise the Task Scheduler branch. On
+    Linux that turns every ``Path()`` created in the process into a
+    ``WindowsPath`` - including the ones pytest builds while reporting a failure -
+    and the whole run dies with ``NotImplementedError: cannot instantiate
+    'WindowsPath'``. Measured on CI with 1.3.0: the suite crashed at 27 % without
+    naming a test. A one-line indirection keeps the branch testable and the
+    process honest.
+    """
+    return os.name == "nt"
+
+
 def startup_dir() -> Optional[Path]:
     """The per-user Startup folder, or ``None`` off Windows."""
-    if os.name != "nt":
+    if not _windows():
         return None
     appdata = os.environ.get("APPDATA")
     if not appdata:
@@ -117,7 +131,7 @@ def _has_uh(executable: str) -> bool:
 
 def _system_pythons() -> List[str]:
     """``%LOCALAPPDATA%\\Programs\\Python\\Python3xx\\python.exe``, newest first."""
-    if os.name != "nt":
+    if not _windows():
         return []
     local = os.environ.get("LOCALAPPDATA")
     if not local:
@@ -240,7 +254,7 @@ def _run(argv: List[str]) -> subprocess.CompletedProcess:
 
 
 def task_exists() -> bool:
-    if os.name != "nt":
+    if not _windows():
         return False
     try:
         result = _run(["schtasks", "/query", "/tn", TASK_NAME])
@@ -338,7 +352,7 @@ def task_xml(interpreter: str, arguments: Sequence[str], at: str) -> str:
 
 def _install_schtasks(interpreter: str, arguments: Sequence[str], at: str) -> bool:
     """Register the daily task from XML; False means "no right", not "no try"."""
-    if os.name != "nt":
+    if not _windows():
         return False
     # A leftover task may still point at an old interpreter: `/create /f` keeps
     # the previous action in some versions, so delete first. Then one XML file,
@@ -415,7 +429,7 @@ def install(at: str = "03:00", budget: int = DEFAULT_BUDGET) -> dict:
 def uninstall() -> dict:
     """Remove both mechanisms; report what was actually there."""
     removed: List[str] = []
-    if os.name == "nt":
+    if _windows():
         try:
             result = _run(["schtasks", "/delete", "/tn", TASK_NAME, "/f"])
             if result.returncode == 0:
@@ -457,7 +471,7 @@ def status(at: str = "03:00") -> Dict[str, object]:
         "startup": str(script) if has_startup else None,
         "last_pass": last_pass(),
         "next_run": next_run(at) if mechanism else None,
-        "platform": "windows" if os.name == "nt" else os.name,
+        "platform": "windows" if _windows() else os.name,
     }
 
 

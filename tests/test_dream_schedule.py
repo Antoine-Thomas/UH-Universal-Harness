@@ -19,7 +19,9 @@ from uh import dream_schedule
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("UH_HOME", str(tmp_path / "uh-home"))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-    monkeypatch.setattr(dream_schedule.os, "name", "nt")
+    # Patch the indirection, not ``os.name``: on Linux the latter turns every
+    # Path() in the process into a WindowsPath and the run dies inside pytest.
+    monkeypatch.setattr(dream_schedule, "_windows", lambda: True)
     return tmp_path
 
 

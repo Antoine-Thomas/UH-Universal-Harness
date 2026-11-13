@@ -88,6 +88,15 @@ knobs for the model, and a dream daemon that works when the machine is idle.
   a file that did not exist. Nodes carry `state` and a null count now.
 - The layout test that sliced `app.js` up to the boot banner broke as soon as a
   section was inserted before it; it now stops at the next section marker.
+- **The suite only ran on Windows, and it showed**: two dream tests patched
+  `os.name` to exercise the Task Scheduler branch, which on Linux turns every
+  `Path()` in the process into a `WindowsPath` - the run died at 27 % inside
+  pytest's own reporting, without naming a test (`NotImplementedError: cannot
+  instantiate 'WindowsPath'`). `dream_schedule` reads the platform through
+  `_windows()` now, and the tests patch that. Three router tests also assumed
+  `~/.omniroute/.env` existed - true on the maintainer's box, false on a runner -
+  and state the environment they need. Both were found by running the suite under
+  WSL before publishing, which is now part of the release gate.
 
 ### Notes
 
