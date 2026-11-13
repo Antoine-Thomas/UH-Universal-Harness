@@ -1421,6 +1421,38 @@ async function loadCapabilities() {
       facts.appendChild(el("dd", null, value));
     }
     box.appendChild(facts);
+
+    // Ollama is a boost for people who already have it. Three states, no red,
+    // no install button: the sentence below is the whole product statement.
+    const ollama = await api("/api/system/ollama").catch(() => null);
+    if (ollama) {
+      const LABELS = {
+        active: ["⚡ Boost actif", "boost-active"],
+        available: ["Boost disponible", "boost-available"],
+        unavailable: ["Boost local indisponible", "boost-unavailable"],
+      };
+      const [label, style] = LABELS[ollama.boost] || LABELS.unavailable;
+      const row = el("div", `boost ${style}`);
+      row.appendChild(el("span", "boost-badge", label));
+      row.appendChild(
+        el(
+          "span",
+          "boost-meta",
+          ollama.running && ollama.models.length
+            ? ollama.models.slice(0, 2).join(", ")
+            : ollama.reason || ""
+        )
+      );
+      box.appendChild(row);
+      box.appendChild(
+        el(
+          "p",
+          "boost-sentence",
+          "Ollama est optionnel. UH ne le telecharge ni ne l'exige - il accelere et reduit le cout quand il est deja installe."
+        )
+      );
+    }
+
     if (!data.local_possible) {
       box.appendChild(
         el(

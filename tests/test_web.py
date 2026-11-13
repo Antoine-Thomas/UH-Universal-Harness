@@ -1291,3 +1291,41 @@ def test_a_dead_uhb_leaves_the_local_disk_view(
             assert "available" in data["rag"]
 
     run(scenario())
+
+
+# --------------------------------------------------------------------------- #
+# the boost, seen from the UI
+# --------------------------------------------------------------------------- #
+def test_the_boost_route_is_always_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from uh import ollama_spawn
+
+    monkeypatch.setattr(ollama_spawn, "status", lambda: {
+        "installed": False, "running": False, "models": [], "boost": "unavailable",
+        "reason": "Ollama is not installed", "optional": True, "url": "http://127.0.0.1:11434",
+        "savings": {"local_passes": 0, "passes_logged": 3, "tokens_saved_estimate": 0, "basis": "0 of 3"},
+    })
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            answer = await http.get("/api/system/ollama", headers=AUTH)
+            assert answer.status_code == 200, "a missing service is not an error"
+            body = answer.json()
+            assert body["boost"] == "unavailable"
+            assert body["optional"] is True
+
+    run(scenario())
+
+
+@pytest.mark.parametrize(
+    "running,installed,expected",
+    [(True, True, "active"), (False, True, "available"), (False, False, "unavailable")],
+)
+def test_the_three_boost_states(running: bool, installed: bool, expected: str) -> None:
+    from uh import ollama_spawn
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ollama_spawn, "is_up", lambda *a, **k: running)
+        patch.setattr(ollama_spawn, "find_binary", lambda: "binary" if installed else None)
+        patch.setattr(ollama_spawn, "models", lambda *a, **k: ["qwen3:8b"] if running else [])
+        assert ollama_spawn.status()["boost"] == expected

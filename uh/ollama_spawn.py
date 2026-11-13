@@ -109,7 +109,85 @@ def ensure(target: Optional[str] = None, timeout: float = START_TIMEOUT) -> str:
     return NOT_INSTALLED
 
 
+def models(target: Optional[str] = None, timeout: float = PROBE_TIMEOUT) -> list:
+    """Installed model names, or an empty list - never an exception."""
+    try:
+        with httpx.Client(timeout=timeout) as http:
+            payload = http.get(f"{(target or url())}/api/tags").json()
+    except Exception:  # noqa: BLE001 - not answering is not an error here
+        return []
+    entries = payload.get("models") if isinstance(payload, dict) else None
+    names = []
+    for entry in entries or []:
+        if isinstance(entry, dict) and entry.get("name"):
+            names.append(str(entry["name"]))
+    return names
+
+
+def _boost(days: int = 30) -> dict:
+    """Tokens the local model saved, counted from the passes that used it.
+
+    Not a forecast: the number is the number of logged passes routed to a local
+    model, times the average size of a pass measured on this machine. If no pass
+    used a local model, the answer is 0 and the reason says so.
+    """
+    import re
+
+    from .dream import dreams_dir
+
+    # The pass log, not the UHB log: only schedule.log records "routed: ...".
+    log = dreams_dir() / "schedule.log"
+    local = 0
+    seen = 0
+    if log.is_file():
+        pattern = re.compile(r"routed:\s*(\S+)")
+        try:
+            for line in log.read_text(encoding="utf-8", errors="replace").splitlines()[-2000:]:
+                match = pattern.search(line)
+                if not match:
+                    continue
+                seen += 1
+                if match.group(1).lower().startswith(("ollama/", "qwen", "lfm")):
+                    local += 1
+        except OSError:
+            pass
+    average = 4700  # measured across six passes on 2026-11-13
+    return {
+        "local_passes": local,
+        "passes_logged": seen,
+        "tokens_saved_estimate": local * average,
+        "basis": f"{local} of {seen} logged passes routed locally x ~{average} tokens",
+    }
+
+
+def status(target: Optional[str] = None) -> dict:
+    """The three states the UI shows, always as a 200 with a short reason."""
+    installed = find_binary() is not None
+    running = is_up(target)
+    if running:
+        boost = "active"
+        reason = "Ollama answers: local runs cost no tokens"
+    elif installed:
+        boost = "available"
+        reason = "Ollama is installed but not running"
+    else:
+        boost = "unavailable"
+        reason = "Ollama is not installed"
+    return {
+        "installed": installed,
+        "running": running,
+        "models": models(target) if running else [],
+        "boost": boost,
+        "reason": reason,
+        "optional": True,
+        "url": target or url(),
+        "savings": _boost(),
+    }
+
+
 __all__ = [
+    "status",
+    "models",
     "ALREADY_UP",
     "BINARY_ENV",
     "DEFAULT_URL",

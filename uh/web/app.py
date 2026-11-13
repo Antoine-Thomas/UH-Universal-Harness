@@ -581,6 +581,17 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(plan.get("error")))
         return plan
 
+    @app.get("/api/system/ollama", dependencies=[Depends(require_token)])
+    async def system_ollama() -> dict:
+        """Always 200: Ollama is optional, and a 404 would read like a failure.
+
+        The UI needs three states - running, installed but silent, absent - and a
+        reason for each. A missing service is not an error.
+        """
+        from .. import ollama_spawn
+
+        return ollama_spawn.status()
+
     # -- decision ---------------------------------------------------------- #
     @app.get("/api/sessions/{session_id}/decision", dependencies=[Depends(require_token)])
     async def session_decision(session_id: str) -> dict:

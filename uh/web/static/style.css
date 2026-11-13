@@ -612,6 +612,18 @@ body {
   color: var(--on-accent);
 }
 .hardware-pull:disabled { opacity: .6; cursor: default; }
+.boost {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  font-size: 12px;
+}
+.boost-badge { font-weight: 600; }
+.boost-active .boost-badge { color: var(--accent); }
+.boost-available .boost-badge { color: var(--highlight); }
+.boost-unavailable .boost-badge { color: var(--muted); }
+.boost-meta { color: var(--muted); overflow-wrap: anywhere; }
+.boost-sentence { margin: 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+
 .hardware-facts {
   display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
   margin: 0; font-size: 12px;
