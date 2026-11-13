@@ -263,6 +263,24 @@ def test_the_second_brain_draws_the_graph_and_a_turn_can_carry_a_skill() -> None
 
 
 @KEEP
+def test_the_panel_can_be_detached_and_a_phone_cannot() -> None:
+    """Docking v1: detach the configuration panel, snap it to an edge, dock back."""
+    page = INDEX.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    script = APP.read_text(encoding="utf-8")
+    mobile = css.split("@media (max-width: 768px)", 1)[1]
+
+    assert 'id="panel-float"' in page
+    assert 'id="panel-dock"' in page
+    assert "detachPanel" in script and "dockPanel" in script
+    assert "DOCK_SNAP" in script, "the magnetic edges need a threshold"
+    assert ".rightbar.floating" in css
+    assert "#layout.dock-float" in css
+    assert "#panel-float { display: none; }" in mobile, "no docking on a phone"
+    assert "isPhone()" in script, "the same breakpoint guards the click"
+
+
+@KEEP
 def test_the_data_tab_wires_backup_and_skills() -> None:
     """A panel that promises an export must call the routes that do it."""
     script = APP.read_text(encoding="utf-8")

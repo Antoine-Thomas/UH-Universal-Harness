@@ -305,10 +305,18 @@ sees while it runs. Items are listed with their state, not their ambition.
   background: the page reads as a desktop app, and the browser is still the
   runtime. A phone (<= 768 px) keeps the full-bleed layout; the right-panel
   overlay at <= 1200 px now sits inside the frame instead of over it.
-- **Dockable consoles** - one UI, several panes (chat, logs, terminal, decision),
-  detachable, resizable, with magnetic edges. Reference studied:
-  `github.com/makushingu/harness-maxxing` (already named in section 5).
-  *To do - the largest item, and the one most likely to break the layout.*
+- **Dockable consoles** - *v1 delivered, not the full engine*. The Configuration
+  panel (which hosts Telemetry, Data, Memory, Decision, Second brain) detaches
+  into a floating window: dragged by its header, resized natively through CSS
+  `resize`, magnetic to the left/right/bottom edges (28 px threshold; the bottom
+  snap only applies to a panel shorter than 60% of the viewport, because a tall
+  panel dragged down is always "near the bottom"), and docked back with one
+  button. While it floats, the grid's last column collapses so nothing is left
+  behind, and below 768 px the button is hidden - the panel is already an overlay
+  there. **What is not done**: multi-pane docking (chat, logs, terminal as
+  separate detachable panes, Dockview-style). That needs a layout engine, and
+  doing it with a 300 KB vendored library contradicts the dependency rule; it is
+  the one item where a real engine may be the honest answer.
 - **Telemetry** - *delivered* (`uh/telemetry.py`, `GET /api/telemetry`, tab
   "Telemetry"). Tokens per day split local/cloud from the decisions already
   recorded on the sessions (`at` is now written with each turn; a record that

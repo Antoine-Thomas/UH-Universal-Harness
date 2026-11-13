@@ -991,3 +991,27 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .mem-edge-wired { animation: none; }
 }
+
+/* --- dockable panel (P6): the detached window ------------------------------ */
+/* Docked, the grid is the layout. Detached, the panel leaves the flow: fixed,
+   draggable by its header, resizable through CSS `resize`, and the last column of
+   the grid collapses so nothing is left behind. No layout library. */
+#layout.dock-float {
+  grid-template-columns: var(--sidebar-w, 260px) var(--splitter, 6px) 1fr 0 0;
+}
+#layout.dock-float.sidebar-collapsed {
+  grid-template-columns: 0 0 1fr 0 0;
+}
+#layout.dock-float #splitter-right { display: none; }
+.rightbar.floating {
+  position: fixed; right: auto; bottom: auto; z-index: 60;
+  display: flex; resize: both; overflow: auto;
+  min-width: 280px; min-height: 200px;
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .5);
+}
+.rightbar.floating .panel-head { cursor: move; }
+.rightbar.floating.dragging { user-select: none; }
+@media (max-width: 768px) {
+  #panel-float { display: none; }
+}

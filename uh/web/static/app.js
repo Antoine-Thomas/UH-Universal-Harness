@@ -2102,6 +2102,7 @@ function openProviders() {
 }
 
 function closeProviders() {
+  if (panelIsFloating()) dockPanel();
   $("layout").classList.add("right-collapsed");
   stopTelemetryPolling();
 }
@@ -2943,6 +2944,130 @@ async function loadMemoryGraph() {
   }
 }
 
+// --- dockable panel (P6): detach, drag, snap to an edge, dock back ---------- //
+// v1 of the cockpit, without a layout library: the grid stays the source of truth
+// while the panel is docked, and the panel becomes fixed (draggable, resizable
+// through CSS `resize`, magnetic to the window edges) while it is detached.
+// Below 768 px the button is hidden: the panel is already an overlay there, and a
+// draggable copy would fight the drawer. The chat column is not detachable yet -
+// that is the part that would need a real docking engine.
+const DOCK_SNAP = 28;
+let dockDrag = null;
+
+function isPhone() {
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function panelIsFloating() {
+  return $("providers-panel").classList.contains("floating");
+}
+
+function placePanel(rect) {
+  const panel = $("providers-panel");
+  panel.style.left = `${Math.round(rect.left)}px`;
+  panel.style.top = `${Math.round(rect.top)}px`;
+  panel.style.width = `${Math.round(rect.width)}px`;
+  panel.style.height = `${Math.round(rect.height)}px`;
+}
+
+function detachPanel() {
+  if (panelIsFloating() || isPhone()) return;
+  openProviders();
+  const panel = $("providers-panel");
+  const rect = panel.getBoundingClientRect();
+  $("layout").classList.add("dock-float");
+  panel.classList.add("floating");
+  placePanel({
+    left: Math.max(12, Math.min(rect.left, window.innerWidth - 380)),
+    top: Math.max(12, rect.top + 16),
+    width: Math.max(320, Math.min(420, rect.width + 40)),
+    // A detached window that fills the screen is not detached: start at 70% of
+    // the column, capped at three quarters of the viewport.
+    height: Math.max(300, Math.min(rect.height * 0.7 || 520, window.innerHeight * 0.75)),
+  });
+  $("panel-float").hidden = true;
+  $("panel-dock").hidden = false;
+}
+
+function dockPanel() {
+  const panel = $("providers-panel");
+  panel.classList.remove("floating", "dragging");
+  panel.style.left = "";
+  panel.style.top = "";
+  panel.style.width = "";
+  panel.style.height = "";
+  $("layout").classList.remove("dock-float");
+  $("panel-float").hidden = false;
+  $("panel-dock").hidden = true;
+  dockDrag = null;
+}
+
+function snapPanel() {
+  const rect = $("providers-panel").getBoundingClientRect();
+  const width = Math.max(300, Math.min(420, rect.width));
+  const height = Math.max(260, rect.height);
+  // The bottom snap only makes sense for a window that leaves the top visible:
+  // a tall panel dragged downwards is always "near the bottom".
+  const bottomHit = window.innerHeight - rect.bottom <= DOCK_SNAP && rect.height < window.innerHeight * 0.6;
+  if (bottomHit) {
+    // bottom edge: full width, keeps its height
+    placePanel({
+      left: 12,
+      top: window.innerHeight - Math.min(height, window.innerHeight - 24) - 12,
+      width: window.innerWidth - 24,
+      height: Math.min(height, window.innerHeight - 24),
+    });
+  } else if (rect.left <= DOCK_SNAP) {
+    placePanel({ left: 12, top: 12, width, height: window.innerHeight - 24 });
+  } else if (window.innerWidth - rect.right <= DOCK_SNAP) {
+    placePanel({ left: window.innerWidth - width - 12, top: 12, width, height: window.innerHeight - 24 });
+  } else {
+    placePanel({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8)),
+      top: Math.max(8, Math.min(rect.top, window.innerHeight - 80)),
+      width: rect.width,
+      height: rect.height,
+    });
+  }
+}
+
+function wireDock() {
+  $("panel-float").addEventListener("click", detachPanel);
+  $("panel-dock").addEventListener("click", dockPanel);
+  const head = $("panel-head");
+  head.addEventListener("pointerdown", (event) => {
+    if (!panelIsFloating() || event.target.closest("button")) return;
+    const rect = $("providers-panel").getBoundingClientRect();
+    dockDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top, width: rect.width, height: rect.height };
+    $("providers-panel").classList.add("dragging");
+    try {
+      head.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // A synthetic pointer has nothing to capture; the drag still works.
+    }
+    event.preventDefault();
+  });
+  head.addEventListener("pointermove", (event) => {
+    if (!dockDrag) return;
+    placePanel({
+      left: event.clientX - dockDrag.dx,
+      top: event.clientY - dockDrag.dy,
+      width: dockDrag.width,
+      height: dockDrag.height,
+    });
+  });
+  head.addEventListener("pointerup", () => {
+    if (!dockDrag) return;
+    $("providers-panel").classList.remove("dragging");
+    dockDrag = null;
+    snapPanel();
+  });
+  window.addEventListener("resize", () => {
+    // A phone has no room for a floating panel: put it back in the drawer.
+    if (isPhone() && panelIsFloating()) dockPanel();
+  });
+}
+
 // -------------------------------------------------------------------- boot --
 function wireComposer() {
   const input = $("input");
@@ -3000,6 +3125,7 @@ async function boot() {
   wirePalette();
   wireSearch();
   wireProviders();
+  wireDock();
   await loadStatus();
   await loadModels();
   await loadCommands();

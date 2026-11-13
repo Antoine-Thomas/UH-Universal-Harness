@@ -82,9 +82,11 @@
          tabindex="0" aria-label="Resize the configuration column" title="Drag to resize · double-click to reset"></div>
 
     <aside class="rightbar" id="providers-panel" aria-label="Configuration">
-      <header class="panel-head">
+      <header class="panel-head" id="panel-head">
         <strong>Configuration</strong>
         <span id="providers-hint" class="panel-hint"></span>
+        <button id="panel-float" class="icon-button" title="Détacher le panneau" aria-label="Détacher le panneau">⧉</button>
+        <button id="panel-dock" class="icon-button" title="Réancrer le panneau" aria-label="Réancrer le panneau" hidden>⇲</button>
         <button id="providers-close" class="icon-button" aria-label="Close">×</button>
       </header>
       <nav class="panel-tabs" role="tablist">

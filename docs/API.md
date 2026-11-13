@@ -128,6 +128,7 @@ gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  input  keys-priority  keys-view
 data-open  data-panel  data-view  tab-data
 memory-graph  skill-badge  skill-open
+panel-dock  panel-float  panel-head
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette
