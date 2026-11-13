@@ -23,7 +23,7 @@ from uh import cli, shortcut
 def test_the_launcher_runs_uh_web_and_forwards_arguments() -> None:
     text = shortcut.script_text()
 
-    assert "& $uh.Source web @args" in text
+    assert "& $uh.Source web --app @args" in text
     assert "Get-Command uh" in text, "a missing uh must be explained, not flashed away"
     assert "MessageBox" in text, "a hidden window cannot show a message in the console"
     assert "uh-web.log" in text, "the failure has to be readable after the dialog is closed"

@@ -4,8 +4,9 @@ One double-click on the desktop, and the UI is up - for people who will never
 open a terminal. Three files, no admin rights, no auto-start:
 
 * ``uh-web.ps1`` in ``$UH_HOME`` - the launcher. It prints a banner in the
-  Searching Murphy colours and runs ``uh web``; if ``uh`` is not on PATH it says
-  so and waits, instead of flashing a window that disappears;
+  Searching Murphy colours and runs ``uh web --app`` (a chromeless Edge/Chrome
+  window); if ``uh`` is not on PATH it says so and waits, instead of flashing a
+  window that disappears;
 * ``uh-web.ico`` in ``$UH_HOME`` - a gold "UH" monogram on ink, generated here
   (zlib-wrapped PNG inside ICO, standard library only: no new dependency, no
   binary asset to keep in sync with the colours);
@@ -172,8 +173,11 @@ def script_text() -> str:
             "  exit 1",
             "}",
             "",
-            "Write-UhLog 'starting uh web'",
-            "& $uh.Source web @args",
+            "Write-UhLog 'starting uh web --app'",
+            # --app: the window has no tab bar and no address bar, which is what
+            # makes the shortcut feel like an application and not a bookmark.
+            # Without Edge or Chrome, `uh web` says so and opens a normal tab.
+            "& $uh.Source web --app @args",
             "if ($LASTEXITCODE -ne 0) {",
             "  # A bare exit code tells nobody what to do next: name the two causes",
             "  # that account for almost every failure, then the file with the detail.",

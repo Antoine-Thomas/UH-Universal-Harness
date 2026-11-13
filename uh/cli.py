@@ -1502,6 +1502,7 @@ def cmd_web(args: argparse.Namespace) -> int:
             host=host,
             port=int(args.port or 8765),
             open_browser=not getattr(args, "no_open", False),
+            app_window=bool(getattr(args, "app", False)),
             allow_terminal=bool(getattr(args, "allow_terminal", False)),
             workspace=workspace,
             static_dir=static_dir,
@@ -2390,6 +2391,11 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
     web.add_argument("--port", type=int, default=8765, help="port (default 8765)")
     web.add_argument("--no-open", action="store_true", help="do not open a browser")
+    web.add_argument(
+        "--app",
+        action="store_true",
+        help="open the cockpit as a chromeless window (Edge/Chrome --app)",
+    )
     web.add_argument(
         "--no-uhb",
         action="store_true",

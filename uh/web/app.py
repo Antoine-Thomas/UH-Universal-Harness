@@ -1221,6 +1221,7 @@ def run_server(
     host: str = "127.0.0.1",
     port: int = 8765,
     open_browser: bool = True,
+    app_window: bool = False,
     allow_terminal: bool = False,
     workspace: Optional[Path] = None,
     static_dir: Optional[Path] = None,
@@ -1250,9 +1251,26 @@ def run_server(
         )
     print("  Ctrl-C to stop")
     if open_browser:
-        threading.Timer(1.0, _open_browser, args=(url,)).start()
+        if app_window:
+            print("  window: app mode (Edge/Chrome --app, no tab bar)")
+            threading.Timer(1.0, _open_app_window, args=(url,)).start()
+        else:
+            threading.Timer(1.0, _open_browser, args=(url,)).start()
     uvicorn.run(app, host=host, port=port, log_level="info")
     return 0
+
+
+def _open_app_window(url: str) -> None:
+    """Chromeless window, or the honest fallback. Never raises."""
+    from . import browser
+
+    try:
+        if browser.open_app_window(url):
+            return
+        print(f"uh web: {browser.fallback_reason()}")
+    except Exception:  # noqa: BLE001 - a broken launcher must not kill the server
+        pass
+    _open_browser(url)
 
 
 def _open_browser(url: str) -> None:
