@@ -84,8 +84,20 @@ def test_seventy_five_percent_of_the_native_window(monkeypatch: pytest.MonkeyPat
 
 
 def test_the_default_when_nothing_is_known(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No override, no window, no tier: the last resort is 3000."""
+    from uh import hardware
+
     monkeypatch.delenv("UH_CONTEXT_BUDGET", raising=False)
+    monkeypatch.setattr(hardware, "budget_for_tier", lambda: 0)
     assert context.default_budget("unknown:1b", native=None) == 3000
+
+
+def test_without_a_window_the_tier_decides(monkeypatch: pytest.MonkeyPatch) -> None:
+    from uh import hardware
+
+    monkeypatch.delenv("UH_CONTEXT_BUDGET", raising=False)
+    monkeypatch.setattr(hardware, "budget_for_tier", lambda: 6000)
+    assert context.default_budget("unknown:1b", native=None) == 6000
 
 
 def test_a_garbage_env_value_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:

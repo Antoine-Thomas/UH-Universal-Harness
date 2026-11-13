@@ -1356,14 +1356,82 @@ function renderKeysPanel(keys) {
   box.appendChild(omnirouteCard(keys.omniroute || {}));
 }
 
+// --- hardware / models tab ---------------------------------------------------
+async function loadCapabilities() {
+  const box = $("hardware-card");
+  try {
+    const data = await api("/api/system/capabilities");
+    const models = await api("/api/models");
+    box.textContent = "";
+
+    box.appendChild(el("p", "hardware-sentence", data.sentence));
+    if (data.recommended_model) {
+      const installed = models.ollama || [];
+      const pulling = models.pulling || [];
+      const row = el("div", "hardware-model");
+      row.appendChild(el("span", "hardware-model-name", data.recommended_model));
+      row.appendChild(
+        el(
+          "span",
+          "hardware-model-meta",
+          `context ${Math.round(data.recommended_budget / 1000)}k · ${installed.includes(
+            data.recommended_model
+          ) ? "installed" : pulling.includes(data.recommended_model) ? "downloading…" : "not installed"}`
+        )
+      );
+      if (!installed.includes(data.recommended_model) && !pulling.includes(data.recommended_model)) {
+        const pull = el("button", "hardware-pull", "Download");
+        pull.addEventListener("click", async () => {
+          pull.disabled = true;
+          pull.textContent = "starting…";
+          await api("/api/models/pull", {
+            method: "POST",
+            body: JSON.stringify({ name: data.recommended_model }),
+          });
+          setTimeout(() => loadCapabilities().catch(() => {}), 3000);
+        });
+        row.appendChild(pull);
+      }
+      box.appendChild(row);
+    }
+    const facts = el("dl", "hardware-facts");
+    for (const [label, value] of [
+      ["RAM", `${data.ram_gb} GB`],
+      ["cores", String(data.cpu_cores)],
+      ["GPU", data.gpu || "none"],
+      ["platform", `${data.os} ${data.arch}`],
+    ]) {
+      facts.appendChild(el("dt", null, label));
+      facts.appendChild(el("dd", null, value));
+    }
+    box.appendChild(facts);
+    if (!data.local_possible) {
+      box.appendChild(
+        el(
+          "p",
+          "hardware-warning",
+          "No local model fits here: configure a remote provider in the Providers tab."
+        )
+      );
+    }
+  } catch (error) {
+    box.textContent = "";
+    box.appendChild(el("div", "panel-hint", `error: ${error.message}`));
+  }
+}
+
 function showPanelTab(name) {
-  const keys = name !== "providers";
-  $("tab-keys").classList.toggle("active", keys);
-  $("tab-providers").classList.toggle("active", !keys);
-  $("tab-keys").setAttribute("aria-selected", String(keys));
-  $("tab-providers").setAttribute("aria-selected", String(!keys));
-  $("keys-view").hidden = !keys;
-  $("providers-view").hidden = keys;
+  for (const [tab, view] of [
+    ["keys", "keys-view"],
+    ["providers", "providers-view"],
+    ["models", "models-view"],
+  ]) {
+    const active = tab === name;
+    $(`tab-${tab}`).classList.toggle("active", active);
+    $(`tab-${tab}`).setAttribute("aria-selected", String(active));
+    $(view).hidden = !active;
+  }
+  if (name === "models") loadCapabilities().catch(() => {});
 }
 
 function openProviders() {
@@ -1395,6 +1463,7 @@ function wireProviders() {
   $("providers-close").addEventListener("click", closeProviders);
   $("tab-keys").addEventListener("click", () => showPanelTab("keys"));
   $("tab-providers").addEventListener("click", () => showPanelTab("providers"));
+  $("tab-models").addEventListener("click", () => showPanelTab("models"));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && providersAreOpen()) closeProviders();
   });

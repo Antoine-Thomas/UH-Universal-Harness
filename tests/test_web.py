@@ -784,3 +784,72 @@ def test_deleting_a_session_removes_its_uploads(
             assert not attachments.session_dir(session_id).exists()
 
     run(scenario())
+
+
+def test_capabilities_reports_the_machine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh import hardware
+
+    found = hardware.HardwareProfile(
+        ram_gb=6.0, cpu_cores=4, gpu=None, os_name="Windows", arch="AMD64", tier="medium"
+    )
+    monkeypatch.setattr(hardware, "profile", lambda: found)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            data = (await http.get("/api/system/capabilities", headers=AUTH)).json()
+
+            assert data["tier"] == "medium"
+            assert data["recommended_model"] == "qwen2.5:1.5b"
+            assert data["recommended_budget"] == 6000
+            assert data["local_possible"] is True
+            assert "medium" in data["sentence"]
+            assert data["ram_gb"] == 6.0
+
+    run(scenario())
+
+
+def test_a_model_pull_runs_in_the_background(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+    import time
+
+    import uh.providers.ollama as ollama_mod
+
+    release = threading.Event()
+    calls: list[str] = []
+
+    def fake_pull(name, on_event, **kwargs):
+        calls.append(name)
+        release.wait(5.0)
+
+    monkeypatch.setattr(ollama_mod, "pull_model", fake_pull)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            empty = await http.post("/api/models/pull", json={}, headers=AUTH)
+            assert empty.status_code == 400
+
+            started = await http.post(
+                "/api/models/pull", json={"name": "qwen2.5:1.5b"}, headers=AUTH
+            )
+            assert started.status_code == 200
+            assert started.json()["started"] is True
+
+            deadline = time.monotonic() + 3.0
+            listed: list[str] = []
+            while time.monotonic() < deadline:
+                listed = (await http.get("/api/models", headers=AUTH)).json()["pulling"]
+                if listed:
+                    break
+                time.sleep(0.05)
+            assert listed == ["qwen2.5:1.5b"], "the UI polls this to show progress"
+
+            release.set()
+
+    run(scenario())
+    assert calls == ["qwen2.5:1.5b"]

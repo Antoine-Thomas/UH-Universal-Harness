@@ -72,6 +72,7 @@
       <nav class="panel-tabs" role="tablist">
         <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">API keys</button>
         <button id="tab-providers" class="panel-tab" role="tab" aria-selected="false" aria-controls="providers-view">Providers</button>
+        <button id="tab-models" class="panel-tab" role="tab" aria-selected="false" aria-controls="models-view">Models</button>
       </nav>
       <div class="rightbar-scroll">
         <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">
@@ -80,6 +81,9 @@
         <div id="providers-view" class="panel-view" role="tabpanel" aria-labelledby="tab-providers" hidden>
           <div id="router-settings" class="router-settings"></div>
           <div id="providers-list" class="providers-list"></div>
+        </div>
+        <div id="models-view" class="panel-view" role="tabpanel" aria-labelledby="tab-models" hidden>
+          <div id="hardware-card" class="hardware-card"></div>
         </div>
       </div>
     </aside>

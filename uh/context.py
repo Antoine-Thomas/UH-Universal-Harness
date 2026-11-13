@@ -212,14 +212,22 @@ def budget_from_config(cfg: object) -> Optional[int]:
 def default_budget(
     model: Optional[str] = None, cfg: object = None, native: Optional[int] = None
 ) -> int:
-    """The token budget for this payload, by precedence (see the module docstring)."""
+    """The token budget for this payload, by precedence (see the module docstring).
+
+    The hardware tier is a ceiling chosen for the machine, not for the model: a
+    24k budget on a 4k model is how a turn fails, so the tier is capped at 75% of
+    the real window whenever that window is known.
+    """
     override = budget_from_env() or budget_from_config(cfg)
     if override:
         return override
     window = native if native is not None else (native_context(model or "") if model else None)
+    from . import hardware
+
+    tier_budget = hardware.budget_for_tier()
     if window:
-        return max(1, int(window * NATIVE_RATIO))
-    return DEFAULT_BUDGET
+        return max(1, int(min(tier_budget, window * NATIVE_RATIO)))
+    return tier_budget or DEFAULT_BUDGET
 
 
 # --------------------------------------------------------------------------- #

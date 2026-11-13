@@ -455,6 +455,30 @@ body {
   cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
 }
 
+/* --- hardware card (Models tab) ------------------------------------------ */
+.hardware-card { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.hardware-sentence { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text); }
+.hardware-model {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg);
+}
+.hardware-model-name { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.hardware-model-meta { font-size: 11px; color: var(--muted); }
+.hardware-pull {
+  margin-left: auto; padding: 5px 12px; font-size: 12px; border-radius: 8px;
+  cursor: pointer; border: 1px solid var(--accent); background: var(--accent);
+  color: var(--on-accent);
+}
+.hardware-pull:disabled { opacity: .6; cursor: default; }
+.hardware-facts {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+  margin: 0; font-size: 12px;
+}
+.hardware-facts dt { color: var(--muted); }
+.hardware-facts dd { margin: 0; font-family: var(--mono); }
+.hardware-warning { margin: 0; font-size: 12px; color: var(--error); }
+
 /* --- API keys panel (right column, Jalon 8) ------------------------------- */
 .panel-tabs {
   display: flex; gap: 4px; padding: 8px 14px 0;

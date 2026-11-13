@@ -147,6 +147,7 @@ def create_app(
     app.state.token = token or secrets.token_urlsafe(32)
     app.state.active = {}  # dict[str, ChatSession]: in-flight turns
     app.state.session_models = {}  # dict[str, tuple[str, str]]: per-session model
+    app.state.pulling = set()  # model names a background `ollama pull` is fetching
     app.state.settings = type(
         "Settings",
         (),
@@ -524,6 +525,19 @@ def create_app(
         active.request_stop()
         return {"stopped": True}
 
+    # -- system ------------------------------------------------------------ #
+    @app.get("/api/system/capabilities", dependencies=[Depends(require_token)])
+    async def capabilities() -> dict:
+        """What this machine can run, and what it should run.
+
+        Read-only, no subprocess unless a GPU tool is on PATH: the detection is
+        cached for the process, so a polling UI costs nothing after the first call.
+        """
+        from .. import hardware
+
+        found = hardware.profile()
+        return {**found.as_dict(), "sentence": found.sentence()}
+
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])
     async def search(q: str, limit: int = 20) -> dict:
@@ -547,7 +561,37 @@ def create_app(
             "model": app.state.model,
             "ollama": local,
             "providers": all_provider_kinds(),
+            "pulling": sorted(app.state.pulling),
         }
+
+    @app.post("/api/models/pull", dependencies=[Depends(require_token)])
+    async def pull_model_endpoint(payload: dict) -> dict:
+        """Start `ollama pull` in a background thread; the UI polls /api/models.
+
+        Two at a time at most: three concurrent pulls saturate a home connection
+        and the browser cannot show progress for any of them anyway.
+        """
+        name = str((payload or {}).get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name is required")
+        if name in app.state.pulling:
+            return {"started": False, "name": name, "reason": "already pulling"}
+        if len(app.state.pulling) >= 2:
+            raise HTTPException(status_code=429, detail="two downloads are already running")
+        app.state.pulling.add(name)
+
+        def work() -> None:
+            from ..providers.ollama import pull_model
+
+            try:
+                pull_model(name, on_event=lambda event: None)
+            except ProviderError:
+                pass  # a failed pull is visible as "not installed", not as a crash
+            finally:
+                app.state.pulling.discard(name)
+
+        threading.Thread(target=work, daemon=True, name=f"uh-pull-{name}").start()
+        return {"started": True, "name": name}
 
     @app.post("/api/model", dependencies=[Depends(require_token)])
     async def set_model(payload: dict) -> dict:

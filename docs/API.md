@@ -41,8 +41,10 @@ even when the failing input was one.
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
 | POST | `/api/sessions/{session_id}/chat` | `{message, attachments?: [path]}` | **SSE stream** (below) · `400` empty message or refused attachment · `404` · `503` provider unreachable |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
+| GET | `/api/system/capabilities` | — | `{tier, ram_gb, cpu_cores, gpu, os, arch, recommended_model, recommended_budget, local_possible, sentence}` |
+| POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
-| GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds]}` |
+| GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds], pulling: [names]}` |
 | POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider}` · `400` |
 | GET | `/api/providers` | — | `{providers: [{name, base_url, model, keys, verified, custom, in_chain}], key_entry_allowed, keys: {cloudflare: {configured, source, account_id, key_hints}, deepseek: {configured, key_hints}, omniroute: {detected, base_url, has_key, config_path}}}` |
 | GET | `/api/providers/presets` | — | `{presets: [{name, label, base_url, model}], gateway_only: [{name, label, note}]}` · form defaults only, nothing is stored |
@@ -95,13 +97,13 @@ contract of the bundled one:
 
 ```
 attach  attachments  composer  files  folder-hint  gauge-fill  gauge-label
-input  keys-priority  keys-view
+hardware-card  input  keys-priority  keys-view  models-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette
 palette-input  palette-list  providers-close  providers-hint  providers-list
 providers-open  providers-panel  providers-view  router-settings  search
 search-results  send  session-list  session-title  sidebar  sidebar-toggle
-splitter-left  splitter-right  status-provider  stop  tab-keys  tab-providers
-terminal-warning  theme-toggle
+splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
+tab-providers  terminal-warning  theme-toggle
 ```
 
 The layout is three CSS grid columns plus two drag handles
