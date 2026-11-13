@@ -13,6 +13,34 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.4.2] — 2026-11-14
+
+The patch for the first hour of real testing: an old `uh web` no longer hides in
+the port, and the window opens like a program.
+
+### Fixed
+
+- **A busy port is no longer a dead end.** A `uh web` from an earlier session kept
+  `127.0.0.1:8765`, so every new launch died on bind - uvicorn's exit code 3, and
+  a popup with no reason. Because the interface is read from disk on every
+  request, that stale server served the *new* `app.js` with an *old* backend: the
+  panel called `/api/uhb/start`, got a 404, and said "Not Found" on a button that
+  exists. `uh web` now probes the port and, on the default one, moves to the next
+  free port and says so; with an explicit `--port` it refuses with one clear line.
+- **The page is stamped with its build** (`app.js?v=1.4.2`,
+  `data-uh-version`), so a cached script cannot outlive a restart, and `/api/status`
+  is compared at boot: a mismatch shows a banner naming both versions.
+- **A 404 from an API route explains itself** ("ce serveur UH ne connaît pas cette
+  route : une ancienne instance occupe encore le port") instead of "Not Found".
+- **The Desktop launcher is refreshed by `uh web`** when it predates `--app`: an
+  upgraded installation used to keep a shortcut that opened a browser tab forever.
+  A hand-edited launcher is left alone.
+
+### Added
+
+- The app window opens **centred** (`--window-position` computed from the primary
+  screen at launch), so it reads as a program rather than a popup in a corner.
+
 ## [1.4.1] — 2026-11-13
 
 The patch after the first evening of real use: the second brain starts, the panel
