@@ -175,7 +175,11 @@ def system_message(workspace: Path) -> dict:
             "You are UH, a local agent harness. Use the provided tools to inspect and modify "
             f"files inside the workspace {workspace}, to run shell commands, and to keep notes "
             "in long-term memory. Prefer the file tools over the shell for file edits. "
-            "Answer without calling a tool once the task is done."
+            "Answer without calling a tool once the task is done. "
+            "If a tool refuses for sandbox reasons, NEVER try to bypass it with `terminal`. "
+            "Tell the user: 'Le sandbox refuse : <raison>. Utilise `/workspace <path>` pour "
+            "changer de dossier, ou demande-moi d'écrire dans `~/Desktop` / `~/Documents` / "
+            "`~/uh-workspace` qui sont autorisés.'"
         ),
     }
 
