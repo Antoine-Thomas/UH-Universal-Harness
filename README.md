@@ -1,11 +1,21 @@
 [![PyPI version](https://img.shields.io/pypi/v/uh-harness.svg)](https://pypi.org/project/uh-harness/)
-[![Publish to PyPI](https://github.com/Antoine-Thomas/UH-Universal-Harness/actions/workflows/publish.yml/badge.svg)](https://github.com/Antoine-Thomas/UH-Universal-Harness/actions/workflows/publish.yml)
+[![CI](https://github.com/Antoine-Thomas/UH-Universal-Harness/actions/workflows/ci.yml/badge.svg)](https://github.com/Antoine-Thomas/UH-Universal-Harness/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-284543.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-fdc502.svg)](https://pypi.org/project/uh-harness/)
 
 # UH — Universal Harness
 
-A provider-agnostic agent harness in Python: a console, a local web UI, tool use,
-persisted sessions, and **one** runtime dependency (`httpx`). Local-first, no
-account, no API key on first launch.
+A provider-agnostic agent harness in Python: a **cockpit** that opens as its own
+window, tool use, a **Model Context Protocol client**, a night pass that reads
+your notes *and* your tooling, persisted sessions — and **one** runtime
+dependency (`httpx`). Local-first: no account, no API key on first launch.
+
+![The UH cockpit: a message, the MCP tool card that answered it, the reply, and the configuration column](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/cockpit.png)
+
+*A real turn, not a mock-up: `qwen3:8b` on the machine that built this, asked to
+look at a notes folder, called `mcp__atelier__list_directory` through a
+filesystem MCP server, read the three files it returned, and answered in
+French. The card is the tool call. Nothing in this screenshot is staged.*
 
 ## Quickstart
 
@@ -61,8 +71,29 @@ uh --version
 uh doctor
 ```
 
-## What 1.0.0 contains
+## What 1.4.0 contains
 
+- **A cockpit, not a chat box.** `uh web` is a three-column window with dockable
+  consoles — API keys, providers, models, second brain, memory graph, decision
+  trace, telemetry, data hub — each one detachable into its own panel, a layout
+  that survives a reload, a command palette, light and dark themes, and a stop
+  button that actually stops the stream.
+- **A window, not a tab.** `uh web --app` opens that cockpit as a chromeless
+  Edge/Chrome window with its own profile under `$UH_HOME/web-app`, and
+  `uh install-shortcut` puts one on the Desktop. No Rust toolchain, no
+  installer, no signing: one flag and one `.lnk`.
+- **MCP client.** `[[mcp.servers]]` in `config.toml` attaches external Model
+  Context Protocol servers over stdio; their tools reach the agent loop as
+  `mcp__<server>__<tool>`, with a per-server allowlist, caps on the message and
+  result sizes, and every failure returned as a tool result instead of a crashed
+  turn ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)).
+  The Data panel shows one row per server and a test button that asks it *now*.
+- **A night pass that knows the tooling.** `uh dream --now` (or the idle daemon,
+  or the 03:00 scheduled task) reads SiYuan, the RAG, the installed **skills**
+  and the configured **MCP servers**, then proposes ideas *and* workflows that
+  name real tools. It never calls one: a 03:00 job that can write through
+  somebody else's server with nobody awake is a data-loss story with a cron
+  entry. Budgeted in tokens and wall time, written to one folder.
 - **Agent core and toolsets.** A synchronous `run_turn` loop, toolsets with
   JSON-schema contracts (`file`, `terminal`, `memory`, `web_search`), a hard
   `max_iterations` budget, `uh chat`.
@@ -84,15 +115,6 @@ uh doctor
   search, command palette, stop button, light/dark themes) plus an API-key
   panel for Cloudflare, DeepSeek and OmniRoute with masked hints, from three
   static files with no build step and no third-party JavaScript.
-- **A window, not a tab.** `uh web --app` opens the cockpit as a chromeless
-  Edge/Chrome window (no tab bar, no address bar, its own profile under
-  `$UH_HOME/web-app`), and `uh install-shortcut` puts one on the Desktop. A
-  machine without Chromium gets a sentence and a normal tab, never a crash.
-- **MCP client.** `[[mcp.servers]]` in `config.toml` attaches external Model
-  Context Protocol servers over stdio; their tools reach the agent loop as
-  `mcp__<server>__<tool>`, with an allowlist per server, caps on the message and
-  result sizes, and every failure returned as a tool result instead of a crashed
-  turn ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)).
 - **Free-provider router.** Catalogue verified per entry
   (`uh/router/catalog.toml`), key rotation, cooldowns, circuit breaker,
   tool-capable-model filter, traced failover, opt-in remote access with recorded
@@ -107,7 +129,7 @@ The web interface is an **original design**: it borrows the feature list of
 Harness Maxxing (public README) and none of its code, which is under a Fair
 Source Licence. UH stays MIT.
 
-638 tests, 1 skipped locally (Windows, Python 3.11, measured 2026-11-13); the CI
+1108 tests, 1 skipped locally (Windows, Python 3.11, measured 2026-11-13); the CI
 matrix runs the suite on Linux, macOS and Windows across Python 3.10 to 3.13.
 The number is a measurement with a date, not a promise: it moves with every
 commit that adds a test.
@@ -149,6 +171,7 @@ uh keys remove <name> 1 # delete by index, never by value
 uh router status        # chain, keys, cooldowns, last error
 uh router serve         # OpenAI-compatible endpoint on 127.0.0.1:8780
 uh router token show    # the token local clients must use (rotate: token rotate)
+uh dream --now           # one read-only night pass: sources, findings, ideas, workflows
 uh docs [--open]        # local documentation, no network
 uh upgrade [--restart]  # pip install --upgrade uh-harness (--user, --dry-run), then re-exec uh
 ```
@@ -165,21 +188,29 @@ waits for the whole message. Conversations are persisted unless `--no-save`;
 
 ## Web interface
 
-![UH web interface - sessions on the left, streaming chat with a collapsible tool card, context gauge and model selector on the right](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/webui.png)
+![UH web interface - sessions on the left, streaming chat with a collapsible tool card, context gauge and model selector on the right](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/cockpit.png)
 
-*A real session, not a mockup: the assistant called `write_file`, the card is the
-tool call, the gauge is the context estimate for that conversation.*
+*A real session, not a mockup: the assistant called an MCP tool, the card is the
+call, the gauge is the context estimate for that conversation.*
 
 Served locally, never exposed by default:
 
 ```
 pip install "uh-harness[web]"
 uh web                      # http://127.0.0.1:8765/?token=...
+uh web --app                # ... in its own window (Edge/Chrome --app), no tab bar
 uh web --port 9000 --no-open
 uh web --allow-terminal     # enable the shell toolset in the browser (off by default)
 uh web --no-uhb             # do not start UHB alongside the UI
-uh install-shortcut         # Windows: a Desktop shortcut that runs `uh web`
+uh install-shortcut         # Windows: a Desktop shortcut that runs `uh web --app`
 ```
+
+`uh web --app` finds Edge or Chrome (three install roots each on Windows, `which`
+elsewhere, `UH_BROWSER` wins), launches it with `--app=<tokenised URL>`,
+`--window-size` and a profile under `$UH_HOME/web-app`, so a browser you already
+have open cannot swallow the URL and drop the flag. No Chromium is not an error:
+the console says so and a normal tab opens. `uh install-shortcut` already passes
+`--app`, which is the difference between a bookmark and an application.
 
 `uh web` starts UHB itself when it can find a checkout — `UH_UHB_URL` for the
 address (loopback only), `UH_UHB_PATH` for an unusual folder; the public
@@ -245,6 +276,7 @@ and returns errors the model can read — an error is a message, not a crash.
 | `memory` | `memory_read`, `memory_write` | one flat file, sections |
 | `web_search` | `web_search(query, max_results)` | DuckDuckGo HTML endpoint, no API key, up to 5 results (title, url, snippet); `max_results` is capped, parse failures are reported as throttling |
 | `uhb` | `uhb_status()`, `uhb_modes()`, `uhb_route(prompt, mode?, complexity?)` | UHB control plane, loopback only (`UH_UHB_URL`, default `http://127.0.0.1:8101`); the toolset exists only when `GET /modes` answers within 1 s, so a UHB older than that contract contributes nothing. `uhb_status` returns version, mode, harness plus provider and mode **names**; `uhb_modes` returns each mode's read/write globs, denied paths and tools; `uhb_route` returns the plan UHB would follow (complexity, reason, ordered failover chain) **without running it** — no token is spent. Errors carry a `kind`: `invalid_request` (400), `unroutable` (409), `configuration` (500), `transport`, `invalid_response` |
+| `mcp:<server>` | whatever that server publishes, as `mcp__<server>__<tool>` | one toolset per `[[mcp.servers]]` entry, built only when the server completes the stdio handshake; per-server `allow` list; 10 MB per message, 200 000 characters per result; a failed start is retried after 30 s and contributes no tool meanwhile ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)) |
 
 `/web <query>` runs the search toolset directly from the console, without a
 model call and without touching the session history. The toolset returns

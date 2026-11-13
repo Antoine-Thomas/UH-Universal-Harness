@@ -30,8 +30,10 @@ package.
 
 - The README badges are **remote images** served by shields.io and by GitHub; no
   third-party file is copied into this repository.
-- The screenshot in `docs/assets/webui.png` was produced from this project's own
-  interface; no third-party UI asset appears in it.
+- The screenshot in `docs/assets/cockpit.png` (and the earlier
+  `docs/assets/webui.png`) was produced from this project's own interface; no
+  third-party UI asset appears in it. The session it shows was answered by a
+  local model through a locally started MCP filesystem server.
 
 ## Licences of the ideas, not of the code
 
