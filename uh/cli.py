@@ -1553,10 +1553,10 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
     from .dream_pass import DreamConfig, DreamScheduler
 
     sources = tuple(
-        name.strip() for name in (args.source or "siyuan,rag").split(",") if name.strip()
+        name.strip() for name in (args.source or "siyuan,rag,skills,mcp").split(",") if name.strip()
     )
     config = DreamConfig(
-        sources=sources or ("siyuan", "rag"),
+        sources=sources or ("siyuan", "rag", "skills", "mcp"),
         budget_tokens=int(args.budget) if args.budget is not None else DreamConfig().budget_tokens,
         write=not getattr(args, "no_write", False),
     )
@@ -2358,7 +2358,8 @@ def build_parser() -> argparse.ArgumentParser:
     dream_cmd.add_argument("--dry-run", action="store_true", help="inventory only: no model call, nothing written")
     dream_cmd.add_argument("--budget", type=int, default=None, metavar="TOKENS", help="token budget for this pass")
     dream_cmd.add_argument(
-        "--source", default=None, metavar="siyuan,rag", help="sources to read (default siyuan,rag)"
+        "--source", default=None, metavar="siyuan,rag,skills,mcp",
+        help="sources to read (default siyuan,rag,skills,mcp)",
     )
     dream_cmd.add_argument("--no-write", action="store_true", help="print the report, write nothing")
     dream_cmd.add_argument(

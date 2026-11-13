@@ -15,6 +15,14 @@ What it can and cannot see, said plainly rather than papered over: UHB caps a
 block listing at 500 per call, and the RAG service exposes no chunk listing -
 ``GET /rag/status`` gives counts and dates only. So RAG is inventoried, not read,
 unless ``$UH_RAG_CHUNKS`` points at a ``chunks.jsonl`` the operator allows.
+
+Two sources joined the pass when UH grew them, and neither needs UHB: ``skills``
+(what this harness can already do, from ``$UH_HOME/skills``) and ``mcp`` (the
+configured Model Context Protocol servers and, when one is already connected, the
+tools it publishes). Both are *inventoried*, never called: a night job that can
+write somewhere through somebody else's server, with no human awake, is a
+data-loss story with a cron entry. The report names the tools and asks the model
+for workflows that use them; running one stays a decision a person makes.
 """
 
 from __future__ import annotations
@@ -31,8 +39,9 @@ import httpx
 
 from .dream import DreamJournal, dreams_dir
 
-#: What a pass may read. Order matters only for the report.
-DEFAULT_SOURCES = ("siyuan", "rag")
+#: What a pass may read. Order matters only for the report: the two UHB sources
+#: first, then the two the machine answers for itself.
+DEFAULT_SOURCES = ("siyuan", "rag", "skills", "mcp")
 #: UHB refuses to list more than this per call; asking for more is a lie in code.
 BLOCK_CAP = 500
 #: Enough to characterise a source without reading somebody's night of notes.
@@ -68,6 +77,9 @@ class DreamReport:
     classification: Dict[str, Any] = field(default_factory=dict)
     findings: Dict[str, list] = field(default_factory=dict)
     ideas: List[dict] = field(default_factory=list)
+    #: Concrete workflows the model proposed, with the tools they would use. The
+    #: pass never runs one: the name of a tool is a suggestion, not a call.
+    workflows: List[dict] = field(default_factory=list)
     tokens: Dict[str, int] = field(default_factory=lambda: {"prompt": 0, "completion": 0, "total": 0})
     wall_time_s: float = 0.0
     notes: List[str] = field(default_factory=list)
@@ -122,6 +134,15 @@ class DreamReport:
                 why = idea.get("why") or idea.get("description") or ""
                 source = idea.get("source") or "?"
                 lines.append(f"{index}. **{title}** - {why} _({source})_")
+            lines.append("")
+
+        if self.workflows:
+            lines.append("## Workflows proposed (never run)")
+            for index, item in enumerate(self.workflows, start=1):
+                title = item.get("title") or f"workflow {index}"
+                why = item.get("why") or ""
+                tools = ", ".join(item.get("tools") or []) or "no tool named"
+                lines.append(f"{index}. **{title}** - {why} _({tools})_")
             lines.append("")
 
         if self.notes:
@@ -260,12 +281,26 @@ class DreamScheduler:
         self._tokens = {"prompt": 0, "completion": 0, "total": 0}
         report = DreamReport(started=_now_iso())
         url = self._url()
-        if url is None:
-            report.status = "skipped"
-            report.reason = "UHB offline: the sources are read through UHB, so the pass has nothing to read"
-            return self._finish(report)
-
         inventory = self._inventory(url, report)
+        if url is None:
+            # Skills and MCP servers live on this machine; SiYuan and the RAG are
+            # read through UHB. A pass with UHB down can still say what tooling is
+            # installed - but it cannot classify, so it never calls a model, and a
+            # report with nothing in it is not written at all.
+            readable = [name for name, state in inventory.items() if state.get("available")]
+            report.status = "partial" if readable else "skipped"
+            report.reason = (
+                "UHB offline: siyuan and rag were not read"
+                + (f"; inventoried {', '.join(readable)}" if readable else
+                   ", and no local source was readable")
+                + "; no model was called"
+            )
+            if not readable:
+                return self._finish(report, write=False)
+            self._finish(report)
+            self._write(report)
+            return report
+
         if dry_run:
             report.status = "dry-run"
             report.reason = "inventory only: no model was called, nothing was written"
@@ -292,21 +327,105 @@ class DreamScheduler:
         self._write(report)
         return report
 
-    def _inventory(self, url: str, report: DreamReport) -> Dict[str, dict]:
+    def _inventory(self, url: Optional[str], report: DreamReport) -> Dict[str, dict]:
         inventory: Dict[str, dict] = {}
         for source in self.config.sources:
             if source == "siyuan":
-                inventory[source] = self._inventory_siyuan(url, report)
+                inventory[source] = (
+                    self._inventory_siyuan(url, report) if url
+                    else {"available": False, "error": "UHB offline"}
+                )
             elif source == "rag":
-                inventory[source] = self._inventory_rag(url, report)
+                inventory[source] = (
+                    self._inventory_rag(url, report) if url
+                    else {"available": False, "error": "UHB offline"}
+                )
+            elif source == "skills":
+                inventory[source] = self._inventory_skills()
+            elif source == "mcp":
+                inventory[source] = self._inventory_mcp()
             else:
                 report.notes.append(f"unknown source '{source}' ignored")
                 inventory[source] = {"available": False, "error": "unknown source"}
             report.sources[source] = {
                 "available": bool(inventory[source].get("available")),
-                "detail": inventory[source].get("detail", ""),
+                "detail": inventory[source].get("detail", "") or inventory[source].get("error", ""),
             }
         return inventory
+
+    def _inventory_skills(self) -> dict:
+        """What this harness can already do, read from ``$UH_HOME/skills``.
+
+        No UHB, no model: the folders are local, and a missing one is an empty
+        list rather than a failure of the pass.
+        """
+        try:
+            from . import skills as uh_skills
+
+            listing = uh_skills.list_skills()
+        except Exception as exc:  # noqa: BLE001 - a broken folder is a missing source
+            return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+        entries = [
+            {
+                "name": str(entry.get("name") or ""),
+                "title": str(entry.get("title") or entry.get("name") or ""),
+                "description": str(entry.get("description") or ""),
+                "origin": str(entry.get("origin") or "user"),
+            }
+            for entry in listing.get("skills") or []
+        ]
+        if not entries:
+            return {"available": False, "skills": [], "error": "no skill installed"}
+        return {
+            "available": True,
+            "skills": entries,
+            "detail": f"{len(entries)} skill(s): " + ", ".join(entry["name"] for entry in entries[:8]),
+        }
+
+    def _inventory_mcp(self) -> dict:
+        """Configured MCP servers, and the tools of the ones already connected.
+
+        Inventory only. Asking a server for ``tools/list`` would start a process
+        at 03:00 whose only job is to be listed, and calling a tool would let an
+        unattended job write through somebody else's server. The report names
+        what is there; using it stays a decision a person makes.
+        """
+        try:
+            from . import mcp
+
+            servers, problems = mcp.servers_from_config()
+        except Exception as exc:  # noqa: BLE001 - a broken config is a missing source
+            return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+        if not servers:
+            reason = "no [[mcp.servers]] configured"
+            if problems:
+                reason += f" ({len(problems)} invalid entry/entries)"
+            return {"available": False, "servers": [], "problems": problems, "error": reason}
+
+        try:
+            connected = {
+                str(entry.get("name")): entry for entry in mcp.status().get("servers") or []
+            }
+        except Exception:  # noqa: BLE001 - status is a nicety, the list is not
+            connected = {}
+        entries = []
+        for server in servers:
+            state = connected.get(server.name) or {}
+            entries.append(
+                {
+                    "name": server.name,
+                    "command": server.command,
+                    "connected": bool(state.get("connected")),
+                    "tools": [str(tool) for tool in state.get("tools") or []],
+                }
+            )
+        live = sum(1 for entry in entries if entry["connected"])
+        return {
+            "available": True,
+            "servers": entries,
+            "problems": problems,
+            "detail": f"{len(entries)} server(s), {live} connected to this process",
+        }
 
     def _inventory_siyuan(self, url: str, report: DreamReport) -> dict:
         try:
@@ -399,9 +518,13 @@ class DreamScheduler:
             report.reason = exhausted
             return
         system = (
-            "You review a personal knowledge base. Answer with JSON only, no prose: "
+            "You review a personal knowledge base and the local tooling around it. "
+            "Answer with JSON only, no prose: "
             '{"duplicates": [...], "orphans": [...], "inconsistencies": [...], '
-            '"ideas": [{"title": "...", "why": "...", "source": "siyuan|rag"}]}. '
+            '"ideas": [{"title": "...", "why": "...", "source": "siyuan|rag|skills|mcp"}], '
+            '"workflows": [{"title": "...", "why": "...", "tools": ["mcp__<server>__<tool>"]}]}. '
+            "A workflow must name a tool that appears in the sample, copied exactly; "
+            "never invent a tool name. If no tool is listed, use [] for workflows. "
             "Be concrete and short. If a list is empty, use []."
         )
         answer = self._ask(system, sample, report)
@@ -434,6 +557,31 @@ class DreamScheduler:
                 if isinstance(idea, dict)
             ][:10]
 
+        # A workflow that names a tool nobody publishes is a hallucination the
+        # operator would chase at 09:00. Keep only the names the inventory can
+        # prove, and drop a workflow left without any.
+        known = _known_tools(inventory)
+        workflows = parsed.get("workflows")
+        if isinstance(workflows, list):
+            kept: List[dict] = []
+            for item in workflows:
+                if not isinstance(item, dict):
+                    continue
+                named = [
+                    str(tool)[:64] for tool in item.get("tools") or [] if isinstance(tool, str)
+                ]
+                allowed = [tool for tool in named if not known or tool in known]
+                if named and not allowed:
+                    continue
+                kept.append(
+                    {
+                        "title": str(item.get("title") or "")[:120],
+                        "why": str(item.get("why") or "")[:300],
+                        "tools": allowed[:6],
+                    }
+                )
+            report.workflows = kept[:5]
+
     def _sample_text(self, inventory: Dict[str, dict]) -> str:
         # A local 8B cannot read 15 000 characters before its read timeout: the
         # pass then reported "0 ideas" while spending nothing. Same job, smaller
@@ -452,6 +600,14 @@ class DreamScheduler:
             text = str(chunk.get("texte") or chunk.get("text") or "").strip()
             if text:
                 parts.append(f"[rag {chunk.get('source')}] {text[:chars]}")
+        for skill in (inventory.get("skills") or {}).get("skills") or []:
+            description = str(skill.get("description") or "").strip()
+            parts.append(
+                f"[skill {skill.get('origin')}] {skill.get('title')}: {description[:chars]}"
+            )
+        for server in (inventory.get("mcp") or {}).get("servers") or []:
+            tools = ", ".join(server.get("tools") or []) or "not connected, tools unknown until it starts"
+            parts.append(f"[mcp {server.get('name')}] {server.get('command')} -> {tools[: chars * 3]}")
         return "\n".join(parts)
 
     def _write(self, report: DreamReport) -> None:
@@ -490,6 +646,18 @@ class DreamScheduler:
         if write is False:
             report.artifacts = []
         return report
+
+
+def _known_tools(inventory: Dict[str, dict]) -> set:
+    """Every MCP tool name the inventory can prove exists, exposed form only."""
+    from .mcp import exposed_name
+
+    found = set()
+    for server in (inventory.get("mcp") or {}).get("servers") or []:
+        name = str(server.get("name") or "")
+        for tool in server.get("tools") or []:
+            found.add(exposed_name(name, str(tool)))
+    return found
 
 
 def _parse_json(text: str) -> Optional[dict]:
