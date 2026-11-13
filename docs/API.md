@@ -41,6 +41,12 @@ even when the failing input was one.
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
 | POST | `/api/sessions/{session_id}/chat` | `{message, attachments?: [path]}` | **SSE stream** (below) · `400` empty message or refused attachment · `404` · `503` provider unreachable |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
+| GET | `/api/memory/sources` | — | `{wiki: {available, label, path, notes, reason}, memory, rag, siyuan, sessions}` |
+| GET | `/api/memory/wiki` | — | `{available, label, root, notes: [{path, name, size, modified, source}]}` |
+| GET | `/api/memory/wiki/{note:path}` | — | `{path, source, size, text}` · `404` unknown or outside the wiki |
+| GET | `/api/memory/rag` | — | `{available, queryable, reason, path?, chunks?, documents?, index_mb?, modified?}` — never queryable from UH: UHB has no RAG route |
+| GET | `/api/memory/siyuan` | — | `{available: false, configured, reason, url}` — a UHB adapter, no route |
+| GET | `/api/memory/search` | `?q=<text>&limit=` | `{query, hits: [{kind: memory\|wiki\|session, title, path, snippet}]}` · `400` empty q |
 | GET | `/api/uhb/status` | — | `{connected, version, mode, harness, providers, modes}` · `{connected: false, reason}` when UHB is down or disabled |
 | POST | `/api/uhb/route` | `{prompt, mode?, complexity?}` | `{mode, complexity, chosen, chain: [{ref, tier, model_id}], reason, allow_paid}` · `400` no prompt · `503` UHB unreachable |
 | GET | `/api/system/capabilities` | — | `{tier, ram_gb, cpu_cores, gpu, os, arch, recommended_model, recommended_budget, local_possible, sentence}` |

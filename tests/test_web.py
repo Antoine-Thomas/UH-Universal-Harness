@@ -968,3 +968,107 @@ def test_a_slash_command_in_the_web_chat_runs_the_registry(
             assert stored == [], "a command does not become a stored turn"
 
     run(scenario())
+
+
+def _wiki_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path / "wiki"
+    (root / "concepts").mkdir(parents=True)
+    (root / "index.md").write_text("# Index\nles concepts de UH", encoding="utf-8")
+    (root / "concepts" / "rag.md").write_text("# RAG\nrecherche hybride", encoding="utf-8")
+    monkeypatch.setenv("UH_WIKI_DIR", str(root))
+    return root
+
+
+def test_memory_sources_lists_the_wiki_and_says_what_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _wiki_fixture(tmp_path, monkeypatch)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            data = (await http.get("/api/memory/sources", headers=AUTH)).json()
+
+            assert data["wiki"]["available"] is True
+            assert data["wiki"]["notes"] == 2
+            assert data["siyuan"]["available"] is False, "UH does not pretend to read SiYuan"
+            assert data["rag"]["available"] in (True, False)
+            assert data["sessions"]["available"] is True
+
+    run(scenario())
+
+
+def test_memory_wiki_lists_and_serves_a_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _wiki_fixture(tmp_path, monkeypatch)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            listing = (await http.get("/api/memory/wiki", headers=AUTH)).json()
+            assert listing["available"] is True
+            assert [note["path"] for note in listing["notes"]] == [
+                "concepts/rag.md",
+                "index.md",
+            ]
+
+            note = (await http.get("/api/memory/wiki/concepts/rag.md", headers=AUTH)).json()
+            assert "recherche hybride" in note["text"]
+
+            escaped = await http.get("/api/memory/wiki/..%2F..%2Fsecret.md", headers=AUTH)
+            assert escaped.status_code in (404, 400), "traversal is refused, not served"
+
+            missing = await http.get("/api/memory/wiki/nexiste.md", headers=AUTH)
+            assert missing.status_code == 404
+
+    run(scenario())
+
+
+def test_memory_search_covers_the_wiki_and_the_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _wiki_fixture(tmp_path, monkeypatch)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+            await http.post(
+                f"/api/sessions/{session_id}/chat",
+                json={"message": "parle moi de la recherche hybride"},
+                headers=AUTH,
+            )
+
+            data = (
+                await http.get("/api/memory/search?q=recherche", headers=AUTH)
+            ).json()
+            kinds = {hit["kind"] for hit in data["hits"]}
+            assert kinds == {"wiki", "session"}, kinds
+
+            empty = await http.get("/api/memory/search?q=", headers=AUTH)
+            assert empty.status_code == 400
+
+    run(scenario())
+
+
+def test_memory_rag_and_siyuan_answer_without_a_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh import memory_view
+
+    monkeypatch.setattr(memory_view, "_uhb_checkout", lambda: None)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            rag = (await http.get("/api/memory/rag", headers=AUTH)).json()
+            assert rag["available"] is False
+            assert "uhb/services/rag" in rag["reason"]
+
+            siyuan = (await http.get("/api/memory/siyuan", headers=AUTH)).json()
+            assert siyuan["available"] is False
+            assert "no route" in siyuan["reason"]
+
+    run(scenario())

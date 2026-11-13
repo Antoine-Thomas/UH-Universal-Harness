@@ -581,6 +581,76 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(plan.get("error")))
         return plan
 
+    # -- memory ------------------------------------------------------------ #
+    # Read-only views of what UH remembers. No route here writes, and none of
+    # them invents a RAG/SiYuan endpoint that UHB does not expose.
+    @app.get("/api/memory/sources", dependencies=[Depends(require_token)])
+    async def memory_sources() -> dict:
+        from .. import memory_view
+
+        data = memory_view.sources()
+        with _store(app):
+            # Opening the store proves it is readable; the count is what the tab shows.
+            data["sessions"] = {
+                "available": True,
+                "store": str(app.state.settings.store_path),
+            }
+        return data
+
+    @app.get("/api/memory/wiki", dependencies=[Depends(require_token)])
+    async def memory_wiki() -> dict:
+        from .. import memory_view
+
+        found = memory_view.wiki_root()
+        return {
+            "available": found is not None,
+            "label": found[0] if found else None,
+            "root": str(found[1]) if found else None,
+            "notes": [note.as_dict() for note in memory_view.wiki_notes()],
+        }
+
+    @app.get("/api/memory/wiki/{note:path}", dependencies=[Depends(require_token)])
+    async def memory_wiki_note(note: str) -> dict:
+        from .. import memory_view
+
+        try:
+            return memory_view.read_note(note)
+        except memory_view.MemoryViewError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/memory/rag", dependencies=[Depends(require_token)])
+    async def memory_rag() -> dict:
+        from .. import memory_view
+
+        return memory_view.rag_state()
+
+    @app.get("/api/memory/siyuan", dependencies=[Depends(require_token)])
+    async def memory_siyuan() -> dict:
+        from .. import memory_view
+
+        return memory_view.siyuan_state()
+
+    @app.get("/api/memory/search", dependencies=[Depends(require_token)])
+    async def memory_search(q: str = "", limit: int = 20) -> dict:
+        """Substring search in the memory sources, plus FTS5 across the sessions."""
+        from .. import memory_view
+
+        query = (q or "").strip()
+        if not query:
+            raise HTTPException(status_code=400, detail="q is required")
+        hits = memory_view.search_memory(query, limit=limit)
+        with _store(app) as store:
+            for row in store.search(query, limit=limit):
+                hits.append(
+                    {
+                        "kind": "session",
+                        "title": row.get("title") or row.get("session_id"),
+                        "path": display_id(str(row.get("session_id"))),
+                        "snippet": row.get("snippet") or "",
+                    }
+                )
+        return {"query": query, "hits": hits[:limit]}
+
     # -- system ------------------------------------------------------------ #
     @app.get("/api/system/capabilities", dependencies=[Depends(require_token)])
     async def capabilities() -> dict:
