@@ -1,0 +1,130 @@
+# UH V2 — the unified cockpit
+
+Source of truth for the order of work. Written 2026-11-13, at UH **1.1.0**
+(sandbox closed, console stable, UHB Niveau 2 wired: `uhb_status`,
+`uhb_modes`, `uhb_route`).
+
+Nothing below is a promise about dates. It is a promise about **order** and
+about **what must be true before the next phase starts**.
+
+---
+
+## 1. Vision
+
+**One console.** UH becomes the single entry point. `uh web` starts UHB — the
+second brain — as a child process, waits for it to answer, and stops it on exit.
+The user opens one thing, sees one window, and never manages two terminals.
+
+**The cockpit shows the machine working.** The web UI is not a chat box with a
+sidebar: it is an instrument panel. Each turn makes visible what happened —
+the memory that was consulted (llmwiki, SiYuan, RAG), the route UHB chose and
+why, the tools that ran and what they returned — as gauges, flows and cards
+rather than prose.
+
+**It repairs itself, and it dreams.** Like `hermes-home-vision`: a guarded
+self-repair path (diagnose, propose, apply only what is reversible) and a
+night-time process that reorganises memory when nothing else is running. Both
+are background work with an audit trail, never silent writes.
+
+**It is watched.** Wazuh's REST API is the alerting spine for processes and
+files. Out of scope until phase 5, but the UI must leave room for it.
+
+**The UI is a fusion.** The layout and density of `harness-maxxing` (three
+zones, tool cards, a metadata line per turn) inside the visual language of
+`Kiro v4.0` (tokens, two themes, collapsible panels, zero build). See
+[`docs/UI_REFERENCES.md`](UI_REFERENCES.md) for what was measured in both.
+
+---
+
+## 2. Phases — the coding order
+
+### P0 — done (1.0.0 → 1.1.0)
+
+Sandbox (workspace rules, whitelist, `/workspace`, shell write/delete guard),
+Ctrl+C, `uh upgrade`, usage metrics, provider errors, UHB Niveau 1 + Niveau 2.
+
+### P1 — the five immediate UI tasks (this week)
+
+| # | Task | Contract |
+| --- | --- | --- |
+| 1 | Popular providers: **DeepSeek** and **Kimi** | DeepSeek is a built-in provider, so it is a *builtin* preset: key only, posts to `POST /api/providers/deepseek/key`. Kimi already exists as a custom preset (`https://api.moonshot.ai/v1`, `kimi-k2`). |
+| 2 | Slash commands as **buttons with gauges** | `/api/commands` already lists the registry. Render the useful ones as chips above the composer; a chip that plans carries a tier gauge (free / eco / paid) taken from the last `uhb_route` decision, not from a hard-coded colour. |
+| 3 | **Delete + folders** in the session sidebar | `DELETE /api/sessions/{id}` exists and cascades (`PRAGMA foreign_keys=ON` verified). Trash icon on hover with a confirm step. "Folder" = a `folder` key in session metadata, `PATCH /api/sessions/{id}` accepting it, sidebar grouping. |
+| 4 | **UHB status widget** in the right panel | New tab "Second brain": `GET /api/uhb/status` (UH → UHB, loopback only) showing `connected`, `mode`, `version`, `harness`. The browser never calls UHB directly (CSP stays `'self'`). |
+| 5 | **`uh web` starts UHB** | Spawn only if the local UHB checkout exists and nothing already listens on the port; wait for `/status` with a timeout; terminate on exit (including Ctrl+C); `--no-uhb` to opt out. Failure to start is a warning, never a crash. |
+
+Each lands as its own commit, with tests, on a green suite.
+
+### P2 — the cockpit shell
+
+Tokens first (`--bg`, `--surface`, `--border`, `--text`, `--muted`, `--accent`,
+`--danger`, `--success`, `--warning`, `--radius`, light + dark), then the
+three-zone shell (sidebar 240 / conversation / right panel 280 with tabs), the
+message footer (`model · elapsed · tokens in/out · cost?`), tool cards with a
+state colour (ok / refused / error), and an event flow view fed by the existing
+SSE stream.
+
+### P3 — memory made visible
+
+Panels for the three memory sources (llmwiki, SiYuan, RAG) and a "decision"
+view that shows `uhb_route`'s chain, why it was chosen, and what it costs.
+Read-only first: the cockpit observes before it acts.
+
+### P4 — dream mode and self-repair
+
+Nightly process (guard rails: no remote writes, token budget, reversible
+changes only, everything logged) and the self-repair path (diagnose → propose →
+apply what `uh doctor` can verify).
+
+### P5 — Wazuh and packaging
+
+Wazuh REST integration (alerts feed in the cockpit), then the `uh-suite`
+meta-package so one `pip install` brings UH + UHB.
+
+---
+
+## 3. Components check against `hermes-home-vision`
+
+Read 2026-11-13. **"Present" means the code exists and is wired where stated** —
+none of these was executed for this audit, and none is exercised by UH's 591
+tests.
+
+| Component | `hermes-home-vision` | UH | UHB | Verdict |
+| --- | --- | --- | --- | --- |
+| RAG (hybrid search) | `scripts/rag_hybride/` (indexer, serveur, audit) | — | `uhb/services/rag/` (`chercher.py`, `serveur_rag.py`) | **Present in UHB**, not surfaced in UH |
+| SiYuan | `docs/siyuan/` (chercher, indexer, publier) | — | `uhb/adapters/second_brain.py` (`read_siyuan`, token `SIYUAN_TOKEN`, `POST /api/export/exportMdContent`) | **Present in UHB**, absent from UH |
+| LLM wiki | `wiki/` (concepts, entities, SCHEMA, scripts) | — | `uhb/hub/wiki/` (raw, wiki, ingest/lint/query scripts) | **Present in UHB**, no UI |
+| Decision AI | `plugins/intelligent_memory`, `anima-memoire-router` | `uhb_route` tool (1.1.0) | `uhb/hub/router.route()` + `hub/modes` + `POST /route` | **Present and wired** (UH asks UHB before spending) |
+| Persistent memory | `plugins/intelligent_memory` | `uh/toolsets/memory.py` (`MEMORY.md`) | `uhb/core/memory.py` | **Present in both** |
+| Dream mode | `dream/PROMPT.md` + nightly reports | — | — | **Missing** (P4) |
+| Self-repair | `recovery_runbook.md`, health scripts | `uh doctor`, auto-heal skill (Hermes) | `GET /health` | **Partial** (P4 to close) |
+| Process visualisation | docs only | — | — | **Missing** (P2/P3) |
+| Wazuh | docs only (`ANIMA_ARCHITECTURE.md`) | — | — | **Missing** (P5) |
+
+Two consequences for the plan:
+
+- the memory layer does not need to be rebuilt, only **exposed**: RAG, SiYuan
+  and the wiki are in UHB, behind no HTTP route today except the wiki scripts;
+- the decision layer is already the strongest piece — P3 should visualise it
+  before P4 adds anything that writes.
+
+---
+
+## 4. Constraints that do not move
+
+- **No new runtime dependency** without a written reason; `httpx` and the
+  standard library have carried the project this far.
+- **The browser talks to UH only.** Every UHB call is proxied by UH on
+  loopback; the web CSP stays `'self'`.
+- **The suite stays green**: pytest, ruff, mypy at every commit.
+- **No feature is "done" without a failure mode**: a dead UHB, an absent
+  checkout, a missing folder, a refused tool — each needs a visible state, not
+  an exception.
+
+---
+
+## 5. Out of scope, explicitly
+
+- Wazuh integration and the `harness-maxxing` visual fusion: phase 5 and phase 2
+  respectively. Not started.
+- Multi-user, remote access, cloud sync: not a goal. UH is a local cockpit.
