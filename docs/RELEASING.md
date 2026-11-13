@@ -118,6 +118,23 @@ fixes often ship with a patch version.
 
 Both are listed with their exact menu paths in `docs/JALON7.md`.
 
+### Technical debt: the bypass, accepted for now
+
+A direct `git push origin main` from the owner succeeds **before** the required
+checks exist, and GitHub says so: `Bypassed rule violations for refs/heads/main:
+2 of 2 required status checks are expected`. The runs then verify the commit the
+push already delivered, which is the wrong order: a red CI can no longer stop a
+bad `main`, it can only tell you afterwards.
+
+Accepted as debt while the repository has one maintainer who reads the runs
+before publishing anything: one branch per release (push the branch, open a PR,
+merge after green) would remove the window entirely, at the cost of two more
+clicks per release. Turn on **Do not allow bypassing the above settings** in the
+branch protection rule at the same time, or the owner still skips it.
+
+Revisit when a second person can push, or when releases become frequent enough
+that "I read the runs" stops being true.
+
 ## Cross-platform CI gates
 
 Before any release, run `mypy --platform linux uh` — a Windows-only mypy run
