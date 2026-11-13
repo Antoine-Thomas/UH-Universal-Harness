@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -1488,6 +1489,20 @@ def cmd_web(args: argparse.Namespace) -> int:
         uhb_spawn.stop_running()
 
 
+def _log_pass(line: str, started: float) -> None:
+    """One line per pass in ``dreams/schedule.log``: the only trace of 03:00."""
+    from .dream import dreams_dir
+
+    try:
+        path = dreams_dir() / "schedule.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{stamp}  [{time.time() - started:.0f}s]  {line}\n")
+    except OSError:
+        pass  # a log that cannot be written must not fail the pass
+
+
 def _run_dream_pass(args: argparse.Namespace) -> int:
     """`uh dream --now`: one read-only pass, with a budget that actually stops it."""
     from .dream_pass import DreamConfig, DreamScheduler
@@ -1514,8 +1529,35 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
         if chain:
             provider = chain[0][1]
 
+    if getattr(args, "start_uhb", False):
+        from . import uhb_spawn
+
+        try:
+            uhb_spawn.ensure()
+        except Exception as exc:  # noqa: BLE001 - the pass reports a skip by itself
+            print(f"uh dream: could not start UHB ({type(exc).__name__}: {exc})", file=sys.stderr)
+
     engine = DreamScheduler(config=config, provider=provider)
-    report = engine.run_once(dry_run=bool(args.dry_run))
+    started = time.time()
+    try:
+        report = engine.run_once(dry_run=bool(args.dry_run))
+    except Exception as exc:  # noqa: BLE001 - a nightly run has no console to crash on
+        # Nobody watches 03:00: the only proof a pass ran (or died) is a line in
+        # a file. Without this, Task Scheduler says "success" and nothing happened.
+        _log_pass(f"crashed: {type(exc).__name__}: {exc}", started)
+        raise
+    _log_pass(
+        f"{report.status} - {len(report.ideas)} idea(s), {report.tokens.get('total', 0)} tokens, "
+        f"{report.wall_time_s:.0f}s" + (f", {report.artifacts[0]}" if report.artifacts else ""),
+        started,
+    )
+    if getattr(args, "start_uhb", False):
+        from . import uhb_spawn
+
+        try:
+            uhb_spawn.stop_running()
+        except Exception:  # noqa: BLE001 - a server left up is not a pass failure
+            pass
 
     if getattr(args, "no_write", False) or args.dry_run:
         print(report.render())
@@ -2136,6 +2178,9 @@ def build_parser() -> argparse.ArgumentParser:
     dream_cmd.add_argument("--at", default="03:00", metavar="HH:MM", help="hour of the nightly pass")
     dream_cmd.add_argument("--uninstall", action="store_true", help="remove the nightly pass")
     dream_cmd.add_argument("--status", action="store_true", help="is it installed, when did it last run")
+    dream_cmd.add_argument(
+        "--start-uhb", action="store_true", help="start UHB for this pass, then stop it"
+    )
     dream_cmd.add_argument("--yes", action="store_true", help="do not ask for confirmation")
 
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
