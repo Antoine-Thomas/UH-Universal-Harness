@@ -10,3 +10,7 @@ build/
 # Defensive: provider keys live in $UH_HOME, never in the repository.
 keys.toml
 **/keys.toml
+
+# Dream mode output: notes, audits, ideas and backups written by a pass.
+# Local by design - an idea file is not a source file.
+dreams/
