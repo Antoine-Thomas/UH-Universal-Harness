@@ -13,7 +13,10 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [Unreleased]
+## [1.4.1] — 2026-11-13
+
+The patch after the first evening of real use: the second brain starts, the panel
+is a button, and the night pass knows what the harness can do.
 
 ### Fixed
 
@@ -59,7 +62,9 @@ Conventions worth knowing:
   security rules, and a review checklist — and they appear in the Data panel with
   the "Natif" badge, attachable to a turn from the chat.
 - The dream pass sees them: `skills` is a source, so the night report knows what
-  the harness can already do.
+  the harness can already do, and each configured MCP server is listed
+  (`initialize` + `tools/list`, never a `tools/call`), so a proposed workflow names
+  a tool that exists instead of one the model invented.
 
 ## [1.4.0] — 2026-11-13
 
