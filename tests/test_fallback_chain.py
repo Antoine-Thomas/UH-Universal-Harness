@@ -123,8 +123,12 @@ def test_preferred_provider_moves_to_the_front_without_dropping_the_rest(
     monkeypatch.setattr(cli, "_make_provider", stub_factory)
     monkeypatch.setenv("UH_DEEPSEEK_API_KEY", "ds-fallback-key-5678")
 
+    # Since the local-first policy, a configured default orders the cloud entries
+    # only: a running local model stays in front. UH_ROUTER_PREFER=cloud restores
+    # the old order, and that is what this test now checks.
+    monkeypatch.setenv("UH_ROUTER_PREFER", "cloud")
     chain, _ = cli._build_chain(None, None, preferred="deepseek")
-    assert [kind for kind, _ in chain] == ["deepseek", "ollama", "omnirouter"]
+    assert [kind for kind, _ in chain] == ["deepseek", "omnirouter", "ollama"]
 
 
 def test_no_provider_configured_raises_a_clear_error(

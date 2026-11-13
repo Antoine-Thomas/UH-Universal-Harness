@@ -522,11 +522,22 @@ def _build_chain(
     if not chain:
         raise ProviderError("no usable provider - " + "; ".join(reasons))
 
+    # Local first, cloud second - unless the operator says otherwise.
+    # The configured default used to jump to the front of the whole chain, which
+    # put omnirouter ahead of a running Ollama: the pass paid for tokens while the
+    # boost badge was green. The default now decides the order of the *cloud*
+    # entries only, and UH_ROUTER_PREFER can put the cloud back in front.
+    prefer = (os.environ.get("UH_ROUTER_PREFER") or "auto").strip().lower()
+    if prefer not in ("auto", "local", "cloud"):
+        prefer = "auto"
+    local_entries = [entry for entry in chain if entry[0] == "ollama"]
+    cloud_entries = [entry for entry in chain if entry[0] != "ollama"]
     preferred_name = (preferred or "").strip().lower()
     if preferred_name:
-        chain = [entry for entry in chain if entry[0] == preferred_name] + [
-            entry for entry in chain if entry[0] != preferred_name
+        cloud_entries = [entry for entry in cloud_entries if entry[0] == preferred_name] + [
+            entry for entry in cloud_entries if entry[0] != preferred_name
         ]
+    chain = (cloud_entries + local_entries) if prefer == "cloud" else (local_entries + cloud_entries)
 
     if chain[0][0] != "ollama" and ollama_entry is None:
         reason = next(
@@ -1518,6 +1529,7 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
 
     provider = None
     model = ""
+    provider_kind = ""
     if not args.dry_run:
         cfg = uh_config.load()
         try:
@@ -1528,6 +1540,7 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
             chain = []
         if chain:
             provider = chain[0][1]
+            provider_kind = chain[0][0]
 
     if getattr(args, "start_uhb", False):
         from . import uhb_spawn
@@ -1566,12 +1579,9 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
         # a file. Without this, Task Scheduler says "success" and nothing happened.
         _log_pass(f"crashed: {type(exc).__name__}: {exc}", started)
         raise
-    routing = report.classification or {}
-    planned = routing.get("chosen") or routing.get("chain")
-    if isinstance(planned, list) and planned:
-        chosen = str(planned[0].get("ref") if isinstance(planned[0], dict) else planned[0])
-    else:
-        chosen = str(planned or "?")
+    # What answered, not what UHB would have preferred: the plan and the provider
+    # chain are two different things, and only one of them spent the tokens.
+    chosen = f"{provider_kind}/{model}" if provider_kind else "?"
     _log_pass(
         f"{report.status} - {len(report.ideas)} idea(s), {report.tokens.get('total', 0)} tokens, "
         f"{report.wall_time_s:.0f}s, routed: {chosen}"
