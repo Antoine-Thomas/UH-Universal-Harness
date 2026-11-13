@@ -105,6 +105,25 @@ def is_configured() -> bool:
     return resolve_base_url() is not None
 
 
+def openai_params(params: dict, model: str) -> dict:
+    """The chat parameters this surface documents, and nothing else.
+
+    ``reasoning_effort`` is sent only for the model families that accept it: some
+    gateways answer ``400 unknown parameter`` for the whole payload otherwise, and
+    a settings slider must never be able to break a turn.
+    """
+    from ..llm_params import REASONING_MODELS
+
+    clean: dict = {}
+    for key in ("temperature", "top_p", "max_tokens", "frequency_penalty", "presence_penalty"):
+        if key in params:
+            clean[key] = params[key]
+    effort = str(params.get("reasoning_effort") or "").strip()
+    if effort and REASONING_MODELS.match(model or ""):
+        clean["reasoning_effort"] = effort
+    return clean
+
+
 # --------------------------------------------------------------------------- #
 # provider
 # --------------------------------------------------------------------------- #
@@ -161,6 +180,7 @@ class OmniRouterProvider(Provider):
         }
         if tools:
             payload["tools"] = tools
+        payload.update(openai_params(getattr(self, "request_params", {}) or {}, self.model))
 
         if on_token is None:
             return self._chat_blocking(payload)

@@ -65,12 +65,14 @@
       <div id="command-chips" class="command-chips" role="toolbar" aria-label="Commands"></div>
 
       <div id="skill-badge" class="skill-badge" hidden></div>
+      <div id="llm-badge" class="skill-badge llm-badge" hidden></div>
 
       <div id="attachments" class="attachments" aria-live="polite"></div>
 
       <form id="composer" class="composer">
         <button type="button" id="attach" class="icon-button" title="Attach files" aria-label="Attach files">📎</button>
         <button type="button" id="skill-open" class="skill-open" title="Attacher un skill à ce tour" aria-label="Skill">⚑</button>
+        <button type="button" id="llm-open" class="skill-open" title="Réglages de la conversation" aria-label="Réglages de la conversation">🎚</button>
         <input id="files" class="visually-hidden" type="file" multiple
                accept=".txt,.md,.markdown,.csv,.json,.yaml,.yml,.toml,.log,.py,.js,.ts,.html,.css,.sh,.ps1,.pdf,.png,.jpg,.jpeg,.webp,.gif,.mp4,.mov,.webm,.mkv">
         <textarea id="input" rows="1" placeholder="Ask UH…  (Ctrl/Cmd-K for commands · drop a file here)" autocomplete="off"></textarea>

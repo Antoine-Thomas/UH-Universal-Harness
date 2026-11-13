@@ -37,6 +37,21 @@ def _tool_calls_from(message: dict) -> List[dict]:
     return [call for call in calls if isinstance(call, dict)]
 
 
+def chat_options(params: dict) -> dict:
+    """Ollama's ``options`` block from the session's parameters.
+
+    Only the keys ``/api/chat`` documents, and ``max_tokens`` becomes
+    ``num_predict``: a field Ollama does not know is not "ignored", it is a 400.
+    """
+    options: dict = {}
+    for key in ("temperature", "top_p", "frequency_penalty", "presence_penalty"):
+        if key in params:
+            options[key] = params[key]
+    if "max_tokens" in params:
+        options["num_predict"] = int(params["max_tokens"])
+    return options
+
+
 class OllamaProvider(Provider):
     name = "ollama"
 
@@ -68,6 +83,9 @@ class OllamaProvider(Provider):
         }
         if tools:
             payload["tools"] = tools
+        options = chat_options(getattr(self, "request_params", {}) or {})
+        if options:
+            payload["options"] = options
 
         if on_token is None:
             return self._chat_blocking(payload)

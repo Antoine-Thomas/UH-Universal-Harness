@@ -347,6 +347,16 @@ sees while it runs. Items are listed with their state, not their ambition.
   message** (labelled "## Active skill: …"), never as a stored user message, so
   the transcript still says who said what. An unknown name is a `400` before the
   provider is called.
+- **Conversation settings** - *delivered* (`uh/llm_params.py`, `GET
+  /api/llm/settings`, card above the composer). Temperature, Top P, max tokens,
+  frequency/presence penalties, reasoning effort and the `web_search` tool
+  switch, drawn from one table in Python so a slider cannot promise a range the
+  backend does not know. Nothing is sent while the master switch is off; when it
+  is on, values are clamped server-side and stored on the session
+  (`metadata.settings`, through `PATCH`), so opening a conversation restores the
+  temperature it was written at. The panel prints what the provider will
+  **ignore** (`reasoning_effort` on Ollama, reasoning on a non-reasoning model)
+  instead of pretending every slider does something.
 - **Maintenance** - temp files, caches, orphaned uploads, with the reclaimed space
   reported before and after. Deletion is explicit, never silent. *To do.*
 - **Voice and text helpers** - TTS and dictation through the Web Speech API (no
@@ -444,3 +454,40 @@ losing either costs nothing. P8 makes the files visible, portable and restorable
 Constraint for every item above: the archive is written by UH, read by any zip
 tool, and restored by UH alone; nothing here needs a network, an account or a
 cloud, and `pytest -q` stays green.
+
+
+## 9. P9 - Distribution and branding (opened 2026-11-13)
+
+A name that collides is a bug in the packaging. Measured on 2026-11-13: PyPI
+carries **`universal-harness`** (author "AI King", AGPL-3.0, Beta) while this
+project publishes **`uh-harness`** (MIT, `license_expression: MIT` on PyPI). Two
+different projects; the shared word "harness" is the only thing they have in
+common. Nothing to litigate, everything to disambiguate - a shop page or a search
+result is where a user decides, not a README footnote.
+
+- **Package metadata** - *delivered*. `description` names the package and the
+  promise ("uh-harness (UH): a local-first, provider-agnostic agent harness for
+  your desktop"); keywords are the specific ones an installer searches
+  (`agent-harness`, `local-first`, `openai-compatible`, `tool-use`,
+  `desktop-agent`, `sqlite`, `mit`) rather than the generic pair that collides.
+- **README "Name disambiguation"** - *delivered*. States the independence, the
+  licence of each project, and what each one is, at the bottom of the page where
+  someone who scrolled that far is already comparing.
+- **GitHub metadata** - *delivered*: the repository description names
+  `uh-harness (UH)` and says "Not affiliated with the PyPI package
+  universal-harness"; fourteen topics carry the specifics (`agent-harness`,
+  `desktop-agent`, `sqlite`, `mit-license`, `tool-use`, `backup`, …).
+- **Shop page** - *to do*. One screenshot per panel (cockpit, memory graph,
+  telemetry, data/backup), the one-line promise, the install command, the licence
+  badge. The panels are deliverable; the copy must not claim what the roadmap
+  marks as "not yet".
+- **Wheel contents** - *partly verified*: `tests/test_web.py` asserts that
+  `index.html`, `app.js` and `style.css` ship in the package, so the cockpit is
+  not an empty page after `pip install`. A full `python -m build` + install in a
+  clean venv is *to do* before the next release.
+- **Other ecosystems** - *to check before any push*: npm, crates, Homebrew and
+  the usual model hubs. A collision found on npm is cheaper to fix before a
+  launch than after.
+
+Constraint for every item above: the naming work touches metadata and docs only.
+No feature is renamed to look different, and `pytest -q` stays green.

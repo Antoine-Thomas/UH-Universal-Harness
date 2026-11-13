@@ -113,10 +113,14 @@ def _session_or_404(app: FastAPI, session_id: str) -> dict:
     return session
 
 
-def _toolsets(app: FastAPI) -> dict:
+def _toolsets(app: FastAPI, web_search: bool = True) -> dict:
     toolsets = build_toolsets(app.state.settings.workspace)
     if not app.state.settings.allow_terminal:
         toolsets.pop("terminal", None)
+    if not web_search:
+        # The toggle in the conversation settings, not a provider parameter: the
+        # tool simply is not offered to the model for this conversation.
+        toolsets.pop("web_search", None)
     return toolsets
 
 
@@ -320,14 +324,27 @@ def create_app(
         """
         session = _session_or_404(app, session_id)
         body = payload or {}
-        if "title" not in body and "folder" not in body:
-            raise HTTPException(status_code=400, detail="nothing to update: send title or folder")
+        if "title" not in body and "folder" not in body and "settings" not in body:
+            raise HTTPException(
+                status_code=400, detail="nothing to update: send title, folder or settings"
+            )
         with _store(app) as store:
             if "title" in body:
                 title = str(body.get("title") or "")[:120]
                 store.rename_session(session["id"], title)
             if "folder" in body:
                 store.set_folder(session["id"], str(body.get("folder") or ""))
+            if "settings" in body:
+                # Stored on the session, not in the browser: a setting that
+                # changes an answer belongs with the conversation it changed.
+                blob = body.get("settings") or {}
+                values = blob.get("values") if isinstance(blob, dict) else None
+                metadata = dict(session.get("metadata") or {})
+                metadata["settings"] = {
+                    "enabled": bool((blob or {}).get("enabled")),
+                    "values": values if isinstance(values, dict) else {},
+                }
+                store.set_session_metadata(session["id"], metadata)
             updated = store.get_session(session["id"])
         if updated is None:  # deleted concurrently: report it, do not invent a row
             raise HTTPException(status_code=404, detail=f"unknown session: {session_id}")
@@ -445,6 +462,27 @@ def create_app(
         return {"attachment": stored.as_dict()}
 
     # -- chat (SSE) -------------------------------------------------------- #
+    @app.get("/api/llm/settings", dependencies=[Depends(require_token)])
+    async def llm_settings(session_id: Optional[str] = None) -> dict:
+        """The knobs, the bounds, and what this provider will actually honour.
+
+        The panel draws itself from this payload: one table in Python
+        (``uh/llm_params.py``) is the only place that knows a slider's range, and
+        the support matrix is reported rather than guessed in the browser.
+        """
+        from .. import llm_params
+
+        kind, model = app.state.kind, app.state.model
+        if session_id:
+            session = _session_or_404(app, session_id)
+            kind, model = app.state.session_models.get(session["id"], (kind, model))
+        return {
+            "provider": kind,
+            "model": model,
+            "support": llm_params.describe(kind, model),
+            **llm_params.public(),
+        }
+
     @app.post("/api/sessions/{session_id}/chat", dependencies=[Depends(require_token)])
     async def chat(session_id: str, payload: dict, request: Request) -> StreamingResponse:
         body = payload or {}
@@ -473,6 +511,18 @@ def create_app(
             skill_block = uh_skills.prompt_block(skill_name) or ""
             if not skill_block:
                 raise HTTPException(status_code=400, detail=f"unknown skill: {skill_name}")
+        # Conversation settings: clamped here, never trusted from the browser, and
+        # empty when the panel is off - an untouched slider must not change an
+        # answer that used to come from the provider's own defaults.
+        from .. import llm_params
+
+        settings = body.get("settings") or {}
+        try:
+            chat_params = llm_params.sanitise(settings)
+            search_on = llm_params.web_search_enabled(settings)
+        except Exception as exc:  # noqa: BLE001 - a malformed blob is a 400, not a 500
+            raise HTTPException(status_code=400, detail=f"invalid settings: {exc}") from exc
+        toolsets = _toolsets(app, web_search=search_on)
 
         loop = asyncio.get_running_loop()
         queue: "asyncio.Queue[dict]" = asyncio.Queue()
@@ -490,7 +540,7 @@ def create_app(
                     provider_kind=kind,
                     chain=[(kind, provider)],
                     model=model,
-                    toolsets=_toolsets(app),
+                    toolsets=toolsets,
                     workspace=app.state.settings.workspace,
                     cfg=app.state.cfg,
                     stream=True,
@@ -500,6 +550,7 @@ def create_app(
                     announce=False,
                     console=Console(stream=io.StringIO(), err=io.StringIO()),
                     extra_system=skill_block,
+                    params=chat_params,
                 )
                 session_obj.events = emit
                 app.state.active[session["id"]] = session_obj
@@ -527,7 +578,15 @@ def create_app(
         threading.Thread(target=work, daemon=True, name=f"uh-chat-{session['id']}").start()
 
         async def stream():
-            yield frame("open", {"session": display_id(session["id"]), "model": model, "skill": skill_name})
+            yield frame(
+                "open",
+                {
+                    "session": display_id(session["id"]),
+                    "model": model,
+                    "skill": skill_name,
+                    "settings": chat_params,
+                },
+            )
             while True:
                 event = await queue.get()
                 if event.get("type") == "__end__":

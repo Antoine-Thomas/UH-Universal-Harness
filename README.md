@@ -536,3 +536,22 @@ What the installed gateway actually looks like (OmniRoute 3.8.52):
 ## License
 
 MIT — see [LICENSE](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/LICENSE).
+
+## Name disambiguation
+
+`uh-harness` is an independent, MIT-licensed agent harness: a local-first
+console and desktop-style cockpit, one runtime dependency, no account.
+It is **not affiliated with** the `universal-harness` package on PyPI (a
+different project, different author, AGPL-3.0), and nothing here shares code,
+data or infrastructure with it. The import name is `uh`, the command is `uh`,
+the repository is `Antoine-Thomas/UH-Universal-Harness`.
+
+If you are comparing the two: UH is a local cockpit (chat, memory graph,
+telemetry, backups, skills) whose state lives in files under `~/.uh` that you can
+read, zip and restore without any service. The other project is a governance
+layer for a hosted agent ecosystem. Same word "harness", two different jobs -
+installing one does not install the other.
+
+```bash
+pip install uh-harness      # what this repository publishes
+```

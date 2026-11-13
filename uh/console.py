@@ -264,6 +264,7 @@ class ChatSession:
         announce: bool = True,
         console: Optional["Console"] = None,
         extra_system: str = "",
+        params: Optional[dict] = None,
     ) -> None:
         self.provider_factory = provider_factory
         self.provider_kind = provider_kind
@@ -298,6 +299,13 @@ class ChatSession:
         # the skill the operator attached to this turn.
         self.extra_system = extra_system
         self.history: list[dict] = [system_message(workspace, extra_system)]
+        # Chat parameters (temperature, top_p, …) for every call this session makes.
+        # A third-party provider without set_params keeps working: it simply uses
+        # its own defaults.
+        self.params: dict = dict(params or {})
+        setter = getattr(self.provider, "set_params", None)
+        if callable(setter):
+            setter(self.params)
         if session_id and store is not None:
             self.history.extend(self._stored_messages(session_id))
 
@@ -752,6 +760,14 @@ class _ChainProvider(Provider):
     def __init__(self, chain: list[tuple[str, Provider]]) -> None:
         super().__init__()
         self.chain = chain
+
+    def set_params(self, params: Optional[dict]) -> None:
+        """Apply the session's parameters to every provider in the chain."""
+        self.request_params = dict(params or {})
+        for _kind, provider in self.chain:
+            setter = getattr(provider, "set_params", None)
+            if callable(setter):
+                setter(self.request_params)
 
     def usage_snapshot(self) -> dict:
         """Cumulative counters of every provider in the chain (whoever answered)."""

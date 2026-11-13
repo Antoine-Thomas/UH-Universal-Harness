@@ -51,6 +51,7 @@ even when the failing input was one.
 | GET | `/api/memory/siyuan/blocks` | `?path=&limit=` | `{count, path, blocks: [{id, type, hpath, content}]}` · `400 {kind: "config_missing"}` · `401 {kind: "auth"}` · `502 {kind: "transport"}` |
 | GET | `/api/memory/search` | `?q=<text>&limit=` | `{query, hits: [{kind: memory\|wiki\|session, title, path, snippet}]}` · `400` empty q |
 | GET | `/api/memory/graph` | — | `{nodes: [{id, label, column, count, unit, state: on\|empty\|off, detail}], edges: [{from, to, label, wired}], wired}` — `state` is about the source (`off` = unreadable), `wired` is about the edge (UH really consults it for a turn) |
+| GET | `/api/llm/settings` | `?session_id=` | `{provider, model, support: {provider, model, applied, ignored: [{name, reason}], supports_reasoning}, spec: {key: {kind, min?, max?, step?, choices?, default, label, hint}}, defaults: {enabled, values}, provider_keys}` — the panel draws itself from this; `support` says what the provider will drop |
 | GET | `/api/uhb/status` | — | `{connected, version, mode, harness, providers, modes}` · `{connected: false, reason}` when UHB is down or disabled |
 | POST | `/api/uhb/route` | `{prompt, mode?, complexity?}` | `{mode, complexity, chosen, chain: [{ref, tier, model_id}], reason, allow_paid}` · `400` no prompt · `503` UHB unreachable |
 | GET | `/api/dreams` | — | `{dreams: [{stamp, status, tokens, summary, ideas}], daemon: {...}}` |
@@ -128,6 +129,7 @@ gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  input  keys-priority  keys-view
 data-open  data-panel  data-view  tab-data
 memory-graph  skill-badge  skill-open
+llm-badge  llm-open  llm-panel
 panel-dock  panel-float  panel-head
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view

@@ -1015,3 +1015,54 @@ body {
 @media (max-width: 768px) {
   #panel-float { display: none; }
 }
+
+/* --- conversation settings (P9): the knobs --------------------------------- */
+/* A floating card above the composer, drawn from /api/llm/settings. The master
+   switch is first because it is the honest default: off means "nothing is sent". */
+.llm-badge {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.llm-panel {
+  position: fixed; right: 24px; bottom: 96px; z-index: 120;
+  width: 340px; max-height: 72vh; overflow: auto;
+  display: none; flex-direction: column; gap: 10px; padding: 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
+}
+.llm-panel.open { display: flex; }
+.llm-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; font-weight: 600;
+}
+.llm-head button {
+  border: 0; background: transparent; color: var(--muted);
+  font-size: 15px; line-height: 1; cursor: pointer;
+}
+.llm-head button:hover { color: var(--text); }
+.llm-master {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.llm-rows { display: flex; flex-direction: column; gap: 10px; }
+.llm-row { display: flex; flex-direction: column; gap: 3px; }
+.llm-row-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.llm-label { color: var(--text); }
+.llm-value { color: var(--accent); font-variant-numeric: tabular-nums; }
+.llm-range { width: 100%; accent-color: var(--accent); }
+.llm-row select {
+  font: inherit; font-size: 11px; padding: 5px 6px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.llm-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+.llm-hint, .llm-note { font-size: 9px; color: var(--muted); }
+.llm-support {
+  display: flex; flex-direction: column; gap: 3px; font-size: 10px;
+  color: var(--muted); border-top: 1px solid var(--border); padding-top: 8px;
+}
+.llm-support p { margin: 0; }
+.llm-ignored { color: var(--highlight); }
+.llm-actions { display: flex; justify-content: flex-end; }
+@media (max-width: 768px) {
+  .llm-panel { left: 12px; right: 12px; bottom: 84px; width: auto; }
+}

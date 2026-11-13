@@ -17,7 +17,7 @@ so adding a provider means adding one module and one registry entry.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 
 class ProviderError(RuntimeError):
@@ -108,6 +108,15 @@ class Provider(ABC):
         self.last_real_model = None
         self.last_usage = None
         self._usage_total: dict = {"prompt": 0, "completion": 0, "total": 0}
+        # Chat parameters chosen for this conversation (temperature, top_p,
+        # max_tokens, penalties, reasoning_effort). A provider reads only the keys
+        # its API documents, so an unsupported one is ignored rather than sent and
+        # rejected - a settings slider must never be able to break a turn.
+        self.request_params: Dict[str, object] = {}
+
+    def set_params(self, params: Optional[dict]) -> None:
+        """Remember the parameters the operator set for this session."""
+        self.request_params = dict(params or {})
 
     def usage_snapshot(self) -> dict:
         """Cumulative counters since construction (a turn takes a diff of this)."""

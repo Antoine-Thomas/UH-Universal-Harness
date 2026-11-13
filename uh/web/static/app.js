@@ -14,6 +14,9 @@ const state = {
   keyEntryAllowed: false,
   presets: null,
   skill: null,
+  llm: { enabled: false, values: {} },
+  llmDefaults: { enabled: false, values: {} },
+  llmSpec: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -604,6 +607,15 @@ async function openSession(id) {
   }
   renderHistory(data.messages);
   updateGauge(data.messages);
+  // The conversation's own settings, stored with it: opening a session restores
+  // the temperature it was written at, not the last one used in another tab.
+  const stored = (data.session.metadata || {}).settings;
+  state.llm = {
+    enabled: Boolean(stored && stored.enabled),
+    values: { ...state.llmDefaults.values, ...((stored && stored.values) || {}) },
+  };
+  renderLlmSummary();
+  if ($("llm-panel")) loadLlmPanel().catch(() => {});
   await loadSessions();
   $("sidebar").classList.remove("open");
 }
@@ -665,6 +677,7 @@ async function sendMessage(text) {
         message: text,
         attachments,
         skill: state.skill ? state.skill.name : "",
+        settings: state.llm,
       }),
       signal: controller.signal,
     });
@@ -3068,10 +3081,220 @@ function wireDock() {
   });
 }
 
+// --- conversation settings (P9): the knobs, drawn from one table ------------- //
+// The panel is generated from /api/llm/settings, so a slider can never promise a
+// range or a parameter the backend does not know. Settings are stored on the
+// session (PATCH), sent with every turn, and ignored entirely while the master
+// switch is off - an untouched slider must not change an answer.
+let llmSaveTimer = null;
+
+function renderLlmSummary() {
+  const badge = $("llm-badge");
+  badge.textContent = "";
+  badge.hidden = !state.llm.enabled;
+  if (!state.llm.enabled) return;
+  const values = state.llm.values || {};
+  const bits = [];
+  if (values.temperature !== undefined) {
+    bits.push(`T ${Number(values.temperature).toFixed(2).replace(".", ",")}`);
+  }
+  if (values.max_tokens) bits.push(`${values.max_tokens} tok`);
+  if (values.reasoning_effort) bits.push(`effort ${values.reasoning_effort}`);
+  badge.appendChild(el("span", "skill-badge-label", `Réglages : ${bits.join(" · ")}`));
+  const clear = el("button", "skill-badge-clear", "×");
+  clear.type = "button";
+  clear.title = "Revenir aux réglages du modèle";
+  clear.addEventListener("click", () => {
+    state.llm.enabled = false;
+    renderLlmSummary();
+    if ($("llm-panel")) renderLlmRows();
+    saveLlmSettings();
+  });
+  badge.appendChild(clear);
+}
+
+function saveLlmSettings() {
+  if (!state.sessionId) return;
+  window.clearTimeout(llmSaveTimer);
+  llmSaveTimer = window.setTimeout(async () => {
+    try {
+      await api(`/api/sessions/${encodeURIComponent(state.sessionId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ settings: state.llm }),
+      });
+    } catch (error) {
+      // A settings write that fails must not block the sliders; the next turn
+      // still carries them, and the badge still says what is active.
+    }
+  }, 400);
+}
+
+function llmSpec() {
+  return (state.llmSpec && state.llmSpec.spec) || {};
+}
+
+function renderLlmRows() {
+  const box = $("llm-panel");
+  if (!box) return;
+  const rows = box.querySelector("#llm-rows");
+  rows.textContent = "";
+  const spec = llmSpec();
+  Object.entries(spec).forEach(([key, field]) => {
+    const row = el("label", "llm-row");
+    const head = el("div", "llm-row-head");
+    head.appendChild(el("span", "llm-label", field.label));
+    const value = el("span", "llm-value");
+    head.appendChild(value);
+    row.appendChild(head);
+
+    const current = state.llm.values[key];
+    if (field.kind === "bool") {
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.id = `llm-${key}`;
+      input.checked = Boolean(current);
+      input.addEventListener("change", () => {
+        state.llm.values[key] = input.checked;
+        renderLlmSummary();
+        saveLlmSettings();
+      });
+      row.appendChild(input);
+      value.textContent = current ? "activé" : "désactivé";
+    } else if (field.kind === "choice") {
+      const select = document.createElement("select");
+      select.id = `llm-${key}`;
+      (field.choices || []).forEach((choice) => {
+        const option = el("option", null, choice === "" ? "modèle par défaut" : choice);
+        option.value = choice;
+        select.appendChild(option);
+      });
+      select.value = current ?? "";
+      select.addEventListener("change", () => {
+        state.llm.values[key] = select.value;
+        value.textContent = select.value || "défaut";
+        renderLlmSummary();
+        saveLlmSettings();
+      });
+      row.appendChild(select);
+      value.textContent = current || "défaut";
+    } else {
+      const input = document.createElement("input");
+      input.type = "range";
+      input.className = "llm-range";
+      input.id = `llm-${key}`;
+      input.min = field.min;
+      input.max = field.max;
+      input.step = field.step;
+      input.value = current ?? field.default;
+      const show = () => {
+        value.textContent =
+          field.kind === "int" ? String(Number(input.value)) : Number(input.value).toFixed(2).replace(".", ",");
+      };
+      show();
+      input.addEventListener("input", () => {
+        state.llm.values[key] = field.kind === "int" ? Number(input.value) : Number(input.value);
+        show();
+        renderLlmSummary();
+        saveLlmSettings();
+      });
+      row.appendChild(input);
+    }
+    if (field.hint) row.appendChild(el("span", "llm-hint", field.hint));
+    rows.appendChild(row);
+  });
+
+  const master = box.querySelector("#llm-enabled");
+  if (master) master.checked = Boolean(state.llm.enabled);
+  // The honest line: what this provider will apply, and what it will drop.
+  const support = box.querySelector("#llm-support");
+  support.textContent = "";
+  const info = (state.llmSpec && state.llmSpec.support) || {};
+  if (info.applied) {
+    support.appendChild(
+      el("p", null, `Appliqué par ${info.provider || "ce fournisseur"} : ${info.applied.join(", ") || "aucun"}`)
+    );
+  }
+  (info.ignored || []).forEach((entry) => {
+    support.appendChild(el("p", "llm-ignored", `Ignoré : ${entry.name} — ${entry.reason}`));
+  });
+  support.appendChild(
+    el(
+      "p",
+      "llm-note",
+      "Rien n'est envoyé tant que « Paramètres personnalisés » est décoché : le tour garde les valeurs par défaut du modèle."
+    )
+  );
+}
+
+async function loadLlmPanel() {
+  let data;
+  try {
+    const query = state.sessionId ? `?session_id=${encodeURIComponent(state.sessionId)}` : "";
+    data = await api(`/api/llm/settings${query}`);
+  } catch (error) {
+    return;
+  }
+  state.llmSpec = data;
+  state.llmDefaults = data.defaults;
+  // Fill the missing keys from the defaults, without erasing what the user set.
+  const values = { ...((data.defaults && data.defaults.values) || {}) };
+  Object.keys(data.spec || {}).forEach((key) => {
+    if (state.llm.values[key] !== undefined) values[key] = state.llm.values[key];
+  });
+  state.llm.values = values;
+  if (!state.llm.enabled && !Object.keys(state.llm.values).length) {
+    state.llm.enabled = false;
+  }
+  renderLlmRows();
+  renderLlmSummary();
+}
+
+function openLlmPanel() {
+  let panel = $("llm-panel");
+  if (!panel) {
+    panel = el("aside", "llm-panel");
+    panel.id = "llm-panel";
+    panel.innerHTML = `
+      <header class="llm-head">
+        <span>Réglages de la conversation</span>
+        <button id="llm-close" class="ghost" title="Fermer">×</button>
+      </header>
+      <label class="llm-master">
+        <input type="checkbox" id="llm-enabled">
+        <span>Paramètres personnalisés</span>
+      </label>
+      <div id="llm-rows" class="llm-rows"></div>
+      <div id="llm-support" class="llm-support"></div>
+      <div class="llm-actions">
+        <button id="llm-reset" class="data-button" type="button">Réinitialiser</button>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.querySelector("#llm-close").addEventListener("click", () => panel.remove());
+    panel.querySelector("#llm-enabled").addEventListener("change", (event) => {
+      state.llm.enabled = event.target.checked;
+      renderLlmSummary();
+      saveLlmSettings();
+    });
+    panel.querySelector("#llm-reset").addEventListener("click", () => {
+      state.llm = {
+        enabled: false,
+        values: { ...((state.llmDefaults && state.llmDefaults.values) || {}) },
+      };
+      renderLlmRows();
+      renderLlmSummary();
+      saveLlmSettings();
+    });
+  }
+  panel.classList.add("open");
+  loadLlmPanel().catch(() => {});
+}
+
 // -------------------------------------------------------------------- boot --
 function wireComposer() {
   const input = $("input");
   $("skill-open").addEventListener("click", openSkillMenu);
+  $("llm-open").addEventListener("click", openLlmPanel);
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
@@ -3127,6 +3350,8 @@ async function boot() {
   wireProviders();
   wireDock();
   await loadStatus();
+  // The settings table first, so the first session opened knows its defaults.
+  await loadLlmPanel().catch(() => {});
   await loadModels();
   await loadCommands();
   await loadSessions();

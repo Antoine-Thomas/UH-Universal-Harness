@@ -263,6 +263,20 @@ def test_the_second_brain_draws_the_graph_and_a_turn_can_carry_a_skill() -> None
 
 
 @KEEP
+def test_the_conversation_settings_panel_is_drawn_from_the_route() -> None:
+    """A slider that promises a range the backend refuses is worse than no slider."""
+    page = INDEX.read_text(encoding="utf-8")
+    script = APP.read_text(encoding="utf-8")
+
+    assert 'id="llm-open"' in page
+    assert 'id="llm-badge"' in page
+    assert "/api/llm/settings" in script
+    assert "renderLlmRows" in script, "the rows come from the spec, not from markup"
+    assert "state.llm.enabled" in script, "the master switch decides what is sent"
+    assert "settings: state.llm" in script, "every turn carries the settings"
+
+
+@KEEP
 def test_the_panel_can_be_detached_and_a_phone_cannot() -> None:
     """Docking v1: detach the configuration panel, snap it to an edge, dock back."""
     page = INDEX.read_text(encoding="utf-8")
