@@ -32,6 +32,11 @@ inside an allowed path (``~/Desktop``, ``~/Documents``, ``~/Downloads``,
 Refused shapes: ``> target``, ``>> target``, ``mkdir``, ``md``, ``touch``,
 ``tee``, ``cp``/``copy``/``mv``/``move``/``install``/``ln`` destinations.
 
+Write absolute paths in a shell command: ``cmd.exe`` does not expand ``~`` (a
+POSIX shell does), so ``> ~/Desktop/x`` is accepted by the guard and then fails
+in the shell. The file toolset expands ``~``; here, pass the resolved path or
+use ``%USERPROFILE%``.
+
 This is a guard on *obvious* writes, not a sandbox. ``python -c
 "open('/etc/passwd','w')"``, a script the model writes into the workspace and
 then runs, ``cmd /c``, an editor, or any program that writes on its own still

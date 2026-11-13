@@ -317,6 +317,11 @@ the model creates and runs, an editor, `cmd /c` — still goes through. The file
 toolset is the enforced path; the shell guard stops accidents, not a determined
 author.
 
+Use **absolute paths** in a shell command: `cmd.exe` does not expand `~` (a
+POSIX shell does), so `> ~/Desktop/x` passes the guard and then fails in the
+shell. The file toolset expands `~`; in the terminal, write the resolved path or
+use `%USERPROFILE%`.
+
 ## Sessions, store and configuration
 
 - Store: `$UH_HOME/uh.db` (`~/.uh/uh.db`), schema v1, WAL, foreign keys ON.
