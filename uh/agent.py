@@ -37,6 +37,7 @@ import inspect
 import json
 import sys
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
@@ -46,6 +47,9 @@ from typing import (
     Protocol,
     runtime_checkable,
 )
+
+if TYPE_CHECKING:  # the manager imports a provider module, not this one
+    from .context import ContextManager
 
 
 class BudgetExhausted(RuntimeError):
@@ -213,6 +217,7 @@ def run_turn(
     *,
     max_iterations: int = 8,
     on_token: Optional[Callable[[str], None]] = None,
+    context: Optional["ContextManager"] = None,
 ) -> List[dict]:
     """Run the agent loop until a final answer or until the budget is spent.
 
@@ -221,6 +226,10 @@ def run_turn(
 
     ``on_token`` (Jalon 2) streams text deltas to the caller while the answer is
     generated; the complete message is still appended to the returned history.
+
+    ``context`` prunes what is *sent* on every iteration, without touching the
+    history this function returns: a tool loop that grows past the model's window
+    is exactly when it matters, and the store keeps everything.
     """
     if max_iterations < 1:
         raise ValueError("max_iterations must be >= 1")
@@ -231,7 +240,8 @@ def run_turn(
     total_iterations = int(max_iterations)
 
     for _iteration in range(1, total_iterations + 1):  # the count is only for the error
-        response = _chat(provider, history, definitions, on_token)
+        outgoing = context.prepare(history) if context is not None else history
+        response = _chat(provider, outgoing, definitions, on_token)
         message = _as_assistant_message(response)
         message.setdefault("role", "assistant")
         if message.get("content") is None:

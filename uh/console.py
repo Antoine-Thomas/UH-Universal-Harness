@@ -32,6 +32,7 @@ from .agent import (
     provider_supports_streaming,
     run_turn,
 )
+from .context import ContextManager, default_budget, summarise_with
 from .providers import Provider, ProviderError
 from .store import Store, StoreError, display_id
 
@@ -276,6 +277,13 @@ class ChatSession:
         # Web front-end hooks: no printing, events instead (see uh/web).
         self.events: Optional[Callable[[dict], None]] = None
         self._stop = threading.Event()
+        # Pruning happens per provider call, not per turn: a tool loop is exactly
+        # when the payload grows past the window. The store keeps everything.
+        self.context = ContextManager(
+            budget_tokens=default_budget(self.model, cfg),
+            summarizer=lambda messages: summarise_with(self.provider, messages),
+        )
+        self._context_noted = False
         self.history: list[dict] = [system_message(workspace)]
         if session_id and store is not None:
             self.history.extend(self._stored_messages(session_id))
@@ -377,12 +385,27 @@ class ChatSession:
         self._print_answer(content, chunks)
         self._record_usage(usage_before)
         self.console.detail(self.usage_line())
+        self._note_context()
         self._emit("answer", content=content)
         try:
             self._persist(self.history[before:])
         except StoreError as exc:
             self.console.error(f"uh chat: cannot record session: {exc}")
         return 0
+
+    def _note_context(self) -> None:
+        """Say it once per session when the payload had to be pruned.
+
+        Silence would be wrong here: the model answered from a summary, and that
+        is a fact about the answer, not an implementation detail.
+        """
+        if self._context_noted or not self.context.last_summary:
+            return
+        self._context_noted = True
+        self.console.errout(
+            f"uh chat: context pruned to ~{self.context.budget} tokens "
+            "(older turns summarised; the session keeps every message)"
+        )
 
     def _interrupted(self, before: int, chunks: list[str]) -> int:
         """Acknowledge a Ctrl+C and drop the half-finished turn.
@@ -455,6 +478,7 @@ class ChatSession:
                 self.toolsets,
                 max_iterations=self.max_iterations,
                 on_token=on_token if self.stream else None,
+                context=self.context,
             )
         except BudgetExhausted as exc:
             self.console.error(f"uh chat: {exc}")
