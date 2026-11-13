@@ -30,8 +30,8 @@ inside an allowed path (``~/Desktop``, ``~/Documents``, ``~/Downloads``,
 ``~/uh-workspace``, ``UH_ALLOWED_PATHS``), and never a system directory.
 
 Refused shapes: ``> target``, ``>> target``, ``mkdir``, ``md``, ``touch``,
-``tee``; the destination of ``cp``/``copy``/``mv``/``move``/``install``/``ln``;
-and **deletions** - ``rm``,
+``tee``; the destination of ``cp``/``copy``/``xcopy`` (last argument),
+``robocopy`` (second) and ``mklink`` (first); and **deletions** - ``rm``,
 ``rmdir``, ``rd``, ``del``, ``erase``, ``unlink``, ``shred``, ``truncate`` - whose
 targets leave the workspace and the whitelist. Removing a file outside the
 sandbox is refused at the same title as writing one: it is just as
@@ -120,6 +120,9 @@ WRITE_COMMANDS: dict[str, str] = {
     "move": "last",
     "install": "last",
     "ln": "last",
+    "xcopy": "last",
+    "robocopy": "second",
+    "mklink": "first",
 }
 
 # Deletions follow the same rule as writes: a file outside the workspace is not
@@ -147,6 +150,9 @@ WINDOWS_FLAG_COMMANDS = {
     "erase",
     "copy",
     "move",
+    "xcopy",
+    "robocopy",
+    "mklink",
 }
 WINDOWS_FLAG_RE = re.compile(r"^/[A-Z?]{1,4}$")
 
@@ -274,6 +280,10 @@ def _path_arguments(segment: list[str], table: dict[str, str]) -> list[str]:
         return arguments
     if mode == "last":
         return arguments[-1:]
+    if mode == "first":
+        return arguments[:1]
+    if mode == "second":
+        return arguments[1:2]
     return []  # pragma: no cover - table typo
 
 
