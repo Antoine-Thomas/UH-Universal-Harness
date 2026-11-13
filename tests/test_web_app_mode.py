@@ -65,6 +65,22 @@ def test_a_found_browser_is_started_with_the_flag(tmp_path: Path) -> None:
     assert launched[0][1] == f"--app={URL}"
 
 
+def test_the_window_opens_in_the_middle_of_the_screen(tmp_path: Path) -> None:
+    """A window in a corner reads as a popup; the user asked for an application."""
+    import re
+    import sys
+
+    binary = tmp_path / "msedge.exe"
+    argv = browser.app_command(binary, URL, tmp_path / "profile")
+    position = [item for item in argv if item.startswith("--window-position=")]
+
+    if sys.platform.startswith("win"):
+        assert position, "Windows knows the screen size: centre on it"
+        assert re.fullmatch(r"--window-position=\d+,\d+", position[0])
+    else:
+        assert position == [], "no guessing on a platform that will not say"
+
+
 def test_no_chromium_is_a_fallback_not_a_crash(tmp_path: Path) -> None:
     launched: list[list[str]] = []
 

@@ -132,6 +132,30 @@ def find_chromium() -> Optional[Path]:
     return None
 
 
+def centered_position(width: int = 1280, height: int = 880) -> Optional[str]:
+    """``--window-position=x,y`` centred on the primary screen, Windows only.
+
+    An app window that lands in a corner reads as a popup; the user asked for
+    something that opens like a program. Computed at launch so a 4K screen and a
+    laptop both get the middle, and omitted when the platform will not say.
+    """
+    if not windows():
+        return None
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        screen_w = int(user32.GetSystemMetrics(0))
+        screen_h = int(user32.GetSystemMetrics(1))
+        if screen_w <= 0 or screen_h <= 0:
+            return None
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+        return f"--window-position={x},{y}"
+    except Exception:  # noqa: BLE001 - a hint, not a requirement
+        return None
+
+
 def app_command(binary: Path, url: str, profile_dir: Optional[Path] = None) -> List[str]:
     """The argv that opens ``url`` as a window. Pure, so it can be asserted on.
 
@@ -140,10 +164,12 @@ def app_command(binary: Path, url: str, profile_dir: Optional[Path] = None) -> L
     is dropped on the way - the user gets a tab in the browser they were already
     using, which is exactly what this feature exists to avoid.
     """
+    position = centered_position()
     argv = [
         str(binary),
         f"--app={url}",
         f"--window-size={WINDOW_SIZE}",
+        position or "",
         f"--user-data-dir={profile_dir}" if profile_dir else "",
         "--no-first-run",
         "--no-default-browser-check",

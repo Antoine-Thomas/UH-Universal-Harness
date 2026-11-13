@@ -1486,6 +1486,17 @@ def cmd_web(args: argparse.Namespace) -> int:
             )
             return EXIT_FAILURE
 
+    # The shortcut the user already has points at a script we wrote for an older
+    # version; refresh it here so a `uh web` upgrade does not keep opening a tab.
+    try:
+        from . import shortcut as uh_shortcut
+
+        refreshed = uh_shortcut.refresh_launcher_if_stale()
+    except Exception:  # noqa: BLE001 - a launcher is never worth failing a start
+        refreshed = None
+    if refreshed is not None:
+        print(f"uh web: launcher updated for --app ({refreshed})")
+
     # The second brain starts with the cockpit: without it the desktop shortcut
     # opens an interface whose tools are all absent. A failure here is a warning,
     # never a crash - the UI is useful on its own.

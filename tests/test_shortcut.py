@@ -198,6 +198,34 @@ def test_the_desktop_can_be_overridden(tmp_path: Path, monkeypatch: pytest.Monke
 # --------------------------------------------------------------------------- #
 # CLI wiring
 # --------------------------------------------------------------------------- #
+def test_an_old_launcher_is_refreshed_for_app_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upgrading must not leave the user with a launcher that opens a tab forever."""
+    monkeypatch.setattr(shortcut, "windows", lambda: True)
+    monkeypatch.setattr(shortcut, "home_directory", lambda: tmp_path)
+    launcher = tmp_path / shortcut.SCRIPT_NAME
+    launcher.write_text("Write-UhLog 'x'\n& $uh.Source web @args\n", encoding="utf-8")
+
+    refreshed = shortcut.refresh_launcher_if_stale()
+
+    assert refreshed == launcher
+    assert "--app" in launcher.read_text(encoding="utf-8")
+
+
+def test_a_launcher_we_did_not_write_is_left_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shortcut, "windows", lambda: True)
+    monkeypatch.setattr(shortcut, "home_directory", lambda: tmp_path)
+    launcher = tmp_path / shortcut.SCRIPT_NAME
+    body = "& $uh.Source web --port 9000\n"
+    launcher.write_text(body, encoding="utf-8")
+
+    assert shortcut.refresh_launcher_if_stale() is None
+    assert launcher.read_text(encoding="utf-8") == body
+
+
 def test_the_cli_refuses_platforms_that_are_not_windows(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

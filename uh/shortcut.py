@@ -438,6 +438,35 @@ def run_powershell(script: str, timeout: float = 30.0) -> str:
     return completed.stdout
 
 
+def refresh_launcher_if_stale() -> Optional[Path]:
+    """Rewrite an old launcher so it passes ``--app``. Returns the path when it did.
+
+    The Desktop shortcut points at ``uh-web.ps1``. A user who upgrades keeps the
+    script we generated for the previous version - which ran ``uh web`` and opened
+    a browser tab - and would keep getting a tab forever, because nothing tells
+    them to run ``uh install-shortcut`` again. Only that file is rewritten (the
+    shortcut does not move), and only when it is the line we generate: a
+    hand-edited launcher is left alone.
+    """
+    if not windows():
+        return None
+    directory = home_directory()
+    path = directory / SCRIPT_NAME
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if "--app" in text or "& $uh.Source web @args" not in text:
+        return None
+    try:
+        write_launcher(directory)
+    except OSError:
+        return None
+    return path
+
+
 def install(
     *,
     directory: Optional[Path] = None,
