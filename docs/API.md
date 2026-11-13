@@ -123,10 +123,19 @@ palette-input  palette-list  panel-toggle  providers-close  providers-hint  prov
 providers-open  providers-panel  providers-view  router-settings  search
 remote-banner  search-results  send  session-list  session-title  sidebar
 sidebar-toggle
-splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
+splash  splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
 tab-decision  tab-memory  tab-providers  tab-uhb  terminal-warning  theme-toggle  uhb-panel
 uhb-view
 ```
+
+`splash` is the only element that exists before the script runs: the UH mark,
+the wordmark and an indeterminate bar are static markup in `index.html`, so the
+first paint is not an empty page. `app.js` adds `is-done` (a CSS fade) and then
+removes the node; a 4 s timer does the same if `boot()` has not resolved, so a
+hung API never leaves the operator looking at a pulsing mark.
+
+`dreams.js` mounts its own elements on activation (`dreams-open`, `idea-badge`,
+`dreams-panel`), so a failed dreams route cannot stop the chat from loading.
 
 The layout is three CSS grid columns plus two drag handles
 (`splitter-left`, `splitter-right`). The handles write `--sidebar-w` / `--right-w`

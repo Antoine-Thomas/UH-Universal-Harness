@@ -2189,6 +2189,31 @@ async function boot() {
   if (location.hash === "#providers") openProviders();
 }
 
-boot().catch((error) => {
-  document.body.textContent = `UH web error: ${error.message}`;
-});
+// ------------------------------------------------------------------ splash -- //
+// The splash is static markup in index.html so the very first paint has
+// something on screen; this only ends it. Two ways out: boot() resolved (the
+// shell is wired and the first calls landed), or the timer - a hung API must not
+// trap the operator behind a pulsing mark. Never a click: a splash you can
+// dismiss is a splash that hid a failure.
+const SPLASH_FADE_MS = 380;
+const SPLASH_LIMIT_MS = 4000;
+let splashGone = false;
+
+function dismissSplash() {
+  if (splashGone) return;
+  splashGone = true;
+  const splash = $("splash");
+  if (!splash) return;
+  splash.classList.add("is-done");
+  // Not transitionend: with prefers-reduced-motion there is no transition.
+  setTimeout(() => splash.remove(), SPLASH_FADE_MS + 40);
+}
+
+setTimeout(dismissSplash, SPLASH_LIMIT_MS);
+
+boot()
+  .then(dismissSplash)
+  .catch((error) => {
+    dismissSplash();
+    document.body.textContent = `UH web error: ${error.message}`;
+  });

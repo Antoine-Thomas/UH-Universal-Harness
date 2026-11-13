@@ -174,3 +174,66 @@ def test_the_memory_tab_says_reloaded_never_reindexed() -> None:
     assert "reindexed" not in script
     assert "index rebuilt" not in script
     assert "rebuilt" not in script
+
+
+# --- P6: the splash, the framed window, the dreams mount -------------------- #
+DREAMS = ROOT / "uh" / "web" / "static" / "dreams.js"
+
+
+@KEEP
+def test_the_dreams_script_carries_its_own_helpers() -> None:
+    """app.js is an ES module, so `el` and `api` are not on `window`.
+
+    dreams.js is a classic script. Reaching for app.js's helpers threw
+    `el is not defined` inside mountDreams, which catches and warns - so the
+    "Rêves" button and the idea badge never appeared and nothing else failed.
+    """
+    script = DREAMS.read_text(encoding="utf-8")
+
+    assert "function dreamsEl(" in script
+    assert "async function dreamsApi(" in script
+    for helper in ("el", "api"):
+        assert not re.search(rf"(?<![\w$]){helper}\(", script), (
+            f"dreams.js calls {helper}() from a module scope it cannot see"
+        )
+
+
+@KEEP
+def test_the_dreams_panel_offers_the_three_outcomes() -> None:
+    """Erase, keep, or fulfil - and a daemon toggle that is actually wired."""
+    script = DREAMS.read_text(encoding="utf-8")
+
+    for action in ("delete", "archive", "fulfill"):
+        assert f'data-act="{action}"' in script, f"missing the {action} button"
+    assert 'querySelector("#dreams-toggle").addEventListener("click", toggleDaemon)' in script
+    assert "/api/dreams/daemon/" in script
+    assert "waitForDaemon" in script, "a start that is not polled leaves a stale state line"
+
+
+@KEEP
+def test_the_splash_is_static_markup_and_the_script_ends_it() -> None:
+    """The first paint must show something without waiting for the module."""
+    page = INDEX.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    script = APP.read_text(encoding="utf-8")
+
+    assert 'id="splash"' in page
+    assert 'class="splash-mark"' in page
+    assert "dismissSplash" in script
+    assert "splash.remove()" in script, "the overlay must leave the DOM, not only fade"
+    assert "splash-pulse" in css
+    assert ".splash.is-done" in css
+
+
+@KEEP
+def test_the_shell_reads_as_a_window_and_a_phone_gets_none() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    layout = css.split(".layout {", 1)[1].split("}", 1)[0]
+    mobile = css.split("@media (max-width: 768px)", 1)[1]
+
+    assert "padding: 12px" in css.split(".layout {", 1)[0], "the frame needs a gutter"
+    assert "border-radius" in layout
+    assert "box-shadow" in layout
+    assert "overflow: hidden" in layout, "the rounded corners have to clip the columns"
+    assert "body { padding: 0; }" in mobile, "a phone is full bleed"
+    assert ".layout { border: 0; border-radius: 0; box-shadow: none; }" in mobile

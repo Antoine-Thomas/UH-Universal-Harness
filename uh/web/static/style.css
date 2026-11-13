@@ -16,6 +16,8 @@
   --on-accent: #06302c;
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Behind the window: the desktop the frame sits on. */
+  --app-bg: radial-gradient(1200px 800px at 18% -10%, #d9efec 0%, #eef6f5 55%, #dcebe9 100%);
 }
 
 html[data-theme="dark"] {
@@ -31,6 +33,7 @@ html[data-theme="dark"] {
   --tool: #22403d;
   --error: #ef8a72;
   --on-accent: #06302c;
+  --app-bg: radial-gradient(1200px 800px at 18% -10%, #26433f 0%, #162523 55%, #0e1a19 100%);
 }
 
 * { box-sizing: border-box; }
@@ -38,20 +41,31 @@ html[data-theme="dark"] {
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: var(--bg);
+  background: var(--app-bg, var(--bg));
+  background-attachment: fixed;
   color: var(--text);
   height: 100vh;
+  padding: 12px;         /* the gap that makes the frame read as a window */
   overflow: hidden;
 }
 
-/* Three zones plus two drag handles. The widths are CSS variables so the
-   splitters can resize them without recalculating anything, and so a reload can
-   restore them from localStorage (see layoutPrefs in app.js). */
+/* The window itself: rounded, bordered, shadowed, slightly translucent. The
+   browser stays the runtime - this is CSS, not Electron - and nothing here may
+   change the grid or the splitter maths (see layoutPrefs in app.js). */
 .layout {
   display: grid;
   grid-template-columns:
     var(--sidebar-w, 260px) var(--splitter, 6px) 1fr var(--splitter, 6px) var(--right-w, 340px);
-  height: 100vh;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  box-shadow:
+    0 22px 55px rgba(0, 0, 0, .30),
+    0 2px 6px rgba(0, 0, 0, .14),
+    0 1px 0 rgba(255, 255, 255, .06) inset;
 }
 .layout.sidebar-collapsed {
   grid-template-columns:
@@ -66,6 +80,46 @@ body {
 }
 .layout.sidebar-collapsed .sidebar,
 .layout.sidebar-collapsed #splitter-left { display: none; }
+
+/* ---------------------------------------------------------------- splash -- */
+/* The mark pulses while the shell wires itself and the first API calls land.
+   The bar is indeterminate on purpose: nothing measures progress here, so
+   nothing pretends to. app.js fades this out when boot() resolves, and a timer
+   ends it if boot hangs - the splash is never a wall. */
+.splash {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; background: var(--app-bg, var(--bg));
+  transition: opacity .38s ease;
+}
+.splash.is-done { opacity: 0; pointer-events: none; }
+.splash-mark {
+  width: 92px; height: 92px; border-radius: 26px;
+  display: grid; place-items: center;
+  background: var(--highlight); color: var(--on-accent);
+  font-weight: 700; font-size: 30px; letter-spacing: .04em;
+  animation: splash-pulse 1.6s ease-in-out infinite;
+}
+.splash-word {
+  font-size: 11px; letter-spacing: .24em; text-transform: uppercase; color: var(--muted);
+}
+.splash-track { width: 160px; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.splash-track span {
+  display: block; width: 40%; height: 100%; border-radius: 2px;
+  background: var(--highlight); animation: splash-slide 1.1s ease-in-out infinite;
+}
+@keyframes splash-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 12px 30px rgba(253, 197, 2, .22); }
+  50%      { transform: scale(1.06); box-shadow: 0 16px 42px rgba(253, 197, 2, .42); }
+}
+@keyframes splash-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash { transition: none; }
+  .splash-mark, .splash-track span { animation: none; }
+}
 
 .splitter {
   cursor: col-resize; background: var(--border); opacity: .55;
@@ -363,8 +417,8 @@ body {
   /* The right column becomes an overlay; app.js mirrors this breakpoint
      (isNarrow) so click-outside only closes it in overlay mode. */
   .rightbar {
-    position: fixed; top: 0; right: 0; bottom: 0;
-    width: min(360px, 92vw); z-index: 25;
+    position: fixed; top: 12px; right: 12px; bottom: 12px;
+    width: min(360px, 92vw); z-index: 25; border-radius: 14px;
     box-shadow: -18px 0 40px rgba(0, 0, 0, .28);
   }
 }
@@ -374,6 +428,10 @@ body {
 }
 
 @media (max-width: 768px) {
+  /* A phone has no desktop to sit on: full bleed, no frame, no shadow. */
+  body { padding: 0; }
+  .layout { border: 0; border-radius: 0; box-shadow: none; }
+  .rightbar { top: 0; right: 0; bottom: 0; border-radius: 0; }
   .layout,
   .layout.right-collapsed,
   .layout.sidebar-collapsed,
@@ -408,6 +466,12 @@ body {
   .session-actions { opacity: 1; }  /* no hover on a touch screen */
   .composer textarea { font-size: 16px; }  /* iOS zooms under 16 px */
   .warning { font-size: 13px; }
+
+  /* Dreams: the badge is a notification, and on a phone the panel is still one
+     tap away through "Rêves"; a 420 px floating card becomes a full sheet. */
+  #idea-badge { display: none; }
+  .dreams-open { padding: 0 8px; }
+  .dreams-panel { top: 0; right: 0; left: 0; width: auto; max-height: 100%; border-radius: 0; }
 }
 
 /* --- providers: right column (was a fixed panel before Jalon layout) ------- */
@@ -661,25 +725,45 @@ body {
   background: var(--accent); color: var(--on-accent);
 }
 
-/* Dreams panel: mounted from JS, so these rules must not assume a parent. */
-.dreams-open, #idea-badge { margin-left: 8px; }
-.idea-badge { color: var(--highlight); }
+/* Dreams panel: mounted from JS, so these rules must not assume a parent. The
+   two buttons live in the topbar and are not .ghost-button, so they bring their
+   own chrome - a raw browser button in a dark shell reads as unfinished. */
+.dreams-open, #idea-badge {
+  margin-left: 4px; padding: 5px 10px; font-size: 11px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  white-space: nowrap;
+}
+.dreams-open:hover, #idea-badge:hover { color: var(--text); border-color: var(--accent); }
+#idea-badge { color: var(--highlight); border-color: rgba(253, 197, 2, .45); }
+#idea-badge:hover { color: var(--highlight); border-color: var(--highlight); }
 .dreams-panel {
-  position: fixed; top: 56px; right: 16px; width: 420px; max-height: 78vh;
+  position: fixed; top: 64px; right: 24px; width: 420px; max-height: 78vh;
   display: none; flex-direction: column; gap: 10px; padding: 14px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .35); overflow: auto; z-index: 40;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .45); overflow: auto; z-index: 40;
 }
 .dreams-panel.open { display: flex; }
+.dreams-panel button {
+  font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 8px;
+  background: transparent; color: var(--text); border: 1px solid var(--border);
+  cursor: pointer;
+}
+.dreams-panel button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.dreams-panel button:disabled { opacity: .5; cursor: default; }
 .dreams-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+.dreams-head button { border: 0; font-size: 15px; }
 .dreams-daemon { display: flex; gap: 8px; align-items: center; justify-content: space-between;
   font-size: 12px; color: var(--muted); }
-.dreams-panel.is-dreaming .dreams-daemon { color: var(--accent); }
+.dreams-panel.is-dreaming .dreams-daemon,
+.dreams-panel.is-monitoring .dreams-daemon { color: var(--accent); }
 .dreams-panel.is-dreaming #dreams-state::after { content: " ●"; animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
 .dream-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.dream-row.is-latest { border-color: rgba(253, 197, 2, .45); }
 .dream-title { font-size: 12px; font-weight: 600; }
-.dream-summary { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.dream-summary { font-size: 11px; color: var(--muted); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .dream-actions { display: flex; gap: 6px; margin-top: 8px; }
 .dream-actions button { font-size: 11px; padding: 5px 9px; border-radius: 6px; }
 .dream-actions .danger { color: #d9534f; border-color: #d9534f55; }

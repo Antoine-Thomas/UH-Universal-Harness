@@ -294,12 +294,17 @@ sees while it runs. Items are listed with their state, not their ambition.
 
 - **Report on the Desktop** - *delivered* (`--export-desktop`, copy to
   `~/Desktop/UH_Rapport_Nuit.txt`). A pass nobody opens is a pass nobody reads.
-- **Splash screen** - the first paint waits on nothing: the UH mark pulses while
-  the shell and the first API calls land, then fades. No fake depth on the mark,
-  no click that pretends to do something. *To do.*
-- **Independent window** - rounded frame, shadow, centred, so the UI reads as a
-  desktop app rather than a page. No Electron: the browser is the runtime.
-  *To do.*
+- **Splash screen** - *delivered*. Static markup in `index.html` (the mark, the
+  wordmark, an indeterminate bar), so the first paint is not an empty page; the
+  mark pulses while the shell wires itself and the first API calls land, then
+  `app.js` fades the overlay and removes it. A 4 s timer ends it if `boot()`
+  hangs - no click, because a splash you can dismiss is a splash that hid a
+  failure - and `prefers-reduced-motion` stops the pulse.
+- **Independent window** - *delivered*. A 12 px gutter on `body`, and `#layout`
+  carries a 14 px radius, a border, a shadow and a slightly translucent
+  background: the page reads as a desktop app, and the browser is still the
+  runtime. A phone (<= 768 px) keeps the full-bleed layout; the right-panel
+  overlay at <= 1200 px now sits inside the frame instead of over it.
 - **Dockable consoles** - one UI, several panes (chat, logs, terminal, decision),
   detachable, resizable, with magnetic edges. Reference studied:
   `github.com/makushingu/harness-maxxing` (already named in section 5).
@@ -338,15 +343,19 @@ quietly, and the operator decides what happens to it.
 - **One absence, one pass** - *delivered*. After a pass the daemon waits for real
   input before dreaming again, and `--daemon-stop` ends the loop after the current
   pass (`--daemon-status` says what it is doing).
-- **Dreams panel** - *to do*. In the Second brain tab: state ("Idle monitoring:
-  0/15 min", "Dreaming..."), the report title and summary, and three buttons -
-  **Effacer** (delete), **Stocker** (`~/.uh/dreams/archived/`), **Exaucer**
-  (checklist of ideas that produces a markdown action plan in
-  `~/.uh/dreams/actions/`, never a change to the machine without a final
-  confirmation).
-- **"L'idee du jour"** - *to do*. A discreet badge in the header that opens the
-  Dreams panel on the latest idea. A notification, not a popup.
-- **Endpoints** - *to do*. `GET /api/dreams`, `GET /api/dreams/{stamp}`,
+- **Dreams panel** - *delivered*, then repaired. In the Second brain tab: state
+  ("Idle monitoring: 0/15 min", "Dreaming..."), the report title and summary, and
+  three buttons - **Effacer** (delete), **Stocker**
+  (`~/.uh/dreams/archived/`), **Exaucer** (checklist of ideas that produces a
+  markdown action plan in `~/.uh/dreams/actions/`, never a change to the machine
+  without a final confirmation). The panel is mounted by `dreams.js` from the top
+  bar; that script is a classic script while `app.js` is an ES module, so it
+  carries its own `dreamsEl` / `dreamsApi` helpers - reaching for the module's
+  threw `el is not defined` inside `mountDreams`, which caught it, and the button
+  and the badge never appeared.
+- **"L'idee du jour"** - *delivered*. A discreet badge in the header that opens
+  the Dreams panel on the latest idea. A notification, not a popup.
+- **Endpoints** - *delivered*. `GET /api/dreams`, `GET /api/dreams/{stamp}`,
   `POST /api/dreams/{stamp}/archive|delete|fulfill`.
 
 Constraint, unchanged: the daemon never writes to SiYuan, never reindexes, and

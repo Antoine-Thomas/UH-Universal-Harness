@@ -8,6 +8,14 @@
 </head>
 <body>
 <script src="/static/dreams.js" defer></script>
+  <!-- First paint: the mark pulses while the shell wires itself and the first API
+       calls land, then app.js fades it out. Static markup, no inline script, no
+       inline style (the CSP allows neither), and no click to dismiss it. -->
+  <div id="splash" class="splash" role="status" aria-live="polite" aria-label="Loading Universal Harness">
+    <div class="splash-mark">UH</div>
+    <div class="splash-word">Universal Harness</div>
+    <div class="splash-track"><span></span></div>
+  </div>
   <div class="layout" id="layout">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
