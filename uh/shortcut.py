@@ -6,7 +6,7 @@ open a terminal. Three files, no admin rights, no auto-start:
 * ``uh-web.ps1`` in ``$UH_HOME`` - the launcher. It prints a banner in the
   Searching Murphy colours and runs ``uh web``; if ``uh`` is not on PATH it says
   so and waits, instead of flashing a window that disappears;
-* ``uh-web.ico`` in ``$UH_HOME`` - a gold lightning bolt on ink, generated here
+* ``uh-web.ico`` in ``$UH_HOME`` - a gold "UH" monogram on ink, generated here
   (zlib-wrapped PNG inside ICO, standard library only: no new dependency, no
   binary asset to keep in sync with the colours);
 * ``UH web.lnk`` on the Desktop, created through ``WScript.Shell``.
@@ -168,16 +168,15 @@ def script_text() -> str:
 # icon (zlib PNG inside an ICO, no dependency)
 # --------------------------------------------------------------------------- #
 SIZE = 256
-#: A lightning bolt, in unit coordinates: two long diagonal strokes and the
-#: notch that makes it read as a bolt rather than a zigzag.
-BOLT: tuple[tuple[float, float], ...] = (
-    (0.585, 0.055),
-    (0.255, 0.545),
-    (0.455, 0.545),
-    (0.360, 0.950),
-    (0.760, 0.430),
-    (0.535, 0.430),
-)
+#: One entry per size Windows asks for: the taskbar and the desktop read 16-48,
+#: the icon dialog reads 256. A single 256 entry gets downsampled by the shell
+#: and the two bars of the monogram blur at 16 px.
+ICON_SIZES = (16, 32, 48, 256)
+
+#: The monogram: two block letters, "U" then "H", in the tile's inner box.
+GLYPH_BOX = (0.115, 0.250, 0.885, 0.760)
+STROKE = 0.088  # bar thickness, as a fraction of the tile
+GAP = 0.105  # space between the two letters
 
 
 def _blend(base: tuple[int, int, int], amount: float) -> tuple[int, int, int]:
@@ -200,18 +199,35 @@ def _mix(
     )
 
 
-def _inside_bolt(x: float, y: float) -> bool:
-    """Even-odd point-in-polygon test on :data:`BOLT`."""
-    inside = False
-    count = len(BOLT)
-    for index in range(count):
-        x1, y1 = BOLT[index]
-        x2, y2 = BOLT[(index + 1) % count]
-        if (y1 > y) != (y2 > y):
-            cross = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
-            if x < cross:
-                inside = not inside
-    return inside
+def _bar(x: float, y: float, x0: float, y0: float, x1: float, y1: float) -> bool:
+    return x0 <= x <= x1 and y0 <= y <= y1
+
+
+def _monogram(x: float, y: float) -> bool:
+    """Block "UH": strokes only, so both letters stay legible down to 16 px.
+
+    No font file, no rasteriser, no dependency: four rectangles for the "U" and
+    three for the "H". A real font would look softer, and would also mean
+    shipping a licence and a binary to regenerate one 5 kB icon.
+    """
+    x0, y0, x1, y1 = GLYPH_BOX
+    width = (x1 - x0 - GAP) / 2
+    middle = (y0 + y1) / 2
+
+    u0, u1 = x0, x0 + width
+    if (
+        _bar(x, y, u0, y0, u0 + STROKE, y1)  # left stem
+        or _bar(x, y, u1 - STROKE, y0, u1, y1)  # right stem
+        or _bar(x, y, u0, y1 - STROKE, u1, y1)  # bowl
+    ):
+        return True
+
+    h0, h1 = x1 - width, x1
+    return bool(
+        _bar(x, y, h0, y0, h0 + STROKE, y1)  # left stem
+        or _bar(x, y, h1 - STROKE, y0, h1, y1)  # right stem
+        or _bar(x, y, h0, middle - STROKE / 2, h1, middle + STROKE / 2)  # crossbar
+    )
 
 
 def _inside_tile(x: float, y: float, radius: float = 0.22) -> bool:
@@ -227,16 +243,22 @@ def _inside_tile(x: float, y: float, radius: float = 0.22) -> bool:
     return dx * dx + dy * dy <= radius * radius
 
 
-def pixels(size: int = SIZE, samples: int = 2) -> bytes:
-    """RGBA pixels: ink tile, vertical gradient, gold bolt with a soft shadow."""
+def pixels(size: int = SIZE, samples: int = 4) -> bytes:
+    """RGBA pixels: ink tile, vertical gradient, gold "UH" with a drop shadow.
+
+    Supersampled (``samples`` x ``samples`` per pixel): a four-stroke monogram
+    needs anti-aliased edges, and downscaled hard edges are what makes a
+    generated icon look cheap.
+    """
     top = _blend(INK_RGB, 0.22)
     bottom = _blend(INK_RGB, -0.30)
     out = bytearray()
     step = 1.0 / samples
+    span = max(1, size - 1)
     for py in range(size):
         for px in range(size):
             tile = 0
-            bolt = 0
+            glyph = 0
             shadow = 0
             for sy in range(samples):
                 for sx in range(samples):
@@ -245,19 +267,19 @@ def pixels(size: int = SIZE, samples: int = 2) -> bytes:
                     if not _inside_tile(x, y):
                         continue
                     tile += 1
-                    if _inside_bolt(x, y):
-                        bolt += 1
-                    elif _inside_bolt(x - 0.015, y - 0.015):
+                    if _monogram(x, y):
+                        glyph += 1
+                    elif _monogram(x, y - 0.012):
                         shadow += 1
             total = samples * samples
             if tile == 0:
                 out += b"\x00\x00\x00\x00"
                 continue
-            colour = _mix(top, bottom, py / (size - 1))
+            colour = _mix(top, bottom, py / span)
             if shadow:
-                colour = _mix(colour, _blend(colour, -0.55), shadow / total)
-            if bolt:
-                colour = _mix(colour, ACCENT_RGB, bolt / total)
+                colour = _mix(colour, _blend(colour, -0.60), shadow / total)
+            if glyph:
+                colour = _mix(colour, ACCENT_RGB, glyph / total)
             alpha = int(round(255 * tile / total))
             out += bytes((colour[0], colour[1], colour[2], alpha))
     return bytes(out)
@@ -286,18 +308,23 @@ def png_bytes(size: int = SIZE) -> bytes:
     )
 
 
-def icon_bytes(size: int = SIZE) -> bytes:
-    """An ICO carrying one PNG entry: the container Windows 10+ reads natively.
+def icon_bytes(sizes: Sequence[int] = ICON_SIZES) -> bytes:
+    """An ICO carrying one PNG entry per size: native for Windows 10+.
 
-    A PNG entry is legal in the ICO format and keeps this file to a few thousand
-    bytes; a hand-rolled BMP (BGRA + AND mask) would be three times bigger for
-    no visible gain.
+    PNG entries are legal in the ICO format and keep the file to a few kilobytes;
+    a hand-rolled BMP (BGRA + AND mask) would be three times bigger for no
+    visible gain.
     """
-    png = png_bytes(size)
-    width = 0 if size >= 256 else size
-    header = struct.pack("<HHH", 0, 1, 1)
-    entry = struct.pack("<BBBBHHII", width, width, 0, 0, 1, 32, len(png), 6 + 16)
-    return header + entry + png
+    pngs = [(size, png_bytes(size)) for size in sizes]
+    offset = 6 + 16 * len(pngs)
+    entries = bytearray()
+    payload = bytearray()
+    for size, png in pngs:
+        width = 0 if size >= 256 else size  # 0 means 256, by the format
+        entries += struct.pack("<BBBBHHII", width, width, 0, 0, 1, 32, len(png), offset)
+        payload += png
+        offset += len(png)
+    return struct.pack("<HHH", 0, 1, len(pngs)) + bytes(entries) + bytes(payload)
 
 
 # --------------------------------------------------------------------------- #

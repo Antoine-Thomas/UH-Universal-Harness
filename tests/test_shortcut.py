@@ -49,26 +49,30 @@ def test_the_launcher_carries_the_searching_murphy_colours() -> None:
 # --------------------------------------------------------------------------- #
 # the icon
 # --------------------------------------------------------------------------- #
-def test_the_icon_is_a_single_png_entry() -> None:
-    data = shortcut.icon_bytes(64)
+def test_one_png_entry_per_size() -> None:
+    data = shortcut.icon_bytes([16, 32, 48, 256])
 
     reserved, kind, count = struct.unpack("<HHH", data[:6])
-    assert (reserved, kind, count) == (0, 1, 1)
+    assert (reserved, kind, count) == (0, 1, 4)
 
-    width, height, colors, pad, planes, bits, size, offset = struct.unpack(
-        "<BBBBHHII", data[6:22]
-    )
-    assert (width, height, colors, pad) == (64, 64, 0, 0)
-    assert (planes, bits) == (1, 32), "a 32-bit RGBA image"
-    png = data[offset : offset + size]
-    assert png.startswith(b"\x89PNG\r\n\x1a\n")
-    assert png[-8:-4] == b"IEND"
-    assert offset + size == len(data), "no trailing bytes"
+    entries = [struct.unpack("<BBBBHHII", data[6 + 16 * i : 22 + 16 * i]) for i in range(4)]
+    assert [entry[0] for entry in entries] == [16, 32, 48, 0], "0 encodes 256"
+    assert len({entry[1] for entry in entries}) == 4
+    assert all(entry[4:6] == (1, 32) for entry in entries), "32-bit RGBA, one plane"
+    for _width, _height, _colors, _pad, _planes, _bits, size, offset in entries:
+        png = data[offset : offset + size]
+        assert png.startswith(b"\x89PNG\r\n\x1a\n")
+        assert png[-8:-4] == b"IEND"
+    assert entries[0][7] == 6 + 16 * 4, "the first image starts after the directory"
+    last = entries[-1]
+    assert last[7] + last[6] == len(data), "no trailing bytes"
 
 
-def test_a_256_icon_stores_zero_as_its_size() -> None:
-    data = shortcut.icon_bytes(256)
-    assert data[6] == 0 and data[7] == 0, "ICO says 0 for 256, by the format"
+def test_the_shipped_icon_carries_every_size_windows_asks_for() -> None:
+    data = shortcut.icon_bytes()
+
+    assert struct.unpack("<H", data[4:6])[0] == len(shortcut.ICON_SIZES)
+    assert shortcut.ICON_SIZES == (16, 32, 48, 256)
 
 
 def test_the_png_declares_rgba_8_bit() -> None:
@@ -97,15 +101,26 @@ def test_the_tile_is_rounded_transparent_and_shaded() -> None:
     assert sum(bottom[:3]) < sum(top[:3]), "the gradient runs light at the top"
 
 
-def test_the_bolt_is_gold() -> None:
+def test_the_monogram_is_gold_and_centred_on_the_tile() -> None:
+    """Two letters, centred: the ink margin is balanced left and right."""
     size = 128
     raw = shortcut.pixels(size)
-    gold = 0
-    for index in range(0, len(raw), 4):
-        red, green, blue = raw[index], raw[index + 1], raw[index + 2]
-        if red > 200 and green > 160 and blue < 80:
-            gold += 1
-    assert gold > size * size // 20, "the accent has to be a visible share of the tile"
+    stride = size * 4
+
+    def gold_at(x: int, y: int) -> bool:
+        base = y * stride + x * 4
+        red, green, blue = raw[base], raw[base + 1], raw[base + 2]
+        return red > 200 and green > 160 and blue < 80
+
+    gold_columns = [x for x in range(size) if any(gold_at(x, y) for y in range(size))]
+    assert gold_columns, "the monogram has to be gold, not ink on ink"
+    left_margin = gold_columns[0]
+    right_margin = size - 1 - gold_columns[-1]
+    assert abs(left_margin - right_margin) <= 2, "the letters are centred"
+    assert len(gold_columns) > size // 3, "the accent has to be a visible share of the tile"
+
+    # the middle of the tile falls in the gap between "U" and "H"
+    assert not gold_at(size // 2, size // 2)
 
 
 # --------------------------------------------------------------------------- #
