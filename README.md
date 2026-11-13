@@ -129,7 +129,7 @@ The web interface is an **original design**: it borrows the feature list of
 Harness Maxxing (public README) and none of its code, which is under a Fair
 Source Licence. UH stays MIT.
 
-1108 tests, 1 skipped locally (Windows, Python 3.11, measured 2026-11-13); the CI
+1128 tests, 1 skipped locally (Windows and Linux, measured 2026-11-13); the CI
 matrix runs the suite on Linux, macOS and Windows across Python 3.10 to 3.13.
 The number is a measurement with a date, not a promise: it moves with every
 commit that adds a test.
