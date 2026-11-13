@@ -581,6 +581,77 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(plan.get("error")))
         return plan
 
+    # -- dreams ------------------------------------------------------------ #
+    @app.get("/api/dreams", dependencies=[Depends(require_token)])
+    async def dreams() -> dict:
+        from .. import dream_store
+
+        state = {}
+        try:
+            from .. import dream_daemon
+
+            state = dream_daemon.read_status()
+        except Exception:  # noqa: BLE001 - a missing daemon is not an error
+            state = {"state": "stopped"}
+        return {"dreams": dream_store.list_dreams(), "daemon": state}
+
+    @app.get("/api/dreams/{stamp}", dependencies=[Depends(require_token)])
+    async def dream_one(stamp: str) -> dict:
+        from .. import dream_store
+
+        entry = dream_store.read_dream(stamp)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="unknown dream")
+        return entry
+
+    @app.delete("/api/dreams/{stamp}", dependencies=[Depends(require_token)])
+    async def dream_delete(stamp: str) -> dict:
+        from .. import dream_store
+
+        if not dream_store.delete(stamp):
+            raise HTTPException(status_code=404, detail="unknown dream")
+        return {"deleted": stamp}
+
+    @app.post("/api/dreams/{stamp}/archive", dependencies=[Depends(require_token)])
+    async def dream_archive(stamp: str) -> dict:
+        from .. import dream_store
+
+        path = dream_store.archive(stamp)
+        if path is None:
+            raise HTTPException(status_code=404, detail="unknown dream")
+        return {"archived": stamp, "path": path}
+
+    @app.post("/api/dreams/{stamp}/fulfill", dependencies=[Depends(require_token)])
+    async def dream_fulfill(stamp: str) -> dict:
+        """Write a plan of action. Applying it stays a human decision."""
+        from .. import dream_store
+
+        path = dream_store.fulfill(stamp)
+        if path is None:
+            raise HTTPException(status_code=404, detail="unknown dream")
+        return {"stamp": stamp, "plan": path, "applied": False}
+
+    @app.post("/api/dreams/daemon/{action}", dependencies=[Depends(require_token)])
+    async def dream_daemon_control(action: str) -> dict:
+        """Start or stop the idle daemon. Only an explicit click starts it."""
+        import subprocess
+        import sys
+
+        from .. import dream_daemon
+
+        if action == "stop":
+            dream_daemon.stop()
+            return {"daemon": "stopping"}
+        if action != "start":
+            raise HTTPException(status_code=400, detail="action must be start or stop")
+        if not dream_daemon.running():
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+            subprocess.Popen(  # noqa: S603 - our own module, no shell
+                [sys.executable, "-m", "uh.cli", "dream", "--daemon"],
+                creationflags=flags,
+            )
+        return {"daemon": "starting"}
+
     @app.get("/api/system/ollama", dependencies=[Depends(require_token)])
     async def system_ollama() -> dict:
         """Always 200: Ollama is optional, and a 404 would read like a failure.

@@ -159,7 +159,13 @@ def test_security_headers_and_no_inline_script(
 
             html = response.text
             assert "<script type=\"module\" src=\"/static/app.js\">" in html
-            assert html.count("<script") == 1  # no inline block
+            # The rule is "no inline script", not "one file": a second external
+            # module is still governed by script-src 'self'.
+            assert "<script>" not in html and "<script type=\"text/javascript\">" not in html
+            import re as _re
+
+            for tag in _re.findall(r"<script[^>]*>", html):
+                assert "src=" in tag, f"inline script found: {tag}"
             assert "onclick=" not in html and "style=" not in html
 
     run(scenario())

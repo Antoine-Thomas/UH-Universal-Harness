@@ -660,3 +660,28 @@ body {
   cursor: pointer; border: 1px solid var(--accent);
   background: var(--accent); color: var(--on-accent);
 }
+
+/* Dreams panel: mounted from JS, so these rules must not assume a parent. */
+.dreams-open, #idea-badge { margin-left: 8px; }
+.idea-badge { color: var(--highlight); }
+.dreams-panel {
+  position: fixed; top: 56px; right: 16px; width: 420px; max-height: 78vh;
+  display: none; flex-direction: column; gap: 10px; padding: 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .35); overflow: auto; z-index: 40;
+}
+.dreams-panel.open { display: flex; }
+.dreams-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+.dreams-daemon { display: flex; gap: 8px; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--muted); }
+.dreams-panel.is-dreaming .dreams-daemon { color: var(--accent); }
+.dreams-panel.is-dreaming #dreams-state::after { content: " ●"; animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.dream-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.dream-title { font-size: 12px; font-weight: 600; }
+.dream-summary { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.dream-actions { display: flex; gap: 6px; margin-top: 8px; }
+.dream-actions button { font-size: 11px; padding: 5px 9px; border-radius: 6px; }
+.dream-actions .danger { color: #d9534f; border-color: #d9534f55; }
+.dream-actions .primary { color: var(--highlight); border-color: var(--highlight); }
+.dreams-empty, .dreams-detail { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }

@@ -52,6 +52,12 @@ even when the failing input was one.
 | GET | `/api/memory/search` | `?q=<text>&limit=` | `{query, hits: [{kind: memory\|wiki\|session, title, path, snippet}]}` · `400` empty q |
 | GET | `/api/uhb/status` | — | `{connected, version, mode, harness, providers, modes}` · `{connected: false, reason}` when UHB is down or disabled |
 | POST | `/api/uhb/route` | `{prompt, mode?, complexity?}` | `{mode, complexity, chosen, chain: [{ref, tier, model_id}], reason, allow_paid}` · `400` no prompt · `503` UHB unreachable |
+| GET | `/api/dreams` | — | `{dreams: [{stamp, status, tokens, summary, ideas}], daemon: {...}}` |
+| GET | `/api/dreams/{stamp}` | — | one dream, including `report`; `404` if unknown |
+| DELETE | `/api/dreams/{stamp}` | — | `{deleted}`; `404` if unknown |
+| POST | `/api/dreams/{stamp}/archive` | — | `{archived, path}` under `~/.uh/dreams/archived/` |
+| POST | `/api/dreams/{stamp}/fulfill` | — | `{stamp, plan, applied: false}` — writes a plan in `~/.uh/dreams/actions/`, applies nothing |
+| POST | `/api/dreams/daemon/{action}` | `start` \| `stop` | starts the idle daemon (only on an explicit click) or ends it after the current pass |
 | GET | `/api/system/ollama` | — | `{installed, running, models, boost: active\|available\|unavailable, reason, optional: true, url, savings: {local_passes, passes_logged, tokens_saved_estimate, basis}}` — always `200` |
 | GET | `/api/system/capabilities` | — | `{tier, ram_gb, cpu_cores, gpu, os, arch, recommended_model, recommended_budget, local_possible, sentence}` |
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
