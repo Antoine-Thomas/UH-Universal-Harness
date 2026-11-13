@@ -13,6 +13,32 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.1.0] — 2026-11-13
+
+UH can now ask UHB what it would do *before* doing it. Two new read-only tools,
+no token spent, and the toolset refuses to exist when the contract is missing.
+
+### Added
+- **`uhb_route(prompt, mode?, complexity?)`** — `POST /route`: the plan UHB
+  would follow (complexity, score, signals, reason, ordered failover chain),
+  without running a turn and without sending the prompt to a provider.
+- **`uhb_modes()`** — `GET /modes`: every mode with the path globs it may read
+  and write, the paths it denies, the tools it may call, its tier and whether
+  it may use a paid model. `system_prompt` is dropped: it is UHB's instruction,
+  not UH's, and it is the longest field of the payload.
+- **Contract gate**: the `uhb` toolset is built only when `GET /modes` answers
+  within one second. A UHB older than this contract contributes no tool at all,
+  instead of tools that answer 404 when the model calls them.
+- **Typed tool errors**: `invalid_request` (400), `unroutable` (409),
+  `configuration` (500), `http`, `invalid_response`, `transport`, carrying UHB's
+  own message so `unknown mode 'nope'; known modes: …` reaches the model intact.
+
+### Notes
+- UHB must be running: `python -m uhb.entrypoints.server --port 8101 --mode dev`.
+  UH looks at `http://127.0.0.1:8101`; set `UH_UHB_URL` to use another port.
+  Loopback only — a remote URL is refused, never contacted.
+- Requires the UHB release that ships `GET /modes` and `POST /route`.
+
 ## [1.0.3] — 2026-11-13
 
 The sandbox episode: a console started from `C:\Windows\System32` took the OS as

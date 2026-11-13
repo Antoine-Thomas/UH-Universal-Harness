@@ -215,6 +215,37 @@ model call and without touching the session history. The toolset returns
 `{"error": ...}` on network/HTTP failures and a `note` when the page looks
 throttled, so the model (or you) can tell the two apart.
 
+## Second brain (UHB)
+
+[UHB](https://github.com/Antoine-Thomas/UHB-Universal-Harness-Backend) is the
+control plane: it owns the modes (what may be read, written, called) and the
+model policy (which model answers, in which order). While it runs, UH gains
+three read-only tools — `uhb_status`, `uhb_modes`, `uhb_route` — and none of
+them spends a token.
+
+```bash
+# terminal 1 - the control plane, default port 8101
+cd UHB-Universal-Harness-Backend
+python -m uhb.entrypoints.server --port 8101 --mode dev
+
+# terminal 2 - UH, in the project you want to work on
+uh
+you> which model would UHB use for "refactor the parser"?   # -> uhb_route
+```
+
+UH looks for UHB on `http://127.0.0.1:8101` by default. For any other port,
+point it there explicitly — in PowerShell:
+
+```powershell
+$env:UH_UHB_URL = "http://127.0.0.1:8188"
+uh
+```
+
+Loopback only: a remote URL is refused, never contacted. The toolset is built
+only when `GET /modes` answers within one second — a UHB that is down, or older
+than that contract, contributes no tool at all rather than tools that fail when
+called.
+
 ## Console and slash commands
 
 `uh` on a terminal starts the console; piped, it still prints help (scriptable
