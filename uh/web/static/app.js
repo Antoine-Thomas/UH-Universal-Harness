@@ -1495,6 +1495,32 @@ async function loadUhb() {
   box.appendChild(out);
 }
 
+// --- command chips -----------------------------------------------------------
+// Clicking inserts the command, it does not run it: the user may want to add an
+// argument, and a web composer that fires on one click is a way to lose a draft.
+const CHIPS = [
+  ["🔧", "/tools", "List active toolsets"],
+  ["🌐", "/web", "Search the web, or open the UI"],
+  ["➕", "/new", "Start a new session"],
+  ["🧹", "/clear", "Clear this conversation"],
+  ["❓", "/help", "List commands"],
+];
+
+function wireChips() {
+  const row = $("command-chips");
+  for (const [icon, command, title] of CHIPS) {
+    const chip = el("button", "chip", `${icon} ${command}`);
+    chip.title = title;
+    chip.addEventListener("click", () => {
+      const input = $("input");
+      input.value = `${command} `;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+    row.appendChild(chip);
+  }
+}
+
 function showPanelTab(name) {
   for (const [tab, view] of [
     ["keys", "keys-view"],
@@ -1604,6 +1630,7 @@ async function showRemoteBanner() {
 async function boot() {
   wireLayout();
   wireAttachments();
+  wireChips();
   wireComposer();
   wirePalette();
   wireSearch();

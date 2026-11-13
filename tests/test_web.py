@@ -939,3 +939,32 @@ def test_uhb_route_returns_the_plan_or_a_clear_failure(
             assert "unreachable" in down.json()["detail"]
 
     run(scenario())
+
+
+def test_a_slash_command_in_the_web_chat_runs_the_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chip inserts "/tools"; sending it must not ask the model about the string."""
+    provider = ScriptedProvider()
+    app = make_app(tmp_path, monkeypatch, provider=provider)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+
+            reply = await http.post(
+                f"/api/sessions/{session_id}/chat",
+                json={"message": "/tools"},
+                headers=AUTH,
+            )
+            assert reply.status_code == 200
+            assert "active toolsets" in reply.text
+            assert provider.calls == 0, "a command is not a prompt"
+
+            stored = (
+                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
+            ).json()["messages"]
+            assert stored == [], "a command does not become a stored turn"
+
+    run(scenario())

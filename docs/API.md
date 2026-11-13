@@ -98,7 +98,8 @@ served by `--static-dir` is free to use its own, but the ones below are the
 contract of the bundled one:
 
 ```
-attach  attachments  composer  files  folder-hint  gauge-fill  gauge-label
+attach  attachments  command-chips  composer  files  folder-hint
+gauge-fill  gauge-label
 hardware-card  input  keys-priority  keys-view  models-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list

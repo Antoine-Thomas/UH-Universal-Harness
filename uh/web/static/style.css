@@ -487,6 +487,14 @@ body {
   cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
 }
 
+/* --- command chips above the composer ------------------------------------ */
+.command-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 6px; }
+.chip {
+  padding: 5px 10px; font-size: 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+}
+.chip:hover { border-color: var(--accent); color: var(--text); }
+
 /* --- second brain panel --------------------------------------------------- */
 .uhb-panel { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .uhb-offline { margin: 0; font-size: 12px; line-height: 1.5; color: var(--error); }

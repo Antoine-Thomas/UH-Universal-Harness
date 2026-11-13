@@ -489,7 +489,19 @@ def create_app(
                 )
                 session_obj.events = emit
                 app.state.active[session["id"]] = session_obj
-                session_obj.run_text(text)
+                # A line starting with "/" is command intent, exactly as in the
+                # console: the chips insert those lines, and sending "/tools" to
+                # the model would be a question about the string "/tools".
+                if text.startswith("/") and uh_commands.is_command(text):
+                    result = uh_commands.dispatch(session_obj, text)
+                    body = result.out or result.err or ""
+                    if result.err:
+                        emit({"type": "error", "message": result.err})
+                    else:
+                        emit({"type": "token", "text": body})
+                        emit({"type": "answer", "content": body})
+                else:
+                    session_obj.run_text(text)
             except Exception as exc:  # noqa: BLE001 - reported to the browser
                 emit({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
             finally:
