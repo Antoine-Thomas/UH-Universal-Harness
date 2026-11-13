@@ -319,3 +319,35 @@ sees while it runs. Items are listed with their state, not their ambition.
 
 Constraint for every item above: `pytest -q` stays green, the nightly task keeps
 working, and nothing here may require Ollama, a key, or a network call.
+
+
+## 7. P7 - The daemon and the daydream (opened 2026-11-13)
+
+The 03:00 task stays as a safety net, but it is not the idea. A report produced
+while the machine sleeps is a report nobody asked for; the useful moment is the
+pause - the coffee, the meeting, the twenty minutes away. The pass runs then,
+quietly, and the operator decides what happens to it.
+
+- **Idle trigger** - *delivered* (`uh dream --daemon`). `GetLastInputInfo` via
+  ctypes, one check per minute, `UH_IDLE_MINUTES` (default 15). When the API
+  cannot answer, the daemon reports `unsupported` and dreams nothing: guessing
+  "you are away" is how a laptop starts working at the wrong time.
+- **Below-normal priority** - *delivered*. The pass asks Windows for
+  `BELOW_NORMAL_PRIORITY_CLASS`, so a daydream does not compete with what you are
+  doing and does not spin the fans.
+- **One absence, one pass** - *delivered*. After a pass the daemon waits for real
+  input before dreaming again, and `--daemon-stop` ends the loop after the current
+  pass (`--daemon-status` says what it is doing).
+- **Dreams panel** - *to do*. In the Second brain tab: state ("Idle monitoring:
+  0/15 min", "Dreaming..."), the report title and summary, and three buttons -
+  **Effacer** (delete), **Stocker** (`~/.uh/dreams/archived/`), **Exaucer**
+  (checklist of ideas that produces a markdown action plan in
+  `~/.uh/dreams/actions/`, never a change to the machine without a final
+  confirmation).
+- **"L'idee du jour"** - *to do*. A discreet badge in the header that opens the
+  Dreams panel on the latest idea. A notification, not a popup.
+- **Endpoints** - *to do*. `GET /api/dreams`, `GET /api/dreams/{stamp}`,
+  `POST /api/dreams/{stamp}/archive|delete|fulfill`.
+
+Constraint, unchanged: the daemon never writes to SiYuan, never reindexes, and
+never requires Ollama - a pass that cannot run is logged and skipped.

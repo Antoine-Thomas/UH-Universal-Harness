@@ -1523,6 +1523,28 @@ def _log_pass(line: str, started: float) -> None:
         pass  # a log that cannot be written must not fail the pass
 
 
+def _run_dream_daemon(args: argparse.Namespace) -> int:
+    """Wait for a pause, dream, wait again. Returns only when told to stop."""
+    from . import dream_daemon
+
+    if getattr(args, "daemon_stop", False):
+        dream_daemon.stop()
+        print("uh dream: daemon will stop after its current pass")
+        return 0
+    if getattr(args, "daemon_status", False):
+        state = dream_daemon.read_status()
+        print(f"daemon: {state.get('state', 'unknown')}")
+        for key, value in state.items():
+            if key != "state":
+                print(f"  {key}: {value}")
+        return 0
+
+    print(f"uh dream: daemon started (idle after {dream_daemon.idle_minutes():.0f} min)")
+    result = dream_daemon.run(lambda: _run_dream_pass(args))
+    print(f"uh dream: daemon stopped ({result['passes']} pass(es) dreamed)")
+    return 0
+
+
 def _run_dream_pass(args: argparse.Namespace) -> int:
     """`uh dream --now`: one read-only pass, with a budget that actually stops it."""
     from .dream_pass import DreamConfig, DreamScheduler
@@ -1695,6 +1717,11 @@ def cmd_dream(args: argparse.Namespace) -> int:
             print(f"  script: {installed['path']}")
         print(f"  command: {installed['command']}")
         return EXIT_OK
+
+    if getattr(args, "daemon", False) or getattr(args, "daemon_stop", False) or getattr(
+        args, "daemon_status", False
+    ):
+        return _run_dream_daemon(args)
 
     if args.now:
         return _run_dream_pass(args)
@@ -2249,6 +2276,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--source", default=None, metavar="siyuan,rag", help="sources to read (default siyuan,rag)"
     )
     dream_cmd.add_argument("--no-write", action="store_true", help="print the report, write nothing")
+    dream_cmd.add_argument(
+        "--daemon", action="store_true", help="dream when the machine is idle, in the background"
+    )
+    dream_cmd.add_argument("--daemon-stop", action="store_true", help="stop a running daemon")
+    dream_cmd.add_argument("--daemon-status", action="store_true", help="what the daemon is doing")
     dream_cmd.add_argument(
         "--export-desktop",
         action="store_true",
