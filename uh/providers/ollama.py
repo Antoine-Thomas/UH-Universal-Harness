@@ -21,7 +21,9 @@ import httpx
 from . import Provider, ProviderError, request_messages
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434"
-DEFAULT_TIMEOUT = 120.0
+#: A local 8B model reading a few thousand characters can take minutes on a
+#: laptop GPU/CPU mix; 120 s cut it off mid-answer and the pass lost the turn.
+DEFAULT_TIMEOUT = 300.0
 DISCOVERY_TIMEOUT = 5.0
 PULL_READ_TIMEOUT = 300.0
 

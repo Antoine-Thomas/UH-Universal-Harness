@@ -155,9 +155,16 @@ class DreamScheduler:
         uhb_url: Optional[str] = None,
         client: Optional[httpx.Client] = None,
         clock=time.monotonic,
+        provider_kind: str = "",
+        fallback_provider: Any = None,
     ) -> None:
         self.config = config or DreamConfig()
         self.provider = provider
+        #: "ollama" means a small local model: the prompt is sized for it, and a
+        #: failure falls back to the cloud instead of ending the pass empty.
+        self.provider_kind = provider_kind
+        self.fallback_provider = fallback_provider
+        self.used_fallback = False
         self._uhb_url = uhb_url
         self._client = client
         self._clock = clock
@@ -214,6 +221,29 @@ class DreamScheduler:
                 [{"role": "system", "content": system}, {"role": "user", "content": user}], None
             )
         except Exception as exc:  # noqa: BLE001 - a failed call is a note, not a crash
+            if self.fallback_provider is not None and not self.used_fallback:
+                # A local model that times out must not end the pass empty: the
+                # cloud answers the same question, and the log says it did.
+                report.notes.append(
+                    f"local model failed ({type(exc).__name__}: {exc}), "
+                    "falling back to cloud for this pass"
+                )
+                self.provider = self.fallback_provider
+                self.provider_kind = "cloud-fallback"
+                self.used_fallback = True
+                before = self._usage()
+                try:
+                    answer = self.provider.chat(
+                        [{"role": "system", "content": system},
+                         {"role": "user", "content": user}], None
+                    )
+                except Exception as second:  # noqa: BLE001
+                    report.notes.append(f"cloud fallback failed too: {type(second).__name__}: {second}")
+                    return None
+                after = self._usage()
+                for key in self._tokens:
+                    self._tokens[key] += max(0, after[key] - before[key])
+                return str(answer.get("content") or "") if isinstance(answer, dict) else str(answer or "")
             report.notes.append(f"model call failed: {type(exc).__name__}: {exc}")
             return None
         after = self._usage()
@@ -405,17 +435,23 @@ class DreamScheduler:
             ][:10]
 
     def _sample_text(self, inventory: Dict[str, dict]) -> str:
+        # A local 8B cannot read 15 000 characters before its read timeout: the
+        # pass then reported "0 ideas" while spending nothing. Same job, smaller
+        # prompt when the model is on this machine.
+        local = self.provider_kind == "ollama"
+        max_blocks = 15 if local else self.config.sample_blocks
+        chars = 200 if local else SAMPLE_CHARS
         parts: List[str] = []
         blocks = (inventory.get("siyuan") or {}).get("blocks") or []
-        for block in blocks[: self.config.sample_blocks]:
+        for block in blocks[:max_blocks]:
             content = str(block.get("content") or "").strip()
             if not content:
                 continue
-            parts.append(f"[siyuan {block.get('type')}] {content[:SAMPLE_CHARS]}")
+            parts.append(f"[siyuan {block.get('type')}] {content[:chars]}")
         for chunk in (inventory.get("rag") or {}).get("chunks") or []:
             text = str(chunk.get("texte") or chunk.get("text") or "").strip()
             if text:
-                parts.append(f"[rag {chunk.get('source')}] {text[:SAMPLE_CHARS]}")
+                parts.append(f"[rag {chunk.get('source')}] {text[:chars]}")
         return "\n".join(parts)
 
     def _write(self, report: DreamReport) -> None:

@@ -1579,7 +1579,13 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
                 time.time(),
             )
 
-    engine = DreamScheduler(config=config, provider=provider)
+    fallback = next((entry[1] for entry in chain if entry[0] != "ollama"), None) if provider else None
+    engine = DreamScheduler(
+        config=config,
+        provider=provider,
+        provider_kind=provider_kind,
+        fallback_provider=fallback,
+    )
     started = time.time()
     try:
         report = engine.run_once(dry_run=bool(args.dry_run))
