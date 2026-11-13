@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import io
 import secrets
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -222,6 +223,11 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request, token: Optional[str] = None) -> HTMLResponse:
         page = (page_dir / "index.html").read_text(encoding="utf-8")
+        # A stale server serving a newer interface is how a panel ends up calling
+        # routes that do not exist ("Not Found" on a button that exists in the
+        # code). The build stamp makes the mismatch visible to the client, and the
+        # query string keeps a cached app.js from outliving a restart.
+        page = page.replace("{{BUILD}}", __version__).replace("{{VERSION}}", __version__)
         cookie = request.cookies.get(COOKIE_NAME)
         if token and secrets.compare_digest(token, app.state.token):
             response = HTMLResponse(page)
@@ -1335,6 +1341,24 @@ def create_app(
     return app
 
 
+def _port_busy(host: str, port: int, timeout: float = 0.4) -> bool:
+    import socket
+
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def first_free_port(host: str, port: int, tries: int = 10) -> Optional[int]:
+    """The first port that nothing answers on, starting at ``port``."""
+    for candidate in range(port, port + tries):
+        if not _port_busy(host, candidate):
+            return candidate
+    return None
+
+
 def run_server(
     *,
     host: str = "127.0.0.1",
@@ -1344,9 +1368,28 @@ def run_server(
     allow_terminal: bool = False,
     workspace: Optional[Path] = None,
     static_dir: Optional[Path] = None,
+    port_fallback: bool = False,
 ) -> int:
     """Start uvicorn and print the tokenised URL. Returns the exit code."""
     import uvicorn
+
+    # A busy port used to be uvicorn's exit code 3 and nothing else: the user saw
+    # a popup "uh web stopped" with no cause. An old `uh web` still holding the
+    # port is the common case, and the interface it serves is read from disk - so
+    # the browser gets the new files and the server does not know the new routes
+    # ("Not Found" on a button that exists). Move to the next free port instead.
+    if _port_busy(host, port):
+        free = first_free_port(host, port + 1) if port_fallback else None
+        if free is None:
+            where = f"{port}-{port + 9}" if port_fallback else str(port)
+            print(
+                f"uh web: {host}:{where} {'are all in use' if port_fallback else 'is already in use'}."
+                " Stop the other `uh web` or pass --port.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"uh web: {host}:{port} is already in use (another `uh web`?); using {free}")
+        port = free
 
     app = create_app(
         host=host,

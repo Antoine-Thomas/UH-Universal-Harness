@@ -1506,6 +1506,9 @@ def cmd_web(args: argparse.Namespace) -> int:
             allow_terminal=bool(getattr(args, "allow_terminal", False)),
             workspace=workspace,
             static_dir=static_dir,
+            # An explicit --port is a contract; the default one may move to the
+            # next free port so a leftover `uh web` never kills the new one.
+            port_fallback=getattr(args, "port", None) is None,
         )
     finally:
         # Ctrl+C, an error, a normal exit: the child goes with the parent.
@@ -2390,7 +2393,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
     web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
-    web.add_argument("--port", type=int, default=8765, help="port (default 8765)")
+    web.add_argument("--port", type=int, default=None, help="port (default 8765, or the next free one)")
     web.add_argument("--no-open", action="store_true", help="do not open a browser")
     web.add_argument(
         "--app",

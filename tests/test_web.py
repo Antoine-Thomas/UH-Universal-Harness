@@ -158,7 +158,7 @@ def test_security_headers_and_no_inline_script(
             assert response.headers["x-content-type-options"] == "nosniff"
 
             html = response.text
-            assert "<script type=\"module\" src=\"/static/app.js\">" in html
+            assert 'src="/static/app.js' in html, "the module is still served from /static"
             # The rule is "no inline script", not "one file": a second external
             # module is still governed by script-src 'self'.
             assert "<script>" not in html and "<script type=\"text/javascript\">" not in html

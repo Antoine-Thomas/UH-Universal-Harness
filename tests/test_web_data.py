@@ -417,3 +417,41 @@ def test_the_panel_can_stop_uhb(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert response.status_code == 200
     assert response.json()["stopped"] is True
     assert stopped == [True], "a stop that does nothing is worse than no button"
+
+
+# --------------------------------------------------------------------------- #
+# two versions, one port
+# --------------------------------------------------------------------------- #
+def test_the_page_is_stamped_with_its_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Static files come from disk, routes from the process: the stamp shows a mix."""
+    from uh import __version__
+
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            return await http.get(f"/?token={TOKEN}")
+
+    page = run(scenario())
+
+    assert page.status_code == 200
+    assert f"?v={__version__}" in page.text, "a cached app.js must not outlive a restart"
+    assert f'data-uh-version="{__version__}"' in page.text
+    assert "{{BUILD}}" not in page.text, "every placeholder is substituted"
+
+
+def test_a_busy_port_does_not_become_an_opaque_exit_code() -> None:
+    """A leftover `uh web` used to mean exit 3 and a popup with no reason."""
+    import socket
+
+    from uh.web.app import _port_busy, first_free_port
+
+    with socket.socket() as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        port = held.getsockname()[1]
+        assert _port_busy("127.0.0.1", port) is True
+        free = first_free_port("127.0.0.1", port + 1)
+        assert free is not None and free != port

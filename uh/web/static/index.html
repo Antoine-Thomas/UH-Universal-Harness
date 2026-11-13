@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>UH — Universal Harness</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{BUILD}}">
 </head>
-<body>
-<script src="/static/dreams.js" defer></script>
+<body data-uh-version="{{VERSION}}">
+<script src="/static/dreams.js?v={{BUILD}}" defer></script>
   <!-- First paint: the mark pulses while the shell wires itself and the first API
        calls land, then app.js fades it out. Static markup, no inline script, no
        inline style (the CSP allows neither), and no click to dismiss it. -->
@@ -59,6 +59,7 @@
       <div id="terminal-warning" class="warning" hidden>
         Terminal toolset is ENABLED: the model can run shell commands in the workspace.
       </div>
+      <div id="version-warning" class="warning" hidden></div>
 
       <section id="messages" class="messages" aria-live="polite"></section>
 
@@ -139,6 +140,6 @@
     <ul id="palette-list"></ul>
   </div>
 
-  <script type="module" src="/static/app.js"></script>
+  <script type="module" src="/static/app.js?v={{BUILD}}"></script>
 </body>
 </html>

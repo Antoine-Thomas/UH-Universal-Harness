@@ -48,6 +48,14 @@ async function api(path, options = {}) {
     document.body.textContent = "Session expired: reopen the URL printed by `uh web`.";
     throw new Error("unauthorized");
   }
+  if (response.status === 404) {
+    // The interface knows a route this server does not: an older `uh web` is
+    // still holding the port, and the browser got the newer files from disk.
+    // "Not Found" told the user nothing; this tells them what to do.
+    throw new Error(
+      "ce serveur UH ne connaît pas cette route : une ancienne instance occupe encore le port. Ferme la fenêtre et relance `uh web`."
+    );
+  }
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
     throw new Error(detail.detail || `HTTP ${response.status}`);
@@ -165,6 +173,21 @@ async function loadStatus() {
   const status = await api("/api/status");
   $("status-provider").textContent = `${status.provider || "none"} · v${status.version}`;
   $("terminal-warning").hidden = !status.terminal;
+  // The interface is read from disk on every request, the routes are fixed at
+  // import time: two versions can meet, and that is exactly how a button ends up
+  // calling a route its server has never heard of.
+  const pageVersion = String(document.body.dataset.uhVersion || "");
+  const servedVersion = String(status.version || "");
+  const warning = $("version-warning");
+  if (warning) {
+    const stale = Boolean(pageVersion && servedVersion && pageVersion !== servedVersion);
+    warning.hidden = !stale;
+    if (stale) {
+      warning.textContent =
+        `Interface ${pageVersion} servie par un serveur ${servedVersion} : une ancienne instance ` +
+        "occupe encore le port. Ferme cette fenêtre et relance « uh web ».";
+    }
+  }
   if (status.provider_error) {
     $("status-provider").textContent += " (unavailable)";
   }
