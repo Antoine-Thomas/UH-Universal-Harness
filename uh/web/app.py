@@ -1094,17 +1094,22 @@ def create_app(
         """What is connected, as far as this process can actually tell.
 
         No invented green light: a toolset is listed because it was built, UHB is
-        connected because it answered, and MCP says plainly that there is no
-        client yet - a red dot that means "not supported" is honest, a green one
-        that means "we hope" is not.
+        connected because it answered, and an MCP server is ``connected`` only
+        when a process is actually attached to this harness - ``idle`` means
+        "configured, not started", which is honest, and a green dot that means
+        "we hope" is not.
+
+        Building the toolsets reads the disk and, for MCP, may start a process:
+        the work runs off the event loop so a slow server cannot freeze the UI.
         """
-        from .. import ollama_spawn
+        from .. import mcp, ollama_spawn
         from ..toolsets import build_toolsets
         from ..toolsets.uhb import Uhbtoolset, resolve_url
 
         toolsets: dict = {}
         try:
-            for name, toolset in build_toolsets(app.state.settings.workspace).items():
+            built = await asyncio.to_thread(build_toolsets, app.state.settings.workspace)
+            for name, toolset in built.items():
                 toolsets[name] = [
                     spec.get("function", {}).get("name")
                     for spec in getattr(toolset, "tools", None) or []
@@ -1127,13 +1132,27 @@ def create_app(
             "toolsets": toolsets,
             "ollama": await asyncio.to_thread(ollama_spawn.status),
             "uhb": uhb,
-            "mcp": {
-                "supported": False,
-                "reason": "UH has no MCP client yet: no MCP server can be attached",
-            },
+            "mcp": await asyncio.to_thread(mcp.status),
             "terminal": app.state.settings.allow_terminal,
             "workspace": str(app.state.settings.workspace),
         }
+
+    @app.post("/api/mcp/{name}/test", dependencies=[Depends(require_token)])
+    async def mcp_test(name: str) -> dict:
+        """Start one configured MCP server, list its tools, stop it again.
+
+        The button asks the server a question *now*: the answer is never served
+        from the process cache, so a green dot here means this second.
+        """
+        from .. import mcp
+
+        servers, _ = await asyncio.to_thread(mcp.servers_from_config)
+        if not any(server.name == name for server in servers):
+            raise HTTPException(status_code=404, detail=f"no MCP server named '{name}'")
+        try:
+            return await asyncio.to_thread(mcp.test_server, name)
+        except mcp.MCPError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])

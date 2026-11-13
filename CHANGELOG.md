@@ -13,6 +13,24 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [Unreleased]
+
+### Added
+
+- **`uh web --app`** — the cockpit opens as a window, not a tab: Edge or Chrome
+  `--app=<url>` with its own profile under `$UH_HOME/web-app`, no tab bar and no
+  address bar. `uh install-shortcut` passes the flag, so one double-click is an
+  application; a machine without Chromium gets a sentence and a normal tab.
+- **MCP client** (`uh/mcp.py`, contract in [docs/MCP.md](docs/MCP.md)) —
+  JSON-RPC 2.0 over stdio: one process per `[[mcp.servers]]` entry,
+  `initialize` → `tools/list` → `tools/call`, tools exposed to the agent loop as
+  `mcp__<server>__<tool>`, a per-server `allow` list, 10 MB per message, 200 000
+  characters per result, a 30 s backoff after a failed start, and every failure
+  returned as a tool result with a `kind` instead of a crashed turn.
+  `GET /api/tools/status` reports `supported: true` with per-server state;
+  `POST /api/mcp/{name}/test` starts one server on demand, and the Data panel
+  lists servers with a test button.
+
 ## [1.3.0] — 2026-11-13
 
 The cockpit release. UH stops being a chat with panels: it has a window, a splash,

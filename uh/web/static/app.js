@@ -2645,11 +2645,6 @@ async function toolsSection() {
       data.terminal ? "warn" : "off",
       data.terminal ? "activé : le modèle peut lancer des commandes" : "désactivé (--allow-terminal)",
     ]);
-    rows.push([
-      "MCP",
-      data.mcp && data.mcp.supported ? "ok" : "off",
-      (data.mcp && data.mcp.reason) || "non pris en charge",
-    ]);
   } catch (error) {
     list.appendChild(el("p", "data-empty", `état des outils indisponible : ${error.message}`));
     return section;
@@ -2661,11 +2656,73 @@ async function toolsSection() {
     row.appendChild(el("span", "tool-detail", detail));
     list.appendChild(row);
   });
+
+  // MCP: one row per configured server, one button to ask it *now*. The dot
+  // says what is true at this instant - "idle" is a server the harness has not
+  // started yet, never a green dot for something nobody has contacted.
+  const mcp = data.mcp || {};
+  const servers = Array.isArray(mcp.servers) ? mcp.servers : [];
+  if (!mcp.supported) {
+    const row = el("div", "tool-row");
+    row.appendChild(el("span", "dot dot-off"));
+    row.appendChild(el("span", "tool-name", "MCP"));
+    row.appendChild(el("span", "tool-detail", mcp.reason || "non pris en charge"));
+    list.appendChild(row);
+  } else if (!servers.length) {
+    const row = el("div", "tool-row");
+    row.appendChild(el("span", "dot dot-off"));
+    row.appendChild(el("span", "tool-name", "MCP"));
+    row.appendChild(el("span", "tool-detail", mcp.reason || "aucun serveur configuré"));
+    list.appendChild(row);
+  } else {
+    const dots = {};
+    servers.forEach((server) => {
+      const row = el("div", "tool-row");
+      const dot = el("span", `dot dot-${server.connected ? "ok" : server.state === "failed" ? "warn" : "off"}`);
+      const detail = el(
+        "span",
+        "tool-detail",
+        server.connected
+          ? `${(server.tools || []).length} outil(s) · ${server.server || server.command}`
+          : server.reason || "pas encore démarré"
+      );
+      dots[server.name] = { dot, detail };
+      row.appendChild(dot);
+      row.appendChild(el("span", "tool-name", `mcp · ${server.name}`));
+      row.appendChild(detail);
+      list.appendChild(row);
+    });
+    const bar = el("div", "tool-test");
+    servers.forEach((server) => {
+      const button = el("button", "data-button", `Tester ${server.name}`);
+      button.type = "button";
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        button.textContent = "test en cours…";
+        try {
+          const result = await api(`/api/mcp/${encodeURIComponent(server.name)}/test`, { method: "POST" });
+          const tools = result.tools || [];
+          dots[server.name].dot.className = "dot dot-ok";
+          dots[server.name].detail.textContent = `${tools.length} outil(s) · ${result.server || server.command}`;
+          button.textContent = `OK — ${tools.length} outil(s)`;
+        } catch (error) {
+          dots[server.name].dot.className = "dot dot-warn";
+          dots[server.name].detail.textContent = error.message;
+          button.textContent = "Échec — réessayer";
+        } finally {
+          button.disabled = false;
+        }
+      });
+      bar.appendChild(button);
+    });
+    section.appendChild(bar);
+  }
+
   section.appendChild(
     el(
       "p",
       "data-note",
-      "Un voyant dit seulement ce qui a répondu. MCP est absent parce qu'UH n'a pas encore de client MCP, pas parce qu'il est en panne."
+      "Un voyant dit seulement ce qui a répondu : « MCP · nom » en gris est un serveur déclaré dans config.toml que ce processus n'a pas encore lancé, pas une panne."
     )
   );
   return section;

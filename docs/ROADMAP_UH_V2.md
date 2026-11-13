@@ -519,15 +519,16 @@ Constraint for every item above: the naming work touches metadata and docs only.
 No feature is renamed to look different, and `pytest -q` stays green.
 
 
-## 10. P10 - What the cockpit still cannot do (proposed 2026-11-13)
+## 10. P10 - The cockpit's window, and MCP (delivered 2026-11-13)
 
 Two candidates were on the table: a native desktop shell (Tauri/Electron) and an
-MCP client. Measured before choosing:
+MCP client. Measured before choosing, on 2026-11-13 - both were then built the
+same day:
 
-- **MCP is absent, and the UI says so**: `GET /api/tools/status` answers
+- **MCP was absent, and the UI said so**: `GET /api/tools/status` answered
   `"mcp": {"supported": false, "reason": "UH has no MCP client yet: no MCP server
-  can be attached"}`. The dot in the Data panel is honest, and it is the only
-  capability on that screen that is not there.
+  can be attached"}`. The dot in the Data panel was honest, and it was the only
+  capability on that screen that was not there.
 - **A desktop shell is 80 % there without a new toolchain**: `uh install-shortcut`
   already writes a hidden launcher, a `.lnk` and a generated icon. What is missing
   is a window without browser chrome - which Chromium and Edge give with
@@ -535,27 +536,48 @@ MCP client. Measured before choosing:
 - **Tauri is a toolchain, not a feature**: Rust (~1.5 GB), the WebView2 runtime,
   and code signing before Windows stops calling the installer a virus.
 
-**Recommendation, in this order** (each step justified by what it adds):
+**Order followed** (GO given the same day; each step justified by what it adds):
 
-1. **`uh web --app` (hours)** - open the cockpit in its own window (Edge/Chrome
-   `--app=`), no tab bar, no address bar; `install-shortcut` points at it. Zero new
-   dependency, and the "desktop app" impression stops depending on F11.
-2. **An MCP client (the real gap)** - `uh/mcp.py`: JSON-RPC 2.0 over stdio
-   (`initialize` → `tools/list` → `tools/call`), one process per configured server,
-   timeouts, clean shutdown. Tools are exposed to the agent loop as
-   `mcp__<server>__<tool>` with a namespaced name, a size cap on results, and
-   errors returned as tool output - never a crashed turn. Configuration in
-   `config.toml` (`[[mcp.servers]]`: command, args, cwd, env), a per-server
-   allowlist, no auto-install suggested by a model. `GET /api/tools/status` then
-   reports `supported: true` with per-server state, the Data panel lists servers
-   with a "test" button, and the dot means what it says.
-   Tests: a fake stdio server (initialize/list/call), a server that hangs
-   (timeout), one that dies mid-call (error surfaced), one that returns 10 MB
-   (truncated).
+1. **`uh web --app`** - *delivered*. `uh/web/browser.py` finds Edge or Chrome
+   (three Windows install roots each, `which` elsewhere, `UH_BROWSER` wins) and
+   launches `--app=<tokenised URL>` with `--window-size` and a profile under
+   `$UH_HOME/web-app` - a shared profile would forward the URL to a running
+   browser and lose the flag. No Chromium is not an error: the console says so
+   and a normal tab opens. `install-shortcut` now passes `--app`, so one
+   double-click is a window, not a bookmark.
+2. **An MCP client** - *delivered* (`uh/mcp.py`, contract in
+   [docs/MCP.md](MCP.md)). JSON-RPC 2.0 over stdio
+   (`initialize` → `notifications/initialized` → `tools/list` → `tools/call`), one
+   process per configured server, reused across turns, stopped at exit. Tools are
+   exposed to the agent loop as `mcp__<server>__<tool>` (64-character cap,
+   per-server allowlist), results truncated at 200 000 characters with a marker,
+   one response line refused above 10 MB, a failed start remembered for 30 s so
+   the cockpit's polling never waits on a dead server. Configuration in
+   `config.toml` (`[[mcp.servers]]`: command, args, cwd, env, timeout, allow), a
+   read-only table: `uh config set` refuses rather than dropping it. Every failure
+   is a tool result with a `kind` (`configuration`, `transport`, `timeout`,
+   `protocol`, `server`, `unavailable`) - never a crashed turn.
+   `GET /api/tools/status` now answers `supported: true`, `configured`, and one
+   entry per server with `state` = `connected` / `idle` / `failed(reason)`; the
+   Data panel draws a row and a test button per server, and
+   `POST /api/mcp/{name}/test` asks the server *now* rather than reading a cache.
 3. **A real shell, later and only on demand** - pywebview (system WebView2) before
    Tauri: one dependency, the same UI, a tray icon and a real title bar. An
    installer plus signing belongs to the shop-page milestone (P9), because an
    unsigned `.exe` is a worse first impression than no `.exe`.
 
-**State: proposed, not started.** Nothing here is implemented; the order above is
-the argument, and it needs a GO before the first line of code.
+**State: steps 1 and 2 delivered on 2026-11-13** (see `tests/test_mcp.py` and
+`tests/test_web_app_mode.py`: a real child process that initialises, lists, calls,
+hangs, dies mid-call and writes 11 MB on one line). Step 3 stays postponed on
+purpose: an unsigned shell is a worse first impression than none.
+
+Still open, measured rather than guessed:
+
+- **transports**: stdio only. HTTP/SSE needs a URL, a token and a threat model UH
+  does not have; nothing here pretends otherwise.
+- **methods**: `tools` only - `resources`, `prompts` and `sampling` are not
+  exposed, because the agent loop has no place to put them yet.
+- **approval**: the per-server `allow` list is the permission model. There is no
+  per-call prompt; adding one is a P11 question about the UI, not about MCP.
+- **discovery**: a server is only known because `config.toml` names it. No
+  registry browsing, no suggestion by a model, no auto-install.

@@ -84,6 +84,15 @@ uh doctor
   search, command palette, stop button, light/dark themes) plus an API-key
   panel for Cloudflare, DeepSeek and OmniRoute with masked hints, from three
   static files with no build step and no third-party JavaScript.
+- **A window, not a tab.** `uh web --app` opens the cockpit as a chromeless
+  Edge/Chrome window (no tab bar, no address bar, its own profile under
+  `$UH_HOME/web-app`), and `uh install-shortcut` puts one on the Desktop. A
+  machine without Chromium gets a sentence and a normal tab, never a crash.
+- **MCP client.** `[[mcp.servers]]` in `config.toml` attaches external Model
+  Context Protocol servers over stdio; their tools reach the agent loop as
+  `mcp__<server>__<tool>`, with an allowlist per server, caps on the message and
+  result sizes, and every failure returned as a tool result instead of a crashed
+  turn ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)).
 - **Free-provider router.** Catalogue verified per entry
   (`uh/router/catalog.toml`), key rotation, cooldowns, circuit breaker,
   tool-capable-model filter, traced failover, opt-in remote access with recorded

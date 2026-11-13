@@ -42,6 +42,11 @@ def build_toolsets(workspace: str | os.PathLike[str] | None = None) -> Dict[str,
     ``uhb`` joins only when a UHB control plane answers on its loopback URL
     (1 s probe): a dead or older UHB contributes no tools rather than a tool
     that fails on every call. ``UH_UHB_URL=""`` disables it explicitly.
+
+    ``mcp:<server>`` joins for every ``[[mcp.servers]]`` entry that completes the
+    MCP handshake (see :mod:`uh.mcp`). The processes are cached per entry, so a
+    turn after the first costs no spawn; a server that failed is not retried for
+    :data:`uh.mcp.RETRY_AFTER` seconds, and contributes no tool meanwhile.
     """
     ws = Path(workspace) if workspace is not None else None
     toolsets: Dict[str, object] = {
@@ -53,6 +58,12 @@ def build_toolsets(workspace: str | os.PathLike[str] | None = None) -> Dict[str,
     uhb = Uhbtoolset.from_environment()
     if uhb is not None:
         toolsets["uhb"] = uhb
+    try:
+        from .. import mcp
+
+        toolsets.update(mcp.build_toolsets())
+    except Exception:  # noqa: BLE001 - an external server never breaks the built-ins
+        pass
     return toolsets
 
 

@@ -76,6 +76,12 @@ ENV_KEYS: dict[str, str] = {
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
+#: Tables UH reads but never writes: the flat serialiser would drop them, so
+#: they are a hand-written escape hatch the user owns. ``[providers.file]``
+#: holds the sandbox's extra roots, ``[mcp]``/``[[mcp.servers]]`` the external
+#: tool servers the MCP client launches (see :mod:`uh.mcp`).
+READ_ONLY_TABLES = ("providers", "mcp")
+
 HEADER = (
     "# UH configuration - written by `uh config set`.\n"
     "# Flat keys only: no tables, no arrays, no datetimes.\n"
@@ -256,12 +262,12 @@ def load(cli_overrides: Optional[dict[str, Any]] = None, cwd: Optional[Path] = N
             config.warnings.append(str(exc))
             continue
         for key, value in data.items():
-            if key == "providers" and isinstance(value, dict):
+            if key in READ_ONLY_TABLES and isinstance(value, dict):
                 # A nested table is read-only (see Config.tables): honour it
                 # instead of warning about an unknown key. Later layers win.
-                merged = {**(config.tables.get("providers") or {}), **value}
-                config.tables["providers"] = merged
-                config.sources["providers"] = layer_name
+                merged = {**(config.tables.get(key) or {}), **value}
+                config.tables[key] = merged
+                config.sources[key] = layer_name
                 continue
             if key not in KEY_TYPES:
                 config.warnings.append(f"{path}: unknown config key '{key}' ignored")

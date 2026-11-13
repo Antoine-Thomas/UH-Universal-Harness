@@ -260,6 +260,23 @@ def test_the_tools_status_reports_only_what_it_knows(
     assert body["terminal"] is False
     assert body["uhb"]["connected"] is False
     assert "disabled" in body["uhb"]["reason"]
-    assert body["mcp"]["supported"] is False
-    assert body["mcp"]["reason"]
+    assert body["mcp"]["supported"] is True, "the client exists now: the dot must say so"
+    assert body["mcp"]["configured"] == 0, "nothing declared in this isolated home"
+    assert body["mcp"]["servers"] == []
+    assert "no [[mcp.servers]]" in body["mcp"]["reason"]
     assert "ollama" in body
+
+
+def test_testing_an_unknown_mcp_server_is_a_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The test button must say "no such server", not raise a 500 from the client."""
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            return await http.post("/api/mcp/nobody/test", headers=AUTH)
+
+    response = run(scenario())
+    assert response.status_code == 404
+    assert "nobody" in response.json()["detail"]
