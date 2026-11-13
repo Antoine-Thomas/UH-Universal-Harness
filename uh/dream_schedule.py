@@ -78,11 +78,37 @@ def _venv_root(executable: Path) -> Optional[Path]:
     return root if (root / "pyvenv.cfg").is_file() else None
 
 
+def _probe_env() -> Dict[str, str]:
+    """The child environment a scheduled run will actually see.
+
+    This shell may carry ``PYTHONPATH`` (or a ``VIRTUAL_ENV``) that makes any
+    interpreter look able to import ``uh``. The task inherits neither, so a
+    probe that honours them validates the wrong thing.
+    """
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith("PYTHON")
+    }
+    env.pop("VIRTUAL_ENV", None)
+    return env
+
+
 def _has_uh(executable: str) -> bool:
-    """True when this interpreter can actually ``import uh``."""
+    """True when this interpreter can ``import uh`` with no help from this shell.
+
+    The probe runs in the home directory, not the checkout: ``python -c`` puts
+    the current directory on ``sys.path``, so probing from the repository would
+    accept an interpreter that cannot import ``uh`` anywhere else - and the task
+    runs from ``%USERPROFILE%``.
+    """
     try:
         result = subprocess.run(
-            [executable, "-c", "import uh"], capture_output=True, timeout=60
+            [executable, "-c", "import uh"],
+            capture_output=True,
+            timeout=60,
+            cwd=str(Path.home()),
+            env=_probe_env(),
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -153,9 +179,14 @@ def pass_arguments(budget: int = DEFAULT_BUDGET) -> List[str]:
     return ["dream", "--now", "--budget", str(budget), "--start-uhb", "--yes"]
 
 
+def task_arguments(budget: int = DEFAULT_BUDGET) -> List[str]:
+    """Everything after the interpreter: ``-m uh.cli`` and the pass arguments."""
+    return ["-m", "uh.cli", *pass_arguments(budget)]
+
+
 def pass_command(budget: int = DEFAULT_BUDGET) -> str:
     """The command a scheduled run executes, quoted for cmd.exe."""
-    return subprocess.list2cmdline(python_command() + pass_arguments(budget))
+    return subprocess.list2cmdline([resolve_interpreter(), *task_arguments(budget)])
 
 
 def next_run(at: str, now: Optional[datetime] = None) -> str:
@@ -352,8 +383,8 @@ def install(at: str = "03:00", budget: int = DEFAULT_BUDGET) -> dict:
     """Install the nightly pass. Task Scheduler if allowed, Startup otherwise."""
     parse_at(at)
     exe = resolve_interpreter()
-    arguments = pass_arguments(budget)
-    command = subprocess.list2cmdline([exe, "-m", "uh.cli", *arguments])
+    arguments = task_arguments(budget)
+    command = subprocess.list2cmdline([exe, *arguments])
     if _install_schtasks(exe, arguments, at):
         return {
             "mechanism": "schtasks",
