@@ -13,6 +13,45 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [Unreleased]
+
+### Fixed
+
+- **The second brain starts again on Python 3.10.** `uh web` spawned UHB with the
+  interpreter running UH; on 3.10 the child died inside `import` (`datetime.UTC`
+  is 3.11+) and the cockpit could only say "uhb unreachable". `uhb_spawn` now
+  picks an interpreter it has *asked* two questions of — `sys.version_info >=
+  (3, 11)` and `import httpx, fastapi` — preferring the UHB checkout's own
+  `.venv`, then `UH_UHB_PYTHON`, then the running interpreter, then whatever the
+  machine has. A failed start now quotes the child's last lines instead of
+  pointing at a log the user has to find.
+- **No window opens on a connection error.** The launcher fired on a 1 s timer
+  while uvicorn was still binding; on a cold start that was a blank window. It now
+  waits for the server to answer (bare URL, no token, so the token is not spent by
+  the probe) before opening anything.
+- **The splash stays long enough to be read.** Boot resolving in ~120 ms removed
+  it before it was visible; a 900 ms minimum, still capped at 4 s, and never a
+  wait for anything.
+- **A dream pass no longer calls a partial night "ok".** A source that could not
+  be read now sets `partial` with `reason_kind = "sources"`; a source that is
+  simply empty (no MCP server configured, no skill installed) is not a failure.
+  `uh dream --now` exits non-zero when UHB was offline, even with a report written.
+
+### Added
+
+- **A dream in one click.** `POST /api/dreams/run` starts one pass in its own
+  process (never on the event loop, never twice: `409` while one runs) and writes
+  it to `$UH_HOME/dreams/manual-run.log`; the Dreams panel gets an accent
+  "☾ Faire un rêve maintenant" button and the header button is drawn in the accent
+  colour so it is found without hunting.
+- **Twelve native coding skills** (`uh/skills_native/`, shipped in the wheel):
+  Python, JavaScript, TypeScript, HTML/CSS, Rust, C++/OpenGL, Java, PHP, Ruby,
+  Pascal, React, Angular. Each is written for a senior reviewer — the traps, the
+  security rules, and a review checklist — and they appear in the Data panel with
+  the "Natif" badge, attachable to a turn from the chat.
+- The dream pass sees them: `skills` is a source, so the night report knows what
+  the harness can already do.
+
 ## [1.4.0] — 2026-11-13
 
 A window, a protocol, and a night pass that knows what the harness can do.

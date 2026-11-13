@@ -3690,10 +3690,26 @@ async function boot() {
 // dismiss is a splash that hid a failure.
 const SPLASH_FADE_MS = 380;
 const SPLASH_LIMIT_MS = 4000;
+// A splash dismissed in 120 ms is a white flash with a flicker in it: the mark is
+// part of the product, so it stays long enough to be read. It never *waits* for
+// anything - boot() resolving is still what ends it - and it is never longer
+// than the boot plus this.
+const SPLASH_MIN_MS = 900;
+const SPLASH_SHOWN_AT = (typeof performance !== "undefined" ? performance.now() : 0);
 let splashGone = false;
+let splashPending = false;
 
 function dismissSplash() {
   if (splashGone) return;
+  const elapsed = (typeof performance !== "undefined" ? performance.now() : SPLASH_MIN_MS) -
+    SPLASH_SHOWN_AT;
+  if (elapsed < SPLASH_MIN_MS) {
+    if (!splashPending) {
+      splashPending = true;
+      setTimeout(dismissSplash, SPLASH_MIN_MS - elapsed);
+    }
+    return;
+  }
   splashGone = true;
   const splash = $("splash");
   if (!splash) return;

@@ -91,12 +91,22 @@ def test_an_installed_skill_reaches_the_prompt(home: Path, tmp_path: Path) -> No
     report = engine.run_once()
 
     assert report.sources["skills"]["available"] is True
-    assert "1 skill(s)" in report.sources["skills"]["detail"]
+    assert "skill(s)" in report.sources["skills"]["detail"]
+    assert "pypi-publish" in report.sources["skills"]["detail"], "the user skill is named"
     assert provider.calls == 1
     assert "[skill user] Publier sur PyPI" in provider.prompts[-1]
 
 
-def test_no_skill_is_an_absent_source_not_a_crash(home: Path, tmp_path: Path) -> None:
+def test_no_skill_is_an_absent_source_not_a_crash(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # UH ships native skills, so "no skill at all" is a machine with the folder
+    # removed: the source must still report absence instead of raising.
+    monkeypatch.setattr(
+        skills,
+        "list_skills",
+        lambda home=None: {"skills": [], "user": 0, "native": 0},
+    )
     provider = RecordingProvider(answer())
     engine = DreamScheduler(
         config=DreamConfig(sources=("skills",), output_dir=tmp_path / "passes"),
@@ -254,8 +264,11 @@ def test_without_uhb_the_local_sources_are_still_inventoried(home: Path, tmp_pat
 
 
 def test_without_uhb_and_with_nothing_local_the_pass_writes_nothing(
-    home: Path, tmp_path: Path
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        skills, "list_skills", lambda home=None: {"skills": [], "user": 0, "native": 0}
+    )
     provider = RecordingProvider(answer())
     engine = DreamScheduler(
         config=DreamConfig(output_dir=tmp_path / "passes"), provider=provider, uhb_url=""

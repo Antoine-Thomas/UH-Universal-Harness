@@ -148,9 +148,109 @@ def _log_path() -> Path:
     return home / LOG_NAME
 
 
-def build_command(port: int) -> List[str]:
-    """The child command. Same interpreter as the parent: same environment, same UHB."""
-    return [sys.executable, "-m", MODULE, "--port", str(port), "--mode", MODE]
+def build_command(port: int, checkout: Optional[Path] = None) -> List[str]:
+    """The child command: a UHB-capable interpreter, the same checkout, the port."""
+    return [interpreter(checkout), "-m", MODULE, "--port", str(port), "--mode", MODE]
+
+
+#: UHB imports ``datetime.UTC`` (3.11+) and needs ``httpx``/``fastapi``. UH
+#: still ships for 3.10, and the interpreter running UH is not always one that
+#: can import UHB - a 3.10 child dies on ``datetime.UTC``, a bare 3.12 dies on
+#: ``httpx``, and the cockpit then says "uhb unreachable" with no reason.
+MIN_UBH_PYTHON = (3, 11)
+_ENV_PYTHON = "UH_UHB_PYTHON"
+_PROBE = (
+    "import sys\n"
+    "if sys.version_info < (3, 11): raise SystemExit(1)\n"
+    "import httpx, fastapi\n"
+)
+_INTERPRETERS: dict = {}
+
+
+def _supports_uhb(executable: str) -> bool:
+    """Ask the interpreter instead of guessing from its name."""
+    try:
+        result = subprocess.run(
+            [executable, "-c", _PROBE], capture_output=True, timeout=15
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def _checkout_python(checkout: Optional[Path]) -> Optional[str]:
+    """The UHB checkout's own virtualenv, when it has one: it is the right answer."""
+    if checkout is None:
+        return None
+    for candidate in (
+        checkout / ".venv" / "Scripts" / "python.exe",
+        checkout / ".venv" / "bin" / "python",
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def interpreter_candidates(checkout: Optional[Path] = None) -> List[str]:
+    """Interpreters worth probing, the most specific first."""
+    import shutil
+
+    found: List[str] = []
+    override = (os.environ.get(_ENV_PYTHON) or "").strip()
+    if override:
+        found.append(override)
+    own = _checkout_python(checkout)
+    if own:
+        found.append(own)
+    found.append(sys.executable)
+    for name in ("python3.13", "python3.12", "python3.11", "python3"):
+        path = shutil.which(name)
+        if path:
+            found.append(path)
+    if os.name == "nt":
+        roots = [
+            Path(os.environ.get("LOCALAPPDATA") or "") / "Programs" / "Python",
+            Path(os.environ.get("ProgramFiles") or r"C:\Program Files"),
+        ]
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for folder in sorted(root.glob("Python3*"), reverse=True):
+                executable = folder / "python.exe"
+                if executable.is_file():
+                    found.append(str(executable))
+    unique: List[str] = []
+    seen = set()
+    for item in found:
+        key = os.path.normcase(os.path.abspath(item))
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
+def interpreter(checkout: Optional[Path] = None) -> str:
+    """The interpreter UHB will run under: 3.11+, with UHB's imports, if one exists."""
+    key = str(checkout) if checkout is not None else ""
+    cached = _INTERPRETERS.get(key)
+    if cached is not None:
+        return str(cached)
+    for candidate in interpreter_candidates(checkout):
+        if _supports_uhb(candidate):
+            _INTERPRETERS[key] = candidate
+            return candidate
+    _INTERPRETERS[key] = sys.executable  # nothing better: the log will say why
+    return sys.executable
+
+
+def _log_tail(log: Path, lines: int = 3) -> str:
+    """The child's last words: the only useful part of a failed spawn."""
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    kept = [line.strip() for line in text.splitlines() if line.strip()]
+    return " | ".join(kept[-lines:])[:400]
 
 
 @dataclass
@@ -243,15 +343,17 @@ def ensure(
         )
 
     log = _log_path()
-    command = build_command(_port(target))
+    command = build_command(_port(target), checkout)
     spawn = runner or _spawn
     process = spawn(command, checkout, log)
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
+            tail = _log_tail(log)
             raise SpawnError(
-                f"UHB exited during startup (code {process.returncode}); see {log}"
+                f"UHB exited during startup (code {process.returncode})"
+                + (f": {tail}" if tail else f"; see {log}")
             )
         if check(target, 1.0):
             _RUNNING = Spawned(process=process, url=target, log=log, checkout=checkout)

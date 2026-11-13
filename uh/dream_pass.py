@@ -73,6 +73,10 @@ class DreamReport:
     finished: str = ""
     status: str = "ok"  # ok | partial | skipped | dry-run
     reason: str = ""
+    #: What stopped the pass, for callers that must decide rather than print:
+    #: ``uhb-offline`` (the sources could not be read at all), ``budget``,
+    #: ``sources``. Empty when nothing went wrong.
+    reason_kind: str = ""
     sources: Dict[str, dict] = field(default_factory=dict)
     classification: Dict[str, Any] = field(default_factory=dict)
     findings: Dict[str, list] = field(default_factory=dict)
@@ -289,6 +293,7 @@ class DreamScheduler:
             # report with nothing in it is not written at all.
             readable = [name for name, state in inventory.items() if state.get("available")]
             report.status = "partial" if readable else "skipped"
+            report.reason_kind = "uhb-offline"
             report.reason = (
                 "UHB offline: siyuan and rag were not read"
                 + (f"; inventoried {', '.join(readable)}" if readable else
@@ -318,11 +323,25 @@ class DreamScheduler:
         # Measure before writing: render() reads tokens and wall time, and a
         # report that says "0 tokens, 0.0s" while the log says 5244 is a lie in
         # the one artefact the operator actually reads.
-        if inventory and not any(state.get("available") for state in inventory.values()):
+        missing = [
+            name for name, state in inventory.items()
+            if not state.get("available") and not state.get("empty")
+        ]
+        readable = [name for name, state in inventory.items() if state.get("available")]
+        if not readable:
             # Nothing read, nothing to review: calling that "ok" is how an empty
             # report looks like a successful night.
             report.status = "partial"
-            report.reason = "no source could be read (UHB up, but every source failed)"
+            report.reason = "no source could be read (every source failed, or had nothing to read)"
+            report.reason_kind = "sources"
+        elif missing:
+            # One source down is not a successful night either: "ok" means every
+            # source I was asked to read was read, and nothing less. An *empty*
+            # source (no MCP server configured, no skill installed) is not a
+            # failure - there was simply nothing there.
+            report.status = "partial"
+            report.reason = "source(s) not read: " + ", ".join(missing)
+            report.reason_kind = "sources"
         self._finish(report)
         self._write(report)
         return report
@@ -375,7 +394,8 @@ class DreamScheduler:
             for entry in listing.get("skills") or []
         ]
         if not entries:
-            return {"available": False, "skills": [], "error": "no skill installed"}
+            return {"available": False, "skills": [], "empty": True,
+                    "error": "no skill installed"}
         return {
             "available": True,
             "skills": entries,
@@ -400,7 +420,8 @@ class DreamScheduler:
             reason = "no [[mcp.servers]] configured"
             if problems:
                 reason += f" ({len(problems)} invalid entry/entries)"
-            return {"available": False, "servers": [], "problems": problems, "error": reason}
+            return {"available": False, "servers": [], "problems": problems,
+                    "empty": True, "error": reason}
 
         try:
             connected = {

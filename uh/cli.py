@@ -1672,7 +1672,7 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
             print(f"  {report.reason}")
         if not report.artifacts:
             print("  (nothing written: the pass had no output folder)")
-    if report.status == "skipped":
+    if report.status == "skipped" or getattr(report, "reason_kind", "") == "uhb-offline":
         return EXIT_FAILURE
     return EXIT_OK
 

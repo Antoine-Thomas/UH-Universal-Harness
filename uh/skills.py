@@ -34,7 +34,7 @@ MAX_TITLE = 120
 MAX_DESCRIPTION = 240
 MAX_INSTRUCTIONS = 20_000
 #: Shipped skills, next to this module.
-NATIVE_ROOT = Path(__file__).resolve().parent / "skills"
+NATIVE_ROOT = Path(__file__).resolve().parent / "skills_native"
 
 TEMPLATE = """# {title}
 

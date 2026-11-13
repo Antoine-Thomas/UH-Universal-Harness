@@ -23,6 +23,29 @@ KEEP = pytest.mark.skipif(not CSS.is_file(), reason="web assets absent")
 
 
 @KEEP
+def test_the_splash_stays_long_enough_to_be_seen() -> None:
+    """A splash dismissed in 120 ms is a white flash, not a first impression."""
+    script = APP.read_text(encoding="utf-8")
+    match = re.search(r"SPLASH_MIN_MS = (\d+)", script)
+
+    assert match, "the splash needs a minimum visible duration"
+    assert int(match.group(1)) >= 500, "below ~500 ms nobody reads the mark"
+    assert "setTimeout(dismissSplash" in script, "the minimum is a second look, not a busy loop"
+    assert int(match.group(1)) < 4000, "the minimum must stay below the hard cap"
+
+
+@KEEP
+def test_the_dream_button_is_wired_to_a_real_route() -> None:
+    """The accent button must call the endpoint that exists, not a hopeful path."""
+    dreams = (ROOT / "uh" / "web" / "static" / "dreams.js").read_text(encoding="utf-8")
+    api = (ROOT / "docs" / "API.md").read_text(encoding="utf-8")
+
+    assert '"/api/dreams/run"' in dreams
+    assert "/api/dreams/run" in api, "a route the UI calls must be documented"
+    assert "dreams-run" in dreams and "Faire un rêve maintenant" in dreams
+
+
+@KEEP
 def test_the_three_breakpoints_are_declared() -> None:
     css = CSS.read_text(encoding="utf-8")
 

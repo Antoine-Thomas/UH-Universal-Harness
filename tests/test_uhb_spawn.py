@@ -162,7 +162,13 @@ def test_the_child_is_started_with_the_right_command(
     assert started.url == URL
     assert started.alive()
     command, cwd, log = seen[0]
-    assert command == [sys.executable, "-m", "uhb.entrypoints.server", "--port", "8101", "--mode", "dev"]
+    # The interpreter is the one that can import UHB, not necessarily the one
+    # running UH: a 3.10 parent used to spawn a 3.10 UHB that died on
+    # datetime.UTC before it could open the port.
+    assert command[0] == uhb_spawn.interpreter(root)
+    assert command[1:] == ["-m", "uhb.entrypoints.server", "--port", "8101", "--mode", "dev"]
+    if sys.version_info >= (3, 11):
+        assert uhb_spawn._supports_uhb(command[0]), "the spawned interpreter must import UHB"
     assert cwd == root
     assert log.name == uhb_spawn.LOG_NAME
     assert uhb_spawn.running() is started

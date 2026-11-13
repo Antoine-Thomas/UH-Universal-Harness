@@ -73,6 +73,7 @@ include = ["uh*"]
 [tool.setuptools.package-data]
 "uh.web" = ["static/*"]
 "uh.router" = ["catalog.toml"]
+"uh" = ["skills_native/*.md"]
 
 [tool.ruff]
 target-version = "py310"

@@ -141,7 +141,7 @@ def test_import_restores_an_export_and_reports_the_safety_copy(
     assert Path(body["safety"]).is_file()
     assert body["safety"].endswith(".zip")
     assert body["restart_required"] is True
-    assert [skill["name"] for skill in skills["skills"]] == ["avant"]
+    assert [skill["name"] for skill in skills["skills"] if skill["origin"] == "user"] == ["avant"]
 
 
 def test_importing_garbage_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -209,7 +209,9 @@ def test_a_skill_is_created_and_listed(tmp_path: Path, monkeypatch: pytest.Monke
             return empty, created, listed
 
     empty, created, listed = run(scenario())
-    assert empty["skills"] == []
+    # UH now ships native coding skills: "empty" means no *user* skill yet.
+    assert [skill for skill in empty["skills"] if skill["origin"] == "user"] == []
+    assert empty["native"] >= 1, "the shipped skills are listed, with a Natif badge"
     assert created.status_code == 200
     body = created.json()
     assert Path(body["path"]).is_file()
@@ -280,3 +282,52 @@ def test_testing_an_unknown_mcp_server_is_a_404(
     response = run(scenario())
     assert response.status_code == 404
     assert "nobody" in response.json()["detail"]
+
+
+def test_a_dream_pass_runs_in_its_own_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pass takes minutes and spends a model call: never on the event loop."""
+    import subprocess
+
+    app = make_app(tmp_path, monkeypatch)
+    seen: dict = {}
+
+    class FakeProcess:
+        pid = 4321
+        returncode = None
+
+        def poll(self):
+            return None
+
+    def fake_popen(command, **kwargs):
+        seen["command"] = command
+        seen["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    async def scenario():
+        async with client(app) as http:
+            first = await http.post("/api/dreams/run", headers=AUTH, json={"budget": 5000})
+            second = await http.post("/api/dreams/run", headers=AUTH)
+            return first, second
+
+    first, second = run(scenario())
+
+    assert first.status_code == 200
+    body = first.json()
+    assert body["started"] is True and body["pid"] == 4321 and body["budget"] == 5000
+    assert "dream" in seen["command"] and "--now" in seen["command"]
+    assert "5000" in seen["command"], "the budget the user asked for is the one passed"
+    assert second.status_code == 409, "a second click must not pay twice"
+
+
+def test_a_bad_dream_budget_is_a_400(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            return await http.post("/api/dreams/run", headers=AUTH, json={"budget": "lots"})
+
+    assert run(scenario()).status_code == 400

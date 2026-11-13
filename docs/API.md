@@ -71,6 +71,7 @@ even when the failing input was one.
 | POST | `/api/skills` | `{title, description, instructions, name?}` | writes `$UH_HOME/skills/<name>.md`, returns `{name, path, bytes, title, description}`; `400` for a missing title/instructions, a name that could escape the folder, or an existing file |
 | GET | `/api/tools/status` | — | `{toolsets: {name: [tools]}, ollama, uhb: {connected, reason}, mcp: {supported: true, configured, servers: [{name, command, connected, state, protocol, server, version, tools, reason?}], problems?}, terminal, workspace}` · `state` is `connected`, `idle` (configured, not started) or `failed`; a server is never reported connected without a live process |
 | POST | `/api/mcp/{name}/test` | — | starts that server, `{name, command, connected: true, state: "connected", protocol, server, version, tools: [names]}`, then stops it · `404` unknown name · `502` the server failed (timeout, crash, JSON-RPC error) |
+| POST | `/api/dreams/run` | `{budget?}` | one pass now, in its own process: `{started: true, pid, budget, log}` · `400` budget not an integer · `409` a pass is already running |
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
 | GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds], pulling: [names]}` |

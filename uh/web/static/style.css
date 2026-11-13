@@ -735,6 +735,10 @@ body {
   white-space: nowrap;
 }
 .dreams-open:hover, #idea-badge:hover { color: var(--text); border-color: var(--accent); }
+/* The dream button is the only header control that starts a job: it carries the
+   accent so it is found without hunting, and stays an outline so it does not
+   outshout the conversation. */
+.dreams-open { color: var(--accent); border-color: rgba(253, 197, 2, .55); }
 #idea-badge { color: var(--highlight); border-color: rgba(253, 197, 2, .45); }
 #idea-badge:hover { color: var(--highlight); border-color: var(--highlight); }
 .dreams-panel {
@@ -759,6 +763,16 @@ body {
 .dreams-panel.is-monitoring .dreams-daemon { color: var(--accent); }
 .dreams-panel.is-dreaming #dreams-state::after { content: " ●"; animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
+/* The one button that starts work: the accent, full width, above the list. */
+.dreams-run {
+  font: inherit; font-size: 12px; font-weight: 600; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
+  cursor: pointer;
+}
+.dreams-run:hover:not(:disabled) { opacity: .92; }
+.dreams-run:disabled { opacity: .6; cursor: default; }
+.dreams-note { margin: 0; font-size: 10px; line-height: 1.4; color: var(--muted);
+  border-left: 2px solid var(--accent); padding-left: 6px; }
 .dream-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
 .dream-row.is-latest { border-color: rgba(253, 197, 2, .45); }
 .dream-title { font-size: 12px; font-weight: 600; }

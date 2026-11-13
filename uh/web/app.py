@@ -20,6 +20,7 @@ import asyncio
 import io
 import secrets
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator, Optional
@@ -668,6 +669,56 @@ def create_app(
             state = {"state": "stopped"}
         return {"dreams": dream_store.list_dreams(), "daemon": state}
 
+    @app.post("/api/dreams/run", dependencies=[Depends(require_token)])
+    async def dream_run(payload: Optional[dict] = None) -> dict:
+        """One pass, now, in its own process. Never twice, never on the event loop.
+
+        A pass reads sources and may spend a provider call: running it inside the
+        server would freeze every panel for minutes, and a second click would pay
+        twice. The child inherits ``UH_HOME``, writes its report where the daemon
+        does, and its output goes to ``$UH_HOME/dreams/manual-run.log`` - the one
+        place a failed start can be read afterwards.
+        """
+        import subprocess
+        import sys
+        from datetime import datetime
+
+        from ..toolsets.memory import uh_home
+
+        body = payload or {}
+        try:
+            budget = int(body.get("budget") or 40000)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="budget must be an integer") from None
+        budget = max(1000, min(budget, 200000))
+
+        previous = getattr(app.state, "dream_run", None)
+        if previous is not None and previous.poll() is None:
+            raise HTTPException(status_code=409, detail="a dream pass is already running")
+
+        log = uh_home() / "dreams" / "manual-run.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+        workspace = app.state.settings.workspace
+        with log.open("ab") as handle:
+            handle.write(
+                f"\n--- {datetime.now().isoformat(timespec='seconds')} pass from the cockpit ---\n"
+                .encode("utf-8")
+            )
+            handle.flush()
+            process = subprocess.Popen(  # noqa: S603 - our own module, no shell
+                [
+                    sys.executable, "-m", "uh.cli", "dream",
+                    "--now", "--budget", str(budget), "--yes",
+                ],
+                stdout=handle,
+                stderr=handle,
+                creationflags=flags,
+                cwd=str(workspace) if workspace else None,
+            )
+        app.state.dream_run = process
+        return {"started": True, "pid": process.pid, "budget": budget, "log": str(log)}
+
     @app.get("/api/dreams/{stamp}", dependencies=[Depends(require_token)])
     async def dream_one(stamp: str) -> dict:
         from .. import dream_store
@@ -1279,10 +1330,34 @@ def run_server(
     return 0
 
 
+def _server_ready(url: str, timeout: float = 15.0) -> bool:
+    """Wait until the server answers, so a window never opens on an error page.
+
+    The launcher fires on a timer while uvicorn is still binding; on a cold start
+    that is a tab (or an app window) showing "connection refused", which reads as
+    a broken product. The probe asks the bare URL without the token: consuming the
+    token here would leave the real window holding a used one.
+    """
+    import httpx
+
+    base = url.split("?", 1)[0]
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            httpx.get(base, timeout=1.0)
+            return True  # any HTTP answer, 401 included, means uvicorn is up
+        except Exception:  # noqa: BLE001 - not up yet is the normal case
+            time.sleep(0.2)
+    return False
+
+
 def _open_app_window(url: str) -> None:
     """Chromeless window, or the honest fallback. Never raises."""
     from . import browser
 
+    if not _server_ready(url):
+        print(f"uh web: the server did not answer within 15s; open {url} yourself")
+        return
     try:
         if browser.open_app_window(url):
             return
@@ -1295,6 +1370,9 @@ def _open_app_window(url: str) -> None:
 def _open_browser(url: str) -> None:
     import webbrowser
 
+    if not _server_ready(url):
+        print(f"uh web: the server did not answer within 15s; open {url} yourself")
+        return
     try:
         webbrowser.open(url)
     except Exception:  # noqa: BLE001 - a headless box has no browser

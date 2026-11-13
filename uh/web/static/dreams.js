@@ -46,13 +46,66 @@ function dreamsPanel() {
       <span id="dreams-state">Idle monitoring: arrêté</span>
       <button id="dreams-toggle" class="ghost">Activer le Rêve Éveillé</button>
     </div>
+    <button id="dreams-run" class="dreams-run" title="Une passe maintenant, en lecture seule">☾ Faire un rêve maintenant</button>
+    <p id="dreams-run-status" class="dreams-note" hidden></p>
     <div id="dreams-list" class="dreams-list"></div>
     <div id="dreams-detail" class="dreams-detail"></div>
   `;
   document.body.appendChild(panel);
   panel.querySelector("#dreams-close").addEventListener("click", () => panel.remove());
   panel.querySelector("#dreams-toggle").addEventListener("click", toggleDaemon);
+  panel.querySelector("#dreams-run").addEventListener("click", runDreamOnce);
   return panel;
+}
+
+// One pass, now. The pass is a child process on the server: the honest UI is a
+// button, a state, and a list that changes when a report exists - not a spinner
+// that pretends to know how long a model will take.
+async function runDreamOnce() {
+  const panel = dreamsPanel();
+  const button = panel.querySelector("#dreams-run");
+  const status = panel.querySelector("#dreams-run-status");
+  let before = 0;
+  try {
+    before = ((await dreamsApi("/api/dreams")).dreams || []).length;
+  } catch (err) {
+    before = 0;
+  }
+  button.disabled = true;
+  button.textContent = "☾ Rêve en cours…";
+  status.hidden = false;
+  status.textContent =
+    "La passe lit les sources puis peut appeler le modèle : quelques minutes, et le rapport apparaît en haut de la liste.";
+  try {
+    await dreamsApi("/api/dreams/run", { method: "POST" });
+  } catch (err) {
+    status.textContent = "Passe refusée : " + err.message;
+    button.disabled = false;
+    button.textContent = "☾ Faire un rêve maintenant";
+    return;
+  }
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    let data = null;
+    try {
+      data = await dreamsApi("/api/dreams");
+    } catch (err) {
+      continue;
+    }
+    const count = (data.dreams || []).length;
+    if (count > before) {
+      status.textContent = "Rêve terminé : le rapport est en haut de la liste.";
+      await loadDreams();
+      button.disabled = false;
+      button.textContent = "☾ Faire un rêve maintenant";
+      return;
+    }
+  }
+  status.textContent =
+    "Toujours en cours au bout de 5 min — le journal est dans ~/.uh/dreams/manual-run.log.";
+  button.disabled = false;
+  button.textContent = "☾ Faire un rêve maintenant";
 }
 
 async function loadDreams() {
@@ -170,8 +223,9 @@ function mountDreams() {
   try {
     if (document.getElementById("dreams-open")) return;
     const target = document.querySelector(".topbar, header, #topbar") || document.body;
-    const button = dreamsEl("button", "ghost dreams-open", "Rêves");
+    const button = dreamsEl("button", "ghost dreams-open", "☾ Rêves");
     button.id = "dreams-open";
+    button.title = "Lire, lancer et décider les rêves";
     button.addEventListener("click", () => {
       loadDreams();
       dreamsPanel().classList.add("open");

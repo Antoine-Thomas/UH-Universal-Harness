@@ -203,14 +203,17 @@ def test_dream_wall_time_stops_the_pass(passes: Path) -> None:
     assert "wall-clock" in report.reason
 
 
-def test_without_uhb_the_pass_is_skipped(passes: Path) -> None:
+def test_without_uhb_the_pass_says_so_and_never_pretends(passes: Path) -> None:
+    """The shipped skills are local, but a pass without UHB must not read as 'ok'."""
     engine = DreamScheduler(config=DreamConfig(output_dir=passes), provider=FakeProvider(), uhb_url="")
 
     report = engine.run_once()
 
-    assert report.status == "skipped"
+    assert report.status == "partial", "some sources were read, the two main ones were not"
+    assert report.reason_kind == "uhb-offline", "the caller has to be able to fail on this"
     assert "UHB offline" in report.reason
-    assert report.artifacts == []
+    assert report.tokens["total"] == 0, "no route, no classification, no model call"
+    assert report.classification == {}
 
 
 def test_a_failing_source_does_not_kill_the_pass(passes: Path) -> None:
@@ -232,7 +235,10 @@ def test_a_failing_source_does_not_kill_the_pass(passes: Path) -> None:
 
     assert report.sources["siyuan"]["available"] is False
     assert report.sources["rag"]["available"] is True
-    assert report.status == "ok"
+    # A source that could not be read makes the night partial, not "ok": the
+    # report is honest about what it actually saw.
+    assert report.status == "partial"
+    assert "siyuan" in report.reason
 
 
 def test_a_trivial_prompt_costs_no_token(passes: Path) -> None:
