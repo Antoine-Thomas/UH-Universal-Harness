@@ -525,6 +525,50 @@ def create_app(
         active.request_stop()
         return {"stopped": True}
 
+    # -- UHB proxy --------------------------------------------------------- #
+    # The browser never talks to UHB: CSP stays 'self', and UH is the only thing
+    # that knows the loopback URL. Two read-only routes, no token spent.
+    def _uhb() -> tuple:
+        from ..toolsets.uhb import CALL_TIMEOUT, TIMEOUT, Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        if url is None:
+            raise HTTPException(
+                status_code=503,
+                detail="UHB is disabled: UH_UHB_URL is empty or not a loopback URL",
+            )
+        return Uhbtoolset(url, timeout=CALL_TIMEOUT), url, TIMEOUT
+
+    @app.get("/api/uhb/status", dependencies=[Depends(require_token)])
+    async def uhb_state() -> dict:
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        if url is None:
+            return {
+                "connected": False,
+                "reason": "UHB is disabled (UH_UHB_URL is empty or not loopback)",
+            }
+        payload = Uhbtoolset(url, timeout=1.0).status()
+        if "error" in payload:
+            return {"connected": False, "reason": str(payload.get("error") or "unreachable")}
+        return {"connected": True, **payload}
+
+    @app.post("/api/uhb/route", dependencies=[Depends(require_token)])
+    async def uhb_plan(payload: dict) -> dict:
+        prompt = str((payload or {}).get("prompt") or "").strip()
+        if not prompt:
+            raise HTTPException(status_code=400, detail="prompt is required")
+        tool, _url, _timeout = _uhb()
+        plan: dict = tool.route(
+            prompt,
+            str((payload or {}).get("mode") or ""),
+            str((payload or {}).get("complexity") or ""),
+        )
+        if "error" in plan:
+            raise HTTPException(status_code=503, detail=str(plan.get("error")))
+        return plan
+
     # -- system ------------------------------------------------------------ #
     @app.get("/api/system/capabilities", dependencies=[Depends(require_token)])
     async def capabilities() -> dict:

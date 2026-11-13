@@ -853,3 +853,89 @@ def test_a_model_pull_runs_in_the_background(
 
     run(scenario())
     assert calls == ["qwen2.5:1.5b"]
+
+
+def test_uhb_status_reports_absence_without_a_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh.toolsets import uhb as uhb_mod
+
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: None)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            data = (await http.get("/api/uhb/status", headers=AUTH)).json()
+            assert data["connected"] is False
+            assert "disabled" in data["reason"]
+
+    run(scenario())
+
+
+def test_uhb_status_is_proxied_through_uh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The browser asks UH; only UH speaks to UHB on loopback."""
+    from uh.toolsets import uhb as uhb_mod
+
+    summary = {
+        "connected": True,
+        "version": "0.4.2",
+        "mode": "dev",
+        "harness": "uh 1.1.0",
+        "providers": ["deepseek", "ollama"],
+        "modes": ["chat", "dev"],
+    }
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
+    monkeypatch.setattr(uhb_mod.Uhbtoolset, "status", lambda self: dict(summary))
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            data = (await http.get("/api/uhb/status", headers=AUTH)).json()
+            assert data["connected"] is True
+            assert data["mode"] == "dev"
+            assert data["providers"] == ["deepseek", "ollama"]
+
+    run(scenario())
+
+
+def test_uhb_route_returns_the_plan_or_a_clear_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh.toolsets import uhb as uhb_mod
+
+    plan = {
+        "mode": "chat",
+        "complexity": "trivial",
+        "score": 1,
+        "signals": {},
+        "allow_paid": False,
+        "reason": "short prompt",
+        "chosen": "deepseek/deepseek-flash",
+        "chain": [{"ref": "deepseek/deepseek-flash", "tier": "eco", "model_id": "deepseek-flash"}],
+    }
+    monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            empty = await http.post("/api/uhb/route", json={}, headers=AUTH)
+            assert empty.status_code == 400
+
+            monkeypatch.setattr(uhb_mod.Uhbtoolset, "route", lambda self, p, m, c: dict(plan))
+            ok = await http.post("/api/uhb/route", json={"prompt": "salut"}, headers=AUTH)
+            assert ok.status_code == 200
+            assert ok.json()["chosen"] == "deepseek/deepseek-flash"
+            assert ok.json()["chain"][0]["tier"] == "eco"
+
+            monkeypatch.setattr(
+                uhb_mod.Uhbtoolset,
+                "route",
+                lambda self, p, m, c: {"error": "uhb unreachable", "kind": "transport"},
+            )
+            down = await http.post("/api/uhb/route", json={"prompt": "salut"}, headers=AUTH)
+            assert down.status_code == 503
+            assert "unreachable" in down.json()["detail"]
+
+    run(scenario())

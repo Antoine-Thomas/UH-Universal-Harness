@@ -41,6 +41,8 @@ even when the failing input was one.
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
 | POST | `/api/sessions/{session_id}/chat` | `{message, attachments?: [path]}` | **SSE stream** (below) · `400` empty message or refused attachment · `404` · `503` provider unreachable |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
+| GET | `/api/uhb/status` | — | `{connected, version, mode, harness, providers, modes}` · `{connected: false, reason}` when UHB is down or disabled |
+| POST | `/api/uhb/route` | `{prompt, mode?, complexity?}` | `{mode, complexity, chosen, chain: [{ref, tier, model_id}], reason, allow_paid}` · `400` no prompt · `503` UHB unreachable |
 | GET | `/api/system/capabilities` | — | `{tier, ram_gb, cpu_cores, gpu, os, arch, recommended_model, recommended_budget, local_possible, sentence}` |
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
@@ -104,7 +106,7 @@ providers-open  providers-panel  providers-view  router-settings  search
 remote-banner  search-results  send  session-list  session-title  sidebar
 sidebar-toggle
 splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
-tab-providers  terminal-warning  theme-toggle
+tab-providers  tab-uhb  terminal-warning  theme-toggle  uhb-panel  uhb-view
 ```
 
 The layout is three CSS grid columns plus two drag handles

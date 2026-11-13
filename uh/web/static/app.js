@@ -1420,11 +1420,87 @@ async function loadCapabilities() {
   }
 }
 
+// --- second brain (UHB, proxied by UH) ---------------------------------------
+const TIER_COLOURS = { free: "var(--accent)", eco: "var(--highlight)", paid: "var(--error)" };
+
+async function loadUhb() {
+  const box = $("uhb-panel");
+  box.textContent = "";
+  let data;
+  try {
+    data = await api("/api/uhb/status");
+  } catch (error) {
+    box.appendChild(el("p", "panel-hint", `UHB: ${error.message}`));
+    return;
+  }
+  if (!data.connected) {
+    box.appendChild(
+      el(
+        "p",
+        "uhb-offline",
+        `UHB not connected (${data.reason || "unreachable"}). Run 'uh web' (it starts UHB) or set UH_UHB_PATH.`
+      )
+    );
+    return;
+  }
+  const facts = el("dl", "hardware-facts");
+  for (const [label, value] of [
+    ["mode", data.mode || "?"],
+    ["version", data.version || "?"],
+    ["harness", data.harness || "?"],
+    ["providers", (data.providers || []).join(", ") || "none"],
+  ]) {
+    facts.appendChild(el("dt", null, label));
+    facts.appendChild(el("dd", null, String(value)));
+  }
+  box.appendChild(el("p", "hardware-sentence", "UHB connected."));
+  box.appendChild(facts);
+
+  const test = el("button", "hardware-pull", "Test routing");
+  const out = el("div", "uhb-decision");
+  test.addEventListener("click", async () => {
+    const prompt = $("input").value.trim() || "test";
+    test.disabled = true;
+    out.textContent = "";
+    try {
+      const plan = await api("/api/uhb/route", {
+        method: "POST",
+        body: JSON.stringify({ prompt }),
+      });
+      out.appendChild(
+        el(
+          "p",
+          "uhb-line",
+          `${plan.complexity} · ${plan.reason || "no reason given"}`
+        )
+      );
+      for (const candidate of plan.chain || []) {
+        const row = el("div", "uhb-candidate");
+        const tier = String(candidate.tier || "?");
+        const dot = el("span", "uhb-dot");
+        dot.style.background = TIER_COLOURS[tier] || "var(--muted)";  // free/eco/paid
+        row.appendChild(dot);
+        row.appendChild(el("span", "uhb-ref", candidate.ref || candidate.model_id || "?"));
+        row.appendChild(el("span", "uhb-tier", tier));
+        out.appendChild(row);
+      }
+      if (!(plan.chain || []).length) out.appendChild(el("p", "panel-hint", "no chain"));
+    } catch (error) {
+      out.appendChild(el("p", "panel-hint", `route: ${error.message}`));
+    } finally {
+      test.disabled = false;
+    }
+  });
+  box.appendChild(test);
+  box.appendChild(out);
+}
+
 function showPanelTab(name) {
   for (const [tab, view] of [
     ["keys", "keys-view"],
     ["providers", "providers-view"],
     ["models", "models-view"],
+    ["uhb", "uhb-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -1432,6 +1508,7 @@ function showPanelTab(name) {
     $(view).hidden = !active;
   }
   if (name === "models") loadCapabilities().catch(() => {});
+  if (name === "uhb") loadUhb().catch(() => {});
 }
 
 function openProviders() {
@@ -1464,6 +1541,7 @@ function wireProviders() {
   $("tab-keys").addEventListener("click", () => showPanelTab("keys"));
   $("tab-providers").addEventListener("click", () => showPanelTab("providers"));
   $("tab-models").addEventListener("click", () => showPanelTab("models"));
+  $("tab-uhb").addEventListener("click", () => showPanelTab("uhb"));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && providersAreOpen()) closeProviders();
   });
