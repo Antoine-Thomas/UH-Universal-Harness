@@ -1614,6 +1614,20 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
         + (f", {report.artifacts[0]}" if report.artifacts else ""),
         started,
     )
+    if getattr(args, "export_desktop", False) and report.artifacts:
+        # A pass nobody opens is a pass nobody reads: one .txt on the Desktop is
+        # the lowest-friction way to see the night's output without the UI.
+        import shutil
+        from pathlib import Path as _Path
+
+        target = _Path.home() / "Desktop" / "UH_Rapport_Nuit.txt"
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(report.artifacts[0], target)
+            print(f"exported: {target}")
+        except OSError as exc:
+            print(f"export failed: {target} ({exc})", file=sys.stderr)
+
     if getattr(args, "start_uhb", False):
         from . import uhb_spawn
 
@@ -2235,6 +2249,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--source", default=None, metavar="siyuan,rag", help="sources to read (default siyuan,rag)"
     )
     dream_cmd.add_argument("--no-write", action="store_true", help="print the report, write nothing")
+    dream_cmd.add_argument(
+        "--export-desktop",
+        action="store_true",
+        help="also copy the report to the Desktop as UH_Rapport_Nuit.txt",
+    )
     dream_cmd.add_argument(
         "--schedule", action="store_true", help="install the nightly pass (Task Scheduler or Startup)"
     )

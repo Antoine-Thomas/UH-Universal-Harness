@@ -285,3 +285,37 @@ Two consequences for the plan:
 - Wazuh integration and the `harness-maxxing` visual fusion: phase 5 and phase 2
   respectively. Not started.
 - Multi-user, remote access, cloud sync: not a goal. UH is a local cockpit.
+
+
+## 6. P6 - Cockpit UI/UX and visual telemetry (opened 2026-11-13)
+
+The backend is done enough to be looked at: the question is now what the operator
+sees while it runs. Items are listed with their state, not their ambition.
+
+- **Report on the Desktop** - *delivered* (`--export-desktop`, copy to
+  `~/Desktop/UH_Rapport_Nuit.txt`). A pass nobody opens is a pass nobody reads.
+- **Splash screen** - the first paint waits on nothing: the UH mark pulses while
+  the shell and the first API calls land, then fades. No fake depth on the mark,
+  no click that pretends to do something. *To do.*
+- **Independent window** - rounded frame, shadow, centred, so the UI reads as a
+  desktop app rather than a page. No Electron: the browser is the runtime.
+  *To do.*
+- **Dockable consoles** - one UI, several panes (chat, logs, terminal, decision),
+  detachable, resizable, with magnetic edges. Reference studied:
+  `github.com/makushingu/harness-maxxing` (already named in section 5).
+  *To do - the largest item, and the one most likely to break the layout.*
+- **Telemetry** - tokens per pass and per day, cost, wall time, RAM/VRAM. Measured
+  from `dreams/schedule.log` and `/api/system/*`, drawn as sparklines. No new
+  dependency until a graph cannot be drawn without one. *To do.*
+- **Second brain, drawn** - Mermaid, animated, showing what the memory holds
+  (SiYuan blocks, RAG chunks, wiki notes) and which way a decision travelled.
+  Read-only: the diagram never writes. *To do.*
+- **Maintenance** - temp files, caches, orphaned uploads, with the reclaimed space
+  reported before and after. Deletion is explicit, never silent. *To do.*
+- **Voice and text helpers** - TTS and dictation through the Web Speech API (no
+  key, no cloud, degrades to absent where the browser lacks it), automatic session
+  titles, prompt improvement, and an error explainer that reads a traceback and
+  says which cause is likely. *To do, in that order.*
+
+Constraint for every item above: `pytest -q` stays green, the nightly task keeps
+working, and nothing here may require Ollama, a key, or a network call.
