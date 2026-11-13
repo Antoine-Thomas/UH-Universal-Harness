@@ -1455,7 +1455,7 @@ function providersAreOpen() {
 // (matchMedia mirrors the CSS breakpoint). Click-outside only makes sense in
 // overlay mode; inline, the column is part of the layout and stays put.
 function isNarrow() {
-  return window.matchMedia("(max-width: 1100px)").matches;
+  return window.matchMedia("(max-width: 1200px)").matches;
 }
 
 function wireProviders() {
@@ -1503,10 +1503,24 @@ function wireComposer() {
   $("new-session").addEventListener("click", newSession);
   $("new-folder").addEventListener("click", newFolder);
   $("menu-toggle").addEventListener("click", () => $("sidebar").classList.toggle("open"));
+  $("panel-toggle").addEventListener("click", () => {
+    if (providersAreOpen()) closeProviders();
+    else openProviders();
+  });
   $("theme-toggle").addEventListener("click", () => {
     const root = document.documentElement;
     root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
   });
+}
+
+// A phone cannot run a local model. Saying so once, at the top, is cheaper than
+// letting the user wonder why every turn fails.
+async function showRemoteBanner() {
+  const data = await api("/api/system/capabilities");
+  if (data.tier !== "small" && data.tier !== "remote") return;
+  const banner = $("remote-banner");
+  banner.textContent = `UH runs remote on this device (${data.tier} tier). Configure a provider in the ⚙ panel.`;
+  banner.hidden = false;
 }
 
 async function boot() {
@@ -1522,6 +1536,7 @@ async function boot() {
   await loadSessions();
   // Narrow screens: the right column starts collapsed (overlay mode).
   if (isNarrow()) closeProviders();
+  showRemoteBanner().catch(() => {});
   // Open the most recent session on first load: an empty pane on arrival looks
   // like a broken app, and the session the user left is the one they want.
   const newest = document.querySelector("#session-list li[data-id]");

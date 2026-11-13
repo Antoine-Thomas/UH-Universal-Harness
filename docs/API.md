@@ -99,9 +99,10 @@ contract of the bundled one:
 attach  attachments  composer  files  folder-hint  gauge-fill  gauge-label
 hardware-card  input  keys-priority  keys-view  models-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette
-palette-input  palette-list  providers-close  providers-hint  providers-list
+palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
 providers-open  providers-panel  providers-view  router-settings  search
-search-results  send  session-list  session-title  sidebar  sidebar-toggle
+remote-banner  search-results  send  session-list  session-title  sidebar
+sidebar-toggle
 splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
 tab-providers  terminal-warning  theme-toggle
 ```

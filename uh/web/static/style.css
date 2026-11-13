@@ -173,14 +173,18 @@ body {
   font-size: 12px; color: var(--muted);
 }
 
-.main { display: flex; flex-direction: column; min-height: 0; }
+.main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 
 .topbar {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 16px; border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
-.title { font-size: 14px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title {
+  font-size: 14px; font-weight: 600; flex: 1; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;  /* a flex item refuses to shrink below its content without this */
+}
 
 .model-select {
   padding: 6px 8px; border-radius: var(--radius);
@@ -210,6 +214,7 @@ body {
   margin: 0; padding: 8px 16px; font-size: 12px;
   background: var(--tool); color: var(--error); border-bottom: 1px solid var(--border);
 }
+.warning.remote { color: var(--text); border-left: 3px solid var(--highlight); }
 
 .messages { flex: 1; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
 
@@ -337,7 +342,11 @@ body {
 .palette li.active, .palette li:hover { background: var(--accent-soft); }
 .palette .alias { color: var(--muted); font-size: 11px; margin-left: 6px; }
 
-@media (max-width: 1100px) {
+/* Breakpoints: 1200 px (a 13" laptop loses the panel), 768 px (a phone gets one
+   column). They are mirrored in app.js (isNarrow) and in tests/test_web_layout.py. */
+#panel-toggle { display: none; }
+
+@media (max-width: 1200px) {
   .layout,
   .layout.right-collapsed,
   .layout.sidebar-collapsed,
@@ -354,7 +363,11 @@ body {
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 1200px) {
+  #panel-toggle { display: inline-block; }  /* the drawer needs a handle */
+}
+
+@media (max-width: 768px) {
   .layout,
   .layout.right-collapsed,
   .layout.sidebar-collapsed,
@@ -370,6 +383,25 @@ body {
   .gauge { width: 96px; }
   .model-select { max-width: 120px; }
   .messages { padding: 12px; }
+
+  /* Touch: a 24 px icon is a miss on a phone. 44 px is the platform minimum. */
+  .icon-button, .session-actions button, .folder-actions button,
+  .attachment-remove, .message-delete, .hardware-pull, .stop, .composer button {
+    min-width: 44px; min-height: 44px; font-size: 16px;
+  }
+  .topbar { gap: 6px; padding: 8px 10px; flex-wrap: nowrap; }
+  /* 375 px cannot hold a title, a model select, a gauge and two buttons: the
+     gauge is the one that carries no action, so it goes. */
+  .gauge { display: none; }
+  .model-select { max-width: 118px; min-width: 0; }
+  .stop { padding: 0 12px; }
+  .main { min-width: 0; overflow-x: hidden; }
+  .messages { overflow-x: hidden; }
+  .msg { max-width: 100%; word-break: break-word; }
+  .session-list li.session { padding-right: 96px; }
+  .session-actions { opacity: 1; }  /* no hover on a touch screen */
+  .composer textarea { font-size: 16px; }  /* iOS zooms under 16 px */
+  .warning { font-size: 13px; }
 }
 
 /* --- providers: right column (was a fixed panel before Jalon layout) ------- */

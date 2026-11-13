@@ -40,8 +40,11 @@
           <div class="gauge-fill" id="gauge-fill"></div>
           <span id="gauge-label">ctx ~0 tok</span>
         </div>
+        <button id="panel-toggle" class="icon-button" title="Configuration" aria-label="Configuration">⚙</button>
         <button id="stop" class="stop" disabled>Stop</button>
       </header>
+
+      <div id="remote-banner" class="warning remote" hidden></div>
 
       <div id="terminal-warning" class="warning" hidden>
         Terminal toolset is ENABLED: the model can run shell commands in the workspace.
