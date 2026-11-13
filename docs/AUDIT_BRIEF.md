@@ -6,9 +6,12 @@ change, how to run it, and what is admittedly unfinished. An out-of-date brief i
 worse than none — a redesign that breaks an invariant here is a regression, not a
 taste choice.
 
-State at the time of writing: `main` for the **1.0.0** release, version
-**1.0.0** in `pyproject.toml` and `uh/__init__.py`, `uh-harness` on PyPI up to
-0.9.0 until the `v1.0.0` release is published. Tests: 346 passed, 1 skipped.
+State at the time of writing (2026-11-13): `main` carries **1.1.0**, the same
+version in `pyproject.toml` and `uh/__init__.py`, and `uh-harness` 1.1.0 is on
+PyPI (`https://pypi.org/pypi/uh-harness/json` — check it there rather than
+trusting this line). Tests: **638 passed, 1 skipped**. The interface gained
+resizable zones, session delete and folder grouping on 2026-11-13; the console
+prints a three-line header and an optional `UHB: connected …` line.
 
 ---
 

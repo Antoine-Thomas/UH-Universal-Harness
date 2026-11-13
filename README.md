@@ -98,15 +98,22 @@ The web interface is an **original design**: it borrows the feature list of
 Harness Maxxing (public README) and none of its code, which is under a Fair
 Source Licence. UH stays MIT.
 
-346 tests, 1 skipped locally (Windows, Python 3.11); the CI matrix runs the
-suite on Linux, macOS and Windows across Python 3.10 to 3.13.
+638 tests, 1 skipped locally (Windows, Python 3.11, measured 2026-11-13); the CI
+matrix runs the suite on Linux, macOS and Windows across Python 3.10 to 3.13.
+The number is a measurement with a date, not a promise: it moves with every
+commit that adds a test.
 
-## Roadmap (after 1.0.0)
+## Roadmap
 
-- **UHB integration** — plug the second brain (retrieval, wiki, memory) into the
-  harness as a toolset, shipped as its own package.
-- **Web-session fallback parity** — a browser session currently binds one
-  provider; the chain applies to `uh chat` and the console.
+[docs/ROADMAP_UH_V2.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/ROADMAP_UH_V2.md)
+is the source of truth for the order of work — phases P0 to P5, each with the
+contract that must be true before the next one starts. Two things worth knowing
+from it:
+
+- **UHB integration shipped in 1.1.0** (`uhb_status`, `uhb_modes`, `uhb_route`):
+  the second brain is a toolset, gated on `GET /modes` answering, loopback only;
+- **web-session fallback parity** is still open: a browser session binds one
+  provider, while the chain applies to `uh chat` and the console.
 
 ## CLI surface
 

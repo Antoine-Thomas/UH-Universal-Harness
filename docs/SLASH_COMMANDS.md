@@ -24,6 +24,7 @@ need this?* A command is retained only if UH can make it work at this milestone
 | `/save [file]` | — | Write the session as Markdown (relative paths land in the workspace) | Local transcript, no network |
 | `/export [md|json]` | — | Export the session next to the workspace | Same, machine-readable |
 | `/tools` | — | List active toolsets and their tools | Same intent as Hermes `/tools list` |
+| `/web [query]` | — | `/web <query>` runs the search toolset directly (no model call, nothing stored); `/web` **alone** serves the web UI in a background thread on the session workspace, and a second `/web` reports the URL already served — `/exit` stops the server | Two readings of "the web": search it, or open it as a panel |
 | `/clear` | — | Clear the in-memory history, keep the session | Same as Hermes `/clear` minus screen repaint |
 | `/workspace [path]` | — | Show the workspace and the writable paths, or move the session (and the file/terminal toolsets) to `path` | UH-specific: the workspace is the sandbox root, so it must be visible and movable |
 | `/new` | `/reset` | Start a new session (fresh id, empty history) | Same as Hermes `/new` |
