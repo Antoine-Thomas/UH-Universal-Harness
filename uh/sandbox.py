@@ -210,11 +210,22 @@ def is_allowed(
 def outside_message(
     raw: str, workspace: str | os.PathLike[str] | None = None, allowed: list[Path] | None = None
 ) -> str:
-    """The refusal text: why, where it may write, and how to change that."""
+    """The refusal text: why, where it may write, how to change that, and how to start over.
+
+    Every refusal carries the list, because "refused" alone leaves the user with
+    no next step - and the model with a temptation to try the shell instead.
+    """
     roots = allowed if allowed is not None else allowed_paths(workspace)
+    if is_system_directory(raw):
+        head = f"refused: '{raw}' is a system path, which UH never writes to"
+    else:
+        head = (
+            f"refused: '{raw}' is outside the workspace and outside the allowed paths "
+            f"({display_paths(roots)})"
+        )
     return (
-        f"refused: '{raw}' is outside the workspace and outside the allowed paths "
-        f"({display_paths(roots)}). Use /workspace <path> to switch."
+        f"{head}. Use /workspace <path> to switch. "
+        "(hint: /workspace <path> or `uh --workspace <path>`)"
     )
 
 

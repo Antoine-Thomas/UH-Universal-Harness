@@ -113,6 +113,21 @@ def test_text_that_looks_like_a_write_is_not_refused(
         f"echo x >> {SYSTEM_TARGET}/evil.txt",
         f"echo x>{SYSTEM_TARGET}/evil-nospace.txt",
         f"echo err 2> {SYSTEM_TARGET}/err.txt",
+    ],
+)
+def test_a_system_destination_is_refused_as_a_system_path(
+    toolset: TerminalToolset, command: str
+) -> None:
+    refusal = check_writes(command, toolset.workspace, toolset.allowed)
+
+    assert refusal is not None, command
+    assert refusal["refused"] is True
+    assert "is a system path, which UH never writes to" in refusal["error"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "touch ~/secret.txt",
         "mv a.txt ../dehors.txt",
         "cp a.txt /tmp/evil.txt",
@@ -127,6 +142,7 @@ def test_destinations_outside_both_lists_are_refused(
     assert refusal["refused"] is True
     assert "outside the workspace and outside the allowed paths" in refusal["error"]
     assert "~/Desktop" in refusal["error"]
+    assert "(hint: /workspace <path> or `uh --workspace <path>`)" in refusal["error"]
 
 
 def test_a_refused_command_never_reaches_the_shell(

@@ -28,6 +28,11 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in sandbox.ALLOWED_HOME_DIRS:
         (root / name).mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(Path, "home", staticmethod(lambda: root))
+    # ~ must resolve inside the fake home too: Path.expanduser() goes through
+    # os.path.expanduser, which reads HOME/USERPROFILE and ignores Path.home().
+    monkeypatch.setattr(
+        os.path, "expanduser", lambda value: str(root) + value[1:] if value.startswith("~") else value
+    )
     return root
 
 
@@ -160,6 +165,7 @@ def test_a_write_outside_both_lists_is_refused_with_the_list(
     assert "outside the workspace and outside the allowed paths" in message
     assert "~/Desktop" in message and "~/uh-workspace" in message
     assert "Use /workspace <path> to switch." in message
+    assert "(hint: /workspace <path> or `uh --workspace <path>`)" in message
 
 
 def test_a_system_path_is_refused_even_when_whitelisted(
@@ -170,6 +176,7 @@ def test_a_system_path_is_refused_even_when_whitelisted(
     assert sandbox.is_allowed(SYSTEM_TARGET + "/evil.txt", toolset.workspace) is False
     result = toolset.write_file(SYSTEM_TARGET + "/evil.txt", "non")
     assert "refused:" in result["error"]
+    assert "is a system path, which UH never writes to" in result["error"]
 
 
 def test_reading_stays_workspace_only(toolset: FileToolset, home: Path) -> None:
