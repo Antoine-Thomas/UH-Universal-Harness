@@ -21,6 +21,7 @@ panel decorative.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 #: How many turns the panel keeps: enough for an average, small enough to stay
@@ -56,6 +57,7 @@ def build_entry(
     payload_tokens: int = 0,
     route: Optional[dict] = None,
     tool_calls: int = 0,
+    at: Optional[str] = None,
 ) -> Dict[str, Any]:
     """One compact record of a turn. Everything here was measured."""
     counters = usage or {}
@@ -95,6 +97,9 @@ def build_entry(
         "chain": chain,
         "chosen": (route or {}).get("chosen") if route else None,
         "tool_calls": int(tool_calls),
+        # When, not just what: the telemetry panel buckets tokens per day, and a
+        # turn with no date cannot be placed on one without guessing.
+        "at": str(at) if at else datetime.now().astimezone().isoformat(timespec="seconds"),
     }
 
 

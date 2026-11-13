@@ -2063,6 +2063,7 @@ function showPanelTab(name) {
     ["uhb", "uhb-view"],
     ["memory", "memory-view"],
     ["decision", "decision-view"],
+    ["telemetry", "telemetry-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -2073,6 +2074,12 @@ function showPanelTab(name) {
   if (name === "uhb") loadUhb().catch(() => {});
   if (name === "memory") loadMemory().catch(() => {});
   if (name === "decision") loadDecision().catch(() => {});
+  if (name === "telemetry") {
+    loadTelemetry().catch(() => {});
+    startTelemetryPolling();
+  } else {
+    stopTelemetryPolling();
+  }
 }
 
 function openProviders() {
@@ -2086,6 +2093,7 @@ function openProviders() {
 
 function closeProviders() {
   $("layout").classList.add("right-collapsed");
+  stopTelemetryPolling();
 }
 
 function providersAreOpen() {
@@ -2108,6 +2116,7 @@ function wireProviders() {
   $("tab-uhb").addEventListener("click", () => showPanelTab("uhb"));
   $("tab-memory").addEventListener("click", () => showPanelTab("memory"));
   $("tab-decision").addEventListener("click", () => showPanelTab("decision"));
+  $("tab-telemetry").addEventListener("click", () => showPanelTab("telemetry"));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && providersAreOpen()) closeProviders();
   });
@@ -2117,6 +2126,283 @@ function wireProviders() {
     if ($("providers-open").contains(event.target)) return;
     closeProviders();
   });
+}
+
+// --- telemetry (P6): tokens per day, the machine now, the last passes -------- //
+// Three readings, one route. The numbers are whatever uh/telemetry.py measured:
+// the chart draws recorded turns, the gauges draw the machine, the table draws
+// schedule.log. Nothing here is interpolated, and "coût" prints the reason UH
+// refuses to invent one.
+const TELEM_NS = "http://www.w3.org/2000/svg";
+const TELEM_REFRESH_MS = 10000;
+let telemTimer = null;
+
+function svgEl(tag, attrs = {}) {
+  const node = document.createElementNS(TELEM_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
+function tokens(value) {
+  return Number(value || 0).toLocaleString("fr-FR");
+}
+
+// 13280 -> "13 k": the axis needs three characters, not five.
+function compactTokens(value) {
+  const number = Number(value || 0);
+  if (number >= 10000) return `${Math.round(number / 1000)}k`;
+  if (number >= 1000) return `${(number / 1000).toFixed(1).replace(".", ",")}k`;
+  return String(number);
+}
+
+function telemetryChart(days) {
+  const W = 300;
+  const H = 108;
+  const pad = 6;
+  const gap = 6;
+  const floor = 20; // room for the day labels
+  const plot = H - floor;
+  const left = pad + 26; // room for the scale labels
+  const max = Math.max(1, ...days.map((day) => day.local + day.cloud));
+  const width = Math.max(6, (W - left - pad - gap * (days.length - 1)) / Math.max(1, days.length));
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    class: "telem-chart-svg",
+    role: "img",
+    "aria-label": "Tokens per day, local and cloud",
+  });
+  // A scale, not decoration: without it a single tall bar says nothing.
+  for (const fraction of [1, 0.5]) {
+    const y = plot - Math.round((plot - 4) * fraction);
+    svg.appendChild(
+      svgEl("line", { x1: left - 4, y1: y, x2: W - pad, y2: y, class: "telem-grid" })
+    );
+    const label = svgEl("text", { x: pad, y: y + 3, class: "telem-scale" });
+    label.textContent = compactTokens(Math.round(max * fraction));
+    svg.appendChild(label);
+  }
+  svg.appendChild(svgEl("line", { x1: left - 4, y1: plot, x2: W - pad, y2: plot, class: "telem-axis" }));
+  days.forEach((day, index) => {
+    const x = left + index * (width + gap);
+    const total = day.local + day.cloud;
+    // A non-zero value smaller than a pixel must still be visible: 981 local
+    // tokens next to 12 299 cloud would otherwise vanish.
+    const scaled = (value) =>
+      value <= 0 ? 0 : Math.max(2, Math.round((value / max) * (plot - 4)));
+    let cloudHeight = scaled(day.cloud);
+    let localHeight = scaled(day.local);
+    const room = plot - 4;
+    while (cloudHeight + localHeight > room) {
+      if (cloudHeight >= localHeight && cloudHeight > 2) cloudHeight -= 1;
+      else if (localHeight > 2) localHeight -= 1;
+      else break;
+    }
+    if (total === 0) {
+      svg.appendChild(
+        svgEl("rect", { x, y: plot - 1, width, height: 1, class: "telem-bar-empty" })
+      );
+    } else {
+      let y = plot;
+      for (const [cls, height] of [
+        ["telem-bar-cloud", cloudHeight],
+        ["telem-bar-local", localHeight],
+      ]) {
+        if (height <= 0) continue;
+        y -= height;
+        const bar = svgEl("rect", { x, y, width, height, class: cls, rx: 2 });
+        const title = svgEl("title");
+        title.textContent = `${day.date} · local ${tokens(day.local)} · cloud ${tokens(
+          day.cloud
+        )} · ${day.turns} tour(s)${
+          day.estimated ? ` · dont ≈${tokens(day.estimated)} estimés` : ""
+        }`;
+        bar.appendChild(title);
+        svg.appendChild(bar);
+      }
+    }
+    const label = svgEl("text", { x: x + width / 2, y: H - 6, class: "telem-day" });
+    // A "≈" says the day was inferred from the session, not recorded with the turn.
+    label.textContent = day.estimated ? `${day.date.slice(8, 10)}≈` : day.date.slice(8, 10);
+    svg.appendChild(label);
+  });
+  return svg;
+}
+
+function telemGauge(label, percent, detail) {
+  const row = el("div", "telem-gauge");
+  row.appendChild(el("span", "telem-gauge-label", label));
+  if (percent === null || percent === undefined || Number.isNaN(Number(percent))) {
+    row.appendChild(el("span", "telem-gauge-none", "indisponible"));
+  } else {
+    const bar = document.createElement("progress");
+    bar.className = "telem-gauge-track";
+    bar.max = 100;
+    bar.value = Math.max(0, Math.min(100, Number(percent)));
+    row.appendChild(bar);
+  }
+  row.appendChild(el("span", "telem-gauge-value", detail));
+  return row;
+}
+
+function telemPassRow(pass) {
+  const row = el("div", "telem-pass");
+  const when = pass.at ? `${pass.at.slice(8, 10)}/${pass.at.slice(5, 7)} ${pass.at.slice(11, 16)}` : "?";
+  row.appendChild(el("span", "telem-pass-when", when));
+  row.appendChild(el("span", "telem-pass-model", pass.model || pass.provider || "?"));
+  const seconds = pass.wall_time_s ?? pass.elapsed_s;
+  row.appendChild(el("span", "telem-pass-time", seconds === null ? "?" : `${seconds}s`));
+  const status = el("span", `telem-pass-status status-${pass.status}`, pass.status);
+  status.title = `${pass.ideas || 0} idée(s) · ${pass.tokens === null ? "tokens non rapportés" : `${tokens(pass.tokens)} tokens`}${pass.local ? " · local" : ""}`;
+  row.appendChild(status);
+  return row;
+}
+
+function renderTelemetry(data, quiet) {
+  const box = $("telemetry-panel");
+  if (!quiet) box.textContent = "";
+  const usage = data.usage || {};
+  const system = data.system || {};
+  const dreams = data.dreams || {};
+  const view = el("div", "telem");
+
+  const head = el("div", "telem-head");
+  head.appendChild(el("span", null, `Tokens · ${usage.window_days || 7} derniers jours`));
+  const stamp = data.generated_at ? new Date(data.generated_at) : new Date();
+  head.appendChild(el("span", "telem-stamp", stamp.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })));
+  view.appendChild(head);
+
+  view.appendChild(telemetryChart(usage.days || []));
+  const legend = el("div", "telem-legend");
+  legend.appendChild(el("span", "telem-key telem-key-local", "local (ollama)"));
+  legend.appendChild(el("span", "telem-key telem-key-cloud", "cloud"));
+  view.appendChild(legend);
+
+  const totals = usage.totals || {};
+  view.appendChild(
+    el(
+      "p",
+      "telem-totals",
+      `${tokens(totals.tokens)} tokens · local ${tokens(totals.local)} · cloud ${tokens(
+        totals.cloud
+      )} · ${totals.turns || 0} tour(s)`
+    )
+  );
+
+  // Honest gaps, one line each: a turn whose provider reported no counters is not
+  // a zero-token turn, and a record written before the timestamp existed cannot
+  // be placed on a day.
+  const notes = el("div", "telem-notes");
+  if (usage.turns_without_usage) {
+    notes.appendChild(
+      el("p", null, `${usage.turns_without_usage} tour(s) dont le fournisseur n'a rapporté aucun compteur`)
+    );
+  }
+  if (usage.totals && usage.totals.estimated) {
+    notes.appendChild(
+      el(
+        "p",
+        null,
+        `≈ ${tokens(usage.totals.estimated)} tokens placés sur la date de leur session : ces tours précèdent l'horodatage des décisions`
+      )
+    );
+  }
+  if (usage.undated && usage.undated.turns) {
+    notes.appendChild(
+      el("p", null, `${usage.undated.turns} tour(s) sans date du tout : ${tokens(
+        usage.undated.tokens
+      )} tokens hors graphique`)
+    );
+  }
+  if (usage.outside_window && usage.outside_window.turns) {
+    notes.appendChild(
+      el("p", null, `${usage.outside_window.turns} tour(s) plus anciens que la fenêtre`)
+    );
+  }
+  const cost = el(
+    "p",
+    "telem-cost",
+    "coût : non calculé — UH compte des tokens, pas des euros (aucune table de prix)"
+  );
+  cost.title = (usage.cost || {}).reason || "";
+  notes.appendChild(cost);
+  view.appendChild(notes);
+
+  const gauges = el("div", "telem-gauges");
+  gauges.appendChild(
+    telemGauge(
+      "CPU",
+      system.cpu_percent,
+      system.cpu_percent === null || system.cpu_percent === undefined
+        ? `${system.cores || 0} cœurs`
+        : `${system.cpu_percent}% · ${system.cores || 0} cœurs`
+    )
+  );
+  const ram = system.ram;
+  gauges.appendChild(
+    telemGauge(
+      "RAM",
+      ram ? ram.percent : null,
+      ram ? `${ram.used_gb} / ${ram.total_gb} GB` : "non rapportée"
+    )
+  );
+  const vram = system.vram;
+  gauges.appendChild(
+    telemGauge(
+      "VRAM",
+      vram ? vram.percent : null,
+      vram ? `${vram.used_mb} / ${vram.total_mb} MB` : system.gpu ? "nvidia-smi muet" : "pas de GPU"
+    )
+  );
+  view.appendChild(gauges);
+
+  const passes = dreams.passes || [];
+  const passHead = el("div", "telem-head telem-head-passes");
+  passHead.appendChild(el("span", null, "Dernières passes de rêve"));
+  passHead.appendChild(
+    el("span", "telem-stamp", `${passes.length} / ${dreams.lines || 0} lignes`)
+  );
+  view.appendChild(passHead);
+  if (!passes.length) {
+    view.appendChild(el("p", "telem-empty", "Aucune passe dans dreams/schedule.log."));
+  } else {
+    const list = el("div", "telem-passes");
+    passes.forEach((pass) => list.appendChild(telemPassRow(pass)));
+    view.appendChild(list);
+  }
+
+  const refresh = el("button", "telem-refresh", "↻ Rafraîchir");
+  refresh.addEventListener("click", () => loadTelemetry().catch(() => {}));
+  view.appendChild(refresh);
+
+  box.appendChild(view);
+}
+
+async function loadTelemetry(options = {}) {
+  const quiet = Boolean(options.quiet);
+  try {
+    const data = await api("/api/telemetry");
+    renderTelemetry(data, quiet);
+  } catch (error) {
+    if (!quiet) {
+      const box = $("telemetry-panel");
+      box.textContent = "";
+      box.appendChild(el("p", "panel-hint", `télémétrie indisponible : ${error.message}`));
+    }
+  }
+}
+
+// Polling only while the tab is on screen: a cockpit that keeps a timer running
+// behind a closed panel is a battery that empties for nothing.
+function startTelemetryPolling() {
+  stopTelemetryPolling();
+  telemTimer = window.setInterval(() => {
+    if ($("telemetry-view") && !$("telemetry-view").hidden) loadTelemetry({ quiet: true }).catch(() => {});
+  }, TELEM_REFRESH_MS);
+}
+
+function stopTelemetryPolling() {
+  if (telemTimer) window.clearInterval(telemTimer);
+  telemTimer = null;
 }
 
 // -------------------------------------------------------------------- boot --

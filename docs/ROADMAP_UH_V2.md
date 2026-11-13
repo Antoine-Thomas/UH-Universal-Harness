@@ -309,9 +309,16 @@ sees while it runs. Items are listed with their state, not their ambition.
   detachable, resizable, with magnetic edges. Reference studied:
   `github.com/makushingu/harness-maxxing` (already named in section 5).
   *To do - the largest item, and the one most likely to break the layout.*
-- **Telemetry** - tokens per pass and per day, cost, wall time, RAM/VRAM. Measured
-  from `dreams/schedule.log` and `/api/system/*`, drawn as sparklines. No new
-  dependency until a graph cannot be drawn without one. *To do.*
+- **Telemetry** - *delivered* (`uh/telemetry.py`, `GET /api/telemetry`, tab
+  "Telemetry"). Tokens per day split local/cloud from the decisions already
+  recorded on the sessions (`at` is now written with each turn; a record that
+  predates the field is placed on its session's date and marked "≈"), the last
+  ten passes from `dreams/schedule.log` (status, wall time, model, tokens), and
+  CPU/RAM/VRAM sampled at request time - `nvidia-smi` cached five seconds, the
+  CPU sampled off the event loop. Drawn as an SVG bar chart with no library and
+  no CDN (the CSP is `'self'`). **Cost is not computed**: UH has no price table,
+  so the payload says `cost: {value: null, reason}` and the panel prints the
+  reason. Polling stops when the tab is not in front.
 - **Second brain, drawn** - Mermaid, animated, showing what the memory holds
   (SiYuan blocks, RAG chunks, wiki notes) and which way a decision travelled.
   Read-only: the diagram never writes. *To do.*

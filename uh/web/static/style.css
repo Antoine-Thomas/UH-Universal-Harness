@@ -769,3 +769,67 @@ body {
 .dream-actions .danger { color: #d9534f; border-color: #d9534f55; }
 .dream-actions .primary { color: var(--highlight); border-color: var(--highlight); }
 .dreams-empty, .dreams-detail { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* --- telemetry (P6): tokens per day, the machine, the last passes ---------- */
+/* The chart is SVG drawn from the payload, not a library: the numbers arrive
+   already summed (uh/telemetry.py), so the browser only places rectangles. */
+.telemetry-panel { display: flex; flex-direction: column; gap: 10px; padding: 10px 14px 16px; }
+.telem { display: flex; flex-direction: column; gap: 8px; }
+.telem-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 12px; font-weight: 600;
+}
+.telem-stamp { font-size: 10px; font-weight: 400; color: var(--muted); }
+.telem-chart-svg { display: block; width: 100%; height: 108px; }
+.telem-axis { stroke: var(--border); stroke-width: 1; }
+.telem-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; opacity: .9; }
+.telem-scale { fill: var(--muted); font-size: 8px; text-anchor: end; }
+.telem-bar-local { fill: var(--accent); }
+.telem-bar-cloud { fill: var(--highlight); }
+.telem-bar-empty { fill: var(--border); }
+.telem-day { fill: var(--muted); font-size: 8px; text-anchor: middle; }
+.telem-legend { display: flex; gap: 12px; font-size: 10px; color: var(--muted); }
+.telem-key::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+  margin-right: 4px; vertical-align: -1px;
+}
+.telem-key-local::before { background: var(--accent); }
+.telem-key-cloud::before { background: var(--highlight); }
+.telem-totals { margin: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.telem-notes { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: var(--muted); }
+.telem-notes p { margin: 0; }
+.telem-cost { border-left: 2px solid var(--highlight); padding-left: 6px; }
+.telem-gauges { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.telem-gauge {
+  display: grid; grid-template-columns: 40px 1fr auto; align-items: center;
+  gap: 8px; font-size: 11px;
+}
+.telem-gauge-label { color: var(--muted); }
+.telem-gauge-track {
+  width: 100%; height: 8px; appearance: none; -webkit-appearance: none;
+  border: 0; border-radius: 4px; background: var(--border); overflow: hidden;
+}
+.telem-gauge-track::-webkit-progress-bar { background: var(--border); border-radius: 4px; }
+.telem-gauge-track::-webkit-progress-value { background: var(--accent); border-radius: 4px; }
+.telem-gauge-track::-moz-progress-bar { background: var(--accent); border-radius: 4px; }
+.telem-gauge-none { grid-column: 2 / 3; font-size: 10px; color: var(--muted); }
+.telem-gauge-value { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.telem-head-passes { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+.telem-passes { display: flex; flex-direction: column; gap: 3px; }
+.telem-pass {
+  display: grid; grid-template-columns: 74px 1fr 38px 56px; gap: 6px;
+  font-size: 10px; font-variant-numeric: tabular-nums; color: var(--muted);
+}
+.telem-pass-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.telem-pass-time { text-align: right; }
+.telem-pass-status { text-align: center; border-radius: 8px; border: 1px solid var(--border); }
+.status-ok { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.status-partial { color: var(--highlight); border-color: rgba(253, 197, 2, .45); }
+.status-skipped, .status-dry-run { color: var(--muted); }
+.telem-empty { margin: 0; font-size: 10px; color: var(--muted); }
+.telem-refresh {
+  align-self: flex-start; font: inherit; font-size: 11px; padding: 5px 10px;
+  border-radius: 8px; border: 1px solid var(--border); background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.telem-refresh:hover { color: var(--text); border-color: var(--accent); }

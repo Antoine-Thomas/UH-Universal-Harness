@@ -60,6 +60,7 @@ even when the failing input was one.
 | POST | `/api/dreams/daemon/{action}` | `start` \| `stop` | starts the idle daemon (only on an explicit click) or ends it after the current pass |
 | GET | `/api/system/ollama` | — | `{installed, running, models, boost: active\|available\|unavailable, reason, optional: true, url, savings: {local_passes, passes_logged, tokens_saved_estimate, basis}}` — always `200` |
 | GET | `/api/system/capabilities` | — | `{tier, ram_gb, cpu_cores, gpu, os, arch, recommended_model, recommended_budget, local_possible, sentence}` |
+| GET | `/api/telemetry` | — | `{generated_at, window_days, usage, system, dreams}` — `usage`: `{days: [{date, local, cloud, turns, estimated}], totals (same keys), outside_window, undated, turns_without_usage, cost: {value: null, reason}}`; `estimated` counts turns recorded before decisions carried an `at`, placed on their session's date; `system`: `{cpu_percent, cores, ram, vram, gpu, platform}` where each probe may be `null`; `dreams`: `{passes, lines, diagnostics}` read from `dreams/schedule.log` |
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
 | GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds], pulling: [names]}` |
@@ -118,6 +119,7 @@ attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  input  keys-priority  keys-view
 memory-panel  memory-view  models-view
+tab-telemetry  telemetry-panel  telemetry-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
 providers-open  providers-panel  providers-view  router-settings  search

@@ -800,6 +800,21 @@ def create_app(
         found = hardware.profile()
         return {**found.as_dict(), "sentence": found.sentence()}
 
+    @app.get("/api/telemetry", dependencies=[Depends(require_token)])
+    async def telemetry() -> dict:
+        """What was spent, and what the machine is doing right now.
+
+        Read-only. Tokens come from the decisions already recorded on the
+        sessions, passes from ``dreams/schedule.log``, and CPU/RAM/VRAM from the
+        OS - the whole reading runs in a thread because two kernel samples 120 ms
+        apart inside the event loop would stall every other request.
+        """
+        from .. import telemetry as uh_telemetry
+
+        with _store(app) as store:
+            sessions = store.list_sessions(limit=1000)
+        return await asyncio.to_thread(uh_telemetry.snapshot, sessions)
+
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])
     async def search(q: str, limit: int = 20) -> dict:

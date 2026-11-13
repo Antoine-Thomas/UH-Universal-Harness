@@ -226,6 +226,26 @@ def test_the_splash_is_static_markup_and_the_script_ends_it() -> None:
 
 
 @KEEP
+def test_the_telemetry_tab_reads_the_route_without_a_chart_library() -> None:
+    """The chart is SVG built from the payload.
+
+    The CSP is 'self', so a CDN script would be blocked, and a vendored charting
+    library is a dependency UH does not need to place seven rectangles.
+    """
+    script = APP.read_text(encoding="utf-8")
+    page = INDEX.read_text(encoding="utf-8")
+
+    assert 'id="tab-telemetry"' in page
+    assert 'id="telemetry-panel"' in page
+    assert 'id="telemetry-view"' in page
+    assert "/api/telemetry" in script
+    assert "createElementNS" in script, "the chart is built as SVG"
+    assert "cdn." not in script.lower()
+    assert "startTelemetryPolling" in script
+    assert "stopTelemetryPolling" in script, "a hidden panel must not keep polling"
+
+
+@KEEP
 def test_the_shell_reads_as_a_window_and_a_phone_gets_none() -> None:
     css = CSS.read_text(encoding="utf-8")
     layout = css.split(".layout {", 1)[1].split("}", 1)[0]
