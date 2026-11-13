@@ -292,7 +292,19 @@ def create_app(
         with _store(app) as store:
             deleted = store.delete_session(session["id"])
         app.state.session_models.pop(session["id"], None)
-        return {"deleted": deleted, "id": session["id"]}
+        # The messages cascade in SQLite; the files on disk do not. A deleted
+        # conversation must not leave its uploads behind.
+        files_removed = 0
+        folder = attachments.session_dir(session["id"])
+        if folder.is_dir():
+            import shutil
+
+            try:
+                files_removed = sum(1 for item in folder.iterdir() if item.is_file())
+                shutil.rmtree(folder)
+            except OSError:
+                files_removed = 0
+        return {"deleted": deleted, "id": session["id"], "files_removed": files_removed}
 
     @app.patch("/api/sessions/{session_id}", dependencies=[Depends(require_token)])
     async def update_session(session_id: str, payload: dict) -> dict:

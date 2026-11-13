@@ -753,3 +753,34 @@ def test_chat_refuses_an_attachment_from_another_folder(
             assert "not an attachment" in answer.json()["detail"]
 
     run(scenario())
+
+
+def test_deleting_a_session_removes_its_uploads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh import attachments
+
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+            uploaded = (
+                await http.post(
+                    f"/api/sessions/{session_id}/upload?name=a.txt",
+                    content=b"bonjour",
+                    headers={**AUTH, "Content-Type": "application/octet-stream"},
+                )
+            ).json()["attachment"]
+            path = Path(uploaded["path"])
+            assert path.is_file()
+
+            answer = (await http.delete(f"/api/sessions/{session_id}", headers=AUTH)).json()
+
+            assert answer["deleted"] is True
+            assert answer["files_removed"] == 1
+            assert not path.exists(), "a deleted conversation must not leave its files"
+            assert not attachments.session_dir(session_id).exists()
+
+    run(scenario())

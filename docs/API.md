@@ -31,7 +31,7 @@ even when the failing input was one.
 | GET | `/api/commands` | — | `{commands: [{name, aliases, help, args, group}]}` |
 | GET | `/api/sessions` | `?limit=` | `{sessions: [{…, short_id}]}` |
 | POST | `/api/sessions` | `{title?}` | `{session: {…, short_id}}` |
-| DELETE | `/api/sessions/{session_id}` | — | `{deleted: bool, id}` · `404` |
+| DELETE | `/api/sessions/{session_id}` | — | `{deleted, id, files_removed}` — messages cascade, uploads are removed from disk · `404` |
 | PATCH | `/api/sessions/{session_id}` | `{title}` and/or `{folder}` | `{id, title, folder, session}` · `400` empty body · `404` |
 | GET | `/api/folders` | — | `{folders: [{name, count}]}` — folders are metadata values, so a folder with no session does not exist |
 | PATCH | `/api/folders/{name}` | `{name}` | `{name, previous, moved}` · `400` empty/unchanged/contains `/` · `404` unknown folder |
