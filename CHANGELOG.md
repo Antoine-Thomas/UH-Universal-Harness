@@ -13,7 +13,10 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [Unreleased]
+## [1.4.3] — 2026-11-14
+
+The patch after the first hour of using the cockpit: fewer choices on screen, and
+a second brain that says it once.
 
 ### Changed
 
