@@ -287,3 +287,68 @@ def test_the_budget_is_respected_for_any_length(turns: int) -> None:
 def test_sys_modules_is_not_polluted_by_the_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Guard: the fake pypdf of another module must not leak into this one."""
     assert "pypdf" not in sys.modules or types.ModuleType is not None
+
+
+def test_the_summary_is_reused_until_the_middle_grows_by_four_exchanges() -> None:
+    """15 turns must not cost 8 summaries: that was the bug, this is the guard."""
+    calls: list[int] = []
+
+    def summariser(messages):
+        calls.append(len(messages))
+        return f"[resume {len(calls)}]"
+
+    manager = context.ContextManager(budget_tokens=1200, summarizer=summariser)
+    messages = [message("system", "rules")]
+    for turn in range(15):
+        messages.append(message("user", f"question {turn} " + "contexte " * 60))
+        messages.append(message("assistant", "ok " + "reponse " * 20))
+        prepared = manager.prepare(messages)
+        assert context.estimate_messages(prepared) <= 1200
+
+    assert 1 <= len(calls) <= 3, f"expected at most 3 summaries for 15 turns, got {len(calls)}"
+
+
+def test_a_single_new_message_does_not_buy_a_new_summary() -> None:
+    calls: list[int] = []
+
+    def summariser(messages):
+        calls.append(len(messages))
+        return "[resume]"
+
+    manager = context.ContextManager(budget_tokens=1200, summarizer=summariser)
+    messages = conversation(20)
+    manager.prepare(messages)
+    first = len(calls)
+
+    messages = messages + [message("user", "une question de plus"), message("assistant", "ok")]
+    manager.prepare(messages)
+
+    assert len(calls) == first, "one exchange later, the summary is still good"
+
+
+def test_a_reused_summary_says_what_it_covers() -> None:
+    manager = context.ContextManager(budget_tokens=1200, summarizer=lambda m: "[resume]")
+    messages = conversation(20)
+    manager.prepare(messages)
+
+    messages = messages + [message("user", "encore une"), message("assistant", "ok")]
+    prepared = manager.prepare(messages)
+
+    summaries = [item["content"] for item in prepared if item["role"] == "system"]
+    assert any("earlier exchanges summarised" in str(text) for text in summaries)
+
+
+def test_a_huge_jump_does_trigger_a_new_summary() -> None:
+    calls: list[int] = []
+
+    def summariser(messages):
+        calls.append(len(messages))
+        return "[resume]"
+
+    manager = context.ContextManager(budget_tokens=1200, summarizer=summariser)
+    manager.prepare(conversation(20))
+    before = len(calls)
+
+    manager.prepare(conversation(40))
+
+    assert len(calls) > before, "a much longer middle gets a fresh summary"

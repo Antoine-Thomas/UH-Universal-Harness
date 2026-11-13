@@ -54,6 +54,18 @@ CHARS_PER_TOKEN = 4
 #: The marker a truncated tool result carries, so the model knows it was cut.
 TRUNCATION = "…[{omitted} characters omitted]"
 
+#: A summary is reused until the middle grows past one of these. Re-summarising
+#: every turn spends a model call to cover one more exchange - measured at 8
+#: summaries for 15 turns. Growth is counted in **exchanges** (user messages), the
+#: unit a person means by "4 messages": one exchange is two rows in the payload,
+#: so four rows would re-summarise every second turn and change nothing.
+#:
+#: The character arm is 4 x 2 KB rather than 2 KB for the same reason: with the
+#: 500-character messages used in the measurement, a 2 KB arm fires every 1.3
+#: turns and simply takes over from the exchange arm.
+SUMMARY_MIN_TURNS = 4
+SUMMARY_MIN_CHARS = 8192
+
 Summarizer = Callable[[List[dict]], str]
 
 
@@ -296,6 +308,8 @@ class ContextManager:
         self.keep_tail = max(1, int(keep_tail))
         self.tool_limit = max(0, int(tool_limit))
         self._signatures: Dict[tuple, str] = {}
+        self._last_summary = ""
+        self._last_middle: tuple = (0, 0)  # (messages, characters) the summary covers
         self.last_summary = ""
 
     # -- the public entry point -------------------------------------------- #
@@ -346,7 +360,14 @@ class ContextManager:
         return sizes
 
     def _summary(self, middle: Sequence[dict]) -> str:
-        """One summary per distinct middle, cached until the middle changes."""
+        """A summary of the dropped middle, reused until it grows meaningfully.
+
+        Two caches, on purpose: an exact signature (same middle, hit within a
+        turn) and the last summary plus its size (nearly the same middle, next
+        turn). The second one covers the gap where a single new message would
+        otherwise trigger a brand new model call, and it says so in the payload
+        rather than pretending it summarised everything.
+        """
         signature = tuple(
             (str(message.get("role")), estimate_tokens(_message_text(message)))
             for message in middle
@@ -354,6 +375,21 @@ class ContextManager:
         cached = self._signatures.get(signature)
         if cached is not None:
             return cached
+        turns = sum(1 for message in middle if message.get("role") == "user")
+        chars = sum(len(_message_text(message)) for message in middle)
+        if self._last_summary:
+            grown_turns = turns - int(self._last_middle[0])
+            grown_chars = chars - int(self._last_middle[1])
+            if grown_turns < SUMMARY_MIN_TURNS and grown_chars < SUMMARY_MIN_CHARS:
+                covered = int(self._last_middle[0])
+                reused = self._last_summary
+                if grown_turns > 0:
+                    reused = (
+                        f"{reused}\n[{covered} of {turns} earlier exchanges summarised; "
+                        "the rest are older context]"
+                    )
+                self._signatures[signature] = reused
+                return reused
         text = ""
         if self.summarizer is not None:
             try:
@@ -363,6 +399,8 @@ class ContextManager:
         if not text:
             text = condense(middle)
         self._signatures[signature] = text
+        self._last_summary = text
+        self._last_middle = (turns, chars)
         return text
 
     def _last_resort(self, systems: List[dict], rest: List[dict]) -> List[dict]:
@@ -393,6 +431,8 @@ __all__ = [
     "DEFAULT_BUDGET",
     "KEEP_TAIL",
     "NATIVE_RATIO",
+    "SUMMARY_MIN_CHARS",
+    "SUMMARY_MIN_TURNS",
     "TOOL_LIMIT",
     "TRUNCATION",
     "budget_from_config",
