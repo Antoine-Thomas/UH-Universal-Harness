@@ -196,16 +196,19 @@ def test_an_unknown_snapshot_id_is_refused(workspace: Path) -> None:
 # --------------------------------------------------------------------------- #
 # the CLI contract
 # --------------------------------------------------------------------------- #
-def test_dream_now_is_a_placeholder(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """A pass that silently does nothing would be worse than one that is not there."""
-    code = cli.main(["dream", "--now"])
+def test_dream_now_without_uhb_refuses_to_pretend(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """P4.2: --now runs a real pass, and a pass without UHB is a skip, not a no-op."""
+    monkeypatch.setattr("uh.toolsets.uhb.resolve_url", lambda: None)
+
+    code = cli.main(["dream", "--now", "--dry-run", "--no-write"])
 
     out = capsys.readouterr().out
-    assert code == 0
-    assert "planned in P4.2" in out
-    assert " --snapshot" in out, "the message says what does exist"
-    assert dream.list_snapshots() == [], "--now must not run a pass"
-    assert dream.DreamJournal().read() == [], "--now must not write to the journal"
+    assert code != 0, "a skipped pass is a failure the caller can see"
+    assert "UHB offline" in out
+    assert dream.list_snapshots() == []
+    assert not (dream.dreams_dir() / "passes").exists(), "nothing is written"
 
 
 def test_dream_snapshot_from_the_cli(workspace: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -1488,19 +1488,57 @@ def cmd_web(args: argparse.Namespace) -> int:
         uhb_spawn.stop_running()
 
 
+def _run_dream_pass(args: argparse.Namespace) -> int:
+    """`uh dream --now`: one read-only pass, with a budget that actually stops it."""
+    from .dream_pass import DreamConfig, DreamScheduler
+
+    sources = tuple(
+        name.strip() for name in (args.source or "siyuan,rag").split(",") if name.strip()
+    )
+    config = DreamConfig(
+        sources=sources or ("siyuan", "rag"),
+        budget_tokens=int(args.budget) if args.budget is not None else DreamConfig().budget_tokens,
+        write=not getattr(args, "no_write", False),
+    )
+
+    provider = None
+    model = ""
+    if not args.dry_run:
+        cfg = uh_config.load()
+        try:
+            chain, model = _build_chain(None, str(cfg.get("default_model") or "") or None,
+                                        preferred=str(cfg.get("default_provider") or "") or None)
+        except Exception as exc:  # noqa: BLE001 - a pass without a model still inventories
+            print(f"uh dream: no provider ({type(exc).__name__}: {exc}); inventory only", file=sys.stderr)
+            chain = []
+        if chain:
+            provider = chain[0][1]
+
+    engine = DreamScheduler(config=config, provider=provider)
+    report = engine.run_once(dry_run=bool(args.dry_run))
+
+    if getattr(args, "no_write", False) or args.dry_run:
+        print(report.render())
+    else:
+        print(f"uh dream: {report.status} - {len(report.ideas)} idea(s), "
+              f"{report.tokens.get('total', 0)} tokens, {report.wall_time_s:.0f}s")
+        for path in report.artifacts:
+            print(f"  {path}")
+        if report.reason:
+            print(f"  {report.reason}")
+        if not report.artifacts:
+            print("  (nothing written: the pass had no output folder)")
+    if report.status == "skipped":
+        return EXIT_FAILURE
+    return EXIT_OK
+
+
 def cmd_dream(args: argparse.Namespace) -> int:
     """`uh dream`: snapshots and the journal. The pass itself lands in P4.2."""
     from . import dream as dream_mod
 
-    only_now = args.now and not (
-        args.snapshot is not None or args.rollback or args.journal or args.list_snapshots
-    )
-    if only_now:
-        # A placeholder that says so: a pass that silently does nothing would be
-        # worse than one that does not exist yet.
-        print("uh dream: the scheduler is planned in P4.2 - nothing runs on its own yet.")
-        print("  available now: --snapshot, --rollback, --journal, --list-snapshots")
-        return EXIT_OK
+    if args.now:
+        return _run_dream_pass(args)
 
     if args.list_snapshots:
         found = dream_mod.list_snapshots()
@@ -2045,7 +2083,13 @@ def build_parser() -> argparse.ArgumentParser:
     dream_cmd.add_argument("--journal", action="store_true", help="print the journal of a day")
     dream_cmd.add_argument("--date", default=None, metavar="YYYY-MM-DD", help="day for --journal")
     dream_cmd.add_argument("--list-snapshots", action="store_true", help="list available snapshots")
-    dream_cmd.add_argument("--now", action="store_true", help="run a pass (planned in P4.2)")
+    dream_cmd.add_argument("--now", action="store_true", help="run one pass (read-only on the sources)")
+    dream_cmd.add_argument("--dry-run", action="store_true", help="inventory only: no model call, nothing written")
+    dream_cmd.add_argument("--budget", type=int, default=None, metavar="TOKENS", help="token budget for this pass")
+    dream_cmd.add_argument(
+        "--source", default=None, metavar="siyuan,rag", help="sources to read (default siyuan,rag)"
+    )
+    dream_cmd.add_argument("--no-write", action="store_true", help="print the report, write nothing")
     dream_cmd.add_argument("--yes", action="store_true", help="do not ask for confirmation")
 
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
