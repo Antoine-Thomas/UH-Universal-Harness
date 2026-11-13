@@ -289,6 +289,10 @@ Two consequences for the plan:
 
 ## 6. P6 - Cockpit UI/UX and visual telemetry (opened 2026-11-13)
 
+**State: closed on 2026-11-13, shipped in 1.3.0.** Every item below is delivered
+or explicitly declined with a measurement; the dockable consoles carry a written
+list of what a real layout engine would still add.
+
 The backend is done enough to be looked at: the question is now what the operator
 sees while it runs. Items are listed with their state, not their ambition.
 
@@ -470,6 +474,11 @@ cloud, and `pytest -q` stays green.
 
 
 ## 9. P9 - Distribution and branding (opened 2026-11-13)
+
+**State: in progress.** The metadata work is delivered in the repository; it only
+becomes visible on the indexes with a release, and 1.3.0 is that release. The shop
+page, the clean-venv wheel install and the collision hunt on the other ecosystems
+are what remains.
 
 A name that collides is a bug in the packaging. Measured on 2026-11-13: PyPI
 carries **`universal-harness`** (author "AI King", AGPL-3.0, Beta) while this

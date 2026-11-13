@@ -13,6 +13,95 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.3.0] — 2026-11-13
+
+The cockpit release. UH stops being a chat with panels: it has a window, a splash,
+consoles that leave the column, live telemetry, a backup you can hold in your hand,
+knobs for the model, and a dream daemon that works when the machine is idle.
+
+### Added
+
+- **Dream daemon** (`uh dream daemon`) — a pass runs when the machine is *idle*,
+  not when a clock says so: low priority, its own budget that actually stops it,
+  XML scheduling with wake and battery conditions, a journal and snapshots. A stop
+  is honoured at the next tick and the UI says so instead of pretending.
+- **Three actions on a dream** — erase, store, or make a plan (`/api/dreams/{id}/
+  fulfill`), and the pass report exports to the Desktop.
+- **Splash screen** — the mark and the wordmark are static markup in the first
+  paint, the pulse stops under `prefers-reduced-motion`, and a 4 s fallback
+  removes the splash if boot hangs. Not clickable: a splash you can dismiss is a
+  splash that hid a failure.
+- **A window, not a tab** — 12 px gutter, 14 px radius, border, shadow, translucent
+  panel surface; full-bleed below 768 px.
+- **Telemetry** (`uh/telemetry.py`, `GET /api/telemetry`) — tokens per day split
+  local/cloud from the decisions already recorded on the sessions, dream passes
+  from `schedule.log`, CPU/RAM/VRAM sampled at request time. The cost is `null`
+  with a reason, because UH has no price table and will not invent euros.
+- **Dockable consoles** — any configuration view (API keys, Providers, Models,
+  Second brain, Memory, Decision, Telemetry, Data) leaves the tab strip and becomes
+  its own window: dragged, resized, magnetic to the edges, raised on click, the view
+  **moved rather than re-rendered** so listeners and scroll travel with it. The
+  layout is remembered in `localStorage`; ⧉ detaches, ⟲ re-docks everything.
+- **Memory graph** (`GET /api/memory/graph`) — seven sources, six links, and a
+  hard distinction between "has content", "exists but empty" and "not readable".
+  Two of six links are real; the others say why ("pas d'outil", "sans route",
+  "via UHB"). Drawn in SVG, not Mermaid (see Notes).
+- **Conversation settings** (`uh/llm_params.py`, `GET /api/llm/settings`) —
+  temperature, top_p, max_tokens, frequency/presence penalties, reasoning effort
+  and the `web_search` tool switch, drawn from one table so a slider cannot
+  promise a range the backend would refuse. Nothing is sent while the master
+  switch is off; values are clamped and stored on the session; the panel prints
+  what the provider will ignore.
+- **Skills attached to a turn** — `POST /chat` takes `skill: <name>`; the
+  instructions ride on the system message, never as a stored user message, and an
+  unknown name is a 400 before the provider is called.
+- **Data hub** — `GET /api/backup/export` writes a zip of the home (`keys.json`
+  excluded, WAL checkpointed), `POST /api/backup/import` restores through a
+  staging directory, `GET /api/backup/download/…` hands the file over,
+  `GET/POST /api/skills` lists and creates the `.md` skills, `/api/tools/status`
+  reports UHB, Ollama and MCP.
+- **`uh uninstall`** — refuses to delete the home without a backup, `--purge`
+  requires `--yes`, and `--to` chooses where the archive lands.
+- **Branding for distribution** — the package description and keywords now say
+  what this is (`agent-harness`, `local-first`, `openai-compatible`, `tool-use`,
+  `desktop-agent`, `sqlite`, `mit`), the README carries a "Name disambiguation"
+  section, and the GitHub description and topics were rewritten to match.
+
+### Changed
+
+- `PATCH /api/sessions/{id}` now accepts `settings`, so a conversation remembers
+  the parameters it was written with.
+- The `open` frame of the chat stream carries `skill` and `settings`: the client
+  can show what a turn is actually using.
+- A provider that does not implement `set_params` keeps working (the call is
+  guarded): the parameters are an offer, not a requirement.
+
+### Fixed
+
+- **The dreams panel was dead** — `dreams.js` is a classic script and called
+  `el()`/`api()` from the ES module, so the panel threw `ReferenceError` inside a
+  swallowed `catch` and never mounted. The helpers are now local to the file.
+  Three more bugs were behind it: a double `POST /fulfill`, a missing listener on
+  the daemon switch, and a label synchronised in one direction only.
+- **A lying node in the memory graph** — `memory_file()` returns the *default*
+  section names when `MEMORY.md` is missing, so the node read "3 sections" next to
+  a file that did not exist. Nodes carry `state` and a null count now.
+- The layout test that sliced `app.js` up to the boot banner broke as soon as a
+  section was inserted before it; it now stops at the next section marker.
+
+### Notes
+
+- **No Mermaid**: it renders through inline `<style>` elements, which
+  `style-src 'self'` blocks, and it weighs ~1 MB for seven boxes. The graph is
+  drawn by hand in SVG.
+- **No Dockview**: measured on 2026-11-13 — `dockview-core` 8.9.0 ships 402 KB
+  minified and builds `<style>` elements into `document.head` at load
+  (`dockview.esm.mjs:490`), which this CSP drops. The pane layer moves DOM nodes
+  instead.
+- **Metadata renders at build time**: PyPI and piwheels show the README and the
+  summary *as they were when the archive was built*, which is why the disambiguation
+  only becomes visible on the index with this release.
+
 ## [1.2.0] — 2026-11-13
 
 The cockpit stops being a shell around a chat. It now shows what UH remembers,
