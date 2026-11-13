@@ -61,6 +61,13 @@ even when the failing input was one.
 | GET | `/api/system/ollama` | — | `{installed, running, models, boost: active\|available\|unavailable, reason, optional: true, url, savings: {local_passes, passes_logged, tokens_saved_estimate, basis}}` — always `200` |
 | GET | `/api/system/capabilities` | — | `{tier, ram_gb, cpu_cores, gpu, os, arch, recommended_model, recommended_budget, local_possible, sentence}` |
 | GET | `/api/telemetry` | — | `{generated_at, window_days, usage, system, dreams}` — `usage`: `{days: [{date, local, cloud, turns, estimated}], totals (same keys), outside_window, undated, turns_without_usage, cost: {value: null, reason}}`; `estimated` counts turns recorded before decisions carried an `at`, placed on their session's date; `system`: `{cpu_percent, cores, ram, vram, gpu, platform}` where each probe may be `null`; `dreams`: `{passes, lines, diagnostics}` read from `dreams/schedule.log` |
+| GET | `/api/backup` | — | `{backups: [{name, bytes, modified}], dir}` — newest first |
+| POST | `/api/backup/export` | — | writes `$UH_HOME/backups/uh_backup_YYYYMMDD_HHMMSS.zip`, returns `{path, name, bytes, files, includes, excludes, wal_checkpoint, created_at}`; `keys.json` is never included |
+| GET | `/api/backup/download/{name}` | — | the archive as `application/zip`; `404` for any name outside `$UH_HOME/backups/` |
+| POST | `/api/backup/import` | raw body: the zip | restores after snapshotting the current home, returns `{restored, skipped, safety, files, was, restart_required}`; `400` when the archive holds no UH data or a member escapes the home, `413` above 256 MB |
+| GET | `/api/skills` | — | `{skills: [{name, title, description, origin, native, path, bytes, modified}], user, native, user_dir, native_dir, native_available}` |
+| POST | `/api/skills` | `{title, description, instructions, name?}` | writes `$UH_HOME/skills/<name>.md`, returns `{name, path, bytes, title, description}`; `400` for a missing title/instructions, a name that could escape the folder, or an existing file |
+| GET | `/api/tools/status` | — | `{toolsets: {name: [tools]}, ollama, uhb: {connected, reason}, mcp: {supported: false, reason}, terminal, workspace}` |
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
 | GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds], pulling: [names]}` |
@@ -118,6 +125,7 @@ contract of the bundled one:
 attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  input  keys-priority  keys-view
+data-open  data-panel  data-view  tab-data
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
 layout  menu-toggle  messages  model-select  new-folder  new-session  palette

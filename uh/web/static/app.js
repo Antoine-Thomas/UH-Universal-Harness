@@ -2064,6 +2064,7 @@ function showPanelTab(name) {
     ["memory", "memory-view"],
     ["decision", "decision-view"],
     ["telemetry", "telemetry-view"],
+    ["data", "data-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -2080,6 +2081,7 @@ function showPanelTab(name) {
   } else {
     stopTelemetryPolling();
   }
+  if (name === "data") loadData().catch(() => {});
 }
 
 function openProviders() {
@@ -2117,6 +2119,13 @@ function wireProviders() {
   $("tab-memory").addEventListener("click", () => showPanelTab("memory"));
   $("tab-decision").addEventListener("click", () => showPanelTab("decision"));
   $("tab-telemetry").addEventListener("click", () => showPanelTab("telemetry"));
+  $("tab-data").addEventListener("click", () => showPanelTab("data"));
+  // One button in the topbar, next to the Dreams one: the data panel is a place,
+  // not a tab you have to know about.
+  $("data-open").addEventListener("click", () => {
+    openProviders();
+    showPanelTab("data");
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && providersAreOpen()) closeProviders();
   });
@@ -2403,6 +2412,326 @@ function startTelemetryPolling() {
 function stopTelemetryPolling() {
   if (telemTimer) window.clearInterval(telemTimer);
   telemTimer = null;
+}
+
+// --- data (P8): one archive, your skills, what is actually connected --------- //
+// The promise behind this panel: UH keeps its state in files it can hand back.
+// Nothing here relies on localStorage or on a cookie - the browser asks, the
+// server writes a zip under $UH_HOME/backups, and the file is yours.
+function humanBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(1)} GB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} kB`;
+  return `${value} B`;
+}
+
+function dataSection(title, hint) {
+  const section = el("section", "data-section");
+  const head = el("div", "data-head");
+  head.appendChild(el("span", null, title));
+  if (hint) head.appendChild(el("span", "data-hint", hint));
+  section.appendChild(head);
+  return section;
+}
+
+function dataStatus(section) {
+  const status = el("p", "data-status");
+  section.appendChild(status);
+  return status;
+}
+
+async function backupSection() {
+  const section = dataSection("Sauvegarde", "un fichier, toute ta vie UH");
+  const actions = el("div", "data-actions");
+  const exportButton = el("button", "data-button primary", "⬇ Exporter");
+  exportButton.type = "button";
+  const importButton = el("button", "data-button", "⬆ Importer");
+  importButton.type = "button";
+  const file = document.createElement("input");
+  file.type = "file";
+  file.accept = ".zip,application/zip";
+  file.hidden = true;
+  actions.appendChild(exportButton);
+  actions.appendChild(importButton);
+  actions.appendChild(file);
+  section.appendChild(actions);
+  const status = dataStatus(section);
+  const list = el("div", "data-list");
+  section.appendChild(list);
+
+  const refresh = async () => {
+    list.textContent = "";
+    try {
+      const data = await api("/api/backup");
+      if (!data.backups.length) {
+        list.appendChild(el("p", "data-empty", `Aucune archive pour l'instant. Elles s'écrivent dans ${data.dir}`));
+        return;
+      }
+      data.backups.slice(0, 6).forEach((backup) => {
+        const row = el("div", "backup-row");
+        const link = el("a", "backup-name", backup.name);
+        link.href = `/api/backup/download/${encodeURIComponent(backup.name)}`;
+        link.download = backup.name;
+        row.appendChild(link);
+        row.appendChild(el("span", "backup-meta", `${humanBytes(backup.bytes)} · ${backup.modified.slice(0, 16).replace("T", " ")}`));
+        list.appendChild(row);
+      });
+    } catch (error) {
+      list.appendChild(el("p", "data-empty", `archives illisibles : ${error.message}`));
+    }
+  };
+
+  exportButton.addEventListener("click", async () => {
+    exportButton.disabled = true;
+    status.textContent = "écriture de l'archive…";
+    try {
+      const result = await api("/api/backup/export", { method: "POST" });
+      const excluded = result.excludes || [];
+      status.textContent = `${result.name} · ${humanBytes(result.bytes)} · ${result.files} fichier(s)${
+        result.wal_checkpoint ? "" : " · base occupée : les derniers tours peuvent manquer"
+      }`;
+      // One security-relevant exclusion is worth naming; the rest is a tooltip,
+      // because eleven file names in a 340 px column is noise.
+      status.title = `jamais inclus : ${excluded.join(", ")}`;
+      const important = excluded.filter((name) => name === "keys.json" || name === "backups");
+      if (important.length) {
+        status.textContent += ` · jamais inclus : ${important.join(", ")}${
+          excluded.length > important.length ? ` (+${excluded.length - important.length})` : ""
+        }`;
+      }
+      // The archive exists on disk; the link hands the same bytes to the browser.
+      const link = document.createElement("a");
+      link.href = `/api/backup/download/${encodeURIComponent(result.name)}`;
+      link.download = result.name;
+      link.click();
+      await refresh();
+    } catch (error) {
+      status.textContent = `export impossible : ${error.message}`;
+    } finally {
+      exportButton.disabled = false;
+    }
+  });
+
+  importButton.addEventListener("click", () => file.click());
+  file.addEventListener("change", async () => {
+    const chosen = file.files && file.files[0];
+    file.value = "";
+    if (!chosen) return;
+    if (
+      !window.confirm(
+        `Restaurer ${chosen.name} ?\n\nL'état actuel est d'abord sauvegardé dans $UH_HOME/backups/ : rien n'est perdu.`
+      )
+    ) {
+      return;
+    }
+    status.textContent = "restauration…";
+    try {
+      const body = await chosen.arrayBuffer();
+      const result = await api("/api/backup/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/zip" },
+        body,
+      });
+      status.textContent = `${result.restored} fichier(s) restaurés · copie de sécurité : ${result.safety} · les fichiers absents de l'archive n'ont pas été touchés · redémarre UH pour recharger la base`;
+      await refresh();
+    } catch (error) {
+      status.textContent = `import refusé : ${error.message}`;
+    }
+  });
+
+  await refresh();
+  return section;
+}
+
+async function skillsSection() {
+  const section = dataSection("Skills", "des .md que tu ouvres dans ton éditeur");
+  const actions = el("div", "data-actions");
+  const create = el("button", "data-button", "+ Nouveau skill");
+  create.type = "button";
+  create.addEventListener("click", () => openSkillModal());
+  actions.appendChild(create);
+  section.appendChild(actions);
+  const list = el("div", "data-list");
+  section.appendChild(list);
+  try {
+    const data = await api("/api/skills");
+    if (!data.skills.length) {
+      list.appendChild(el("p", "data-empty", `Aucun skill encore. Les tiens s'écrivent dans ${data.user_dir}`));
+    }
+    data.skills.forEach((skill) => {
+      const row = el("div", "skill-row");
+      const head = el("div", "skill-head");
+      head.appendChild(el("span", "skill-title", skill.title));
+      head.appendChild(el("span", `badge ${skill.native ? "hl" : ""}`, skill.native ? "Natif" : "Utilisateur"));
+      row.appendChild(head);
+      if (skill.description) row.appendChild(el("p", "skill-desc", skill.description));
+      row.appendChild(el("p", "skill-path", skill.path));
+      list.appendChild(row);
+    });
+    if (!data.native_available) {
+      // Honest empty state: a "Natif" badge nobody can see would be decoration.
+      section.appendChild(
+        el(
+          "p",
+          "data-note",
+          "Aucun skill natif livré pour l'instant : UH n'en embarque pas encore, la liste se remplit des tiens."
+        )
+      );
+    }
+  } catch (error) {
+    list.appendChild(el("p", "data-empty", `skills illisibles : ${error.message}`));
+  }
+  return section;
+}
+
+async function toolsSection() {
+  const section = dataSection("Outils", "ce qui est réellement connecté");
+  const list = el("div", "data-list");
+  section.appendChild(list);
+  const rows = [];
+  try {
+    const data = await api("/api/tools/status");
+    const uhb = data.uhb || {};
+    rows.push([
+      "UHB · second cerveau",
+      uhb.connected ? "ok" : "off",
+      uhb.connected
+        ? [uhb.version ? `v${uhb.version}` : "", uhb.mode ? `mode ${uhb.mode}` : ""].filter(Boolean).join(" · ")
+        : uhb.reason || "non connecté",
+    ]);
+    const ollama = data.ollama || {};
+    rows.push([
+      "Ollama",
+      ollama.boost === "active" ? "ok" : ollama.boost === "available" ? "warn" : "off",
+      ollama.reason || (ollama.models || []).slice(0, 3).join(", ") || "indisponible",
+    ]);
+    Object.entries(data.toolsets || {}).forEach(([name, tools]) => {
+      rows.push([`toolset · ${name}`, "ok", `${(tools || []).length} outil(s)`]);
+    });
+    rows.push([
+      "terminal · shell",
+      data.terminal ? "warn" : "off",
+      data.terminal ? "activé : le modèle peut lancer des commandes" : "désactivé (--allow-terminal)",
+    ]);
+    rows.push([
+      "MCP",
+      data.mcp && data.mcp.supported ? "ok" : "off",
+      (data.mcp && data.mcp.reason) || "non pris en charge",
+    ]);
+  } catch (error) {
+    list.appendChild(el("p", "data-empty", `état des outils indisponible : ${error.message}`));
+    return section;
+  }
+  rows.forEach(([label, state, detail]) => {
+    const row = el("div", "tool-row");
+    row.appendChild(el("span", `dot dot-${state}`));
+    row.appendChild(el("span", "tool-name", label));
+    row.appendChild(el("span", "tool-detail", detail));
+    list.appendChild(row);
+  });
+  section.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Un voyant dit seulement ce qui a répondu. MCP est absent parce qu'UH n'a pas encore de client MCP, pas parce qu'il est en panne."
+    )
+  );
+  return section;
+}
+
+function openSkillModal() {
+  const backdrop = el("div", "modal-backdrop");
+  const modal = el("div", "modal");
+  const form = el("form", "modal-form");
+  form.appendChild(el("p", "modal-title", "Nouveau skill"));
+
+  const title = document.createElement("input");
+  title.className = "modal-input";
+  title.placeholder = "Titre — ce que le skill fait";
+  title.maxLength = 120;
+  const description = document.createElement("input");
+  description.className = "modal-input";
+  description.placeholder = "Description (une ligne)";
+  description.maxLength = 240;
+  const instructions = document.createElement("textarea");
+  instructions.className = "modal-area";
+  instructions.rows = 8;
+  instructions.placeholder = "Instructions — en prose, comme à un collègue";
+  const error = el("p", "modal-error");
+  const actions = el("div", "modal-actions");
+  const cancel = el("button", "data-button", "Annuler");
+  cancel.type = "button";
+  const submit = el("button", "data-button primary", "Créer");
+  submit.type = "submit";
+  actions.appendChild(cancel);
+  actions.appendChild(submit);
+
+  [title, description, instructions, error, actions].forEach((node) => form.appendChild(node));
+  modal.appendChild(form);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  cancel.addEventListener("click", close);
+  // The document-level click-outside handler closes the right panel on narrow
+  // screens; a click inside a modal is not a click outside it.
+  modal.addEventListener("click", (event) => event.stopPropagation());
+  backdrop.addEventListener("click", close);
+  document.addEventListener(
+    "keydown",
+    function escape(event) {
+      if (event.key === "Escape") {
+        close();
+        document.removeEventListener("keydown", escape);
+      }
+    },
+    { once: true }
+  );
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    error.textContent = "";
+    try {
+      const created = await api("/api/skills", {
+        method: "POST",
+        body: JSON.stringify({
+          title: title.value,
+          description: description.value,
+          instructions: instructions.value,
+        }),
+      });
+      close();
+      await loadData();
+      const status = document.querySelector("#data-panel .data-status");
+      if (status) status.textContent = `skill écrit : ${created.path}`;
+    } catch (err) {
+      error.textContent = err.message;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  title.focus();
+}
+
+async function loadData() {
+  const box = $("data-panel");
+  box.textContent = "";
+  const view = el("div", "data");
+  // The shell first, then each section as its route answers: the slowest one
+  // (tools, which probes UHB and Ollama) must not blank a panel that already
+  // has the archive list in it.
+  box.appendChild(view);
+  for (const builder of [backupSection, skillsSection, toolsSection]) {
+    try {
+      view.appendChild(await builder());
+    } catch (error) {
+      const failed = dataSection("Erreur", null);
+      failed.appendChild(el("p", "data-empty", error.message));
+      view.appendChild(failed);
+    }
+  }
 }
 
 // -------------------------------------------------------------------- boot --

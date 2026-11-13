@@ -50,6 +50,7 @@
           <span id="gauge-label">ctx ~0 tok</span>
         </div>
         <button id="panel-toggle" class="icon-button" title="Configuration" aria-label="Configuration">⚙</button>
+        <button id="data-open" class="ghost data-open" title="Données, skills et outils">Données</button>
         <button id="stop" class="stop" disabled>Stop</button>
       </header>
 
@@ -91,6 +92,7 @@
         <button id="tab-memory" class="panel-tab" role="tab" aria-selected="false" aria-controls="memory-view">Memory</button>
         <button id="tab-decision" class="panel-tab" role="tab" aria-selected="false" aria-controls="decision-view">Decision</button>
         <button id="tab-telemetry" class="panel-tab" role="tab" aria-selected="false" aria-controls="telemetry-view">Telemetry</button>
+        <button id="tab-data" class="panel-tab" role="tab" aria-selected="false" aria-controls="data-view">Data</button>
       </nav>
       <div class="rightbar-scroll">
         <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">
@@ -114,6 +116,9 @@
         </div>
         <div id="telemetry-view" class="panel-view" role="tabpanel" aria-labelledby="tab-telemetry" hidden>
           <div id="telemetry-panel" class="telemetry-panel"></div>
+        </div>
+        <div id="data-view" class="panel-view" role="tabpanel" aria-labelledby="tab-data" hidden>
+          <div id="data-panel" class="data-panel"></div>
         </div>
       </div>
     </aside>

@@ -61,6 +61,8 @@ PACKAGE_NAME = "uh-harness"
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_NOT_IMPLEMENTED = 2
+#: A wrong invocation: nothing ran, nothing was removed (argparse's own code).
+EXIT_USAGE = 2
 
 
 # --------------------------------------------------------------------------- #
@@ -1816,6 +1818,67 @@ def cmd_install_shortcut(_args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    """Back the data up first, then - only on an explicit demand - remove it.
+
+    The order is the whole feature: a backup that fails stops the uninstall, and
+    removing ``$UH_HOME`` needs both ``--purge`` and ``--yes``. Nothing here
+    touches pip: the program is a package, the data is a folder, and they are
+    uninstalled for different reasons.
+    """
+    from . import backup as uh_backup
+    from .shortcut import desktop_directory
+
+    default_target = desktop_directory() / "UH_Backup_Final.zip"
+    target = Path(args.to).expanduser() if getattr(args, "to", None) else default_target
+    try:
+        result = uh_backup.export(destination=target)
+    except uh_backup.BackupError as exc:
+        print(
+            f"uh uninstall: nothing was removed - the backup failed first: {exc}",
+            file=sys.stderr,
+        )
+        return EXIT_FAILURE
+
+    megabytes = result["bytes"] / (1024 * 1024)
+    if target == default_target:
+        print(f"Tes donnees ont ete sauvegardees sur ton Bureau : {result['path']}")
+    else:
+        # Never claim the Desktop when --to sent the file somewhere else.
+        print(f"Tes donnees sont sauvegardees : {result['path']}")
+    print(f"  {result['files']} fichier(s), {megabytes:.1f} MB")
+    print("  reinstalle UH plus tard et importe ce fichier depuis l'onglet Data de `uh web`.")
+    if result["excludes"]:
+        print(f"  jamais inclus : {', '.join(result['excludes'])}")
+    if not result["wal_checkpoint"]:
+        print(
+            "  attention : la base etait occupee (UH tourne ?), les derniers tours peuvent manquer.",
+            file=sys.stderr,
+        )
+
+    if not getattr(args, "purge", False):
+        print("Aucune donnee n'a ete supprimee. Pour retirer UH :")
+        print("  pip uninstall uh-harness          (le programme seul)")
+        print("  uh uninstall --purge --yes        (le programme et ~/.uh)")
+        return EXIT_OK
+    if not getattr(args, "yes", False):
+        print(
+            "uh uninstall: --purge supprime ~/.uh et exige --yes. Rien n'a ete supprime.",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    home = uh_config.uh_home()
+    try:
+        shutil.rmtree(home)
+    except OSError as exc:
+        print(f"uh uninstall: cannot remove {home}: {exc}", file=sys.stderr)
+        print(f"  the backup stays valid: {result['path']}", file=sys.stderr)
+        return EXIT_FAILURE
+    print(f"  ~/.uh supprime : {home}")
+    print("  la sauvegarde reste sur le Bureau ; `pip uninstall uh-harness` retire le programme.")
+    return EXIT_OK
+
+
 # --------------------------------------------------------------------------- #
 # uh sessions
 # --------------------------------------------------------------------------- #
@@ -2251,6 +2314,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="create a desktop shortcut to the web UI (Windows only)",
     )
 
+    uninstall = sub.add_parser(
+        "uninstall",
+        help="back your data up first, then say how to remove UH (never silently)",
+    )
+    uninstall.add_argument(
+        "--to",
+        default=None,
+        metavar="PATH",
+        help="where to write the archive (default: Desktop/UH_Backup_Final.zip)",
+    )
+    uninstall.add_argument(
+        "--purge",
+        action="store_true",
+        help="delete $UH_HOME once the archive is written (needs --yes)",
+    )
+    uninstall.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm the deletion: without it, --purge refuses and removes nothing",
+    )
+
     dream_cmd = sub.add_parser(
         "dream",
         help="journal and snapshots for the dream pass (P4.1: nothing runs on its own yet)",
@@ -2438,6 +2522,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_web(args)
         if args.command == "install-shortcut":
             return cmd_install_shortcut(args)
+        if args.command == "uninstall":
+            return cmd_uninstall(args)
         if args.command == "dream":
             return cmd_dream(args)
         if args.command == "sessions":

@@ -246,6 +246,30 @@ def test_the_telemetry_tab_reads_the_route_without_a_chart_library() -> None:
 
 
 @KEEP
+def test_the_data_tab_wires_backup_and_skills() -> None:
+    """A panel that promises an export must call the routes that do it."""
+    script = APP.read_text(encoding="utf-8")
+    page = INDEX.read_text(encoding="utf-8")
+
+    assert 'id="tab-data"' in page
+    assert 'id="data-panel"' in page
+    assert 'id="data-open"' in page
+    for route in (
+        "/api/backup/export",
+        "/api/backup/import",
+        "/api/backup/download/",
+        "/api/skills",
+        "/api/tools/status",
+    ):
+        assert route in script, f"the data panel must call {route}"
+    # The archive is a file on disk handed over by the server: no data: URL, no
+    # blob assembled in the browser, nothing kept in localStorage.
+    section = script.split("// --- data (P8)")[1].split("// -------------------------------------------------------------------- boot --")[0]
+    assert "localStorage." not in section and "localStorage[" not in section
+    assert "showSaveFilePicker" not in section
+
+
+@KEEP
 def test_the_shell_reads_as_a_window_and_a_phone_gets_none() -> None:
     css = CSS.read_text(encoding="utf-8")
     layout = css.split(".layout {", 1)[1].split("}", 1)[0]

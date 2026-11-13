@@ -833,3 +833,96 @@ body {
   color: var(--muted); cursor: pointer;
 }
 .telem-refresh:hover { color: var(--text); border-color: var(--accent); }
+
+/* --- data (P8): backup, skills, tools ------------------------------------- */
+/* Same reasoning as the Dreams buttons: mounted from JS, so they carry their
+   own chrome instead of inheriting a browser default. */
+.data-open {
+  margin-left: 4px; padding: 5px 10px; font-size: 11px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: 8px; background: transparent;
+  color: var(--muted); cursor: pointer; white-space: nowrap;
+}
+.data-open:hover { color: var(--text); border-color: var(--accent); }
+.data-panel { display: flex; flex-direction: column; gap: 14px; padding: 10px 14px 16px; }
+.data { display: flex; flex-direction: column; gap: 14px; }
+.data-section { display: flex; flex-direction: column; gap: 8px; }
+.data-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 12px; font-weight: 600;
+  border-bottom: 1px solid var(--border); padding-bottom: 6px;
+}
+.data-hint { font-size: 10px; font-weight: 400; color: var(--muted); }
+.data-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.data-button {
+  font: inherit; font-size: 12px; padding: 9px 14px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  cursor: pointer;
+}
+.data-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.data-button.primary {
+  background: var(--accent); border-color: var(--accent);
+  color: var(--on-accent); font-weight: 600;
+}
+.data-button.primary:hover:not(:disabled) { color: var(--on-accent); opacity: .92; }
+.data-button:disabled { opacity: .55; cursor: default; }
+.data-status { margin: 0; font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+.data-list { display: flex; flex-direction: column; gap: 6px; }
+.data-empty { margin: 0; font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+.data-note {
+  margin: 0; font-size: 10px; color: var(--muted);
+  border-left: 2px solid var(--border); padding-left: 6px;
+}
+.backup-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; font-size: 11px;
+}
+.backup-name {
+  color: var(--link); text-decoration: none; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.backup-name:hover { text-decoration: underline; }
+.backup-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.skill-row { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.skill-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.skill-title { font-size: 12px; font-weight: 600; }
+.skill-desc { margin: 3px 0 0; font-size: 11px; color: var(--muted); }
+.skill-path {
+  margin: 4px 0 0; font-family: var(--mono); font-size: 9px;
+  color: var(--muted); overflow-wrap: anywhere;
+}
+.tool-row {
+  display: grid; grid-template-columns: 10px 1fr; gap: 2px 8px;
+  align-items: center; font-size: 11px;
+}
+.tool-detail { grid-column: 2 / 3; font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-ok { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.dot-warn { background: var(--highlight); box-shadow: 0 0 6px rgba(253, 197, 2, .6); }
+.dot-off { background: var(--border); }
+
+/* The skill form: a real dialog in the page, no framework, Esc and backdrop
+   both close it, and a click inside never reaches the panel's click-outside. */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 300; padding: 20px;
+  background: rgba(0, 0, 0, .55);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  width: min(520px, 94vw); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .5);
+}
+.modal-form { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.modal-title { margin: 0; font-size: 13px; font-weight: 600; }
+.modal-input, .modal-area {
+  font: inherit; font-size: 12px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.modal-area { resize: vertical; min-height: 120px; font-family: var(--mono); font-size: 11px; }
+.modal-input:focus, .modal-area:focus { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.modal-error { margin: 0; min-height: 14px; font-size: 11px; color: var(--error); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 768px) {
+  .data-open { padding: 0 8px; }
+  .data-actions { flex-direction: column; }
+}

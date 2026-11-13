@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__, attachments
@@ -45,6 +45,9 @@ CSP = (
     "frame-ancestors 'none'"
 )
 LOOPBACK_NAMES = {"127.0.0.1", "localhost", "::1", "[::1]"}
+#: An import arrives as one body: the cap stops a wrong file from filling the
+#: disk, and the route stops reading at the boundary instead of after it.
+MAX_IMPORT_BYTES = 256 * 1024 * 1024
 
 
 # --------------------------------------------------------------------------- #
@@ -814,6 +817,134 @@ def create_app(
         with _store(app) as store:
             sessions = store.list_sessions(limit=1000)
         return await asyncio.to_thread(uh_telemetry.snapshot, sessions)
+
+    # -- data: backup, skills, tools (P8) ---------------------------------- #
+    # The browser holds no state that matters: conversations are in SQLite under
+    # $UH_HOME, and this is how they leave the machine - one archive the user can
+    # move, keep, or restore. No cloud, no account, no browser storage.
+    @app.get("/api/backup", dependencies=[Depends(require_token)])
+    async def backup_list() -> dict:
+        from .. import backup as uh_backup
+
+        return {"backups": uh_backup.list_backups(), "dir": str(uh_backup.backup_dir())}
+
+    @app.post("/api/backup/export", dependencies=[Depends(require_token)])
+    async def backup_export() -> dict:
+        """Write the archive in `$UH_HOME/backups/` and describe it."""
+        from .. import backup as uh_backup
+
+        try:
+            return await asyncio.to_thread(uh_backup.export)
+        except uh_backup.BackupError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/api/backup/download/{name}", dependencies=[Depends(require_token)])
+    async def backup_download(name: str) -> FileResponse:
+        """The browser cannot read a local path: it asks for the file by name."""
+        from .. import backup as uh_backup
+
+        path = uh_backup.resolve_backup(name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="unknown backup")
+        return FileResponse(path, media_type="application/zip", filename=path.name)
+
+    @app.post("/api/backup/import", dependencies=[Depends(require_token)])
+    async def backup_import(request: Request) -> dict:
+        """Restore an archive sent as the raw body, after snapshotting this home.
+
+        Raw body, not multipart: one file, no form parsing, and no dependency
+        (``python-multipart``) that the rest of UH does not need.
+        """
+        import tempfile
+
+        from .. import backup as uh_backup
+
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > MAX_IMPORT_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"archive larger than {MAX_IMPORT_BYTES // (1024 * 1024)} MB",
+                )
+            chunks.append(chunk)
+        if not total:
+            raise HTTPException(status_code=400, detail="send the zip as the request body")
+        with tempfile.TemporaryDirectory(prefix="uh-upload-") as staging:
+            path = Path(staging) / "upload.zip"
+            path.write_bytes(b"".join(chunks))
+            try:
+                return await asyncio.to_thread(uh_backup.import_backup, path)
+            except uh_backup.BackupError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/skills", dependencies=[Depends(require_token)])
+    async def skills_list() -> dict:
+        from .. import skills as uh_skills
+
+        return uh_skills.list_skills()
+
+    @app.post("/api/skills", dependencies=[Depends(require_token)])
+    async def skills_create(payload: dict) -> dict:
+        from .. import skills as uh_skills
+
+        body = payload or {}
+        try:
+            return uh_skills.create(
+                title=str(body.get("title") or ""),
+                description=str(body.get("description") or ""),
+                instructions=str(body.get("instructions") or ""),
+                name=(str(body["name"]) if body.get("name") else None),
+            )
+        except uh_skills.SkillError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/tools/status", dependencies=[Depends(require_token)])
+    async def tools_status() -> dict:
+        """What is connected, as far as this process can actually tell.
+
+        No invented green light: a toolset is listed because it was built, UHB is
+        connected because it answered, and MCP says plainly that there is no
+        client yet - a red dot that means "not supported" is honest, a green one
+        that means "we hope" is not.
+        """
+        from .. import ollama_spawn
+        from ..toolsets import build_toolsets
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        toolsets: dict = {}
+        try:
+            for name, toolset in build_toolsets(app.state.settings.workspace).items():
+                toolsets[name] = [
+                    spec.get("function", {}).get("name")
+                    for spec in getattr(toolset, "tools", None) or []
+                    if isinstance(spec, dict)
+                ]
+        except Exception:  # noqa: BLE001 - a broken toolset is a missing one
+            toolsets = {}
+
+        url = resolve_url()
+        if url is None:
+            uhb = {"connected": False, "reason": "UHB is disabled (UH_UHB_URL unset or not loopback)"}
+        else:
+            payload = await asyncio.to_thread(lambda: Uhbtoolset(url, timeout=1.0).status())
+            if "error" in payload:
+                uhb = {"connected": False, "reason": str(payload.get("error") or "unreachable")}
+            else:
+                uhb = {"connected": True, **payload}
+
+        return {
+            "toolsets": toolsets,
+            "ollama": await asyncio.to_thread(ollama_spawn.status),
+            "uhb": uhb,
+            "mcp": {
+                "supported": False,
+                "reason": "UH has no MCP client yet: no MCP server can be attached",
+            },
+            "terminal": app.state.settings.allow_terminal,
+            "workspace": str(app.state.settings.workspace),
+        }
 
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])

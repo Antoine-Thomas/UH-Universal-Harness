@@ -367,3 +367,52 @@ quietly, and the operator decides what happens to it.
 
 Constraint, unchanged: the daemon never writes to SiYuan, never reindexes, and
 never requires Ollama - a pass that cannot run is logged and skipped.
+
+
+## 8. P8 - Data safeguard and skills hub (opened 2026-11-13)
+
+The interface can look like an application; what makes it a product is that the
+data inside it belongs to the user and can leave. It already does: every
+conversation, note, skill and report is a file under `$UH_HOME`. The browser
+keeps two things - the column widths in `localStorage` and a session cookie - and
+losing either costs nothing. P8 makes the files visible, portable and restorable.
+
+- **Global export (ZIP)** - *delivered* (`uh/backup.py`, tab Data).
+  `POST /api/backup/export` writes `$UH_HOME/backups/uh_backup_<stamp>.zip`
+  holding `uh.db` (WAL checkpointed first, or the archive would silently miss the
+  last turns), `MEMORY.md`, `config.toml`, `dreams/`, `skills/` and `uploads/`.
+  `keys.json` is excluded by name and the manifest says why: a backup is a file
+  that travels, and a credential inside it is a leak dressed as a feature.
+  `GET /api/backup/download/<name>` hands the same bytes to the browser, because
+  a path alone is useless to it.
+- **Global import** - *delivered*. `POST /api/backup/import` takes the zip as the
+  raw body (no multipart, no new dependency), refuses a member that escapes the
+  home, snapshots the current home to `backups/uh_pre-import_<stamp>.zip` **before**
+  writing anything, and removes stale `uh.db-wal`/`-shm` before replacing the
+  store - a journal next to an incoming database replays the wrong pages. The
+  panel says "restart UH": a live process holds handles on the old file. An
+  import **restores**, it does not wipe: a file that is not in the archive is
+  left where it is, and the panel says so instead of promising a clean slate.
+- **Skills** - *delivered* (`uh/skills.py`, tab Data). One skill is one `.md`
+  file: `# Title`, `> description`, `## Instructions`. Two roots -
+  `$UH_HOME/skills` (yours, writable) and `uh/skills` (shipped, read-only) - and
+  neither ships a native skill yet, so the panel says that instead of showing a
+  badge nobody can find. `POST /api/skills` writes the template and refuses any
+  name that is not a filename, so nothing walks out of the folder.
+- **Skills that are actually used** - *not yet*. The files are listed, readable
+  and portable; the model does not load one into a turn. That is the skill
+  routing work, and pretending otherwise would be the same lie as a fake gauge.
+- **Tools view** - *delivered*. `GET /api/tools/status`: the toolsets built in
+  this process, UHB connected *or its reason*, Ollama's three states, terminal
+  on/off, and MCP `supported: false` with the reason. No green light that means
+  "we hope".
+- **Uninstall hook** - *delivered* (`uh uninstall`). The archive is written to
+  `Desktop/UH_Backup_Final.zip` first; `--purge` deletes `$UH_HOME` only with
+  `--yes`, and a failed backup stops the whole operation. The program is a
+  package and the data is a folder, and the command says both.
+- **Scheduled archive** - *to do*. A weekly copy is one thread; it waits for a
+  demand, because a backup nobody asked for is noise and the button is one click.
+
+Constraint for every item above: the archive is written by UH, read by any zip
+tool, and restored by UH alone; nothing here needs a network, an account or a
+cloud, and `pytest -q` stays green.
