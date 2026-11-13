@@ -33,6 +33,19 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(
         os.path, "expanduser", lambda value: str(root) + value[1:] if value.startswith("~") else value
     )
+
+    def fake_expanduser(self: Path) -> Path:
+        # Patching the method itself keeps the test independent of how a given
+        # pathlib implements expanduser (3.10 goes through os.path, later
+        # versions parse the parts).
+        text = str(self).replace("\\", "/")  # Path("~/x") renders as "~\x" on Windows
+        if text == "~":
+            return root
+        if text.startswith("~/"):
+            return root / text[2:]
+        return self
+
+    monkeypatch.setattr(Path, "expanduser", fake_expanduser)
     return root
 
 

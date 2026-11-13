@@ -6,6 +6,7 @@ The command moves the session and every filesystem toolset. ``memory`` stays in
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,9 @@ from uh.toolsets.file import FileToolset
 from uh.toolsets.memory import MemoryToolset
 from uh.toolsets.terminal import TerminalToolset
 
-SYSTEM_CWD = Path("C:/Windows/System32")
+# The directory must exist on the platform running the tests: /workspace
+# refuses a missing path before it can refuse a system one.
+SYSTEM_CWD = Path("C:/Windows/System32") if os.name == "nt" else Path("/usr/bin")
 
 
 def make_session(tmp_path: Path, workspace: Path) -> console.ChatSession:
