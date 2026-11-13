@@ -561,3 +561,48 @@ def test_folder_routes_refuse_what_they_cannot_represent(
             assert missing.status_code == 404
 
     run(scenario())
+
+
+def test_delete_one_message_through_the_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+            await http.post(
+                f"/api/sessions/{session_id}/chat",
+                json={"message": "bonjour"},
+                headers=AUTH,
+            )
+            messages = (
+                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
+            ).json()["messages"]
+            assert len(messages) >= 2
+            doomed = messages[-1]["id"]
+
+            answer = await http.delete(
+                f"/api/sessions/{session_id}/messages/{doomed}", headers=AUTH
+            )
+            assert answer.status_code == 200
+            body = answer.json()
+            assert body["deleted"] == doomed
+            assert body["remaining"] == len(messages) - 1
+
+            after = (
+                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
+            ).json()["messages"]
+            assert [m["id"] for m in after] == [m["id"] for m in messages[:-1]]
+
+            again = await http.delete(
+                f"/api/sessions/{session_id}/messages/{doomed}", headers=AUTH
+            )
+            assert again.status_code == 404, "deleting twice is a not-found, not a crash"
+            unknown_session = await http.delete(
+                f"/api/sessions/nope/messages/{doomed}", headers=AUTH
+            )
+            assert unknown_session.status_code == 404
+
+    run(scenario())

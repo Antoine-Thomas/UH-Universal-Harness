@@ -330,7 +330,8 @@ class Store:
         return data
 
     # -- messages ---------------------------------------------------------- #
-    def append_message(self, session_id: str, message: dict) -> None:
+    def append_message(self, session_id: str, message: dict) -> int:
+        """Store one message and return its id (needed to delete it later)."""
         if self.get_session(session_id) is None:
             raise StoreError(f"unknown session: {session_id}")
         role = str(message.get("role") or "")
@@ -345,7 +346,7 @@ class Store:
         )
         now = _now()
         with self.conn:
-            self.conn.execute(
+            cursor = self.conn.execute(
                 "INSERT INTO messages "
                 "(session_id, role, content, tool_name, tool_calls, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -358,9 +359,11 @@ class Store:
                     now,
                 ),
             )
+            message_id = int(cursor.lastrowid or 0)
             self.conn.execute(
                 "UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id)
             )
+        return message_id
 
     def append_messages(self, session_id: str, messages: Iterable[dict]) -> int:
         count = 0
@@ -393,6 +396,19 @@ class Store:
         if data.get("tool_name"):
             data["name"] = data["tool_name"]
         return data
+
+    def delete_message(self, session_id: str, message_id: int) -> bool:
+        """Delete one message. The FTS triggers keep the index honest.
+
+        Scoped by session on purpose: an id from another conversation must not
+        delete here, and the API cannot rely on the caller to check.
+        """
+        with self.conn:
+            cursor = self.conn.execute(
+                "DELETE FROM messages WHERE id = ? AND session_id = ?",
+                (int(message_id), session_id),
+            )
+        return cursor.rowcount > 0
 
     def message_count(self, session_id: str) -> int:
         row = self.conn.execute(

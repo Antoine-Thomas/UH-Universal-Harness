@@ -36,6 +36,7 @@ even when the failing input was one.
 | GET | `/api/folders` | — | `{folders: [{name, count}]}` — folders are metadata values, so a folder with no session does not exist |
 | PATCH | `/api/folders/{name}` | `{name}` | `{name, previous, moved}` · `400` empty/unchanged/contains `/` · `404` unknown folder |
 | DELETE | `/api/folders/{name}` | — | `{deleted, unfiled}` — the sessions are kept, unfiled · `404` |
+| DELETE | `/api/sessions/{session_id}/messages/{message_id}` | — | `{deleted, session_id, remaining}` · `404` (unknown session or message) |
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
 | POST | `/api/sessions/{session_id}/chat` | `{message}` | **SSE stream** (below) · `400` empty message · `404` · `503` provider unreachable |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |

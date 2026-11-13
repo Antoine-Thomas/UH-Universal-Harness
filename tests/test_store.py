@@ -231,3 +231,18 @@ def test_delete_an_unknown_or_empty_folder_is_a_no_op(tmp_path: Path) -> None:
     with Store(tmp_path / "uh.db") as store:
         assert store.delete_folder("nope") == 0
         assert store.delete_folder("") == 0
+
+
+def test_delete_one_message_keeps_the_rest_and_cleans_the_index(tmp_path: Path) -> None:
+    with Store(tmp_path / "uh.db") as store:
+        session = store.create_session()
+        first = store.append_message(session, {"role": "user", "content": "question gardee"})
+        doomed = store.append_message(session, {"role": "assistant", "content": "reponse fausse"})
+
+        assert store.delete_message(session, doomed) is True
+
+        assert store.message_count(session) == 1
+        assert store.search("fausse") == [], "the FTS trigger must drop the row"
+        assert store.search("gardee"), "and keep the neighbours"
+        assert store.delete_message(session, doomed) is False, "second delete: already gone"
+        assert store.delete_message("autre-session", first) is False, "scoped by session"

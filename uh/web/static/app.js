@@ -41,8 +41,31 @@ function el(tag, className, text) {
   return node;
 }
 
-function appendMessage(role, text) {
+async function deleteMessage(box) {
+  const messageId = box.dataset.messageId;
+  if (!state.sessionId || !messageId) return;
+  if (!window.confirm("Delete this message? The rest of the conversation stays.")) return;
+  await api(
+    `/api/sessions/${encodeURIComponent(state.sessionId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE" }
+  );
+  box.remove();
+  // The gauge is an estimate of what the next turn will send; it refreshes with
+  // the next message. Zeroing it here would be a second, wrong estimate.
+}
+
+// A message id is optional: live tokens arrive before the row exists in the
+// store, and a bubble you cannot name is a bubble you cannot delete.
+function appendMessage(role, text, messageId) {
   const box = el("div", `msg ${role}`);
+  if (messageId !== undefined && messageId !== null) {
+    box.dataset.messageId = messageId;
+    const kill = el("button", "message-delete", "×");
+    kill.title = "Delete this message";
+    kill.setAttribute("aria-label", "Delete message");
+    kill.addEventListener("click", () => deleteMessage(box));
+    box.appendChild(kill);
+  }
   box.appendChild(el("span", "role", role));
   const content = el("div", "content");
   // Assistant answers are Markdown-rendered (escape-first, see markdown.js);
@@ -102,7 +125,7 @@ function renderHistory(messages) {
       if (card) fillToolCard(card, message.content || "");
       else toolCard(message.name || "tool", null, message.content || "");
     } else {
-      appendMessage(role, message.content || "");
+      appendMessage(role, message.content || "", message.id);
     }
   }
 }

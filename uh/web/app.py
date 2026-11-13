@@ -379,6 +379,23 @@ def create_app(
             "model": model,
         }
 
+    @app.delete(
+        "/api/sessions/{session_id}/messages/{message_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def delete_message(session_id: str, message_id: int) -> dict:
+        """Delete one message of one session: the answer that was wrong, not the day."""
+        session = _session_or_404(app, session_id)
+        with _store(app) as store:
+            deleted = store.delete_message(session["id"], message_id)
+            remaining = store.message_count(session["id"])
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail=f"no message {message_id} in session {display_id(session['id'])}",
+            )
+        return {"deleted": message_id, "session_id": session["id"], "remaining": remaining}
+
     # -- chat (SSE) -------------------------------------------------------- #
     @app.post("/api/sessions/{session_id}/chat", dependencies=[Depends(require_token)])
     async def chat(session_id: str, payload: dict, request: Request) -> StreamingResponse:
