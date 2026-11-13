@@ -130,6 +130,7 @@ decision-panel  decision-view  hardware-card  input  keys-priority  keys-view
 data-open  data-panel  data-view  tab-data
 memory-graph  skill-badge  skill-open
 llm-badge  llm-open  llm-panel
+pane-detach  pane-reset  pane-&lt;name&gt;  pane-body  pane-head
 panel-dock  panel-float  panel-head
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view

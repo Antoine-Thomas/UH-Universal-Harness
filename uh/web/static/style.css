@@ -1066,3 +1066,36 @@ body {
 @media (max-width: 768px) {
   .llm-panel { left: 12px; right: 12px; bottom: 84px; width: auto; }
 }
+
+/* --- console panes (P6 v2): a view that lives in its own window ------------- */
+/* The view element keeps its own listeners, so moving it is enough: the pane is a
+   frame around the real thing, never a copy of it. */
+.pane-window {
+  position: fixed; z-index: 70;
+  display: flex; flex-direction: column;
+  min-width: 280px; min-height: 180px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .5);
+  resize: both; overflow: hidden;
+}
+.pane-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px; cursor: move; user-select: none;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 600;
+}
+.pane-spacer { flex: 1; }
+.pane-head .ghost {
+  border: 0; background: transparent; color: var(--muted);
+  font-size: 13px; line-height: 1; cursor: pointer; padding: 2px 4px;
+}
+.pane-head .ghost:hover { color: var(--text); }
+.pane-body { flex: 1; overflow: auto; padding: 10px; }
+.pane-body .panel-view { display: flex; flex-direction: column; height: 100%; overflow: auto; }
+.pane-window.dragging { user-select: none; opacity: .96; }
+.panel-tab.detached { color: var(--accent); }
+.panel-tab.detached::after { content: " ⧉"; font-size: 9px; }
+@media (max-width: 768px) {
+  #pane-detach, #pane-reset { display: none; }
+  .pane-window { display: none; }
+}

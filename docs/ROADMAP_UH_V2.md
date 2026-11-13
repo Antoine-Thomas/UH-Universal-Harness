@@ -305,18 +305,31 @@ sees while it runs. Items are listed with their state, not their ambition.
   background: the page reads as a desktop app, and the browser is still the
   runtime. A phone (<= 768 px) keeps the full-bleed layout; the right-panel
   overlay at <= 1200 px now sits inside the frame instead of over it.
-- **Dockable consoles** - *v1 delivered, not the full engine*. The Configuration
-  panel (which hosts Telemetry, Data, Memory, Decision, Second brain) detaches
-  into a floating window: dragged by its header, resized natively through CSS
-  `resize`, magnetic to the left/right/bottom edges (28 px threshold; the bottom
-  snap only applies to a panel shorter than 60% of the viewport, because a tall
-  panel dragged down is always "near the bottom"), and docked back with one
-  button. While it floats, the grid's last column collapses so nothing is left
-  behind, and below 768 px the button is hidden - the panel is already an overlay
-  there. **What is not done**: multi-pane docking (chat, logs, terminal as
-  separate detachable panes, Dockview-style). That needs a layout engine, and
-  doing it with a 300 KB vendored library contradicts the dependency rule; it is
-  the one item where a real engine may be the honest answer.
+- **Dockable consoles** - *v2 delivered* (the full engine is still not here, and
+  the reason is measured). Two layers:
+  1. the Configuration panel detaches as a whole (v1): dragged by its header,
+     resized natively, magnetic to the left/right/bottom edges, docked back;
+  2. **any configuration view** - API keys, Providers, Models, Second brain,
+     Memory, Decision, Telemetry, Data - leaves the tab strip with ⧉ and becomes
+     its own window: draggable, resizable (`resize: both`), magnetic, raised on
+     click, content preserved because the view **is moved, not re-rendered**
+     (listeners, scroll and CSS travel with the node). Several consoles can be
+     open at once; ⟲ re-docks everything and clears the stored layout. The layout
+     is remembered in `localStorage` (`uh.panes.v1`) - furniture, not data - and
+     below 768 px the buttons disappear, the windows dock themselves and the
+     console is the tabbed panel again.
+  - **Why not Dockview/GoldenLayout**, measured on 2026-11-13: `dockview-core`
+    8.9.0 has no dependencies but ships 402 KB minified, and at load it builds
+    `<style>` elements and appends them to `document.head`
+    (`dockview.esm.mjs:490`). Under `style-src 'self'` with no `'unsafe-inline'`
+    those sheets are dropped - the same hole we refused for Mermaid. The
+    `noStyle` build avoids the injection and loses the drag-overlay rules with
+    it. For eight panes that move as DOM nodes, a 402 KB bundle plus a CSP
+    exception is not a trade, it is a downgrade.
+  - **What a real engine still buys** (not done, honestly): docking *inside* a
+    split tree (drop a pane on the middle of another to split it in two), tab
+    groups inside one window, and layering panes in the grid rather than over it.
+    If that is ever wanted, the measurement above is the price tag.
 - **Telemetry** - *delivered* (`uh/telemetry.py`, `GET /api/telemetry`, tab
   "Telemetry"). Tokens per day split local/cloud from the decisions already
   recorded on the sessions (`at` is now written with each turn; a record that

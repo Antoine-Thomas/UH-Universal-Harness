@@ -11,6 +11,7 @@ const state = {
   paletteIndex: 0,
   filtered: [],
   attachments: [],
+  activeTab: "keys",
   keyEntryAllowed: false,
   presets: null,
   skill: null,
@@ -2074,6 +2075,7 @@ async function loadDecision() {
 }
 
 function showPanelTab(name) {
+  state.activeTab = name;
   for (const [tab, view] of [
     ["keys", "keys-view"],
     ["providers", "providers-view"],
@@ -2087,7 +2089,14 @@ function showPanelTab(name) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
     $(`tab-${tab}`).setAttribute("aria-selected", String(active));
-    $(view).hidden = !active;
+    // A view living in its own window is never hidden by the tab strip, and
+    // selecting its tab brings that window forward.
+    if (paneWindowFor(tab)) {
+      if (active) paneWindowFor(tab).style.zIndex = String(++paneZ);
+      $(view).hidden = false;
+    } else {
+      $(view).hidden = !active;
+    }
   }
   if (name === "models") loadCapabilities().catch(() => {});
   if (name === "uhb") {
@@ -3290,6 +3299,256 @@ function openLlmPanel() {
   loadLlmPanel().catch(() => {});
 }
 
+// --- console panes (P6 v2): every view can leave the column ------------------ //
+// The docking layer, built rather than borrowed. Measured before deciding:
+// dockview-core 8.9.0 (no dependencies) is 402 KB minified and, at load, builds
+// <style> elements and appends them to document.head (dockview.esm.mjs:490). With
+// `style-src 'self'` and no 'unsafe-inline' those sheets are dropped - the exact
+// hole we refused for Mermaid. The `noStyle` build avoids the injection but the
+// drag overlay rules go with it. So: the views move as DOM nodes between the tab
+// strip and a floating window, which keeps their listeners, their scroll and
+// their CSS, and needs no library at all.
+const PANE_TITLES = {
+  keys: "API keys",
+  providers: "Providers",
+  models: "Models",
+  uhb: "Second brain",
+  memory: "Memory",
+  decision: "Decision",
+  telemetry: "Télémétrie",
+  data: "Données",
+};
+const PANE_KEY = "uh.panes.v1";
+const paneHomes = {};
+let paneZ = 70;
+
+function paneWindowFor(name) {
+  return document.getElementById(`pane-${name}`);
+}
+
+function openPaneWindows() {
+  return Array.from(document.querySelectorAll(".pane-window"));
+}
+
+function readPaneLayout() {
+  try {
+    const raw = window.localStorage.getItem(PANE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    return {};  // a corrupted layout must not stop the app from booting
+  }
+}
+
+function savePaneLayout() {
+  const layout = {};
+  openPaneWindows().forEach((win) => {
+    const rect = win.getBoundingClientRect();
+    layout[win.dataset.view] = {
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    };
+  });
+  try {
+    window.localStorage.setItem(PANE_KEY, JSON.stringify(layout));
+  } catch (error) {
+    // Private mode or a full quota: the cockpit still works, it just forgets.
+  }
+}
+
+function placePane(win, rect) {
+  win.style.left = `${Math.round(rect.left)}px`;
+  win.style.top = `${Math.round(rect.top)}px`;
+  win.style.width = `${Math.round(rect.width)}px`;
+  win.style.height = `${Math.round(rect.height)}px`;
+}
+
+function magneticRect(rect) {
+  // Same 28 px threshold as the dockable panel; a pane taller than 60 % of the
+  // viewport never snaps to the bottom (it is always "near" it).
+  const bottomHit =
+    window.innerHeight - (rect.top + rect.height) <= DOCK_SNAP &&
+    rect.height < window.innerHeight * 0.6;
+  if (bottomHit) {
+    return { left: 12, top: window.innerHeight - rect.height - 12, width: window.innerWidth - 24, height: rect.height };
+  }
+  if (rect.left <= DOCK_SNAP) {
+    return { left: 12, top: 12, width: rect.width, height: window.innerHeight - 24 };
+  }
+  if (window.innerWidth - (rect.left + rect.width) <= DOCK_SNAP) {
+    return { left: window.innerWidth - rect.width - 12, top: 12, width: rect.width, height: window.innerHeight - 24 };
+  }
+  return {
+    left: Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8)),
+    top: Math.max(8, Math.min(rect.top, window.innerHeight - 60)),
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function wirePaneDrag(win, head) {
+  let drag = null;
+  head.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("button")) return;
+    const rect = win.getBoundingClientRect();
+    drag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top, width: rect.width, height: rect.height };
+    win.classList.add("dragging");
+    try {
+      head.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // A synthetic pointer has nothing to capture; the drag still works.
+    }
+    event.preventDefault();
+  });
+  head.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    placePane(win, {
+      left: event.clientX - drag.dx,
+      top: event.clientY - drag.dy,
+      width: drag.width,
+      height: drag.height,
+    });
+  });
+  head.addEventListener("pointerup", () => {
+    if (!drag) return;
+    win.classList.remove("dragging");
+    drag = null;
+    const rect = win.getBoundingClientRect();
+    placePane(win, magneticRect({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }));
+    savePaneLayout();
+  });
+}
+
+function detachPane(name, rect) {
+  if (isPhone()) return null;
+  const view = $(`${name}-view`);
+  if (!view || paneWindowFor(name)) return paneWindowFor(name);
+
+  paneHomes[name] = { parent: view.parentElement, next: view.nextElementSibling };
+
+  const win = el("section", "pane-window");
+  win.id = `pane-${name}`;
+  win.dataset.view = name;
+  const head = el("header", "pane-head");
+  head.appendChild(el("strong", null, PANE_TITLES[name] || name));
+  const spacer = el("span", "pane-spacer");
+  head.appendChild(spacer);
+  const dockBack = el("button", "ghost", "⇲");
+  dockBack.type = "button";
+  dockBack.title = "Réancrer";
+  dockBack.setAttribute("aria-label", "Réancrer");
+  dockBack.addEventListener("click", () => dockPane(name));
+  const close = el("button", "ghost", "×");
+  close.type = "button";
+  close.title = "Fermer";
+  close.setAttribute("aria-label", "Fermer");
+  close.addEventListener("click", () => dockPane(name));
+  head.appendChild(dockBack);
+  head.appendChild(close);
+  const body = el("div", "pane-body");
+  win.appendChild(head);
+  win.appendChild(body);
+  document.body.appendChild(win);
+
+  body.appendChild(view);
+  view.hidden = false;
+  $(`tab-${name}`).classList.add("detached");
+
+  if (rect) {
+    placePane(win, rect);
+  } else {
+    const open = openPaneWindows().length - 1;
+    const width = Math.min(460, Math.max(320, Math.round(window.innerWidth * 0.28)));
+    const height = Math.min(Math.round(window.innerHeight * 0.6), Math.max(320, window.innerHeight - 140));
+    placePane(win, {
+      left: Math.max(8, window.innerWidth - width - 24 - open * 28),
+      top: 96 + open * 28,
+      width,
+      height,
+    });
+  }
+  win.style.zIndex = String(++paneZ);
+  win.addEventListener("pointerdown", () => {
+    win.style.zIndex = String(++paneZ);
+  });
+  wirePaneDrag(win, head);
+  return win;
+}
+
+function dockPane(name) {
+  const win = paneWindowFor(name);
+  const view = $(`${name}-view`);
+  const home = paneHomes[name];
+  if (win) win.remove();
+  if (view && home && home.parent) {
+    home.parent.insertBefore(view, home.next && home.next.isConnected ? home.next : null);
+    // A view that comes home follows the active tab again, instead of showing on
+    // top of whichever tab is selected.
+    view.hidden = state.activeTab !== name;
+  }
+  const tab = $(`tab-${name}`);
+  if (tab) tab.classList.remove("detached");
+  delete paneHomes[name];
+  savePaneLayout();
+}
+
+function resetPanes() {
+  openPaneWindows().forEach((win) => dockPane(win.dataset.view));
+  try {
+    window.localStorage.removeItem(PANE_KEY);
+  } catch (error) {
+    // nothing to clean
+  }
+}
+
+function restorePanes() {
+  if (isPhone()) return;
+  const layout = readPaneLayout();
+  Object.entries(layout).forEach(([name, rect]) => {
+    if (!PANE_TITLES[name] || !rect) return;
+    if (!$(name + "-view")) return;
+    detachPane(name, rect);
+    // A restored console must have something in it, not an empty box.
+    if (name === "telemetry") loadTelemetry().catch(() => {});
+    if (name === "data") loadData().catch(() => {});
+    if (name === "memory") loadMemory().catch(() => {});
+    if (name === "decision") loadDecision().catch(() => {});
+    if (name === "uhb") {
+      loadMemoryGraph().catch(() => {});
+      loadUhb().catch(() => {});
+    }
+  });
+}
+
+function wirePanes() {
+  const detach = $("pane-detach");
+  if (detach) {
+    detach.addEventListener("click", () => {
+      const name = state.activeTab || "keys";
+      if (paneWindowFor(name)) {
+        paneWindowFor(name).style.zIndex = String(++paneZ);
+        return;
+      }
+      detachPane(name);
+      savePaneLayout();
+    });
+  }
+  const reset = $("pane-reset");
+  if (reset) reset.addEventListener("click", resetPanes);
+  window.addEventListener("resize", () => {
+    // A window that no longer fits (or a phone) gets its consoles back.
+    openPaneWindows().forEach((win) => {
+      const rect = win.getBoundingClientRect();
+      if (isPhone() || rect.left > window.innerWidth - 40 || rect.top > window.innerHeight - 40) {
+        dockPane(win.dataset.view);
+      }
+    });
+  });
+  restorePanes();
+}
+
 // -------------------------------------------------------------------- boot --
 function wireComposer() {
   const input = $("input");
@@ -3349,6 +3608,7 @@ async function boot() {
   wireSearch();
   wireProviders();
   wireDock();
+  wirePanes();
   await loadStatus();
   // The settings table first, so the first session opened knows its defaults.
   await loadLlmPanel().catch(() => {});

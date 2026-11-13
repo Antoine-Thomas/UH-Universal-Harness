@@ -263,6 +263,29 @@ def test_the_second_brain_draws_the_graph_and_a_turn_can_carry_a_skill() -> None
 
 
 @KEEP
+def test_each_console_can_live_in_its_own_window() -> None:
+    """Docking v2: any configuration view can be a floating window, and the layout
+    is remembered per browser (it is furniture, not data)."""
+    page = INDEX.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    script = APP.read_text(encoding="utf-8")
+    mobile = css.split("@media (max-width: 768px)", 1)[1]
+
+    assert 'id="pane-detach"' in page
+    assert 'id="pane-reset"' in page
+    for name in ("detachPane", "dockPane", "resetPanes", "magneticRect", "restorePanes"):
+        assert name in script, f"{name} missing from the pane layer"
+    assert "uh.panes.v1" in script, "the layout key"
+    assert "localStorage.setItem(PANE_KEY" in script
+    assert ".pane-window" in css
+    assert "#pane-detach, #pane-reset { display: none; }" in mobile, "no docking on a phone"
+    # No vendored layout library: measured in the roadmap, and a bundle that
+    # injects <style> would not render under this CSP.
+    assert "vendor/dockview" not in page.lower()
+    assert "vendor/dockview" not in script.lower()
+
+
+@KEEP
 def test_the_conversation_settings_panel_is_drawn_from_the_route() -> None:
     """A slider that promises a range the backend refuses is worse than no slider."""
     page = INDEX.read_text(encoding="utf-8")
@@ -313,7 +336,10 @@ def test_the_data_tab_wires_backup_and_skills() -> None:
         assert route in script, f"the data panel must call {route}"
     # The archive is a file on disk handed over by the server: no data: URL, no
     # blob assembled in the browser, nothing kept in localStorage.
-    section = script.split("// --- data (P8)")[1].split("// -------------------------------------------------------------------- boot --")[0]
+    section = script.split("// --- data (P8)", 1)[1]
+    # End at the next section banner, whatever it is: hard-coding "boot" here made
+    # this test fail the day a new section was inserted before it.
+    section = section.split("\n// --- ", 1)[0]
     assert "localStorage." not in section and "localStorage[" not in section
     assert "showSaveFilePicker" not in section
 
