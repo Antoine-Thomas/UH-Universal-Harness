@@ -113,7 +113,7 @@ class StreamInterrupt:
         return {"role": "assistant", "content": "reponse du second tour", "tool_calls": []}
 
 
-def _repl_session(tmp_path: Path, provider) -> object:
+def _repl_session(tmp_path: Path, provider, toolsets: dict | None = None) -> object:
     from uh import config as uh_config
     from uh import console as uh_console
 
@@ -122,7 +122,7 @@ def _repl_session(tmp_path: Path, provider) -> object:
         provider_kind="stub",
         chain=[("stub", provider)],
         model="stub:1b",
-        toolsets={},
+        toolsets=toolsets or {},
         workspace=tmp_path,
         cfg=uh_config.load(),
         stream=True,
@@ -297,6 +297,51 @@ def test_the_header_lines_are_ordered_ui_update_session() -> None:
     assert lines[2].startswith("Session:")
 
 
+class _UhbStatus:
+    """Stands in for Uhbtoolset: one status() call, no HTTP."""
+
+    name = "uhb"
+    tools: list = []
+
+    def __init__(self, payload) -> None:
+        self.payload = payload
+        self.calls = 0
+
+    def status(self):
+        self.calls += 1
+        return self.payload
+
+
+def test_the_header_shows_uhb_when_the_toolset_was_built(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("UH_QUIET", raising=False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "/exit")
+    uhb = _UhbStatus(
+        {"connected": True, "version": "0.4.1", "mode": "dev", "providers": ["a", "b"]}
+    )
+
+    assert cli._run_repl(_repl_session(tmp_path, StubProvider(), {"uhb": uhb})) == 0
+
+    err = capsys.readouterr().err
+    assert "UHB: connected (v0.4.1) · mode: dev · 2 providers" in err
+    assert uhb.calls == 1
+
+
+def test_the_header_has_no_uhb_line_without_the_toolset(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A missing UHB is a normal state: no line, and nothing on stderr about it."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("UH_QUIET", raising=False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "/exit")
+
+    assert cli._run_repl(_repl_session(tmp_path, StubProvider())) == 0
+
+    assert "UHB" not in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("value", ["1", "true", "yes", "TRUE"])
 def test_uh_quiet_is_recognised(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
     monkeypatch.setenv("UH_QUIET", value)
@@ -318,13 +363,15 @@ def test_uh_quiet_silences_the_banner_and_header(
     monkeypatch.setenv("UH_QUIET", "1")
     answers = iter(["salut", "/exit"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    uhb = _UhbStatus({"connected": True, "version": "0.4.1", "mode": "dev", "providers": []})
 
-    assert cli._run_repl(_repl_session(tmp_path, StubProvider())) == 0
+    assert cli._run_repl(_repl_session(tmp_path, StubProvider(), {"uhb": uhb})) == 0
 
     captured = capsys.readouterr()
     assert "Web UI:" not in captured.err
     assert "Update:" not in captured.err
     assert "Session:" not in captured.err
+    assert "UHB:" not in captured.err
     assert "provider stub" not in captured.err
     assert "workspace" not in captured.err
     assert "█" not in captured.out

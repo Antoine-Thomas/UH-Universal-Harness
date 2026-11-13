@@ -1108,6 +1108,10 @@ def _run_repl(session: console.ChatSession) -> int:
             f"{len(session.history)} msg · ctx ~{session.context_estimate()} tok"
             f" · session {session.total_usage['total']} tok"
         )
+        # UHB is optional: the toolset only exists when it answered at startup.
+        uhb_line = console.uhb_header_line(session.toolsets.get("uhb"))
+        if uhb_line:
+            ui.detail(uhb_line)
         # Three discoverable lines, one per surface: UI, update, session.
         for line in startup_header():
             ui.detail(line)

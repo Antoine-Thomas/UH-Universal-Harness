@@ -223,3 +223,78 @@ def test_detail_prints_the_status_line_verbatim(capsys: pytest.CaptureFixture[st
     ui = console.Console()
     ui.detail("provider stub · model stub:1b")
     assert "provider stub · model stub:1b" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- #
+# UHB header line (roadmap P1 task 7)
+# --------------------------------------------------------------------------- #
+class _StatusToolset:
+    """A toolset whose ``status()`` returns a fixed payload (or raises)."""
+
+    name = "uhb"
+    tools: list = []
+
+    def __init__(self, payload) -> None:
+        self.payload = payload
+        self.calls = 0
+
+    def status(self):
+        self.calls += 1
+        if isinstance(self.payload, Exception):
+            raise self.payload
+        return self.payload
+
+
+def test_no_uhb_toolset_means_no_line() -> None:
+    """An absent UHB is a normal state: no line, not a warning."""
+    assert console.uhb_header_line(None) is None
+
+
+def test_an_object_without_status_means_no_line() -> None:
+    assert console.uhb_header_line(object()) is None
+
+
+def test_uhb_line_reads_version_mode_and_provider_count() -> None:
+    toolset = _StatusToolset(
+        {
+            "connected": True,
+            "version": "0.4.1",
+            "mode": "dev",
+            "harness": "DeepSeek V4",
+            "providers": ["deepseek", "ollama", "mistral"],
+            "modes": ["chat", "dev"],
+        }
+    )
+    assert console.uhb_header_line(toolset) == (
+        "UHB: connected (v0.4.1) · mode: dev · 3 providers"
+    )
+    assert toolset.calls == 1, "exactly one status() call at startup"
+
+
+def test_uhb_line_does_not_double_the_v_prefix() -> None:
+    line = console.uhb_header_line(
+        _StatusToolset({"version": "v2.0.0", "mode": "dev", "providers": []})
+    )
+    assert line == "UHB: connected (v2.0.0) · mode: dev · 0 providers"
+
+
+def test_uhb_line_says_provider_in_the_singular() -> None:
+    line = console.uhb_header_line(_StatusToolset({"version": "0.1.0", "providers": ["a"]}))
+    assert line is not None and "1 provider" in line and "1 providers" not in line
+
+
+def test_uhb_line_survives_a_status_without_version_or_mode() -> None:
+    line = console.uhb_header_line(_StatusToolset({"connected": True, "providers": None}))
+    assert line == "UHB: connected · 0 providers"
+
+
+def test_uhb_line_reports_a_dead_control_plane_instead_of_raising() -> None:
+    """The toolset existed at startup, UHB is gone now: a state, not a traceback."""
+    payload = {"error": "uhb unreachable", "kind": "transport"}
+    assert console.uhb_header_line(_StatusToolset(payload)) == console.UHB_UNREACHABLE
+    assert console.uhb_header_line(_StatusToolset(RuntimeError("boom"))) == (
+        console.UHB_UNREACHABLE
+    )
+    assert console.uhb_header_line(_StatusToolset(["not", "a", "dict"])) == (
+        console.UHB_UNREACHABLE
+    )

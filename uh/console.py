@@ -67,6 +67,56 @@ def rich_available() -> bool:
     return True
 
 
+# --------------------------------------------------------------------------- #
+# UHB header line
+# --------------------------------------------------------------------------- #
+UHB_UNREACHABLE = "UHB: unreachable"
+
+
+def uhb_header_line(toolset: object | None) -> Optional[str]:
+    """One line about UHB, or ``None`` when the toolset was never built.
+
+    The toolset exists only when a UHB answering ``GET /modes`` was found at
+    startup, so ``None`` is a normal state: no line, not a warning. A toolset
+    that is present but cannot answer - UHB died between the probe and the call,
+    or answered garbage - says so on one line instead of raising: the header
+    never breaks the console.
+    """
+    if toolset is None:
+        return None
+    status = getattr(toolset, "status", None)
+    if not callable(status):
+        return None
+    try:
+        summary = status()
+    except Exception:  # noqa: BLE001 - a header line must not crash the session
+        return UHB_UNREACHABLE
+    if not isinstance(summary, dict) or "error" in summary:
+        return UHB_UNREACHABLE
+    return _uhb_summary_line(summary)
+
+
+def _uhb_summary_line(summary: dict) -> str:
+    """``UHB: connected (vX.Y.Z) · mode: <mode> · <n> providers``, fields optional.
+
+    Version and mode come from UHB's own ``/status`` answer, never from a
+    constant here: the console describes the control plane that is running.
+    """
+    version = str(summary.get("version") or "").strip()
+    mode = str(summary.get("mode") or "").strip()
+    providers = summary.get("providers")
+    count = len(providers) if isinstance(providers, list) else 0
+
+    head = "UHB: connected"
+    if version:
+        head += f" ({version if version[:1] in {'v', 'V'} else 'v' + version})"
+    parts = [head]
+    if mode:
+        parts.append(f"mode: {mode}")
+    parts.append(f"{count} provider" + ("" if count == 1 else "s"))
+    return " · ".join(parts)
+
+
 class Console:
     """Thin output layer: rich when it helps, plain text otherwise."""
 
