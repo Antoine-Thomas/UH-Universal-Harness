@@ -25,6 +25,7 @@ need this?* A command is retained only if UH can make it work at this milestone
 | `/export [md|json]` | — | Export the session next to the workspace | Same, machine-readable |
 | `/tools` | — | List active toolsets and their tools | Same intent as Hermes `/tools list` |
 | `/clear` | — | Clear the in-memory history, keep the session | Same as Hermes `/clear` minus screen repaint |
+| `/workspace [path]` | — | Show the workspace and the writable paths, or move the session (and the file/terminal toolsets) to `path` | UH-specific: the workspace is the sandbox root, so it must be visible and movable |
 | `/new` | `/reset` | Start a new session (fresh id, empty history) | Same as Hermes `/new` |
 | `/sessions` | — | List stored sessions | Hermes `/sessions` browses history; UH lists the store |
 | `/resume <id>` | — | Reload a session (full id, prefix, or short form) | Hermes `/resume` resolves a named session |

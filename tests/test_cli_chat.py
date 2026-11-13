@@ -275,6 +275,7 @@ def test_the_repl_shows_one_discoverable_tip(
     err = capsys.readouterr().err
     assert "'uh web'" in err
     assert "'uh providers add <name>'" in err
+    assert "'/workspace <path>'" in err
     assert "'/help'" in err
 
 

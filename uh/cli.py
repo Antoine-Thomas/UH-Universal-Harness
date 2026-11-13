@@ -1042,8 +1042,8 @@ SHELL_WARNING = (
 )
 
 STARTUP_TIP = (
-    "Tip: run 'uh web' for a browser UI · 'uh providers add <name>' to configure "
-    "a paid provider · '/help' for chat commands"
+    "Tip: run 'uh web' for a browser UI · 'uh providers add <name>' for a paid "
+    "provider · '/workspace <path>' to change folder · '/help' for commands"
 )
 
 

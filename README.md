@@ -261,6 +261,62 @@ uh sessions search clavier                            # FTS5 across all messages
 uh memory migrate                                     # MEMORY.md -> one session, once
 ```
 
+## Where does UH write?
+
+**The workspace is the root.** `uh` starts in, in order of precedence:
+
+1. `--workspace <path>` on the command line;
+2. `UH_WORKSPACE`;
+3. the current directory — **unless** it is a system directory (`C:\Windows`,
+   `C:\Program Files`, `C:\ProgramData`, `/usr`, `/etc`, `/bin`, `/sbin`,
+   `/System`, `/Library`), in which case UH uses `~/uh-workspace` (created on
+   first use) and says so:
+
+   ```
+   [WARN] cwd is a system directory; using ~/uh-workspace instead. Use /workspace <path> to switch.
+   ```
+
+**Writes may leave the workspace, but only into declared paths.** Beside the
+workspace, these are writable by default:
+
+- `~/Desktop`, `~/Documents`, `~/Downloads`, `~/uh-workspace`.
+
+Add more with `UH_ALLOWED_PATHS` (`os.pathsep`-separated, the supported
+persistent switch), or by editing `config.toml` by hand:
+
+```toml
+[providers.file]
+allowed_paths = ["/srv/partage", "~/projets"]
+```
+
+That table is **read-only**: UH's configuration writer is flat (scalars only) on
+purpose, so `[providers.file]` is a hand-written escape hatch. `uh config set`
+refuses to rewrite a file that contains one rather than silently dropping it.
+
+**System directories are never writable**, whatever the list says: putting
+`/etc` in `UH_ALLOWED_PATHS` does not make it a destination.
+
+**Moving during a session.** `/workspace` prints the workspace and the writable
+paths; `/workspace <path>` moves the session and the `file`/`terminal` toolsets
+(the sandbox follows). `memory` stays in `$UH_HOME`: `MEMORY.md` is UH's own
+state, not project data.
+
+**Refusals say what to do.** A refused write carries the list and the two exits:
+
+```
+refused: '~/secret.txt' is outside the workspace and outside the allowed paths
+(~/Desktop, ~/Documents, ~/Downloads, ~/uh-workspace). Use /workspace <path> to
+switch. (hint: /workspace <path> or `uh --workspace <path>`)
+```
+
+**The shell is a seatbelt, not a sandbox.** `terminal` checks the obvious write
+shapes (`>`, `>>`, `mkdir`, `md`, `touch`, `tee`, and the destination of
+`cp`/`copy`/`mv`/`move`/`install`/`ln`) against the same rule before spawning
+anything. A program that writes on its own — `python -c "open(...)"`, a script
+the model creates and runs, an editor, `cmd /c` — still goes through. The file
+toolset is the enforced path; the shell guard stops accidents, not a determined
+author.
+
 ## Sessions, store and configuration
 
 - Store: `$UH_HOME/uh.db` (`~/.uh/uh.db`), schema v1, WAL, foreign keys ON.
