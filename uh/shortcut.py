@@ -377,7 +377,7 @@ def _ps_quote(value: str) -> str:
 
 def link_command(link: Path, script: Path, icon: Path, workdir: Path) -> str:
     """The PowerShell that creates the ``.lnk``, printed by ``--dry-run``-ish tests."""
-    arguments = f'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{script}"' 
+    arguments = f'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{script}"'
     return "\n".join(
         [
             "$ErrorActionPreference = 'Stop'",

@@ -13,6 +13,98 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.2.0] — 2026-11-13
+
+The cockpit stops being a shell around a chat. It now shows what UH remembers,
+how it decided, and which machine it runs on — and two of those views can act.
+
+### Added
+
+- **Memory tab** — the wiki is files (found through `UH_WIKI_DIR`, `wiki/`,
+  `llmwiki/` or `uhb/hub/wiki`); notes are listed with size and date and served
+  only after the path resolves inside the root, 200 KB per note.
+  `GET /api/memory/sources`, `/wiki`, `/wiki/{note}`, `/rag`, `/siyuan` and
+  `/search`, which crosses `MEMORY.md`, the wiki and the FTS5 store in one answer.
+- **Decision view** — `GET /api/sessions/{id}/decision`: prompt complexity and
+  the reason UHB gave, the ordered chain with its tiers, the model chosen and the
+  model actually served (an alias can resolve to another tag), tokens, payload
+  against the context budget, the summary with the number of exchanges it
+  replaces, and the turn's duration next to the average of the last five.
+  Recorded at the end of each turn in `sessions.metadata.decisions` — no
+  migration, and the decision belongs to a session, not to a message.
+- **Two memory actions** — `POST /api/memory/rag/reload` and
+  `GET /api/memory/siyuan/blocks`, proxied through UH so the browser never speaks
+  to UHB (the CSP stays `self`). A dead RAG service answers 409 with the command
+  that starts it; a missing token answers 400 naming `SIYUAN_TOKEN`; a dead UHB
+  answers 502 `uhb_offline` — three failures, three fixes.
+- **Second brain tab** — `GET /api/uhb/status` and `POST /api/uhb/route`, with a
+  coloured dot per tier (free / eco / paid) and UHB's plan shown without spending
+  a token.
+- **Hardware detection** — `GET /api/system/capabilities` and a Models tab:
+  RAM, cores, GPU, then a tier (`remote`, `small`, `medium`, `large`, `xl`), a
+  recommended model and a context budget. `psutil` when installed, otherwise
+  `GlobalMemoryStatusEx` or `/proc/meminfo`; no GPU tool on `PATH` is a normal
+  answer. `POST /api/models/pull` downloads the recommendation in the background.
+- **Responsive layout** — three breakpoints (1200 px: the panel becomes an
+  overlay with a gear; 768 px: one column, 44 px touch targets, no drag handles),
+  and a banner when the device is in the `small` or `remote` tier.
+- **Drag a session into a folder**, rename or delete a folder from its header,
+  delete a single message, resize the three columns, delete a conversation -
+  which also deletes its uploaded files.
+- **Command chips** (`/tools`, `/web`, `/new`, `/clear`, `/help`) that insert the
+  command instead of running it, and slash commands now reach the registry from
+  the web composer: `/tools` answers with the toolsets instead of being asked
+  about as a string.
+- **File attachments** with a 4 KB threshold — under it the text is inlined, above
+  it only name, size and path go out, with a note saying so.
+- **`read_pdf`** — PDF text through `pypdf`, page ranges, 50 pages and 10 KB per
+  call, and the tool only exists when `pypdf` imports.
+- **`uh install-shortcut`** — a desktop button: PowerShell launcher run hidden,
+  gold UH monogram icon generated without a dependency, log file, and a MessageBox
+  when `uh` is missing.
+- **`uh web` starts UHB** and stops it with the UI, including after a hard kill,
+  through a Windows job object. `--no-uhb` opts out.
+- **Console** — a three-line startup header (Web UI / Update / Session), a UHB
+  status line, and `/web` with no argument starts the web UI in a thread.
+- **DeepSeek** is a built-in provider preset.
+
+### Changed
+
+- **Context pruning** (`uh/context.py`): the history is never trimmed, the payload
+  is. System prompt + first question + first answer + one summary line + the last
+  five messages, tool results over 2 KB truncated. Budget precedence:
+  `UH_CONTEXT_BUDGET` → config → hardware tier → 75 % of the model's real window
+  → 3000, with the tier capped by that window.
+- **A summary is reused until the middle grows by four exchanges**, which turned
+  eight summaries in a fifteen-turn session into two.
+
+### Fixed
+
+- A turn whose budget was too small to hold a summary reported "N exchanges
+  summarised" with an empty summary: the last resort had dropped the middle
+  without summarising. `ContextManager` now records how the last payload was
+  built (`none` / `summary` / `trim`) and the panel never claims a summary the
+  model did not receive.
+- The context bar compared the turn's cumulative usage with the per-call budget,
+  showing a false overflow (1480/700 on a healthy turn). It now compares the
+  payload the pruner measured.
+- The Memory tab told the reader to run `uhb/services/rag/indexer.py`, which does
+  not exist: the index is compiled from the operator's own notes and is not
+  shipped with UHB.
+- The Memory tab reported "index not built" while the RAG service answered 4893
+  chunks, and described SiYuan as unreadable after UHB grew the route. UHB's
+  answer now wins when it exists, and the sentence names the route that reads it.
+
+### Notes
+
+- UHB must ship `GET /modes` and `POST /route` (1.1.0) **and**
+  `GET /rag/status`, `POST /rag/reindex`, `GET /siyuan/blocks` (UHB #12).
+  `/rag/reindex` reloads an existing index — UHB has no index builder, and the
+  changelog does not pretend otherwise.
+- No new required dependency: `psutil`, `pypdf` and `tiktoken` stay optional and
+  change behaviour only when importable.
+- 847 tests, 1 skipped; `ruff check .` and `mypy uh` clean.
+
 ## [1.1.0] — 2026-11-13
 
 UH can now ask UHB what it would do *before* doing it. Two new read-only tools,
