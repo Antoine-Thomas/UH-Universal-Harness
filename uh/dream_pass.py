@@ -250,8 +250,12 @@ class DreamScheduler:
         elif complexity:
             report.notes.append(f"analysed by UHB as '{complexity}': no model call, nothing to review")
 
+        # Measure before writing: render() reads tokens and wall time, and a
+        # report that says "0 tokens, 0.0s" while the log says 5244 is a lie in
+        # the one artefact the operator actually reads.
+        self._finish(report)
         self._write(report)
-        return self._finish(report)
+        return report
 
     def _inventory(self, url: str, report: DreamReport) -> Dict[str, dict]:
         inventory: Dict[str, dict] = {}

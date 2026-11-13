@@ -1535,6 +1535,9 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
         try:
             uhb_spawn.ensure()
         except Exception as exc:  # noqa: BLE001 - the pass reports a skip by itself
+            # stderr is a console nobody sees at 03:00: leave a line in the log,
+            # otherwise a skipped night and a night that never ran look alike.
+            _log_pass(f"uhb start failed: {type(exc).__name__}: {exc}", time.time())
             print(f"uh dream: could not start UHB ({type(exc).__name__}: {exc})", file=sys.stderr)
 
     engine = DreamScheduler(config=config, provider=provider)

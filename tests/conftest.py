@@ -36,6 +36,26 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return target
 
 
+@pytest.fixture(autouse=True)
+def pinned_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Pin what ``uh dream --schedule`` resolves as the task's interpreter.
+
+    Resolution probes the real machine - correct in production, unusable in a
+    test: CI has no ``Python310``, and the answer changes with whatever this
+    laptop has installed. Tests that exercise the resolution itself pass
+    ``candidates``/``probe`` explicitly and still run the real function.
+    """
+    from uh import dream_schedule
+
+    path = tmp_path / "Programs" / "Python" / "Python310" / "python.exe"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("")
+    monkeypatch.setattr(dream_schedule, "_system_pythons", lambda: [str(path)])
+    monkeypatch.setattr(dream_schedule, "_has_uh", lambda exe: True)
+    monkeypatch.delenv(dream_schedule.ENV_INTERPRETER, raising=False)
+    return str(path)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def real_home_untouched():
     """Fail the whole run if a test wrote credentials or memory into ``~/.uh``.
