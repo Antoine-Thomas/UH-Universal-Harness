@@ -1041,14 +1041,27 @@ SHELL_WARNING = (
     "or prefix with / to use a chat command."
 )
 
-STARTUP_TIP = (
-    "Tip: run 'uh web' for a browser UI · 'uh providers add <name>' for a paid "
-    "provider · '/workspace <path>' to change folder · '/help' for commands"
+STARTUP_HEADER = (
+    "Web UI: run 'uh web'",
+    "Update: run 'uh upgrade' (current: v{version})",
+    "Session: /new for a new session · /help for commands",
 )
 
 
+def startup_header(version: str | None = None) -> list[str]:
+    """The three header lines printed once, above the first prompt.
+
+    One line per surface instead of a comma-separated tip: the browser UI, the
+    updater, the session commands. The version is the package's ``__version__``
+    and not installed metadata - a checkout and its wheel disagree, and the
+    header must describe the code that is actually running.
+    """
+    current = __version__ if version is None else version
+    return [line.format(version=current) for line in STARTUP_HEADER]
+
+
 def quiet_mode() -> bool:
-    """``UH_QUIET=1``: banner, header and tip are skipped, the prompt stays.
+    """``UH_QUIET=1``: banner and header are skipped, the prompt stays.
 
     Deliberately narrow: answers, tool activity and per-turn metrics are the
     user's own output, so they keep their stream. This silences the *banner* a
@@ -1095,8 +1108,9 @@ def _run_repl(session: console.ChatSession) -> int:
             f"{len(session.history)} msg · ctx ~{session.context_estimate()} tok"
             f" · session {session.total_usage['total']} tok"
         )
-        # One discoverable line: the three things a first run cannot guess.
-        ui.detail(STARTUP_TIP)
+        # Three discoverable lines, one per surface: UI, update, session.
+        for line in startup_header():
+            ui.detail(line)
 
     while True:
         ui.out("")  # one blank line before the prompt, always

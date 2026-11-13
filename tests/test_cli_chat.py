@@ -263,9 +263,11 @@ def test_repl_refuses_a_shell_line_without_calling_the_model(
     assert [m["role"] for m in session.history] == ["system"], "nothing was appended"
 
 
-def test_the_repl_shows_one_discoverable_tip(
+def test_the_repl_shows_three_explicit_header_lines(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
+    from uh import __version__ as running
+
     monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("UH_QUIET", raising=False)
     monkeypatch.setattr("builtins.input", lambda prompt="": "/exit")
@@ -273,10 +275,26 @@ def test_the_repl_shows_one_discoverable_tip(
     assert cli._run_repl(_repl_session(tmp_path, StubProvider())) == 0
 
     err = capsys.readouterr().err
-    assert "'uh web'" in err
-    assert "'uh providers add <name>'" in err
-    assert "'/workspace <path>'" in err
-    assert "'/help'" in err
+    assert "Web UI: run 'uh web'" in err
+    assert f"Update: run 'uh upgrade' (current: v{running})" in err
+    assert "Session: /new for a new session · /help for commands" in err
+    assert "Tip:" not in err, "the old single-line tip is gone"
+
+
+def test_the_header_reads_its_version_from_the_package() -> None:
+    """Not from installed metadata: a checkout and its wheel disagree."""
+    from uh import __version__
+
+    assert any(__version__ in line for line in cli.startup_header())
+    assert any("v9.8.7" in line for line in cli.startup_header("9.8.7"))
+
+
+def test_the_header_lines_are_ordered_ui_update_session() -> None:
+    lines = cli.startup_header()
+    assert len(lines) == 3
+    assert lines[0].startswith("Web UI:")
+    assert lines[1].startswith("Update:")
+    assert lines[2].startswith("Session:")
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes", "TRUE"])
@@ -293,7 +311,7 @@ def test_uh_quiet_is_not_triggered_by_anything_else(
     assert cli.quiet_mode() is False
 
 
-def test_uh_quiet_silences_the_banner_header_and_tip(
+def test_uh_quiet_silences_the_banner_and_header(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
@@ -304,7 +322,9 @@ def test_uh_quiet_silences_the_banner_header_and_tip(
     assert cli._run_repl(_repl_session(tmp_path, StubProvider())) == 0
 
     captured = capsys.readouterr()
-    assert "Tip:" not in captured.err
+    assert "Web UI:" not in captured.err
+    assert "Update:" not in captured.err
+    assert "Session:" not in captured.err
     assert "provider stub" not in captured.err
     assert "workspace" not in captured.err
     assert "█" not in captured.out
