@@ -47,6 +47,9 @@ BLOCK_CAP = 500
 #: Enough to characterise a source without reading somebody's night of notes.
 SAMPLE_BLOCKS = 50
 SAMPLE_CHARS = 300
+#: What a server may spend on being *listed* at 03:00: a handshake and
+#: ``tools/list``, never a call. Bounded, because the pass has a budget.
+PROBE_SECONDS = 10.0
 
 
 @dataclass
@@ -429,15 +432,23 @@ class DreamScheduler:
             }
         except Exception:  # noqa: BLE001 - status is a nicety, the list is not
             connected = {}
-        entries = []
+        entries: List[Dict[str, Any]] = []
+        listed = 0
         for server in servers:
             state = connected.get(server.name) or {}
+            tools = [str(tool) for tool in state.get("tools") or []]
+            if not tools and not state.get("connected"):
+                # Not running: a handshake is what turns "1 server configured"
+                # into a workflow that names a tool that exists. Listing is
+                # read-only; calling is the thing this pass refuses.
+                tools = self._probe_tools(server)
+            listed += len(tools)
             entries.append(
                 {
                     "name": server.name,
                     "command": server.command,
                     "connected": bool(state.get("connected")),
-                    "tools": [str(tool) for tool in state.get("tools") or []],
+                    "tools": tools,
                 }
             )
         live = sum(1 for entry in entries if entry["connected"])
@@ -445,8 +456,25 @@ class DreamScheduler:
             "available": True,
             "servers": entries,
             "problems": problems,
-            "detail": f"{len(entries)} server(s), {live} connected to this process",
+            "detail": f"{len(entries)} server(s), {live} connected"
+            + (f"; {listed} tool(s) listed" if listed else ""),
         }
+
+    def _probe_tools(self, server: Any) -> List[str]:
+        """Start one server just long enough to list its tools, then stop it."""
+        import dataclasses
+
+        from . import mcp
+
+        bounded = dataclasses.replace(server, timeout=min(server.timeout, PROBE_SECONDS))
+        client = mcp.Client(bounded)
+        try:
+            client.start()
+            return [str(tool.get("name")) for tool in client.tools]
+        except Exception:  # noqa: BLE001 - an unlistable server is only "unknown"
+            return []
+        finally:
+            client.close()
 
     def _inventory_siyuan(self, url: str, report: DreamReport) -> dict:
         try:

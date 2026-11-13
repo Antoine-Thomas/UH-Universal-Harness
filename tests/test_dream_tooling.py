@@ -199,12 +199,39 @@ def test_a_workflow_may_only_name_a_tool_that_exists(
     assert "launch_missiles" not in report.render()
 
 
-def test_a_workflow_never_runs_through_the_toolset(
+class _StubClient(mcp.Client):
+    """A client that answers the handshake from memory and records any call."""
+
+    calls: List[str] = []
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.tools = [{"name": "read_file"}, {"name": "list_directory"}]
+        self.protocol_version = "2024-11-05"
+        self.server_info = {"name": "stub"}
+
+    def start(self):  # noqa: D102 - no process, no pipe
+        return self
+
+    def call(self, tool, arguments=None):  # noqa: D102
+        _StubClient.calls.append(tool)
+        return {"text": "should never happen"}
+
+    def close(self):  # noqa: D102
+        return None
+
+
+def test_a_pass_lists_tools_but_never_calls_one(
     home: Path, tmp_path: Path, fake_mcp: mcp.ServerConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Inventory, never execution: no MCP tool is called by a pass."""
-    called: List[str] = []
-    monkeypatch.setattr(mcp, "client_for", lambda config: called.append(config.name))
+    """Listing is read-only; calling would let a 03:00 job write somewhere."""
+    _StubClient.calls = []
+    monkeypatch.setattr(
+        mcp,
+        "status",
+        lambda config=None: {"servers": [{"name": "filesystem", "connected": False, "tools": []}]},
+    )
+    monkeypatch.setattr(mcp, "Client", _StubClient)
 
     provider = RecordingProvider(
         answer(workflows=[{"title": "x", "why": "y", "tools": ["mcp__filesystem__read_file"]}])
@@ -216,9 +243,11 @@ def test_a_workflow_never_runs_through_the_toolset(
         client=router(),
     )
 
-    engine.run_once()
+    report = engine.run_once()
 
-    assert called == [], "a night pass must never start an MCP server to answer"
+    assert _StubClient.calls == [], "a night pass must never call an MCP tool"
+    assert report.sources["mcp"]["available"] is True
+    assert "2 tool(s) listed" in report.sources["mcp"]["detail"]
 
 
 def test_the_report_lists_the_workflows_under_a_clear_heading(
