@@ -13,11 +13,51 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [Unreleased]
+## [1.7.0] — 2026-11-15
+
+**One door per subject, honest errors, and an agent that knows its own setup.**
+
+### Changed
+
+- **One place to connect anything.** `+ Connecter un MCP` left the `Données` tab:
+  `Connexions` is the only door to a cloud storage, an MCP server or an IDE, and
+  `Données` is the local maintenance room (backup, skills, installed tools, repair
+  UH). An old `?panel=providers` link still lands on `Fournisseurs`.
+- **No second button in the local-model table.** The row itself selects the model,
+  the same move as the header menu; `Providers` merged into `Fournisseurs` (one
+  subject, one tab), and the tab strip wraps instead of hiding titles.
+- **The header switches a pair, not a name.** The menu lists local models *and*
+  every API provider that holds a key, badged 💻 / ☁️, and sends
+  `{provider, model}`: choosing `deepseek-v4-pro` while `qwen3:8b` was active used
+  to leave the provider behind ("faster, not smarter") or send an Ollama id to an
+  API and come back as a bare `HTTP 500`.
+- **`SYSTEM_MAP.md` gained an `## Architecture` section** - UH is the cockpit, UHB
+  the optional backend on port 8101, local models run through Ollama on 11434 - and
+  one condensed line of it rides in the brief the model reads on every turn.
+- **The prompt names the doors.** A UI question is answered with a tab and a deep
+  link, never with a file edit; `Connexions` is the only place for a connection,
+  and `Données` is never offered for one. When a tool exists, the agent calls it
+  instead of printing code to copy.
+
+### Fixed
+
+- **Ollama failures are sentences.** `refusé : HTTP 500` on a model row became
+  "non chargé : Ollama n'a pas pu le mettre en mémoire (VRAM ou délai)", with what
+  to do next; a model that is not installed is a `400` that says so, and a
+  read-only `config.toml` is a `409` naming the cause.
+- **`POST /api/model` refuses a contradictory pair**: a local id with an API
+  provider, an uninstalled Ollama model, or an unknown provider - each with the
+  sentence that resolves it, instead of caching an impossible state.
+- **The dev environment no longer shadows the repository.** A non-editable
+  `uh-harness` in the venv won the import race over `./uh` when the gate ran
+  `pytest.exe`, so the release gate could test code that was not being pushed.
+  Fixed by an editable install, and `tests/test_dev_env.py` now fails loudly if it
+  ever happens again.
+
 
 ### Added
 
-- **`+ Connecter un MCP`** (in `Connexions` and in `Données`): one popup for
+- **`+ Connecter un MCP`** (in `Connexions`, its only home): one popup for
   `stdio`, `http` and `sse`, with a `.json` / YAML-subset import, a five-second
   probe (`POST /api/mcp/probe`, writes nothing) and an `Enregistrer` button that
   stays disabled until the probe answers `connected`. Editing a field after the

@@ -803,6 +803,38 @@ Two items read this month, kept here so they are not lost:
   anyone routing through a LiteLLM gateway. Verify against their changelog before
   quoting it.
 
+## P14.4 - the polish pass (shipped in 1.7.0)
+
+- [x] one door per subject: `+ Connecter un MCP` only in `Connexions`; `Données` is
+      backup, skills, installed tools, repair - and never a connection;
+- [x] no "Utiliser" buttons: the row is the action, the same move as the header menu;
+- [x] a 500 from Ollama reads "non chargé (VRAM ou délai), réessaie ou prends un
+      modèle plus petit", and a model that is not installed is a 400 that says so;
+- [x] `Providers` merged into `Fournisseurs`, tabs wrap instead of hiding titles.
+
+## P15 - self-awareness (shipped in 1.7.0)
+
+`SYSTEM_MAP.md` carries an `## Architecture` section (cockpit / backend / ports),
+and one condensed line rides in the brief the model reads on every turn. The
+prompt also names the doors, so "où est le bouton MCP ?" is answered with the tab
+and `/?panel=conn`, never with a file edit.
+
+## P16 - the dev environment (shipped in 1.7.0)
+
+A non-editable `uh-harness` in `.venv` won the import race over `./uh` when the
+gate ran `pytest.exe`: the gate could test code that was not being pushed. Fixed by
+`pip install -e . --no-deps`, and `tests/test_dev_env.py` fails loudly if `uh` does
+not come from this repository.
+
+## P17 - the real Positron test (open)
+
+- [ ] a handshake from the UI against an installed Positron, with a console open;
+- [ ] one turn that really calls `mcp__positron__execute_code` and gets a result
+      back (today the transport is proven against a simulated server that speaks
+      both Streamable HTTP and the legacy SSE stream);
+- [ ] a screenshot of the connected state, filed next to
+      `docs/assets/p14-connected.png`.
+
 ## Tauri vs client MCP - the decision, not the build
 
 **Criteria**, in the order they matter to this product: (1) first launch without a

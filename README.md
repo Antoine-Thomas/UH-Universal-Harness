@@ -124,6 +124,9 @@ Notes that save an hour:
 
 ## What UH contains
 
+The shape of the whole thing - UH, UHB, Ollama, the MCP servers and where the state
+lives - is drawn in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 - **No Ollama required.** A cloud key (DeepSeek, OpenRouter, …) or **Hugging Face**
   (a local TGI server, or a token for the router) is enough - see
   [Hugging Face](#hugging-face-local-models-without-ollama).
