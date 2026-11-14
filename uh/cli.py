@@ -1007,6 +1007,15 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
             f"{installed} stays installed, nothing changed",
             file=sys.stderr,
         )
+        # The common Windows failure is WinError 32: a leftover `uh web` holds
+        # uh.exe and pip cannot replace it. A blocked user needs the procedure,
+        # not the traceback.
+        print(
+            "  if pip reported a locked file (WinError 32), run the clean manual "
+            "upgrade: https://github.com/Antoine-Thomas/UH-Universal-Harness/"
+            "blob/main/docs/INSTALL.md#clean-manual-upgrade-windows",
+            file=sys.stderr,
+        )
         return completed.returncode if completed.returncode > 0 else EXIT_FAILURE
 
     if args.dry_run:

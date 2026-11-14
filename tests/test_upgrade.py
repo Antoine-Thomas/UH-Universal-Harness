@@ -222,3 +222,19 @@ def test_no_clean_is_the_old_plain_upgrade(
     assert seen == [seen[0]], "no cache purge, no taskkill: one command only"
     assert "--force-reinstall" not in seen[0]
     assert "pip cache purged" not in capsys.readouterr().out
+
+def test_a_failed_upgrade_names_the_manual_procedure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """WinError 32 is the common Windows failure: point at the documented fix."""
+    monkeypatch.setattr(cli, "in_virtualenv", lambda: True)
+    _versions(monkeypatch, "1.0.0")
+    monkeypatch.setattr(
+        cli.subprocess, "run", lambda cmd, **kw: _completed(1) if "install" in cmd else _completed()
+    )
+
+    assert cli.cmd_upgrade(_args(no_clean=True)) != 0
+
+    err = capsys.readouterr().err
+    assert "pip failed" in err
+    assert "docs/INSTALL.md" in err, "a blocked user needs the procedure, not an exit code"

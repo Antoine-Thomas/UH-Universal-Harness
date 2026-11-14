@@ -79,29 +79,30 @@ cache, reinstalls with `--force-reinstall --no-cache-dir`, refreshes the Desktop
 shortcut, and - when it *is* `uh.exe` - hands the install to a detached console and
 leaves first, because Windows will not let a running executable be replaced.
 
-```powershell
-uh upgrade            # clean pass, then relaunch the shortcut
-uh upgrade --no-clean # plain `pip install --upgrade`, no shortcuts touched
-uh upgrade --dry-run  # prints the command, changes nothing
-```
-
-When an installation is too broken for `uh upgrade` to run at all (the entry point
-itself refuses to start, or `WinError 32` comes back), this is the exact sequence
-that repairs it - nothing else is needed:
+When it cannot run, or when the UI keeps serving an old version, this is the exact
+sequence that repairs the installation. Full version, with the "if it is still
+wrong" cases, in [docs/INSTALL.md](docs/INSTALL.md#clean-manual-upgrade-windows).
 
 ```powershell
-# 1. stop every UH process: they hold uh.exe and the web port
+# 1. stop every UH process: they hold uh.exe and the web port ("WinError 32")
 Get-CimInstance Win32_Process |
   Where-Object { $_.Name -eq 'uh.exe' -or $_.CommandLine -like '*-m uh.cli*' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
-# 2. drop the wheel cache and any half-replaced install
+# 2. drop the wheel cache: it can hand back an old build
 python -m pip cache purge
+
+# 3. uninstall, so no half-replaced file survives the reinstall
+python -m pip uninstall uh-harness -y
+
+# 4. reinstall the latest release, without the cache
 python -m pip install --force-reinstall --no-cache-dir uh-harness
 
-# 3. rebuild the Desktop shortcut with the current launcher (adds --app, and the
-#    step that stops a previous `uh web` before starting a new one)
+# 5. rebuild the Desktop shortcut (it carries the current flags and version line)
 uh install-shortcut
+
+# 6. prove it
+uh --version
 ```
 
 Notes that save an hour:
@@ -116,6 +117,8 @@ Notes that save an hour:
 - **Two versions at once** is the most common "not the right version" report: the
   page is stamped (`?v=…`) and compares itself with `/api/status`, and a busy port
   moves the new server to the next one instead of dying with `exit code 3`.
+- **macOS / Linux**: same sequence without step 1 and step 5 (`pkill -f uh.cli`),
+  and point your own launcher at `uh web`.
 
 ## What UH contains
 
