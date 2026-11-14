@@ -167,3 +167,38 @@ def test_a_bad_name_is_refused_before_anything_is_written(
         )
 
     assert not (tmp_path / "config.toml").exists()
+
+def test_the_self_repair_template_cannot_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A server that can read our source must not be able to rewrite it."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    mcp_cloud.connect("self-repair", "self-repair", {"REPO_PATH": str(repo)})
+
+    servers, problems = mcp.servers_from_config()
+    assert not problems
+    entry = next(server for server in servers if server.name == "self-repair")
+    assert str(repo) in entry.args, "the path is an argument of the filesystem server"
+    assert entry.allow, "an allowlist is mandatory"
+    forbidden = {"write_file", "edit_file", "create_directory", "move_file"}
+    assert not (forbidden & set(entry.allow or ())), "no write tool in a read-only server"
+
+
+def test_the_self_repair_server_cannot_see_the_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It reads the checkout; ~/.uh (keys, mcp-secrets) is not in that folder."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    mcp_cloud.connect("self-repair", "self-repair", {"REPO_PATH": str(repo)})
+
+    entry = mcp_cloud.read_secrets()
+    assert "self-repair" not in entry, "a read-only server needs no secret"
+
+    config = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert str(tmp_path / mcp_cloud.SECRETS_FILE) not in config
+    assert "keys.toml" not in config

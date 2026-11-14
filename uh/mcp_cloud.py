@@ -112,6 +112,33 @@ TEMPLATES: Dict[str, Template] = {
         upload_note="Écrit via put_object(bucket, key, content).",
         docs="https://www.npmjs.com/package/mcp-server-s3",
     ),
+    "self-repair": Template(
+        ident="self-repair",
+        label="Self-repair (UH source, lecture seule)",
+        command="npx",
+        args=("-y", "@modelcontextprotocol/server-filesystem", "{{REPO_PATH}}"),
+        what="Lire le code de UH pour proposer un correctif. Aucun outil d'écriture.",
+        fields=(
+            Field(
+                "REPO_PATH",
+                "Dépôt UH",
+                placeholder="C:/Users/moi/UH-Universal-Harness",
+                help="Le serveur ne voit que ce dossier : ~/.uh (clés, secrets) reste hors de portée.",
+            ),
+        ),
+        allow=(
+            "read_text_file",
+            "read_file",
+            "read_multiple_files",
+            "list_directory",
+            "directory_tree",
+            "search_files",
+            "get_file_info",
+            "list_allowed_directories",
+        ),
+        upload_note="Lecture seule par construction : la modification passe par `uh fix`, qui montre un diff avant d'écrire.",
+        docs="https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem",
+    ),
     "gdrive": Template(
         ident="gdrive",
         label="Google Drive (lecture)",
@@ -187,10 +214,20 @@ def build(
         for item in spec.fields
         if item.secret and values.get(item.key)
     }
+    args = [str(arg) for arg in spec.args]
+    # A field can be part of the command line (`{{REPO_PATH}}`): the filesystem
+    # server takes the folder it may see as an argument, not as an env var.
+    for item in spec.fields:
+        value = values.get(item.key, "")
+        if value:
+            args = [arg.replace("{{" + item.key + "}}", value) for arg in args]
+    unresolved = [arg for arg in args if "{{" in arg]
+    if unresolved:
+        raise CloudError("unfilled placeholder in args: " + ", ".join(unresolved))
     entry: Dict[str, Any] = {
         "name": entry_name,
         "command": spec.command,
-        "args": list(spec.args),
+        "args": args,
         "timeout": 60,
     }
     if public:

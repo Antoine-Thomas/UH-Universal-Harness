@@ -301,6 +301,57 @@ def _config_detail() -> tuple[str, str]:
     return "INFO", "no config file (defaults + environment only)"
 
 
+def cmd_fix(args: argparse.Namespace) -> int:
+    """`uh fix`: propose a patch, prove it applies, apply it only on request."""
+    from . import fixes
+
+    instruction = " ".join(getattr(args, "instruction", []) or []).strip()
+    patch = None
+    if getattr(args, "from_file", ""):
+        patch = Path(args.from_file).expanduser().read_text(encoding="utf-8")
+    if not instruction and not patch:
+        print("uh fix: give a description of the problem, or --from-file <patch.diff>",
+              file=sys.stderr)
+        return EXIT_FAILURE
+
+    try:
+        proposal = fixes.propose(instruction, patch=patch, model=getattr(args, "model", "") or "")
+    except fixes.FixError as exc:
+        print(f"uh fix: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+
+    print(f"uh fix: diff written to {proposal.path}")
+    for note in proposal.notes:
+        print(f"  note: {note}")
+    if not proposal.applies:
+        print(f"uh fix: rejected - {proposal.check_error}", file=sys.stderr)
+        print("  nothing was written to the working tree", file=sys.stderr)
+        return EXIT_FAILURE
+    print("uh fix: the patch applies cleanly (git apply --check)")
+    print(proposal.diff)
+    if not getattr(args, "apply", False):
+        print("uh fix: not applied. Review it, then: uh fix -m \"<problem>\" --apply", file=sys.stderr)
+        return EXIT_OK
+
+    checks = []
+    for command in getattr(args, "check", []) or []:
+        checks.append(command.split())
+    try:
+        outcome = fixes.apply(proposal, checks=checks)
+    except fixes.FixError as exc:
+        print(f"uh fix: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    if not outcome["applied"]:
+        print(f"uh fix: applied on {outcome['branch']} then REVERTED: a check failed", file=sys.stderr)
+        for line in outcome["failed"]:
+            print(f"  {line}", file=sys.stderr)
+        return EXIT_FAILURE
+    print(f"uh fix: applied on branch {outcome['branch']} - nothing committed, nothing pushed")
+    for line in outcome["changed"]:
+        print(f"  {line}")
+    return EXIT_OK
+
+
 def cmd_skills(args: argparse.Namespace) -> int:
     """`uh skills`: what is installed, and the near-duplicates worth merging."""
     from . import skills as uh_skills
@@ -2385,6 +2436,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--write", action="store_true", help="also write $UH_HOME/SYSTEM_MAP.md"
     )
 
+    fix_cmd = sub.add_parser(
+        "fix", help="propose a patch for a problem, in a diff that must apply"
+    )
+    fix_cmd.add_argument("instruction", nargs="*", help="what is broken, in words")
+    fix_cmd.add_argument(
+        "--from-file", default="", help="use this .diff instead of asking a model"
+    )
+    fix_cmd.add_argument(
+        "--apply", action="store_true", help="apply on a fix/auto-<stamp> branch (never commits)"
+    )
+    fix_cmd.add_argument(
+        "--check",
+        action="append",
+        default=[],
+        help="command that must pass after applying (repeatable); failure reverts the patch",
+    )
+    fix_cmd.add_argument("--model", default="", help="model to ask for the patch")
+
     skill_cmd = sub.add_parser("skills", help="list your skills, or merge near-duplicates")
     skill_cmd.add_argument(
         "--compress",
@@ -2694,6 +2763,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_map(args)
         if args.command == "skills":
             return cmd_skills(args)
+        if args.command == "fix":
+            return cmd_fix(args)
         if args.command == "chat":
             return cmd_chat(args)
         if args.command == "model":

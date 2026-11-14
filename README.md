@@ -579,6 +579,29 @@ they are. Model namespaces are not shared, so each backup uses its own model:
 `UH_OMNIROUTER_MODEL` (default `auto/best-free`), `deepseek-flash` for DeepSeek,
 `@cf/meta/llama-3.3-70b-instruct-fp8-fast` for Cloudflare.
 
+### Repairing itself, with a brake
+
+`uh fix` asks a provider for a unified diff, then **proves it applies** before it
+shows it:
+
+```bash
+uh fix "add() returns a - b, it must add"            # propose, print, change nothing
+uh fix "..." --apply --check "pytest tests/test_add.py -q"
+uh fix "..." --from-file my.patch                   # no model: validate a patch you wrote
+```
+
+The order is the point: the answer must start with `diff --git`, it must pass
+`git apply --check`, and only then is it offered. `--apply` works on a branch
+named `fix/auto-<stamp>`, runs the `--check` commands, and **reverts the patch if
+one fails** - a patch that breaks the suite is not a repair. Nothing is ever
+committed or pushed from here; you read `git diff`, then you decide.
+
+The `self-repair` template in **Connecter un Cloud** adds a read-only filesystem
+server pointed at the checkout, so the model can *read* the source while it writes
+the diff. Its allowlist has no write tool at all, and its only visible folder is
+the repository: `~/.uh` (`keys.toml`, `mcp-secrets.toml`) is outside it, by
+construction.
+
 ### Hugging Face: local models without Ollama
 
 `uh/providers/huggingface.py` speaks `POST /v1/chat/completions`, and picks its
