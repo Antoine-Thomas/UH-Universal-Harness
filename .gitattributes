@@ -1,5 +1,10 @@
 # Normalise line endings: LF in the repository, whatever the platform checks out.
 * text=auto eol=lf
+# Windows scripts need CRLF to run from a double-click or a scheduled task: a
+# `.bat` with LF endings breaks on labels, `goto` and multi-line `if`.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
 *.png binary
 *.jpg binary
 *.wav binary
