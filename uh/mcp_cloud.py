@@ -19,8 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import tomllib
-
+from ._compat import tomllib  # 3.10 gets tomli through the shim
 from .config import uh_home
 
 SECRETS_FILE = "mcp-secrets.toml"

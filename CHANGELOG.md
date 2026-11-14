@@ -13,6 +13,17 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.6.1] — 2026-11-14
+
+### Fixed
+
+- **1.6.0 does not import on Python 3.10.** `uh/mcp_cloud.py` imported `tomllib`
+  directly; it joined the standard library in 3.11. The module now goes through
+  `uh._compat`, which falls back to `tomli` (already a conditional dependency), as
+  every other TOML reader in the codebase does. The 3.10 jobs of the CI matrix
+  caught it on the release commit - the wheel published as 1.6.0 is unusable on
+  3.10, and this is the fix. `python3.10 -c "import uh.cli, uh.web.app"` passes.
+
 ## [1.6.0] — 2026-11-14
 
 Three pillars, one release: a provider that needs no Ollama, a harness that can
