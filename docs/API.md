@@ -152,6 +152,7 @@ contract of the bundled one:
 attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
+local-panel  local-view  tab-local  setup-banner
 data-open  data-panel  data-view  tab-data
 conn-badge  conn-view  tab-conn
 memory-graph  skill-badge  skill-open

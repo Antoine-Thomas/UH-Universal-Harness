@@ -57,6 +57,11 @@
 
       <div id="remote-banner" class="warning remote" hidden></div>
 
+      <!-- First launch: an invitation, not a wall. The app is usable without it,
+           the button opens the tab that fixes it, and "plus tard" closes it for
+           good (localStorage). Static element: the content is built in app.js. -->
+      <div id="setup-banner" class="setup-banner" role="status" hidden></div>
+
       <div id="terminal-warning" class="warning" hidden>
         Terminal toolset is ENABLED: the model can run shell commands in the workspace.
       </div>
@@ -97,9 +102,10 @@
         <button id="providers-close" class="icon-button" aria-label="Close">×</button>
       </header>
       <nav class="panel-tabs" role="tablist">
-        <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">API keys</button>
-        <button id="tab-providers" class="panel-tab" role="tab" aria-selected="false" aria-controls="providers-view">Providers</button>
+        <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">Clé API</button>
+        <button id="tab-local" class="panel-tab" role="tab" aria-selected="false" aria-controls="local-view">IA locale</button>
         <button id="tab-conn" class="panel-tab" role="tab" aria-selected="false" aria-controls="conn-view">Connexions<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
+        <button id="tab-providers" class="panel-tab" role="tab" aria-selected="false" aria-controls="providers-view">Providers</button>
         <button id="tab-models" class="panel-tab" role="tab" aria-selected="false" aria-controls="models-view">Models</button>
         <button id="tab-uhb" class="panel-tab" role="tab" aria-selected="false" aria-controls="uhb-view">Second brain</button>
         <button id="tab-memory" class="panel-tab" role="tab" aria-selected="false" aria-controls="memory-view">Memory</button>
@@ -110,6 +116,9 @@
       <div class="rightbar-scroll">
         <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">
           <div id="keys-priority" class="keys-priority"></div>
+        </div>
+        <div id="local-view" class="panel-view" role="tabpanel" aria-labelledby="tab-local" hidden>
+          <div id="local-panel" class="local-panel"></div>
         </div>
         <div id="providers-view" class="panel-view" role="tabpanel" aria-labelledby="tab-providers" hidden>
           <div id="router-settings" class="router-settings"></div>

@@ -895,6 +895,7 @@ body {
   border: 1px solid var(--border); background: var(--bg); color: var(--text);
   cursor: pointer;
 }
+a.data-button { text-decoration: none; display: inline-block; }
 .data-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .data-button.primary {
   background: var(--accent); border-color: var(--accent);
@@ -944,6 +945,35 @@ body {
 .dot-ok { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .dot-warn { background: var(--highlight); box-shadow: 0 0 6px rgba(253, 197, 2, .6); }
 .dot-off { background: var(--border); }
+
+/* First launch: a discreet invitation above the transcript. Nothing is blocked,
+   nothing is modal, and "Plus tard" is remembered. */
+.setup-banner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 8px 16px 0; padding: 8px 12px; font-size: 12px;
+  border: 1px solid var(--border); border-left: 3px solid var(--highlight);
+  border-radius: var(--radius); background: var(--panel);
+}
+.setup-banner a { color: var(--link); }
+.setup-banner .setup-text { flex: 1 1 260px; }
+
+/* IA locale: the one panel allowed to shout a little (yellow), because it is a
+   guide a person reads once, not a setting they keep coming back to. */
+.local-panel { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.local-guide {
+  border: 1px solid var(--highlight); border-left: 3px solid var(--highlight);
+  border-radius: var(--radius); padding: 10px 12px;
+  background: rgba(253, 197, 2, .10);
+}
+.local-guide h3 { margin: 0 0 6px; font-size: 13px; }
+.local-status { margin: 6px 0; font-family: var(--mono); font-size: 11px; }
+.local-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.local-models { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.local-model {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  font-size: 11px;
+}
+.local-model-name { font-family: var(--mono); overflow-wrap: anywhere; }
 
 /* The skill form: a real dialog in the page, no framework, Esc and backdrop
    both close it, and a click inside never reaches the panel's click-outside. */

@@ -32,6 +32,14 @@ Conventions worth knowing:
   is refused.
 - `UH_DEV_RELOAD=1` restarts the worker on a Python change, so a route added after
   the server started no longer answers 404 while working on the UI.
+- **The cockpit opens before any model exists.** No modal on first launch: a
+  discreet banner offers `Configurer une IA`, `J'ai une clé API` or `Plus tard`
+  (remembered), and the chat, the files and the memory already work.
+- **`IA locale` is its own tab** (yellow guide): Ollama status, the official
+  installer link (UH installs nothing), one-click model choice, TGI detection, and
+  a pointer to `Clé API`. `Clé API`, `IA locale` and `Connexions` are the first
+  three tabs; `Connexions` now says "Stockage cloud (dossiers)" so a storage
+  account is never mistaken for a model key.
 
 ### Security
 

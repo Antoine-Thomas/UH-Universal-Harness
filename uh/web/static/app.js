@@ -2342,6 +2342,7 @@ function showPanelTab(name) {
   state.activeTab = name;
   for (const [tab, view] of [
     ["keys", "keys-view"],
+    ["local", "local-view"],
     ["providers", "providers-view"],
     ["models", "models-view"],
     ["uhb", "uhb-view"],
@@ -2377,6 +2378,7 @@ function showPanelTab(name) {
     stopTelemetryPolling();
   }
   if (name === "conn") loadConnections().catch(() => {});
+  if (name === "local") loadLocalPanel().catch(() => {});
   if (name === "data") loadData().catch(() => {});
 }
 
@@ -2484,7 +2486,7 @@ async function refreshConnBadge() {
 }
 
 const PANEL_TABS = new Set([
-  "keys", "providers", "conn", "models", "uhb", "memory", "decision", "telemetry", "data",
+  "keys", "local", "conn", "providers", "models", "uhb", "memory", "decision", "telemetry", "data",
 ]);
 
 function openPanelFromUrl() {
@@ -2499,6 +2501,7 @@ function wireProviders() {
   $("providers-open").addEventListener("click", openProviders);
   $("providers-close").addEventListener("click", closeProviders);
   $("tab-keys").addEventListener("click", () => showPanelTab("keys"));
+  $("tab-local").addEventListener("click", () => showPanelTab("local"));
   $("tab-providers").addEventListener("click", () => showPanelTab("providers"));
   $("tab-models").addEventListener("click", () => showPanelTab("models"));
   $("tab-uhb").addEventListener("click", () => showPanelTab("uhb"));
@@ -3753,7 +3756,8 @@ function openLlmPanel() {
 // strip and a floating window, which keeps their listeners, their scroll and
 // their CSS, and needs no library at all.
 const PANE_TITLES = {
-  keys: "API keys",
+  keys: "Clé API",
+  local: "IA locale",
   providers: "Providers",
   models: "Models",
   uhb: "Second brain",
@@ -4066,7 +4070,9 @@ async function boot() {
   // A tab nobody notices does not exist: badge until one connection is configured.
   refreshConnBadge().catch(() => {});
   // Last, so the first-run screen opens over a UI that is already painted.
-  await maybeOpenSetup().catch(() => {});
+  // The app is usable before any provider exists: a discreet banner offers the
+  // configuration, it never stands in the way. No modal on first launch.
+  showSetupBanner().catch(() => {});
   // Narrow screens: the right column starts collapsed (overlay mode).
   if (isNarrow()) closeProviders();
   showRemoteBanner().catch(() => {});
@@ -4085,18 +4091,19 @@ function firstRunHint() {
   const bubble = el("div", "msg assistant");
   const content = el("div", "content md");
   content.appendChild(
-    document.createTextNode(
-      "Bienvenue dans UH. Pour commencer, connecte ce que tu utilises déjà : "
-    )
+    document.createTextNode("Bienvenue dans UH. Il s'ouvre déjà : le chat, les fichiers et la mémoire locale fonctionnent. ")
   );
-  const link = document.createElement("a");
-  link.href = "/?panel=conn";
-  link.textContent = "ouvrir Connexions";
-  content.appendChild(link);
+  const ai = document.createElement("a");
+  ai.href = "/?panel=local";
+  ai.textContent = "Configurer une IA";
+  content.appendChild(ai);
+  content.appendChild(document.createTextNode(" (Ollama, TGI ou clé API), ou brancher ce que tu utilises : "));
+  const conn = document.createElement("a");
+  conn.href = "/?panel=conn";
+  conn.textContent = "ouvrir Connexions";
+  content.appendChild(conn);
   content.appendChild(
-    document.createTextNode(
-      " — un stockage cloud, un serveur d'outils, un IDE. Tout se règle depuis l'interface, sans commande."
-    )
+    document.createTextNode(" — un stockage cloud, un serveur d'outils, un IDE. Tout se règle depuis l'interface, sans commande.")
   );
   bubble.appendChild(content);
   $("messages").appendChild(bubble);
@@ -4567,121 +4574,232 @@ function openDiffModal(proposal) {
 }
 
 // --------------------------------------------------------------------------- //
-// first run: one screen, one choice, then never again
+// first run: an invitation, not a wall
 // --------------------------------------------------------------------------- //
-async function maybeOpenSetup() {
-  let state = null;
-  try {
-    state = await api("/api/setup");
-  } catch (error) {
-    return; // an older backend: no setup screen, the UI still works
-  }
-  if (!state || !state.needed) return;
+// The cockpit opens on the chat whatever the state of the machine. A missing
+// model is a discreet banner with three ways out (this machine, a key, or "later"),
+// never a modal between a person and the interface they just opened.
+const SETUP_DISMISSED = "uh.setup.dismissed";
 
-  const backdrop = el("div", "modal-backdrop");
-  const modal = el("div", "modal");
-  const form = el("form", "modal-form");
-  form.appendChild(el("p", "modal-title", "Bienvenue dans UH"));
-  form.appendChild(
+async function showSetupBanner() {
+  const banner = $("setup-banner");
+  if (!banner) return;
+  let setup = null;
+  try {
+    setup = await api("/api/setup");
+  } catch (error) {
+    return; // an older backend: no banner, the UI still works
+  }
+  if (!setup || !setup.needed) {
+    banner.hidden = true;
+    return;
+  }
+  if (localStorage.getItem(SETUP_DISMISSED) === "1") return;
+
+  banner.textContent = "";
+  const text = el(
+    "span",
+    "setup-text",
+    "Aucun modèle n'est configuré : UH s'ouvre, mais il ne peut pas encore répondre. "
+  );
+  const link = document.createElement("a");
+  link.href = "/?panel=local";
+  link.textContent = "Configurer une IA";
+  text.appendChild(link);
+  text.appendChild(document.createTextNode(" (locale ou clé API)."));
+  banner.appendChild(text);
+
+  const configure = el("button", "data-button primary", "Configurer une IA");
+  configure.type = "button";
+  configure.addEventListener("click", () => {
+    openProviders();
+    showPanelTab("local");
+  });
+  banner.appendChild(configure);
+
+  const keyed = el("button", "data-button", "J'ai une clé API");
+  keyed.type = "button";
+  keyed.addEventListener("click", () => {
+    openProviders();
+    showPanelTab("keys");
+  });
+  banner.appendChild(keyed);
+
+  const later = el("button", "ghost", "Plus tard");
+  later.type = "button";
+  later.addEventListener("click", () => {
+    localStorage.setItem(SETUP_DISMISSED, "1");
+    banner.hidden = true;
+  });
+  banner.appendChild(later);
+  banner.hidden = false;
+}
+
+// --------------------------------------------------------------------------- //
+// IA locale: the guide that obliges nothing
+// --------------------------------------------------------------------------- //
+const OLLAMA_DOWNLOAD = "https://ollama.com/download";
+const TGI_DOCS = "https://huggingface.co/docs/text-generation-inference";
+const SMALL_LOCAL_MODEL = "qwen2.5:0.5b";
+
+function localLink(href, label, primary = false) {
+  const link = document.createElement("a");
+  link.href = href;
+  link.className = primary ? "data-button primary" : "data-button";
+  link.textContent = label;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  return link;
+}
+
+async function loadLocalPanel() {
+  const box = $("local-panel");
+  if (!box) return;
+  box.textContent = "";
+  let setup = null;
+  try {
+    setup = await api("/api/setup");
+  } catch (error) {
+    box.appendChild(el("p", "panel-hint", `statut indisponible : ${error.message}`));
+    return;
+  }
+  const ollama = (setup && setup.ollama) || {};
+
+  const guide = el("section", "local-guide");
+  guide.appendChild(el("h3", null, "Faire tourner une IA sur cette machine"));
+  guide.appendChild(
     el(
       "p",
       "data-note",
-      "Aucun modèle n'est joignable pour l'instant. Choisis une fois, on n'en reparlera plus."
+      "UH s'ouvre sans rien configurer. Pour qu'il réponde, il lui faut un modèle : le plus simple est Ollama, gratuit et local. Une clé API marche aussi, sans rien installer."
     )
   );
 
-  const choice = document.createElement("select");
-  choice.className = "modal-input";
-  const options = [
-    ["huggingface", state.ollama.running ? "Hugging Face (TGI local ou token)" : "Hugging Face (token)"],
-    ["ollama", state.ollama.installed ? "Ollama (installé)" : "Ollama (non installé)"],
-    ["cloud", "Une clé cloud (DeepSeek, OpenRouter…)"],
-  ];
-  options.forEach(([value, label]) => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    choice.appendChild(option);
-  });
-  form.appendChild(choice);
+  const status = el("p", "local-status");
+  if (ollama.running) {
+    const count = (ollama.models || []).length;
+    status.textContent = `Ollama tourne · ${count} modèle(s) disponible(s)`;
+  } else if (ollama.installed) {
+    status.textContent = "Ollama est installé, mais il ne tourne pas.";
+  } else {
+    status.textContent = "Ollama n'est pas installé sur cette machine.";
+  }
+  guide.appendChild(status);
 
-  const modelSelect = document.createElement("select");
-  modelSelect.className = "modal-input";
-  const fillModels = () => {
-    modelSelect.textContent = "";
-    const list = choice.value === "huggingface" ? state.huggingface_models || [] : [];
-    list.forEach((id) => {
-      const option = document.createElement("option");
-      option.value = id;
-      option.textContent = id;
-      modelSelect.appendChild(option);
-    });
-    modelSelect.hidden = list.length === 0;
-  };
+  const actions = el("div", "local-actions");
+  const again = el("button", "data-button", "Vérifier à nouveau");
+  again.type = "button";
+  again.addEventListener("click", () => loadLocalPanel().catch(() => {}));
+  actions.appendChild(again);
+  if (!ollama.installed) {
+    actions.appendChild(localLink(OLLAMA_DOWNLOAD, "Télécharger Ollama", true));
+  }
+  guide.appendChild(actions);
 
-  const cloudSelect = document.createElement("select");
-  cloudSelect.className = "modal-input";
-  (state.cloud || []).forEach((name) => {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    cloudSelect.appendChild(option);
-  });
-  cloudSelect.hidden = true;
+  if (!ollama.installed) {
+    guide.appendChild(
+      el(
+        "p",
+        "data-note",
+        "UH n'installe pas Ollama à ta place : c'est un installeur système. Le bouton ouvre le site officiel ; reviens ensuite ici et clique sur « Vérifier à nouveau »."
+      )
+    );
+  } else if (!ollama.running) {
+    guide.appendChild(
+      el(
+        "p",
+        "data-note",
+        "Ouvre Ollama depuis le menu Démarrer (ou son icône dans la barre), puis clique sur « Vérifier à nouveau »."
+      )
+    );
+  }
 
-  const key = document.createElement("input");
-  key.className = "modal-input";
-  key.type = "password";
-  key.placeholder = "Token / clé (jamais affiché après enregistrement)";
-  key.hidden = true;
-
-  const refresh = () => {
-    fillModels();
-    cloudSelect.hidden = choice.value !== "cloud";
-    key.hidden = choice.value === "ollama";
-    key.placeholder =
-      choice.value === "huggingface" ? "Token HF (laisser vide pour un TGI local)" : "Clé du fournisseur";
-  };
-  choice.addEventListener("change", refresh);
-  [modelSelect, cloudSelect, key].forEach((node) => form.appendChild(node));
-  refresh();
-
-  const error = el("p", "modal-error");
-  const actions = el("div", "modal-actions");
-  const submit = el("button", "data-button primary", "Enregistrer");
-  submit.type = "submit";
-  actions.appendChild(submit);
-  form.appendChild(error);
-  form.appendChild(actions);
-  modal.appendChild(form);
-  backdrop.appendChild(modal);
-  document.body.appendChild(backdrop);
-  modal.addEventListener("click", (event) => event.stopPropagation());
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    submit.disabled = true;
-    submit.textContent = "enregistrement…";
-    try {
-      await api("/api/setup", {
-        method: "POST",
-        body: JSON.stringify({
-          choice: choice.value,
-          provider: choice.value === "cloud" ? cloudSelect.value : "",
-          key: key.value.trim(),
-          model: modelSelect.hidden ? "" : modelSelect.value,
-        }),
+  // Running with models: one click picks one for the conversations.
+  if (ollama.running) {
+    const models = ollama.models || [];
+    if (!models.length) {
+      guide.appendChild(
+        el(
+          "p",
+          "data-note",
+          "Aucun modèle téléchargé : prends le plus petit pour démarrer tout de suite."
+        )
+      );
+      const pull = el("button", "data-button primary", `Télécharger ${SMALL_LOCAL_MODEL} (~400 Mo)`);
+      pull.type = "button";
+      pull.addEventListener("click", async () => {
+        pull.disabled = true;
+        pull.textContent = "téléchargement lancé…";
+        try {
+          await api("/api/models/pull", {
+            method: "POST",
+            body: JSON.stringify({ name: SMALL_LOCAL_MODEL }),
+          });
+          pull.textContent = "téléchargé (regarde l'onglet Models)";
+        } catch (error) {
+          pull.textContent = `refusé : ${error.message}`;
+          pull.disabled = false;
+        }
       });
-      backdrop.remove();
-      await loadStatus();
-      await loadModels();
-      await loadLlmPanel().catch(() => {});
-    } catch (err) {
-      error.textContent = err.message;
-      submit.disabled = false;
-      submit.textContent = "Enregistrer";
+      guide.appendChild(pull);
+    } else {
+      const list = el("div", "local-models");
+      models.forEach((name) => {
+        const row = el("div", "local-model");
+        row.appendChild(el("span", "local-model-name", name));
+        const use = el("button", "data-button", "Utiliser");
+        use.type = "button";
+        use.addEventListener("click", async () => {
+          use.disabled = true;
+          try {
+            await api("/api/setup", {
+              method: "POST",
+              body: JSON.stringify({ choice: "ollama", model: name }),
+            });
+            use.textContent = "choisi";
+            await loadStatus();
+            await loadModels();
+            await loadLlmPanel().catch(() => {});
+          } catch (error) {
+            use.textContent = `refusé : ${error.message}`;
+            use.disabled = false;
+          }
+        });
+        row.appendChild(use);
+        list.appendChild(row);
+      });
+      guide.appendChild(list);
     }
-  });
+  }
+  box.appendChild(guide);
+
+  // TGI: UH detects it, it never installs it.
+  const tgi = el("section", "tool-cloud");
+  tgi.appendChild(el("div", "tool-name", "TGI local (Hugging Face)"));
+  tgi.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Si un serveur TGI tourne déjà sur 127.0.0.1:8080 avec l'API /v1, UH le reconnaît tout seul — rien à régler ici. Sinon, la procédure d'installation est chez Hugging Face."
+    )
+  );
+  tgi.appendChild(localLink(TGI_DOCS, "Procédure TGI (site Hugging Face)"));
+  box.appendChild(tgi);
+
+  const keysHint = el("section", "tool-cloud");
+  keysHint.appendChild(el("div", "tool-name", "Passer par une clé API"));
+  keysHint.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Une clé gratuite (OpenRouter, Google AI Studio, Hugging Face…) suffit aussi, et rien ne s'installe."
+    )
+  );
+  const goKeys = el("button", "data-button", "Ouvrir l'onglet Clé API");
+  goKeys.type = "button";
+  goKeys.addEventListener("click", () => showPanelTab("keys"));
+  keysHint.appendChild(goKeys);
+  box.appendChild(keysHint);
 }
 
 
@@ -4699,12 +4817,12 @@ async function mountCloud(section) {
   if (!templates.length) return;
 
   const box = el("div", "tool-cloud");
-  box.appendChild(el("div", "tool-name", "Connecter un Cloud"));
+  box.appendChild(el("div", "tool-name", "Stockage cloud (dossiers)"));
   box.appendChild(
     el(
       "p",
       "data-note",
-      "Le serveur tourne chez toi (npx) et parle à ton compte. Les clés vont dans mcp-secrets.toml, jamais dans config.toml."
+      "Un compte de stockage (S3, Google Drive) pour trier, sauvegarder et retrouver des fichiers. Ce n'est pas une clé de modèle : celles-ci vivent dans l'onglet « Clé API ». Le serveur tourne chez toi (npx) et parle à ton compte ; les clés vont dans mcp-secrets.toml, jamais dans config.toml."
     )
   );
 

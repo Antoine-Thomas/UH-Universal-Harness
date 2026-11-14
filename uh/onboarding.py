@@ -143,10 +143,12 @@ def _ollama_is_up() -> bool:
 
 def _guided(*, stream, input_fn: Callable[[str], str]) -> Optional[Choice]:
     print("", file=stream)
-    print("No local model and no router found. UH can use a free OpenAI-compatible API.", file=stream)
-    print("Get a key (free tier):", file=stream)
+    print("No local model and no router found. Two ways to get one:", file=stream)
+    print("  - Ollama, free and on this machine   https://ollama.com/download", file=stream)
+    print("    (once installed, UH finds it; `uh model pull qwen2.5:0.5b` takes ~400 MB)", file=stream)
+    print("  - a free OpenAI-compatible API key:", file=stream)
     for name, url in FREE_KEY_HINTS:
-        print(f"  - {name:<18} {url}", file=stream)
+        print(f"      {name:<18} {url}", file=stream)
     print("", file=stream)
     print("Add it later with: uh providers add <name> --base-url <url> --model <model>", file=stream)
 
