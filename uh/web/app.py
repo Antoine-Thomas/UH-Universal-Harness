@@ -595,9 +595,10 @@ def create_app(
             try:
                 from .. import mcp_http as uh_mcp_http
 
-                toolsets.update(
-                    uh_mcp_http.build_toolsets(notify=emit, config=app.state.cfg)
-                )
+                # Read the config from disk, not from `app.state.cfg`: a server
+                # added from the panel is written *while the app runs*, and a
+                # snapshot taken at import would hide it until a restart.
+                toolsets.update(uh_mcp_http.build_toolsets(notify=emit))
             except Exception:  # noqa: BLE001 - a remote server never breaks a turn
                 pass
             try:
