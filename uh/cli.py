@@ -301,6 +301,17 @@ def _config_detail() -> tuple[str, str]:
     return "INFO", "no config file (defaults + environment only)"
 
 
+def cmd_map(args: argparse.Namespace) -> int:
+    """`uh map`: the agent's own map, printed (and optionally written next to config)."""
+    from . import system_map
+
+    print(system_map.render())
+    if getattr(args, "write", False):
+        path = system_map.write()
+        print(f"\nwritten: {path}")
+    return EXIT_OK
+
+
 def cmd_doctor(_args: argparse.Namespace) -> int:
     rows: list[tuple[str, str, str]] = []  # (status, label, detail)
     failures = 0
@@ -2341,6 +2352,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor", help="check the local environment (python, httpx, git, ollama, store)")
 
+    show_map = sub.add_parser(
+        "map", help="where everything lives: chats, dreams, outputs, skills, workspace"
+    )
+    show_map.add_argument(
+        "--write", action="store_true", help="also write $UH_HOME/SYSTEM_MAP.md"
+    )
+
     chat = sub.add_parser("chat", help="conversation loop with file/terminal/memory tools")
     chat.add_argument("prompt", nargs="?", help="one-shot prompt (otherwise read stdin)")
     chat.add_argument("--model", help="model name (default: config, then first Ollama model)")
@@ -2631,6 +2649,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "doctor":
             return cmd_doctor(args)
+        if args.command == "map":
+            return cmd_map(args)
         if args.command == "chat":
             return cmd_chat(args)
         if args.command == "model":

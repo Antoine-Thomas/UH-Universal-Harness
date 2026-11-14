@@ -13,6 +13,32 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.5.0] — 2026-11-14
+
+The harness stops guessing about itself.
+
+Every path in the map is generated from the function that owns it, so the answer
+cannot drift from the machine.
+
+### Added
+
+- **`uh map`** - the system map: chats (`uh.db`), dreams (passes / archived /
+  actions), outputs, skills (yours and built-in), workspace, models. `--write` drops
+  `$UH_HOME/SYSTEM_MAP.md`. A compact version rides on the system prompt of every
+  turn, before the skill's instructions, so "where are my dreams?" gets a path and
+  not an invention.
+- **`outputs_dir`** - a real delivery folder (`config.toml`, default
+  `$UH_HOME/outputs`). "Exaucer" now writes its plan there as well as keeping the
+  record in `dreams/actions`: a plan the user cannot find is a plan that never
+  happened.
+- **`sessions` dream source** - the night pass reads the last 20 session titles and
+  their message counts. Titles, not bodies: the pass runs unattended at 03:00.
+
+### Changed
+
+- The system prompt is now: role, map, skill - in that order, so the task stays the
+  closest thing to the user message.
+
 ## [1.4.4] — 2026-11-14
 
 The patch for installing and updating on Windows, which was the hardest part of

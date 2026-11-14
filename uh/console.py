@@ -239,6 +239,19 @@ def system_message(workspace: Path, extra_system: str = "") -> dict:
         "changer de dossier, ou demande-moi d'écrire dans `~/Desktop` / `~/Documents` / "
         "`~/uh-workspace` qui sont autorisés.'"
     )
+    # The agent's own map: asked "where are my dreams?", a model that was never
+    # told invents a path. Cheap (names and paths, no scan) and generated from the
+    # code that owns them, so it cannot lie the way a hand-written doc does.
+    # Before `extra_system` on purpose: the skill's instructions are this turn's
+    # task, and the closest thing to the user message wins the model's attention.
+    try:
+        from .system_map import brief as system_map_brief
+
+        block = system_map_brief(workspace=workspace)
+    except Exception:  # noqa: BLE001 - a map is context, never a reason to fail a turn
+        block = ""
+    if block:
+        content = f"{content}\n\n{block}"
     if extra_system.strip():
         content = f"{content}\n\n{extra_system.strip()}"
     return {"role": "system", "content": content}

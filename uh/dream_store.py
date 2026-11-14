@@ -133,6 +133,8 @@ def fulfill(stamp: str) -> Optional[str]:
     """Turn a dream into a plan of action - a file, never a change.
 
     Nothing here touches the machine: the operator reads the plan, then decides.
+    The plan is also copied into ``outputs`` (the folder the user actually looks
+    at): a plan the user cannot find is a plan that never happened.
     """
     entry = read_dream(stamp)
     if entry is None:
@@ -159,6 +161,16 @@ def fulfill(stamp: str) -> Optional[str]:
         lines.append("_This pass produced no idea to act on._")
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
+    # The copy in `outputs` is what the user opens; the one in actions/ is the
+    # record. Two places on purpose: one is history, the other is a delivery.
+    try:
+        from .system_map import outputs_dir
+
+        delivered = outputs_dir()
+        delivered.mkdir(parents=True, exist_ok=True)
+        (delivered / f"dream-{stamp}.md").write_text("\n".join(lines), encoding="utf-8")
+    except OSError:  # noqa: BLE001 - a missing delivery must not lose the plan
+        pass
     return str(path)
 
 

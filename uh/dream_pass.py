@@ -41,7 +41,7 @@ from .dream import DreamJournal, dreams_dir
 
 #: What a pass may read. Order matters only for the report: the two UHB sources
 #: first, then the two the machine answers for itself.
-DEFAULT_SOURCES = ("siyuan", "rag", "skills", "mcp")
+DEFAULT_SOURCES = ("siyuan", "rag", "skills", "mcp", "sessions")
 #: UHB refuses to list more than this per call; asking for more is a lie in code.
 BLOCK_CAP = 500
 #: Enough to characterise a source without reading somebody's night of notes.
@@ -366,6 +366,8 @@ class DreamScheduler:
                 inventory[source] = self._inventory_skills()
             elif source == "mcp":
                 inventory[source] = self._inventory_mcp()
+            elif source == "sessions":
+                inventory[source] = self._inventory_sessions()
             else:
                 report.notes.append(f"unknown source '{source}' ignored")
                 inventory[source] = {"available": False, "error": "unknown source"}
@@ -374,6 +376,46 @@ class DreamScheduler:
                 "detail": inventory[source].get("detail", "") or inventory[source].get("error", ""),
             }
         return inventory
+
+    def _inventory_sessions(self) -> dict:
+        """What the user has been asking, read from the store - titles and counts.
+
+        This is the "a dream reads the chats" the operator asked for. Titles, not
+        message bodies: the pass runs unattended at 03:00, and a transcript is the
+        most private file in the harness. A missing store is an empty source, not a
+        failed pass.
+        """
+        try:
+            from .store import Store, default_store_path
+
+            path = default_store_path()
+            if not path.is_file():
+                return {"available": False, "sessions": [], "empty": True,
+                        "error": "no store yet"}
+            store = Store(path)
+            try:
+                rows = store.list_sessions(limit=20)
+            finally:
+                store.close()
+        except Exception as exc:  # noqa: BLE001 - a broken store is a missing source
+            return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+        entries: List[Dict[str, Any]] = [
+            {
+                "title": str(row.get("title") or "(untitled)"),
+                "messages": int(row.get("message_count") or 0),
+            }
+            for row in rows
+            if isinstance(row, dict)
+        ]
+        if not entries:
+            return {"available": False, "sessions": [], "empty": True,
+                    "error": "no session yet"}
+        headlines = ", ".join(str(entry["title"])[:40] for entry in entries[:6])
+        return {
+            "available": True,
+            "sessions": entries,
+            "detail": f"{len(entries)} session(s): {headlines}",
+        }
 
     def _inventory_skills(self) -> dict:
         """What this harness can already do, read from ``$UH_HOME/skills``.

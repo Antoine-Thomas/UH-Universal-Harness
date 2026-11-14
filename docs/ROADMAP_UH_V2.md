@@ -581,3 +581,34 @@ Still open, measured rather than guessed:
   per-call prompt; adding one is a P11 question about the UI, not about MCP.
 - **discovery**: a server is only known because `config.toml` names it. No
   registry browsing, no suggestion by a model, no auto-install.
+
+## P11 - Self-knowledge: the map, the outputs, and the dream cycle
+
+**Delivered 2026-11-14.** The harness could not answer "where are my dreams?"
+without inventing it, and a realisation had nowhere to land.
+
+1. **`uh/system_map.py`** - the map is *generated* from the functions that own the
+   paths (`uh_home`, `default_store_path`, `dream_store`, `skills`), so it cannot
+   drift from reality the way a hand-written document does. `uh map` prints it and
+   `uh map --write` drops `$UH_HOME/SYSTEM_MAP.md`. A compact `brief()` rides on
+   the system prompt of every turn: names and paths, no directory scan, and before
+   the skill's instructions - the task stays closest to the user message.
+2. **An outputs folder** - `outputs_dir` in `config.toml` (default
+   `$UH_HOME/outputs`). It is the only place a *realisation* writes, and `fulfil()`
+   now delivers its plan there as well as keeping the record in `dreams/actions`.
+3. **The dream reads the chats** - `sessions` is a source of the night pass: the
+   last 20 session titles and their message counts, never the bodies. The pass runs
+   unattended; a transcript is the most private file in the harness.
+4. **The cycle, written down** in the map itself: chat -> store -> pass -> store or
+   fulfil -> outputs.
+
+Still open:
+
+- **the "Exaucer" button** already exists (`POST /api/dreams/{stamp}/fulfill`); what
+  it could not do until now was deliver outside `dreams/actions` - the copy into
+  `outputs` is the change.
+- **skills compression**: duplicates are visible in the map's `skills` folder, but
+  merging two skills is a judgement call. A `uh skills --duplicates` report is the
+  next step; auto-merging prose is not.
+- **the map in the provider's own words**: today it is a fixed block. A model that
+  can *edit* its map is a different trust question.
