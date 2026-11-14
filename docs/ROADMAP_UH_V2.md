@@ -637,6 +637,18 @@ must not be married to one model server.
    code; the agent reads it, it does not remember it. A remembered path is a path
    that goes stale silently.
 
+**State (2026-11-14):** step 2 exists - `uh/providers/huggingface.py` speaks
+`/v1/chat/completions`, prefers a local TGI on loopback (no token), falls back to
+the HF router, and was driven end to end through `uh chat --provider huggingface`
+against a TGI-shaped server (blocking and streaming). Step 1 exists as `uh fix` +
+a read-only `self-repair` MCP template: the diff must pass `git apply --check`
+before it is shown, applies on a `fix/auto-<stamp>` branch, reverts when a
+`--check` command fails, and never commits or pushes.
+
+Not done yet: a button in the UI for `uh fix` (the command is CLI-only today, which
+breaks the rule that a visible capability is activated from the UI), and the
+first-run screen that asks for a provider once (step 3).
+
 Still open after P13 as written:
 
 - an approval step per self-written patch (today: the diff review by hand);
