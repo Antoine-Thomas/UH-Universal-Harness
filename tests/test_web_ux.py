@@ -90,9 +90,15 @@ def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     keys = html.index('id="tab-keys"')
     local = html.index('id="tab-local"')
     conn = html.index('id="tab-conn"')
-    assert keys < local < conn, "Clé API, IA locale, Connexions, in that order"
-    assert "Clé API</button>" in html
+    assert keys < local < conn, "Fournisseurs, IA locale, Connexions, in that order"
+    assert "Fournisseurs</button>" in html
     assert "IA locale</button>" in html
+    # One tab for the keys and the gateways: "Providers" was the same subject
+    # twice, and a tab nobody can name is a tab nobody opens.
+    assert 'id="tab-providers"' not in html
+    assert 'id="providers-view"' not in html
+    assert 'id="providers-list"' in html and html.index('id="keys-view"') < html.index('id="providers-list"')
+    assert 'providers: "keys"' in APP_JS, "an old ?panel=providers link still lands"
     assert 'id="local-view"' in html and 'id="local-panel"' in html
     assert '"local"' in APP_JS.split("const PANEL_TABS = new Set([")[1].split("])")[0]
     assert 'showPanelTab("local")' in APP_JS
@@ -152,3 +158,33 @@ def test_the_connections_tab_says_what_it_configures() -> None:
     assert "Un serveur MCP (Positron, VS Code" in body
     assert "stockage cloud" in body
     assert "« Clé API »" in body and "« IA locale »" in body
+
+
+def test_the_model_menu_carries_the_provider_and_a_badge() -> None:
+    """The same id can exist on two providers: the menu says which one, and how."""
+    start = APP_JS.index("async function loadModels(")
+    body = APP_JS[start : start + 3200]
+    assert '"optgroup"' in body, "local and API entries are grouped"
+    assert "providerLabel(" in body
+    assert "💻" in body and "☁️" in body, "local vs API, without reading the URL"
+    assert "const payload = { provider, model };" in body
+    assert 'api("/api/model"' in body
+    # A refused switch puts the selector back: nothing changed server-side.
+    assert "select.value = `${current.provider}/${current.id}`" in body
+    assert 'id="model-note"' in (ROOT / "uh" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+
+
+def test_every_provider_card_can_be_cloned() -> None:
+    start = APP_JS.index("function providerCard(")
+    body = APP_JS[start : start + 3000]
+    assert '"Cloner"' in body
+    assert "/clone" in body
+    assert "window.prompt" in body, "the new name is the user's, not a random uuid"
+
+
+def test_the_telemetry_panel_shows_the_evaluation_table() -> None:
+    start = APP_JS.index("function renderTelemetry(")
+    body = APP_JS[start : start + 4200]
+    assert "Évaluation des modèles" in body
+    assert "telem-table" in body
+    assert "tokens_per_s" in body and "tool_calls" in body

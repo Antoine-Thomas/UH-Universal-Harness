@@ -460,14 +460,82 @@ def system_snapshot() -> Dict[str, Any]:
     }
 
 
+def model_breakdown(
+    sessions: Iterable[Dict[str, Any]], days: int = WINDOW_DAYS, now: Optional[datetime] = None
+) -> Dict[str, Any]:
+    """Per-model evidence: turns, latency, tokens per second, tool calls.
+
+    The question this answers is "which engine is actually worth using here", so
+    every number is measured, not estimated: a turn with no recorded date is left
+    out and reported in ``undated`` rather than guessed onto a day.
+    """
+    window = set(day_keys(days, now))
+    rows: Dict[tuple[str, str], Dict[str, Any]] = {}
+    undated = 0
+    outside = 0
+    for session in sessions:
+        metadata = session.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            continue
+        for entry in metadata.get("decisions") or []:
+            if not isinstance(entry, dict):
+                continue
+            at = str(entry.get("at") or "")
+            if not at:
+                undated += 1
+                continue
+            if at[:10] not in window:
+                outside += 1
+                continue
+            provider = str(entry.get("provider") or "?")
+            model = str(entry.get("served") or entry.get("model") or "?")
+            row = rows.setdefault(
+                (provider, model),
+                {
+                    "provider": provider,
+                    "model": model,
+                    "turns": 0,
+                    "tokens": 0,
+                    "duration_ms": 0,
+                    "tool_calls": 0,
+                    "substituted": 0,
+                },
+            )
+            usage = entry.get("usage") or {}
+            if not isinstance(usage, dict):
+                usage = {}
+            row["turns"] += 1
+            row["tokens"] += int(usage.get("total") or 0)
+            row["duration_ms"] += int(entry.get("duration_ms") or 0)
+            row["tool_calls"] += int(entry.get("tool_calls") or 0)
+            if entry.get("substituted"):
+                row["substituted"] += 1
+
+    models: List[Dict[str, Any]] = []
+    for row in rows.values():
+        seconds = row["duration_ms"] / 1000 or 0.0
+        models.append(
+            {
+                **row,
+                "avg_ms": round(row["duration_ms"] / row["turns"]) if row["turns"] else None,
+                "tokens_per_s": round(row["tokens"] / seconds, 1) if seconds else None,
+                "local": row["provider"] in LOCAL_PROVIDERS,
+            }
+        )
+    models.sort(key=lambda item: (-item["turns"], item["provider"], item["model"]))
+    return {"models": models, "undated": undated, "outside_window": outside}
+
+
 def snapshot(sessions: Iterable[Dict[str, Any]], days: int = WINDOW_DAYS) -> Dict[str, Any]:
     """The whole payload, in one call, for the route and for the tests."""
+    batch = list(sessions)
     return {
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "window_days": days,
-        "usage": usage_summary(sessions, days=days),
+        "usage": usage_summary(batch, days=days),
         "system": system_snapshot(),
         "dreams": dream_history(),
+        "evaluation": model_breakdown(batch, days=days),
     }
 
 
@@ -480,6 +548,7 @@ __all__ = [
     "dream_history",
     "is_local",
     "memory_usage",
+    "model_breakdown",
     "parse_pass_line",
     "read_schedule_log",
     "snapshot",

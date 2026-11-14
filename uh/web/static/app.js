@@ -272,21 +272,73 @@ function modelsAdvanced() {
   }
 }
 
+// Which engine serves this id: the header has to say it, because the same name
+// can exist on two providers and "faster" is not "smarter".
+const PROVIDER_LABEL = {
+  ollama: "local (Ollama)",
+  deepseek: "API · DeepSeek",
+  huggingface: "API · Hugging Face",
+  cloudflare: "API · Cloudflare",
+  omnirouter: "API · OmniRoute",
+  router: "API · router",
+};
+
+function providerLabel(provider, local) {
+  if (provider === "ollama" || local) return PROVIDER_LABEL.ollama;
+  return PROVIDER_LABEL[provider] || `API · ${provider}`;
+}
+
+function modelNote(text, tone = "info") {
+  const box = $("model-note");
+  if (!box) return;
+  box.textContent = text;
+  box.className = `model-note ${tone}`;
+  box.hidden = !text;
+  if (box._timer) window.clearTimeout(box._timer);
+  if (text) box._timer = window.setTimeout(() => (box.hidden = true), 7000);
+}
+
 async function loadModels() {
   const data = await api("/api/models");
   const select = $("model-select");
   select.textContent = "";
-  const all = new Set([...(data.ollama || [])]);
-  if (data.model) all.add(data.model);
+
+  // `choices` carries the provider; an older backend only had `ollama` + `model`.
+  const choices =
+    Array.isArray(data.choices) && data.choices.length
+      ? data.choices
+      : [...new Set([...(data.ollama || []), data.model].filter(Boolean))].map((id) => ({
+          id,
+          provider: "ollama",
+          local: true,
+          note: "",
+        }));
+  const current = data.current || { id: data.model, provider: data.provider || "ollama" };
   const advanced = modelsAdvanced();
-  const current = data.model || [...all][0] || "";
-  const shown = advanced ? [...all] : [current].filter(Boolean);
-  for (const name of shown) {
-    const option = el("option", null, name);
-    option.value = name;
-    if (name === current) option.selected = true;
-    select.appendChild(option);
+
+  const groups = new Map();
+  for (const choice of choices) {
+    const isCurrent = choice.id === current.id && choice.provider === current.provider;
+    if (!advanced && !isCurrent) continue;
+    const label = providerLabel(choice.provider, choice.local);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(choice);
   }
+  for (const [label, items] of groups) {
+    const group = document.createElement("optgroup");
+    group.label = label;
+    for (const choice of items) {
+      const mark = choice.local ? "💻" : "☁️";
+      const note = choice.note && choice.note !== "actif" ? ` · ${choice.note}` : "";
+      const option = el("option", null, `${mark} ${choice.id}${note}`);
+      option.value = `${choice.provider}/${choice.id}`;
+      if (choice.id === current.id && choice.provider === current.provider) option.selected = true;
+      group.appendChild(option);
+    }
+    select.appendChild(group);
+  }
+  select.title = `${providerLabel(current.provider, current.provider === "ollama")} · ${current.id}`;
+
   const toggle = $("model-advanced");
   if (toggle) {
     // An icon: the header is one row, and a word here costs the context gauge.
@@ -294,13 +346,25 @@ async function loadModels() {
     toggle.setAttribute("aria-label", advanced ? "Réduire la liste" : "Tous les modèles");
     toggle.title = advanced
       ? "N'afficher que le modèle courant"
-      : `Voir les ${all.size} modèles installés`;
+      : `Voir les ${choices.length} modèles disponibles (local et API)`;
   }
+
   // onchange, not addEventListener: loadModels runs more than once.
   select.onchange = async () => {
-    const payload = { model: select.value };
+    const cut = select.value.indexOf("/");
+    const provider = select.value.slice(0, cut);
+    const model = select.value.slice(cut + 1);
+    const payload = { provider, model };
     if (state.sessionId) payload.session_id = state.sessionId;
-    await api("/api/model", { method: "POST", body: JSON.stringify(payload) });
+    try {
+      await api("/api/model", { method: "POST", body: JSON.stringify(payload) });
+      // The select already shows the model: the note only confirms the engine.
+      modelNote(providerLabel(provider, provider === "ollama"), "ok");
+    } catch (error) {
+      // A refused switch changed nothing: put the selector back where it was.
+      select.value = `${current.provider}/${current.id}`;
+      modelNote(error.message, "warn");
+    }
   };
 }
 
@@ -1133,6 +1197,32 @@ function providerCard(row) {
     }
   });
   testRow.appendChild(testButton);
+  // A provider that works is worth a variant: same URL, same key, another model
+  // or another name. The copy is a normal entry - removable, testable, and its
+  // key never leaves keys.toml.
+  const clone = el("button", null, "Cloner");
+  clone.type = "button";
+  clone.title = "Dupliquer cette configuration (URL, modèle, clés) sous un autre nom";
+  clone.addEventListener("click", async () => {
+    const wanted = window.prompt(`Nom du clone de « ${row.name} »`, `${row.name}-2`);
+    if (!wanted) return;
+    clone.disabled = true;
+    try {
+      const result = await api(`/api/providers/${encodeURIComponent(row.name)}/clone`, {
+        method: "POST",
+        body: JSON.stringify({ name: wanted.trim().toLowerCase() }),
+      });
+      testResult.textContent = `cloné : ${result.name}`;
+      testResult.className = "test-result ok";
+      await loadProviders();
+    } catch (error) {
+      testResult.textContent = error.message;
+      testResult.className = "test-result warn";
+    } finally {
+      clone.disabled = false;
+    }
+  });
+  testRow.appendChild(clone);
   testRow.appendChild(testResult);
   card.appendChild(testRow);
 
@@ -2343,7 +2433,6 @@ function showPanelTab(name) {
   for (const [tab, view] of [
     ["keys", "keys-view"],
     ["local", "local-view"],
-    ["providers", "providers-view"],
     ["models", "models-view"],
     ["uhb", "uhb-view"],
     ["memory", "memory-view"],
@@ -2485,12 +2574,16 @@ async function refreshConnBadge() {
   badge.hidden = connected;
 }
 
+// "providers" is gone as a tab - its content lives in "Fournisseurs" (keys).
+// A link written before the merge must still land somewhere sane.
+const PANEL_ALIASES = { providers: "keys", "clé": "keys", cles: "keys", connexions: "conn" };
 const PANEL_TABS = new Set([
-  "keys", "local", "conn", "providers", "models", "uhb", "memory", "decision", "telemetry", "data",
+  "keys", "local", "conn", "models", "uhb", "memory", "decision", "telemetry", "data",
 ]);
 
 function openPanelFromUrl() {
-  const wanted = (new URLSearchParams(location.search).get("panel") || "").toLowerCase();
+  const raw = (new URLSearchParams(location.search).get("panel") || "").toLowerCase();
+  const wanted = PANEL_ALIASES[raw] || raw;
   if (!wanted || !PANEL_TABS.has(wanted)) return;
   openProviders();
   showPanelTab(wanted);
@@ -2502,7 +2595,6 @@ function wireProviders() {
   $("providers-close").addEventListener("click", closeProviders);
   $("tab-keys").addEventListener("click", () => showPanelTab("keys"));
   $("tab-local").addEventListener("click", () => showPanelTab("local"));
-  $("tab-providers").addEventListener("click", () => showPanelTab("providers"));
   $("tab-models").addEventListener("click", () => showPanelTab("models"));
   $("tab-uhb").addEventListener("click", () => showPanelTab("uhb"));
   $("tab-memory").addEventListener("click", () => showPanelTab("memory"));
@@ -2687,6 +2779,55 @@ function renderTelemetry(data, quiet) {
       )} · ${totals.turns || 0} tour(s)`
     )
   );
+
+  // Which engine is worth using here: measured, not guessed. Speed alone is not
+  // intelligence, so the table shows turns, latency, tokens per second and how
+  // often the model actually called a tool.
+  const evaluation = data.evaluation || {};
+  const modelRows = evaluation.models || [];
+  const evalBox = el("section", "telem-eval");
+  evalBox.appendChild(el("h3", "panel-section-title", "Évaluation des modèles"));
+  if (!modelRows.length) {
+    evalBox.appendChild(
+      el(
+        "p",
+        "panel-hint",
+        "Aucun tour mesuré sur la fenêtre : la table se remplit au premier échange."
+      )
+    );
+  } else {
+    const table = el("table", "telem-table");
+    const headRow = el("tr");
+    ["modèle", "tours", "latence", "tok/s", "outils"].forEach((label) =>
+      headRow.appendChild(el("th", null, label))
+    );
+    table.appendChild(headRow);
+    for (const row of modelRows) {
+      const line = el("tr");
+      const name = el("td", "telem-model");
+      name.appendChild(el("span", null, `${row.local ? "💻" : "☁️"} ${row.model}`));
+      name.appendChild(el("span", "telem-provider", row.provider));
+      line.appendChild(name);
+      line.appendChild(el("td", null, String(row.turns)));
+      line.appendChild(el("td", null, row.avg_ms === null ? "—" : `${(row.avg_ms / 1000).toFixed(1)} s`));
+      line.appendChild(el("td", null, row.tokens_per_s === null ? "—" : String(row.tokens_per_s)));
+      line.appendChild(el("td", null, String(row.tool_calls)));
+      table.appendChild(line);
+    }
+    evalBox.appendChild(table);
+    if (evaluation.outside_window || evaluation.undated) {
+      evalBox.appendChild(
+        el(
+          "p",
+          "panel-hint",
+          `${evaluation.outside_window || 0} tour(s) hors fenêtre et ${
+            evaluation.undated || 0
+          } sans date ne sont pas comptés ici.`
+        )
+      );
+    }
+  }
+  view.appendChild(evalBox);
 
   // Honest gaps, one line each: a turn whose provider reported no counters is not
   // a zero-token turn, and a record written before the timestamp existed cannot

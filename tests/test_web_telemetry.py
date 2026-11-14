@@ -85,7 +85,15 @@ def test_the_payload_has_the_three_readings(
 
     body = run(scenario())
 
-    assert set(body) == {"generated_at", "window_days", "usage", "system", "dreams"}
+    assert set(body) == {
+        "generated_at",
+        "window_days",
+        "usage",
+        "system",
+        "dreams",
+        "evaluation",
+    }
+    assert set(body["evaluation"]) == {"models", "undated", "outside_window"}
     assert body["window_days"] == 7
     assert len(body["usage"]["days"]) == 7
     assert body["usage"]["cost"]["value"] is None

@@ -265,7 +265,15 @@ def test_the_whole_payload_carries_the_three_readings(
     monkeypatch.setenv("UH_HOME", str(tmp_path))  # never read the real home
     payload = telemetry.snapshot([], days=7)
 
-    assert set(payload) == {"generated_at", "window_days", "usage", "system", "dreams"}
+    assert set(payload) == {
+        "generated_at",
+        "window_days",
+        "usage",
+        "system",
+        "dreams",
+        "evaluation",
+    }
+    assert set(payload["evaluation"]) == {"models", "undated", "outside_window"}
     assert payload["window_days"] == 7
     assert len(payload["usage"]["days"]) == 7
     assert "passes" in payload["dreams"]

@@ -770,6 +770,39 @@ Still open:
       Positron, the only proof this machine cannot produce;
 - [ ] refresh the README's Connexions screenshot, which predates the rename.
 
+## P14.3 - one engine, one choice: the model switch and the tab cleanup
+
+**What the reports showed, and what changed.**
+
+| Reported | Cause | Now |
+| --- | --- | --- |
+| "je mets ma clé DeepSeek, le chat est plus rapide mais pas plus intelligent" | the header menu only listed **Ollama** models (`data.ollama`), and `/api/model` received a bare name: the provider stayed whatever it was, so an Ollama id could be sent to DeepSeek | `GET /api/models` returns `choices: [{id, provider, local}]` for local **and** every keyed API provider; the menu is grouped, badged 💻/☁️, and sends `{provider, model}`; the header prints the engine that serves the turn |
+| "refusé : HTTP 500" on the "Utiliser" buttons | `/api/setup` saved whatever model name it was given, installed or not, and a config write failure was an unhandled 500 | a local model must be installed (`400` with the sentence), a cloud choice gets a published model id, a read-only `config.toml` is a `409` naming the cause |
+| "où est l'onglet cloud ?" | it was never a tab: storage lives in `Connexions` ("Stockage cloud (dossiers)"), and the old word "Cloud" suggested a credential | the card says it configures a storage account **or** an MCP server, and that model keys are elsewhere |
+| "un onglet ne sert à rien" | `Providers` and `Clé API` were the same subject in two tabs | one tab, **Fournisseurs**; `?panel=providers` still lands there |
+| "l'onglet pour évaluer les IA a disparu" | no such tab exists in any commit (`git log -S "Capacités"` is empty) | the evaluation is a table inside **Télémétrie**: per model, turns, average latency, tokens/s and real tool calls, measured from recorded turns |
+| "Positron doit se connecter depuis l'UI, pas depuis un PowerShell" | nothing asked for PowerShell except the model's own advice | `+ Connecter un MCP` is the only path, it tests before saving, and the prompt forbids sending a UI question to a config file |
+| "l'IA donne du code au lieu d'exécuter" | a small model's default | the prompt states the agent rule (call the tool, do not print code to copy) and turns a "no session" error into "open the CONSOLE, run a cell" |
+| "cloner le modèle qui marche" | no duplicate path | `POST /api/providers/{name}/clone` + a `Cloner` button on every provider card: same URL, same keys, new name; the key never leaves `keys.toml` |
+
+Open: a real Positron handshake (needs an installed Positron and an open console);
+the exact reason **their** 500 happened (no log was available - the write path is now
+guarded, so a repeat shows a sentence instead of a code); a Playwright run in CI.
+
+## Veille & Évolutions (Nov 2026)
+
+Two items read this month, kept here so they are not lost:
+
+- **Evolver** (arXiv:2611.07595) - persistent agentic experience ("Gene"): a way for
+  an agent to keep what it learned from its own failures without retraining the
+  model. Relevant to UH's `dreams` and memory layers; nothing to build before the
+  paper is read end to end. Status: **to read**, no code.
+- **LiteLLM v1.100.0** - breaking changes reported around MCP toolsets enforcement
+  and the removal of `prompt_token_calculator`. UH talks to providers directly and
+  does not depend on LiteLLM, so nothing breaks today; the item is a **watch** for
+  anyone routing through a LiteLLM gateway. Verify against their changelog before
+  quoting it.
+
 ## Tauri vs client MCP - the decision, not the build
 
 **Criteria**, in the order they matter to this product: (1) first launch without a

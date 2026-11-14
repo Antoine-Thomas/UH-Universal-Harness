@@ -251,6 +251,15 @@ body {
   border: 1px solid var(--border); background: var(--bg); color: var(--text);
   font-size: 12px; max-width: 220px;
 }
+/* The header says which engine serves the selected id - and why a switch failed. */
+.model-note {
+  font-size: 11px; padding: 2px 6px; border-radius: 6px; max-width: 220px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border: 1px solid var(--border); color: var(--muted); background: var(--panel);
+}
+.model-note.ok { color: var(--accent); border-color: var(--accent); }
+.model-note.warn { color: var(--highlight); border-color: var(--highlight); }
+.model-note[hidden] { display: none; }
 /* One model in the header by default; the full list is this button away. An icon,
    not a word: the header is a single row and every pixel is taken. */
 .model-advanced {
@@ -1221,10 +1230,21 @@ a.data-button { text-decoration: none; display: inline-block; }
 .fix-area { margin-bottom: 8px; }
 
 /* --- readability pass: the tab strip is the map of the panel -------------- */
+/* The model table: measured, per engine, in the telemetry panel. */
+.telem-eval { margin-top: 14px; }
+.telem-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.telem-table th {
+  text-align: left; font-weight: 600; color: var(--muted);
+  border-bottom: 1px solid var(--border); padding: 3px 4px;
+}
+.telem-table td { padding: 3px 4px; border-bottom: 1px solid var(--border); }
+.telem-model { display: flex; flex-direction: column; gap: 1px; }
+.telem-provider { font-size: 10px; color: var(--muted); }
+
 /* Bigger targets, a second signal besides colour (weight + a top rule), and a
    horizontal scroll that never hides a tab behind the panel edge. */
 .panel-tabs {
-  display: flex; flex-wrap: nowrap; gap: 2px; overflow-x: auto;
+  display: flex; flex-wrap: wrap; gap: 2px; overflow: visible;
   scrollbar-width: thin;
 }
 .panel-tab {

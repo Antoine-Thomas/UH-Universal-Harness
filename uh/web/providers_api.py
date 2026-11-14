@@ -20,6 +20,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException
 from ..providers_admin import (
     AdminError,
     add_key_to,
+    clone_provider,
     create_custom,
     import_from_omnirouter,
     is_loopback_bind,
@@ -132,6 +133,17 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
         except AdminError as exc:
             raise translate(exc) from exc
         return {"created": True, **created}
+
+    @app.post("/api/providers/{name}/clone", dependencies=[Depends(dependency)])
+    def clone_provider_route(name: str, payload: Annotated[dict, Body()]) -> dict:
+        """Duplicate a gateway under a new name; the key is copied, never shown."""
+        require_loopback()
+        body = payload or {}
+        try:
+            cloned = clone_provider(name, str(body.get("name") or ""))
+        except AdminError as exc:
+            raise translate(exc) from exc
+        return {"cloned": True, **cloned}
 
     @app.post("/api/providers/{name}/test", dependencies=[Depends(dependency)])
     def test_provider(name: str) -> dict:

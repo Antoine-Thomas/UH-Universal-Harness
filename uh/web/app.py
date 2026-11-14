@@ -1433,7 +1433,13 @@ def create_app(
 
     @app.post("/api/setup", dependencies=[Depends(require_token)])
     async def setup_apply(payload: Annotated[dict, Body()]) -> dict:
-        """Record one choice: a provider, optionally a key, optionally a model."""
+        """Record one choice: a provider, optionally a key, optionally a model.
+
+        Validated before it is written: an uninstalled local model or an id the
+        provider does not publish used to be saved happily, then every turn failed
+        with a bare ``HTTP 500``. A refused write is a 409 with the path, never an
+        unhandled exception.
+        """
         from ..config import write_layer
         from ..providers_admin import add_key_to, catalog
 
@@ -1443,6 +1449,22 @@ def create_app(
         key = str(body.get("key") or "").strip()
         if choice == "ollama":
             provider = "ollama"
+            if model:
+                installed: list[str] = []
+                try:
+                    from ..providers.ollama import list_models
+
+                    installed = [entry["name"] for entry in list_models(timeout=2.0)]
+                except ProviderError:
+                    installed = []
+                if installed and model not in installed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"« {model} » n'est pas installé : télécharge-le d'abord "
+                            "(bouton Télécharger de cet onglet)."
+                        ),
+                    )
         elif choice == "huggingface":
             provider = "huggingface"
             if key:
@@ -1454,12 +1476,24 @@ def create_app(
             if not key:
                 raise HTTPException(status_code=400, detail="a cloud provider needs a key")
             add_key_to(provider, key)
+            if not model:
+                spec = catalog().get(provider)
+                model = spec.models[0].id if spec and spec.models else ""
         else:
             raise HTTPException(status_code=400, detail="choice must be ollama, huggingface or cloud")
 
-        write_layer("user", "default_provider", provider)
-        if model:
-            write_layer("user", "default_model", model)
+        try:
+            write_layer("user", "default_provider", provider)
+            if model:
+                write_layer("user", "default_model", model)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "config.toml est en lecture seule : UH n'a pas pu enregistrer ce choix "
+                    f"({exc}). Ferme l'éditeur qui le tient ouvert, puis réessaie."
+                ),
+            ) from exc
         return {"saved": True, "provider": provider, "model": model}
 
     @app.get("/api/mcp/cloud", dependencies=[Depends(require_token)])
@@ -1761,7 +1795,18 @@ def create_app(
 
     @app.get("/api/models", dependencies=[Depends(require_token)])
     async def models() -> dict:
+        """What the header may offer, and who would serve it.
+
+        ``choices`` is the menu: local models first (Ollama), then every API
+        provider that actually holds a key, with the model ids its catalogue
+        publishes. A provider with no key is left out on purpose - offering a
+        model that answers 401 is a trap, not a choice. ``ollama`` and
+        ``model`` stay for older clients.
+        """
+        from ..keys import read_providers as read_custom
         from ..providers import all_provider_kinds
+        from ..providers_admin import catalog as provider_catalog
+        from ..providers_admin import read_providers
 
         local: list[str] = []
         try:
@@ -1770,9 +1815,51 @@ def create_app(
             local = [entry["name"] for entry in list_models(timeout=1.5)]
         except ProviderError:
             local = []
+
+        choices: list[dict] = [
+            {"id": name, "provider": "ollama", "local": True, "note": ""} for name in local
+        ]
+        configured = read_providers()
+        for spec_name, spec in provider_catalog().items():
+            entry = configured.get(spec_name) or {}
+            if not entry.get("keys"):
+                continue
+            for model_spec in spec.models:
+                choices.append(
+                    {
+                        "id": model_spec.id,
+                        "provider": spec_name,
+                        "local": False,
+                        "note": "outils" if model_spec.tools else "",
+                    }
+                )
+        for name, entry in read_custom().items():
+            # A catalogue provider is read from both stores (its key lives in
+            # keys.toml too): the catalogue loop above already offered it.
+            if name in provider_catalog():
+                continue
+            if entry.get("model"):
+                choices.append(
+                    {"id": str(entry["model"]), "provider": name, "local": False, "note": ""}
+                )
+
+        current = {
+            "id": app.state.model,
+            "provider": app.state.kind,
+            "local": app.state.kind == "ollama",
+            "note": "actif",
+        }
+        if not any(
+            row["id"] == current["id"] and row["provider"] == current["provider"]
+            for row in choices
+        ):
+            choices.insert(0, current)
+
         return {
             "provider": app.state.kind,
             "model": app.state.model,
+            "current": current,
+            "choices": choices,
             "ollama": local,
             "providers": all_provider_kinds(),
             "pulling": sorted(app.state.pulling),
@@ -1809,21 +1896,64 @@ def create_app(
 
     @app.post("/api/model", dependencies=[Depends(require_token)])
     async def set_model(payload: dict) -> dict:
+        """Switch the pair, not the half-pair: a model id belongs to a provider.
+
+        The header sends both. When it sends only a name, the provider is inferred
+        from the catalogues (a local name is Ollama, a published id is its
+        provider, a ``provider/model`` ref is split). A local name with an API
+        provider is refused here with a sentence: that mismatch used to reach the
+        API and come back as a 500.
+        """
         model = str((payload or {}).get("model") or "").strip()
-        kind = str((payload or {}).get("provider") or app.state.kind or "").strip()
         session_id = (payload or {}).get("session_id")
         if not model:
             raise HTTPException(status_code=400, detail="model is required")
+        kind = str((payload or {}).get("provider") or "").strip().lower()
+
+        local: list[str] = []
+        try:
+            from ..providers.ollama import list_models
+
+            local = [entry["name"] for entry in list_models(timeout=1.5)]
+        except ProviderError:
+            local = []
+
+        note = ""
+        if not kind:
+            kind, model, note = _infer_provider(model, app.state.kind, local)
+        if ":" in kind or "/" in kind:
+            raise HTTPException(status_code=400, detail=f"unknown provider '{kind}'")
+        if model in local and kind != "ollama":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"« {model} » est un modèle local : choisis le fournisseur ollama, "
+                    f"pas {kind}."
+                ),
+            )
+        if kind == "ollama" and local and model not in local:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"« {model} » n'est pas installé sur cette machine : télécharge-le "
+                    f"d'abord depuis l'onglet IA locale."
+                ),
+            )
         try:
             app.state.provider_factory(kind, model)
         except ProviderError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=_provider_detail(exc, kind, model)) from exc
         if session_id:
             session = _session_or_404(app, str(session_id))
             app.state.session_models[session["id"]] = (kind, model)
-            return {"session": display_id(session["id"]), "provider": kind, "model": model}
+            return {
+                "session": display_id(session["id"]),
+                "provider": kind,
+                "model": model,
+                "note": note,
+            }
         app.state.kind, app.state.model = kind, model
-        return {"provider": kind, "model": model}
+        return {"provider": kind, "model": model, "note": note}
 
     # Jalon 7a: provider panel. Imported late to keep the module import light.
     from .providers_api import register_provider_routes
@@ -1831,6 +1961,58 @@ def create_app(
     register_provider_routes(app, require_token)
 
     return app
+
+
+def _infer_provider(model: str, current_kind: str, local: list[str]) -> tuple[str, str, str]:
+    """Which provider serves ``model``, when the caller did not say.
+
+    Order: an explicit ``provider/model`` ref, then the installed local list, then
+    the catalogues. The current provider is the last resort, so an unknown name
+    keeps the previous behaviour instead of silently switching engines.
+    """
+    if "/" in model and not model.startswith(("http://", "https://")):
+        head, tail = model.split("/", 1)
+        try:
+            from ..providers import all_provider_kinds
+
+            if head.strip().lower() in all_provider_kinds():
+                return head.strip().lower(), tail.strip(), ""
+        except Exception:  # noqa: BLE001 - inference never blocks a switch
+            pass
+    if model in local:
+        return "ollama", model, ""
+    try:
+        from ..providers_admin import catalog as provider_catalog
+
+        for name, spec in provider_catalog().items():
+            if any(entry.id == model for entry in spec.models):
+                return name, model, ""
+    except Exception:  # noqa: BLE001 - a broken catalogue is not a refused switch
+        pass
+    return current_kind or "ollama", model, ""
+
+
+def _provider_detail(exc: Exception, kind: str, model: str) -> str:
+    """A sentence the panel can show: what failed, and what to do about it."""
+    status = getattr(exc, "status", None)
+    text = str(exc)
+    if kind == "ollama":
+        lowered = text.lower()
+        if status == 404 or "not found" in lowered or "no such model" in lowered:
+            return f"Ollama n'a pas « {model} » : télécharge-le depuis l'onglet IA locale."
+        if status is not None:
+            return (
+                f"Ollama a refusé la requête ({status}). Vérifie qu'il tourne toujours, "
+                "puis réessaie."
+            )
+        return f"Ollama est injoignable : ouvre l'application, puis réessaie. ({text})"
+    if status == 401:
+        return f"La clé {kind} est refusée : vérifie-la dans l'onglet Clé API."
+    if status == 402:
+        return f"Le compte {kind} n'a plus de crédit."
+    if status == 429:
+        return f"{kind} limite le débit : attends une minute, puis réessaie."
+    return f"{kind} n'a pas pu servir « {model} » : {text}"
 
 
 def _port_busy(host: str, port: int, timeout: float = 0.4) -> bool:

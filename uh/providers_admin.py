@@ -408,6 +408,39 @@ def create_custom(name: str, base_url: str, model: str = "", key: str = "") -> d
     return save_provider(clean, base_url, model, key)
 
 
+def clone_provider(name: str, new_name: str) -> dict[str, Any]:
+    """Duplicate a configured provider under a new name.
+
+    A provider that works is worth a variant - another model, a second key, a
+    cheaper endpoint. The copy carries the ``base_url``, the model and every key;
+    the answer never contains one, and the new name follows the same rules as a
+    fresh provider.
+    """
+    source = validate_name(name)
+    clean = validate_name(new_name)
+    configured = read_providers()
+    entry = configured.get(source)
+    if entry is None:
+        raise AdminError(f"unknown provider '{source}'", kind="unknown")
+    if clean == source:
+        raise AdminError("le clone doit porter un autre nom que l'original.")
+    if clean in configured or clean in catalog():
+        raise AdminError(f"'{clean}' existe déjà : choisis un autre nom.")
+    raw_keys = [str(item) for item in (entry.get("keys") or []) if item]
+    saved = save_provider(
+        clean,
+        str(entry.get("base_url") or ""),
+        str(entry.get("model") or ""),
+        raw_keys[0] if raw_keys else "",
+    )
+    for extra in raw_keys[1:]:
+        try:
+            add_key(clean, extra)
+        except ValueError:  # pragma: no cover - a key shape already validated
+            break
+    return {**saved, "cloned_from": source, "keys": len(raw_keys)}
+
+
 def save_cloudflare(account_id: str, raw_token: Any) -> dict[str, Any]:
     """Store the account id in ``config.toml`` and the token in ``keys.toml``.
 

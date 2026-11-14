@@ -46,6 +46,7 @@
         <div class="title" id="session-title">No session</div>
         <select id="model-select" class="model-select" aria-label="Model"></select>
         <button id="model-advanced" class="ghost model-advanced" title="Voir tous les modèles installés">Avancé</button>
+        <span id="model-note" class="model-note" role="status" hidden></span>
         <div class="gauge" title="Context estimate (characters / 4)">
           <div class="gauge-fill" id="gauge-fill"></div>
           <span id="gauge-label">ctx ~0 tok</span>
@@ -102,10 +103,9 @@
         <button id="providers-close" class="icon-button" aria-label="Close">×</button>
       </header>
       <nav class="panel-tabs" role="tablist">
-        <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">Clé API</button>
+        <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">Fournisseurs</button>
         <button id="tab-local" class="panel-tab" role="tab" aria-selected="false" aria-controls="local-view">IA locale</button>
         <button id="tab-conn" class="panel-tab" role="tab" aria-selected="false" aria-controls="conn-view">Connexions<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
-        <button id="tab-providers" class="panel-tab" role="tab" aria-selected="false" aria-controls="providers-view">Providers</button>
         <button id="tab-models" class="panel-tab" role="tab" aria-selected="false" aria-controls="models-view">Models</button>
         <button id="tab-uhb" class="panel-tab" role="tab" aria-selected="false" aria-controls="uhb-view">Second brain</button>
         <button id="tab-memory" class="panel-tab" role="tab" aria-selected="false" aria-controls="memory-view">Memory</button>
@@ -116,13 +116,11 @@
       <div class="rightbar-scroll">
         <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">
           <div id="keys-priority" class="keys-priority"></div>
+          <div id="router-settings" class="router-settings"></div>
+          <div id="providers-list" class="providers-list"></div>
         </div>
         <div id="local-view" class="panel-view" role="tabpanel" aria-labelledby="tab-local" hidden>
           <div id="local-panel" class="local-panel"></div>
-        </div>
-        <div id="providers-view" class="panel-view" role="tabpanel" aria-labelledby="tab-providers" hidden>
-          <div id="router-settings" class="router-settings"></div>
-          <div id="providers-list" class="providers-list"></div>
         </div>
         <div id="models-view" class="panel-view" role="tabpanel" aria-labelledby="tab-models" hidden>
           <div id="hardware-card" class="hardware-card"></div>

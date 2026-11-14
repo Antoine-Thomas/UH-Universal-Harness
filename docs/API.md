@@ -72,7 +72,7 @@ even when the failing input was one.
 | POST | `/api/skills` | `{title, description, instructions, name?}` | writes `$UH_HOME/skills/<name>.md`, returns `{name, path, bytes, title, description}`; `400` for a missing title/instructions, a name that could escape the folder, or an existing file |
 | GET | `/api/tools/status` | — | `{toolsets: {name: [tools]}, ollama, uhb: {connected, reason}, mcp: {supported: true, configured, servers: [{name, command, connected, state, protocol, server, version, tools, reason?}], http: [{name, url, connected, state, label, tools, reason, advice}], http_reason?, problems?}, terminal, workspace}` · `state` is `connected`, `idle` (configured, not started) or `failed`; an HTTP server is never reported connected without a live client |
 | GET | `/api/setup` | — | `{needed, provider, model, ollama: {running, installed, models}, cloud: [names], huggingface_models: [ids]}` — `needed` is true only when no local model answers **and** no provider key is stored |
-| POST | `/api/setup` | `{choice: ollama\|huggingface\|cloud, provider?, key?, model?}` | `{saved, provider, model}` — writes `default_provider` / `default_model` through the config writer and the key through the provider panel · `400` unknown choice or provider, or a cloud choice without a key |
+| POST | `/api/setup` | `{choice: ollama\|huggingface\|cloud, provider?, key?, model?}` | `{saved, provider, model}` — writes `default_provider` / `default_model` through the config writer and the key through the provider panel · `400` unknown choice or provider, a cloud choice without a key, or a local model that is not installed · `409` `config.toml` not writable (the message names the cause) |
 | POST | `/api/fix` | `{instruction}` | `{stamp, applies, error, files, path, notes, diff}` — asks a provider for a unified diff and **proves** it with `git apply --check`; nothing is written to the tree · `400` empty instruction · `502` no provider / model refusal |
 | POST | `/api/fix/{stamp}/apply` | — | `{applied, branch: "fix/auto-<stamp>", reverted, changed?, failed?}` — re-reads and re-checks the stored diff, applies it on a new branch, runs `ruff` on `uh` and `tests`, and reverts the patch when that fails. Never commits, never pushes · `400` not a stamp · `404` unknown proposal · `409` the patch no longer applies |
 | GET | `/api/mcp/cloud` | — | `{templates: [{id, label, what, can_upload, upload_note, docs, fields: [{key, label, secret, required, placeholder, help}]}], upload_targets: [{name, tool, label}], http_servers: [{name, url, transport, state, label, connected, tools, token, has_token, insecure, reason, advice}], http_note}` — never a stored value; `token` is the mask (`••••` + 4 characters) |
@@ -89,8 +89,8 @@ even when the failing input was one.
 | POST | `/api/uhb/stop` | — | stops the UHB this process started: `{connected: false, stopped}` |
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
-| GET | `/api/models` | — | `{provider, model, ollama: [names], providers: [kinds], pulling: [names]}` |
-| POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider}` · `400` |
+| GET | `/api/models` | — | `{provider, model, current, choices: [{id, provider, local, note}], ollama, providers, pulling}` — an API provider appears only when it holds a key |
+| POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider, note}` · `400` when the pair does not fit (a local id with an API provider, an uninstalled Ollama model, an unknown provider) |
 | GET | `/api/providers` | — | `{providers: [{name, base_url, model, keys, verified, custom, in_chain}], key_entry_allowed, keys: {cloudflare: {configured, source, account_id, key_hints}, deepseek: {configured, key_hints}, omniroute: {detected, base_url, has_key, config_path}}}` |
 | GET | `/api/providers/presets` | — | `{presets: [{name, label, base_url, model}], gateway_only: [{name, label, note}]}` · form defaults only, nothing is stored |
 | POST | `/api/providers/{name}/keys` | `{key}` | `{stored: true, keys: n}` · `400` · `403` off loopback · `404` unknown |
@@ -99,6 +99,7 @@ even when the failing input was one.
 | POST | `/api/providers/deepseek/key` | `{key}` | `{stored: true, keys: n, key_hints: [...]}` · `400` · `403` |
 | POST | `/api/providers/omniroute/import` | — | `{imported: true, name, base_url, key_hints}` · `403` · `404` no OmniRoute config |
 | POST | `/api/providers/custom` | `{name, base_url, model?, key?}` | `{created: true, name, base_url, model}` · `400` · `403` |
+| POST | `/api/providers/{name}/clone` | `{name}` | `{cloned: true, name, base_url, model, keys: n, cloned_from}` · `400` bad or taken name · `404` unknown · `403` off loopback · the copied key is never in the answer |
 | POST | `/api/providers/{name}/test` | — | `{ok, status, error_kind}` · `404` |
 | GET | `/api/router/settings` | — | `{allow_remote, consent, consent_date, strategy, extra_providers, warning}` |
 | PUT | `/api/router/settings` | `{allow_remote, consent?, strategy?}` | the same object · `400` consent or strategy · `403` off loopback |
@@ -163,13 +164,13 @@ pane-detach  pane-reset  pane-&lt;name&gt;  pane-body  pane-head
 panel-dock  panel-float  panel-head
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
-layout  menu-toggle  messages  model-advanced  model-select  new-folder  new-session  palette
+layout  menu-toggle  messages  model-advanced  model-note  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
-providers-open  providers-panel  providers-view  router-settings  search
+providers-open  providers-panel  router-settings  search
 remote-banner  search-results  send  session-list  session-title  sidebar
 sidebar-toggle
 splash  splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
-tab-conn  tab-decision  tab-memory  tab-providers  tab-uhb  terminal-warning  theme-toggle  uhb-panel
+tab-conn  tab-decision  tab-memory  tab-uhb  terminal-warning  theme-toggle  uhb-panel
 uhb-view  version-warning
 ```
 

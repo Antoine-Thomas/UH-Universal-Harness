@@ -53,3 +53,20 @@ the fields, and **tests before saving**: `Enregistrer` starts disabled and only 
 Editing any field after the test disables it again - the tested configuration is
 the one that gets written. The probe is capped at five seconds, writes nothing, and
 the token it uses goes to `mcp-secrets.toml` only when the user saves.
+
+## 5. One engine at a time, and the header says which one
+
+![model switch](assets/model-switch.png)
+
+The menu lists what this machine can actually run: local models under "local
+(Ollama)" with a 💻, then every API provider that holds a key with a ☁️ and the
+model ids its catalogue publishes (`deepseek-flash`, `deepseek-v4-pro`…). Choosing
+an entry switches the **pair** - provider and model in one move - and the note beside
+it confirms the engine. A refused switch prints a sentence and puts the selector back
+where it was: a refusal changes nothing on the server.
+
+Tabs, in order: `Fournisseurs` (keys and gateways), `IA locale`, `Connexions`,
+`Models`, then the rest. The old `Providers` tab is gone - it was the same subject as
+`Clé API` in a second tab - and `?panel=providers` still opens `Fournisseurs`.
+`Télémétrie` carries the evaluation table: per model, turns, average latency,
+tokens/s and how often a tool was really called.
