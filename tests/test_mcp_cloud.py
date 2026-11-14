@@ -202,3 +202,53 @@ def test_the_self_repair_server_cannot_see_the_secrets(
     config = (tmp_path / "config.toml").read_text(encoding="utf-8")
     assert str(tmp_path / mcp_cloud.SECRETS_FILE) not in config
     assert "keys.toml" not in config
+
+def test_a_custom_server_splits_secrets_from_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same rule as a template: a credential never lands in config.toml."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+
+    created = mcp_cloud.connect_custom(
+        "mon-serveur",
+        "npx",
+        ["-y", "some-mcp"],
+        {"API_TOKEN": "shhh", "S3_BUCKET": "mes-docs", "AWS_REGION": "eu-west-3"},
+    )
+
+    config = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert "shhh" not in config
+    assert 'S3_BUCKET = "mes-docs"' in config, "a readable setting stays readable"
+    assert created["secrets"] == ["API_TOKEN"]
+
+    servers, problems = mcp.servers_from_config()
+    assert not problems
+    entry = next(server for server in servers if server.name == "mon-serveur")
+    assert entry.env["API_TOKEN"] == "shhh", "merged into the child environment"
+    assert entry.args == ("-y", "some-mcp")
+
+
+def test_a_custom_server_needs_a_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+
+    with pytest.raises(mcp_cloud.CloudError) as caught:
+        mcp_cloud.connect_custom("vide", "   ")
+
+    assert "command" in str(caught.value)
+    assert not (tmp_path / "config.toml").exists()
+
+
+def test_a_custom_server_keeps_the_servers_already_there(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+    config = tmp_path / "config.toml"
+    config.write_text(
+        '# hand-written\n[[mcp.servers]]\nname = "atelier"\ncommand = "npx"\n', encoding="utf-8"
+    )
+
+    mcp_cloud.connect_custom("autre", "uvx", ["mon-serveur"])
+
+    text = config.read_text(encoding="utf-8")
+    assert "# hand-written" in text
+    assert text.count("[[mcp.servers]]") == 2

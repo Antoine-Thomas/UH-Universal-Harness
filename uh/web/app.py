@@ -1427,6 +1427,49 @@ def create_app(
             "state": "connected" if known else "written-but-unreadable",
         }
 
+    @app.post("/api/mcp/custom", dependencies=[Depends(require_token)])
+    async def mcp_custom(payload: Annotated[dict, Body()]) -> dict:
+        """Add any MCP server the user can spell: name, command, args, env.
+
+        Same rules as a template: one `[[mcp.servers]]` block, credentials in
+        `mcp-secrets.toml`, and the config is re-read before the panel is told the
+        server exists.
+        """
+        from .. import mcp, mcp_cloud
+        from ..providers_admin import is_loopback_bind
+
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403,
+                detail="adding a server is only allowed when uh web listens on loopback",
+            )
+        body = payload or {}
+        raw_args = body.get("args") or []
+        if isinstance(raw_args, str):
+            raw_args = raw_args.splitlines()
+        env = body.get("env") or {}
+        if not isinstance(env, dict):
+            raise HTTPException(status_code=400, detail="env must be an object of KEY=value")
+        try:
+            created = await asyncio.to_thread(
+                mcp_cloud.connect_custom,
+                str(body.get("name") or ""),
+                str(body.get("command") or ""),
+                [str(item) for item in raw_args],
+                {str(k): str(v) for k, v in env.items()},
+            )
+        except mcp_cloud.CloudError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        servers, problems = await asyncio.to_thread(mcp.servers_from_config)
+        known = any(server.name == created["name"] for server in servers)
+        return {
+            **created,
+            "parsed": known,
+            "problems": problems,
+            "state": "connected" if known else "written-but-unreadable",
+        }
+
     @app.post("/api/mcp/{name}/test", dependencies=[Depends(require_token)])
     async def mcp_test(name: str) -> dict:
         """Start one configured MCP server, list its tools, stop it again.

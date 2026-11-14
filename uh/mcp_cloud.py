@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from ._compat import tomllib  # 3.10 gets tomli through the shim
 from .config import uh_home
@@ -363,6 +363,60 @@ def connect(
     }
 
 
+
+SECRET_HINTS = ("TOKEN", "SECRET", "KEY", "PASSWORD", "CREDENTIAL", "PASS")
+
+
+def _looks_secret(name: str) -> bool:
+    """A name that says "credential" is stored like one; the rest stays readable."""
+    return any(hint in name.upper() for hint in SECRET_HINTS)
+
+
+def connect_custom(
+    name: str,
+    command: str,
+    args: Sequence[str] = (),
+    env: Optional[Dict[str, str]] = None,
+    *,
+    config_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Any MCP server the user can spell: no template, same rules.
+
+    ``env`` entries whose *name* looks like a credential go to
+    ``mcp-secrets.toml``; the rest stay in ``config.toml`` where a reader can see
+    what a server was configured with. Nothing here starts the server: the caller
+    re-reads the config and lets the panel say `connected` once it parses.
+    """
+    entry_name = check_name(name)
+    cleaned = (command or "").strip()
+    if not cleaned:
+        raise CloudError("command is required (e.g. npx, uvx, C:/tools/serve.exe)")
+    values = {
+        str(key).strip(): str(value).strip()
+        for key, value in (env or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    public = {key: value for key, value in values.items() if not _looks_secret(key)}
+    secret = {key: value for key, value in values.items() if _looks_secret(key)}
+    entry: Dict[str, Any] = {
+        "name": entry_name,
+        "command": cleaned,
+        "args": [str(arg).strip() for arg in args if str(arg).strip()],
+        "timeout": 60,
+    }
+    if public:
+        entry["env"] = public
+    add_server(entry, config_path=config_path)
+    if secret:
+        write_secrets(entry_name, secret)
+    return {
+        "name": entry_name,
+        "custom": True,
+        "config": str(config_path or (uh_home() / "config.toml")),
+        "secrets": sorted(secret),
+    }
+
+
 def upload_plan(server: str, tool: str, path: Path, *, bucket: str = "", key: str = "") -> Dict[str, Any]:
     """Store one file with the cloud server's own upload tool.
 
@@ -447,6 +501,7 @@ __all__ = [
     "build",
     "check_name",
     "connect",
+    "connect_custom",
     "read_secrets",
     "secrets_path",
     "template",

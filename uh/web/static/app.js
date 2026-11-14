@@ -977,6 +977,14 @@ async function loadProviders() {
   renderProviders(data.providers || []);
   renderKeysPanel(data.keys);
   renderRouterSettings(await api("/api/router/settings"));
+  // A collapsed panel keeps `display:flex` but its grid column is 0 wide: the rows
+  // are in the DOM and clipped, which reads as "the list never loaded" until the
+  // user detaches the panel and gives it a real width. Re-assert it once, after
+  // the render, whatever the entry point was.
+  const panel = $("providers-panel");
+  if (panel && panel.clientWidth === 0) {
+    $("layout").classList.remove("right-collapsed");
+  }
 }
 
 // Remote access is a privacy switch: the warning and the consent box only appear
@@ -2255,7 +2263,13 @@ async function loadDecision() {
   const box = $("decision-panel");
   box.textContent = "";
   if (!state.sessionId) {
-    box.appendChild(el("p", "panel-hint", "open a session to see how its last turn was decided"));
+    box.appendChild(
+      el(
+        "p",
+        "panel-hint",
+        "Envoyez un message : cette vue montre comment UH choisit le modèle, ce qu'il essaie en premier et ce qu'il consomme."
+      )
+    );
     return;
   }
   try {
@@ -2276,6 +2290,7 @@ function showPanelTab(name) {
     ["memory", "memory-view"],
     ["decision", "decision-view"],
     ["telemetry", "telemetry-view"],
+    ["conn", "conn-view"],
     ["data", "data-view"],
   ]) {
     const active = tab === name;
@@ -2303,6 +2318,7 @@ function showPanelTab(name) {
   } else {
     stopTelemetryPolling();
   }
+  if (name === "conn") loadConnections().catch(() => {});
   if (name === "data") loadData().catch(() => {});
 }
 
@@ -2343,6 +2359,7 @@ function wireProviders() {
   $("tab-memory").addEventListener("click", () => showPanelTab("memory"));
   $("tab-decision").addEventListener("click", () => showPanelTab("decision"));
   $("tab-telemetry").addEventListener("click", () => showPanelTab("telemetry"));
+  $("tab-conn").addEventListener("click", () => showPanelTab("conn"));
   $("tab-data").addEventListener("click", () => showPanelTab("data"));
   // One button in the topbar, next to the Dreams one: the data panel is a place,
   // not a tab you have to know about.
@@ -2917,7 +2934,6 @@ async function toolsSection() {
 
   // Cloud connections: a template, a few fields, one button. The token goes to
   // mcp-secrets.toml - config.toml is the file people paste into issues.
-  mountCloud(section);
   mountFix(section);
 
   section.appendChild(
@@ -3229,7 +3245,7 @@ function memoryGraph(data) {
     el(
       "p",
       "data-note",
-      "Trait plein = UH consulte cette source pour un tour. Pointillés = il ne peut pas encore : pas d'outil pour le wiki, pas de route pour le RAG, SiYuan passe par UHB."
+      "Légende — trait plein : UH consulte cette source pour un tour ; pointillés : il ne peut pas encore (pas d'outil pour le wiki, pas de route pour le RAG, SiYuan passe par UHB) ; nœud plein : source effectivement lue ; nœud creux : joignable mais non lue pour ce tour. Le détail est aussi écrit sous le graphe quand tu survoles un nœud : rien ne dépend de la couleur seule."
     )
   );
   return wrapper;
@@ -3953,6 +3969,97 @@ boot()
     dismissSplash();
     document.body.textContent = `UH web error: ${error.message}`;
   });
+
+// --------------------------------------------------------------------------- //
+// Connexions: the clouds and the MCP servers a person can add themselves
+// --------------------------------------------------------------------------- //
+function customMcpSection() {
+  const box = el("div", "tool-cloud");
+  box.appendChild(el("div", "tool-name", "Serveur MCP personnalisé"));
+  box.appendChild(
+    el(
+      "p",
+      "data-note",
+      "N'importe quel serveur MCP (stdio) : une commande, ses arguments, ses variables. Les valeurs dont le nom ressemble à un secret (TOKEN, KEY, SECRET…) vont dans mcp-secrets.toml, jamais dans config.toml."
+    )
+  );
+
+  const field = (label, placeholder, multiline = false) => {
+    const wrap = el("label", "cloud-field");
+    wrap.appendChild(el("span", "cloud-label", label));
+    const input = multiline ? document.createElement("textarea") : document.createElement("input");
+    input.className = multiline ? "modal-area" : "cloud-input";
+    if (multiline) input.rows = 3;
+    else input.type = "text";
+    input.placeholder = placeholder;
+    input.autocomplete = "off";
+    wrap.appendChild(input);
+    return { wrap, input };
+  };
+
+  const name = field("Nom (minuscules, chiffres, - ou _)", "mon-serveur");
+  const command = field("Commande", "npx");
+  const args = field("Arguments (un par ligne)", "-y\n@modelcontextprotocol/server-filesystem\nC:/docs", true);
+  const env = field("Variables d'environnement (KEY=valeur, une par ligne)", "S3_BUCKET=mes-docs", true);
+  [name, command, args, env].forEach((item) => box.appendChild(item.wrap));
+
+  const status = el("p", "data-note", "");
+  const button = el("button", "data-button", "Ajouter ce serveur");
+  button.type = "button";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "ajout…";
+    const variables = {};
+    env.input.value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const index = line.indexOf("=");
+        if (index > 0) variables[line.slice(0, index).trim()] = line.slice(index + 1).trim();
+      });
+    try {
+      const result = await api("/api/mcp/custom", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.input.value.trim(),
+          command: command.input.value.trim(),
+          args: args.input.value.split(/\r?\n/).map((a) => a.trim()).filter(Boolean),
+          env: variables,
+        }),
+      });
+      status.textContent = result.parsed
+        ? `Ajouté : ${result.name}. Ouvre « Données » pour le tester.`
+        : `Écrit, mais illisible par UH : ${(result.problems || []).join(" ; ")}`;
+      if (result.parsed) {
+        name.input.value = "";
+        command.input.value = "";
+        args.input.value = "";
+        env.input.value = "";
+      }
+    } catch (error) {
+      status.textContent = `Refusé : ${error.message}`;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Ajouter ce serveur";
+    }
+  });
+  box.appendChild(button);
+  box.appendChild(status);
+  return box;
+}
+
+async function loadConnections() {
+  const view = $("conn-view");
+  if (!view) return;
+  view.textContent = "";
+  const list = el("div", "data-list");
+  list.appendChild(el("p", "data-note", "Ce qui relie UH à l'extérieur : un stockage cloud, un serveur d'outils. Rien ne s'active sans toi."));
+  view.appendChild(list);
+  await mountCloud(list);
+  view.appendChild(customMcpSection());
+}
+
 
 // --------------------------------------------------------------------------- //
 // self-repair: propose, show the diff, apply on a branch or reject

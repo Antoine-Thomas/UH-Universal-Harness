@@ -146,6 +146,8 @@ Notes that save an hour:
   result sizes, and every failure returned as a tool result instead of a crashed
   turn ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)).
   The Data panel shows one row per server and a test button that asks it *now*.
+![The Connexions tab: a Cloud template on top, a custom MCP server form below](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/connections.png)
+
 - **Cloud connections in two clicks** (no TOML). The Data panel offers "Connecter
   un Cloud": pick **AWS S3** or **Google Drive**, fill the labelled fields, press
   Connect. UH writes the `[[mcp.servers]]` entry for you, keeps the secrets in
