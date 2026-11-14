@@ -173,6 +173,17 @@ def script_text() -> str:
             "  exit 1",
             "}",
             "",
+            "# A previous `uh web` holds the port and the exe: a second one used to die",
+            "# on bind, and an upgrade fails on the locked uh.exe. Stop ours (matched on",
+            "# the module, never on 'python.exe'), then wait a moment for the port.",
+            "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |",
+            "  Where-Object { $_.CommandLine -like '*-m uh.cli web*' -and $_.ProcessId -ne $PID } |",
+            "  ForEach-Object {",
+            "    Write-UhLog ('stopping a previous uh web (' + $_.ProcessId + ')')",
+            "    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue",
+            "  }",
+            "Start-Sleep -Milliseconds 600",
+            "",
             "Write-UhLog 'starting uh web --app'",
             # --app: the window has no tab bar and no address bar, which is what
             # makes the shortcut feel like an application and not a bookmark.

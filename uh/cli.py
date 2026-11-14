@@ -749,13 +749,108 @@ def installed_version() -> str | None:
         return None
 
 
-def pip_upgrade_command(*, user: bool = False, dry_run: bool = False) -> list[str]:
+def pip_upgrade_command(*, user: bool = False, dry_run: bool = False, clean: bool = False) -> list[str]:
+    """The pip invocation. ``clean`` replaces the package instead of upgrading it.
+
+    ``--force-reinstall --no-cache-dir`` is what makes an upgrade work when the
+    cached wheel or a half-replaced install is the problem: pip then rebuilds the
+    environment from the index instead of trusting what it has.
+    """
     command = [sys.executable, "-m", "pip", "install", "--upgrade", PACKAGE_NAME]
+    if clean:
+        command[4:4] = ["--force-reinstall", "--no-cache-dir"]
     if user:
         command.append("--user")
     if dry_run:
         command.append("--dry-run")
     return command
+
+
+def uh_processes() -> list[str]:
+    """PIDs of the *other* UH processes on Windows. Never raises.
+
+    They hold ``uh.exe`` and the port, which is why an upgrade fails with
+    ``WinError 32`` and why a second `uh web` used to die on bind. Only our own
+    module (``-m uh.cli``) and ``uh.exe`` are matched: another Python process is
+    somebody else's program.
+    """
+    if sys.platform != "win32":
+        return []
+    script = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { ($_.Name -eq 'uh.exe') -or ($_.CommandLine -like '*-m uh.cli*') } | "
+        f"Where-Object {{ $_.ProcessId -ne {os.getpid()} }} | "
+        "ForEach-Object { $_.ProcessId }"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", script],
+            capture_output=True, text=True, timeout=25,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    stdout = getattr(completed, "stdout", "") or ""
+    return [line.strip() for line in stdout.splitlines() if line.strip().isdigit()]
+
+
+def stop_uh_processes() -> list[str]:
+    """Ask every other UH process to stop. Returns the PIDs we signalled."""
+    pids = uh_processes()
+    for pid in pids:
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", pid, "/T", "/F"],
+                capture_output=True, timeout=15,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return pids
+
+
+def purge_pip_cache() -> bool:
+    """Drop pip's cache. True when pip said so; a refusal is not a failure."""
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", "pip", "cache", "purge"],
+            capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return getattr(completed, "returncode", 1) == 0
+
+
+def runs_as_launcher_exe() -> bool:
+    """True when this process *is* ``uh.exe`` - the file pip has to replace."""
+    if sys.platform != "win32":
+        return False
+    return Path(sys.argv[0]).name.lower().endswith("uh.exe")
+
+
+def detached_upgrade() -> bool:
+    """Install from a child that outlives us, then refresh the shortcut.
+
+    Windows refuses to overwrite a running executable: pip cannot replace
+    ``uh.exe`` while ``uh upgrade`` is that process. The only honest order is to
+    leave first and let a detached console do the work - which is also why the
+    user sees a window open and close on its own.
+    """
+    install = subprocess.list2cmdline(pip_upgrade_command(clean=True))
+    shortcut = subprocess.list2cmdline([sys.executable, "-m", "uh.cli", "install-shortcut"])
+    tail = (
+        'echo. & echo UH updated - relaunch "UH web" from the Desktop. & '
+        "timeout /t 6 >nul"
+    )
+    script = f"timeout /t 3 /nobreak >nul & {install} && {shortcut} & {tail}"
+    try:
+        subprocess.Popen(  # noqa: S603 - our own command, no shell string from a user
+            ["cmd.exe", "/c", script],
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            close_fds=True,
+        )
+    except OSError as exc:
+        print(f"uh upgrade: cannot start the installer ({exc})", file=sys.stderr)
+        return False
+    return True
 
 
 def restart_process() -> int:
@@ -770,7 +865,14 @@ def restart_process() -> int:
 
 
 def cmd_upgrade(args: argparse.Namespace) -> int:
-    """`uh upgrade`: pip install --upgrade uh-harness, then report and maybe restart."""
+    """`uh upgrade`: stop what holds the files, clean, reinstall, refresh the icon.
+
+    Windows made this harder than "pip install --upgrade": a running `uh web`
+    holds ``uh.exe`` (WinError 32), and the process doing the upgrade *is*
+    ``uh.exe`` - which pip cannot replace while it runs. So: stop the other UH
+    processes, purge the cache, then either reinstall in place (POSIX, or a
+    ``python -m`` invocation) or hand the job to a detached console and leave.
+    """
     running = __version__
     installed = installed_version() or running
     print(f"uh upgrade: running {running}, installed {installed}")
@@ -783,10 +885,29 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         )
         return EXIT_FAILURE
 
-    command = pip_upgrade_command(user=args.user, dry_run=args.dry_run)
+    clean = not getattr(args, "no_clean", False)
+    if clean and not args.dry_run:
+        print("uh upgrade: stopping the other UH processes (they lock uh.exe)", flush=True)
+        stopped = stop_uh_processes()
+        if stopped:
+            print(f"  stopped: {', '.join(stopped)}")
+        if purge_pip_cache():
+            print("  pip cache purged")
+
+    command = pip_upgrade_command(user=args.user, dry_run=args.dry_run, clean=clean)
     # flush before handing the terminal to pip: its output is unbuffered, ours
     # is block-buffered when redirected, and the two would interleave backwards.
     print("uh upgrade: " + " ".join(command), flush=True)
+
+    if not args.dry_run and clean and runs_as_launcher_exe():
+        if detached_upgrade():
+            print(
+                "uh upgrade: UH is closing - the install continues in the window that "
+                "just opened, and the shortcut is refreshed at the end."
+            )
+            return EXIT_OK
+        print("uh upgrade: falling back to an in-place install", file=sys.stderr)
+
     try:
         completed = subprocess.run(command, check=False)
     except OSError as exc:
@@ -811,6 +932,17 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         print(f"uh upgrade: already up to date (installed {installed}, running {running})")
         return EXIT_OK
     print(f"uh upgrade: {installed} -> {upgraded}")
+    if clean and sys.platform == "win32":
+        # The Desktop button is a file we generated; an upgrade that leaves the old
+        # one is how a user keeps opening the previous version from a shortcut.
+        try:
+            from . import shortcut as uh_shortcut
+
+            created = uh_shortcut.install()
+        except Exception as exc:  # noqa: BLE001 - an icon is not worth failing an upgrade
+            print(f"uh upgrade: shortcut not refreshed ({exc})", file=sys.stderr)
+        else:
+            print(f"uh upgrade: shortcut refreshed ({created.link})")
     if not args.restart:
         print("uh upgrade: relaunch uh to use the new version (or pass --restart)")
         return EXIT_OK
@@ -2298,6 +2430,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--user",
         action="store_true",
         help="allow a user-level install when no virtualenv is active",
+    )
+    upgrade.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="plain 'pip install --upgrade': do not stop other UH processes, purge the "
+        "cache, or refresh the Desktop shortcut",
     )
     upgrade.add_argument(
         "--dry-run",

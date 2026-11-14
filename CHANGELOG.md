@@ -13,6 +13,28 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.4.4] — 2026-11-14
+
+The patch for installing and updating on Windows, which was the hardest part of
+using it.
+
+### Fixed
+
+- **`uh upgrade` finishes.** On Windows a running `uh web` holds `uh.exe`, so pip
+  answered `WinError 32` - and the process doing the upgrade *is* `uh.exe`, which
+  pip cannot replace while it runs. It now stops the other UH processes, purges
+  pip's cache, installs with `--force-reinstall --no-cache-dir`, refreshes the
+  Desktop shortcut, and - when it is running as `uh.exe` - hands the install to a
+  detached console and leaves first. `--no-clean` keeps the old plain behaviour.
+- **The Desktop launcher stops a previous `uh web`** before starting one: the port
+  and the executable belong to it, and a second start used to die on bind.
+- **DeepSeek is listed in Providers before it holds a key.** The routes existed
+  while the catalogue did not name the provider, so the list that adds a key had
+  no row to add it from - the provider appeared only after a key already existed.
+- The isolation guard in the test suite ignores the files a live process writes
+  (`dream-daemon.status`, the logs), so a daemon ticking during a run no longer
+  looks like a test writing into `~/.uh`.
+
 ## [1.4.3] — 2026-11-14
 
 The patch after the first hour of using the cockpit: fewer choices on screen, and

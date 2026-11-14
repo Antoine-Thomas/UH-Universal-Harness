@@ -94,3 +94,25 @@ signup_note = "Mistral Studio account; free plan is rate-limited and may train o
 [[providers.mistral.models]]
 id = "mistral-small-latest"
 tools = true
+
+# DeepSeek is not free, so it carries no free-tier limit: the entry exists so the
+# provider is *visible* before a key is stored - a row that only appears once a
+# key exists cannot be the place where the key is entered.
+[providers.deepseek]
+base_url = "https://api.deepseek.com"
+auth = "bearer"
+key_url = "https://platform.deepseek.com/api_keys"
+docs_url = "https://api-docs.deepseek.com/api/create-chat-completion"
+verified = "partial"
+checked_at = "2026-11-14"
+limits = "paid, no free tier: 402 when the balance is empty"
+notes = "OpenAI-compatible POST /chat/completions. Model ids follow the API docs; the router treats it as a key-based provider, not a free one."
+signup_note = "Requires a funded account; keys are created in the platform console."
+
+[[providers.deepseek.models]]
+id = "deepseek-flash"
+tools = true
+
+[[providers.deepseek.models]]
+id = "deepseek-v4-pro"
+tools = true

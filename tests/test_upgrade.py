@@ -15,6 +15,21 @@ import pytest
 from uh import cli
 
 
+@pytest.fixture(autouse=True)
+def _never_write_the_real_shortcut(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A successful upgrade refreshes the Desktop launcher - not in a test run.
+
+    Without this the write lands in the developer's real ``~/.uh``, which the
+    session-wide guard in conftest rightly refuses.
+    """
+    from uh import shortcut
+
+    def _refuse(**kwargs: object) -> None:
+        raise shortcut.ShortcutError("no desktop in a test run")
+
+    monkeypatch.setattr(shortcut, "install", _refuse)
+
+
 def _args(**overrides) -> SimpleNamespace:
     defaults = dict(restart=False, user=False, dry_run=False, debug=False)
     defaults.update(overrides)
@@ -63,7 +78,8 @@ def test_user_flag_allows_a_system_interpreter(
 
     assert cli.cmd_upgrade(_args(user=True)) == 0
 
-    assert seen and "--user" in seen[0]
+    install = [command for command in seen if "install" in command][0]
+    assert install[-1] == "--user"
     assert "already up to date" in capsys.readouterr().out
     assert not no_exec
 
@@ -78,8 +94,14 @@ def test_inside_a_venv_the_command_is_pip_install_upgrade(
 
     assert cli.cmd_upgrade(_args()) == 0
 
-    assert seen[0][1:] == ["-m", "pip", "install", "--upgrade", "uh-harness"]
-    assert "--user" not in seen[0]
+    # --force-reinstall --no-cache-dir: an upgrade has to replace what is on
+    # disk, because the cached wheel or a half-replaced install is the problem.
+    install = [command for command in seen if "install" in command][0]
+    assert install[1:] == [
+        "-m", "pip", "install", "--force-reinstall", "--no-cache-dir",
+        "--upgrade", "uh-harness",
+    ]
+    assert "--user" not in install
     assert "already up to date (installed 1.0.0, running 1.0.0)" in capsys.readouterr().out
 
 
@@ -93,9 +115,11 @@ def test_dry_run_passes_the_flag_and_installs_nothing(
 
     assert cli.cmd_upgrade(_args(dry_run=True, restart=True)) == 0
 
-    assert "--dry-run" in seen[0]
+    install = [command for command in seen if "install" in command][0]
+    assert "--dry-run" in install
     out = capsys.readouterr().out
-    assert "dry run" in out
+    assert "dry run" in out, "a dry run says so"
+    assert "pip cache purged" not in out, "a dry run must not touch the cache"
     assert not no_exec, "--dry-run must never restart"
 
 
@@ -183,3 +207,18 @@ def test_upgrade_is_wired_into_the_parser(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert seen and seen[0].dry_run is True  # type: ignore[attr-defined]
     assert seen[0].restart is False  # type: ignore[attr-defined]
+
+def test_no_clean_is_the_old_plain_upgrade(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The clean pass is the default, but it must be possible to ask for pip only."""
+    monkeypatch.setattr(cli, "in_virtualenv", lambda: True)
+    _versions(monkeypatch, "1.0.0", "1.0.0")
+    seen: list[list[str]] = []
+    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **kw: seen.append(cmd) or _completed())
+
+    assert cli.cmd_upgrade(_args(no_clean=True)) == 0
+
+    assert seen == [seen[0]], "no cache purge, no taskkill: one command only"
+    assert "--force-reinstall" not in seen[0]
+    assert "pip cache purged" not in capsys.readouterr().out

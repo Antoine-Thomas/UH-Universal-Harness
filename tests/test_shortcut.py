@@ -268,3 +268,14 @@ def test_the_cli_turns_a_shortcut_error_into_one_line(
 
     assert cli.main(["install-shortcut"]) == 1
     assert "uh install-shortcut: powershell failed: access denied" in capsys.readouterr().err
+
+def test_the_launcher_clears_a_previous_web_before_starting() -> None:
+    """The button must not depend on the user knowing about a leftover process."""
+    script = shortcut.script_text()
+
+    assert "-m uh.cli web" in script, "match on our module, never on python.exe"
+    assert "Stop-Process" in script
+    assert "web --app" in script
+    assert script.index("Stop-Process") < script.index("web --app"), (
+        "kill first, then start: the other order loses the port"
+    )

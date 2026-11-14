@@ -16,10 +16,15 @@ import pytest
 def _snapshot(directory: Path) -> dict[str, tuple[int, int]]:
     if not directory.is_dir():
         return {}
+    # Written by a live process of the developer's, not by a test: the session
+    # store (any `uh` window), the dream daemon's heartbeat, and the two logs.
+    # Without these exclusions the guard fires on the user's own machine and
+    # teaches everybody to ignore it.
+    volatile = ("uh.db", "dream-daemon.status", "uh-web.log", "uhb.log")
     return {
         item.name: (item.stat().st_mtime_ns, item.stat().st_size)
         for item in directory.iterdir()
-        if item.is_file() and not item.name.startswith("uh.db")
+        if item.is_file() and not item.name.startswith(volatile)
     }
 
 

@@ -152,3 +152,17 @@ def test_providers_list_without_omnirouter_configuration(
     assert "qwen3:8b" in out.out
     assert "not configured" in out.out
     assert "registered: cloudflare, deepseek, ollama, omnirouter" in out.out
+
+def test_deepseek_is_listed_before_it_has_a_key() -> None:
+    """A provider only visible once it holds a key is one you cannot give a key.
+
+    The DeepSeek routes existed on their own while the catalogue did not mention
+    it, so the panel that adds a key had no row to add it from.
+    """
+    from uh.providers_admin import provider_rows
+
+    rows = {row["name"]: row for row in provider_rows()}
+
+    assert "deepseek" in rows
+    assert rows["deepseek"]["base_url"] == "https://api.deepseek.com"
+    assert rows["deepseek"]["keys"] == 0
