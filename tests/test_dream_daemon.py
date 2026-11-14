@@ -139,3 +139,31 @@ def test_low_priority_is_attempted_not_required(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delattr(dream_daemon.ctypes, "windll", raising=False)
 
     assert dream_daemon.low_priority() is False, "no ctypes, no crash"
+
+
+def test_one_absence_is_one_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A machine left alone for ten ticks must not dream ten times.
+
+    The guard after a pass used to be inverted (`running()` means "stop was
+    requested"): with the user away, the daemon started a pass every pass. One
+    night: 3594 folders, one every eight seconds, 8.6 MB of the same partial
+    report.
+    """
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+    monkeypatch.setenv("UH_IDLE_MINUTES", "15")
+    ran: list[int] = []
+
+    def fake_sleep(_seconds: float) -> None:
+        return None
+
+    result = dream_daemon.run(
+        lambda: ran.append(1),
+        tick=0.0,
+        sleep=fake_sleep,
+        now=lambda: 1_000_000.0,
+        idle=lambda: 9999.0,  # the user is away, forever
+        max_ticks=10,
+    )
+
+    assert len(ran) == 1, f"one absence, one pass - got {len(ran)}"
+    assert result["passes"] == 1

@@ -318,6 +318,14 @@ class DreamScheduler:
         # /route costs nothing and tells us whether to spend anything at all.
         report.classification = self._classify(url, inventory)
         complexity = str(report.classification.get("complexity") or "").lower()
+        readable_sources = [name for name, state in inventory.items() if state.get("available")]
+        if not complexity and readable_sources:
+            # UHB is down, or said nothing: the local model can still read the
+            # skills and the MCP inventory. A pass that reads 12 skills and 9 tools
+            # and then writes "partial" with no idea in it is an empty report
+            # pretending to be a decision.
+            complexity = "standard"
+            report.notes.append("no classification from UHB: reviewed locally")
         if complexity in ("standard", "complex"):
             self._review(inventory, report)
         elif complexity:

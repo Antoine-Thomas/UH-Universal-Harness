@@ -26,6 +26,8 @@ DEFAULT_IDLE_MINUTES = 15
 TICK_SECONDS = 60.0
 #: How long a single pass may run before the daemon gives the machine back.
 MAX_PASS_SECONDS = 900.0
+#: A pass costs model tokens and a folder; two an hour apart is already generous.
+MIN_PASS_INTERVAL = 3600.0
 
 IDLE_ENV = "UH_IDLE_MINUTES"
 STOP_FILE = "dream-daemon.stop"
@@ -148,6 +150,7 @@ def run(
     ticks = 0
     passes = 0
     last: str = ""
+    last_pass_at: Optional[float] = None
     state_seen = "idle-monitoring"
     write_status(state="idle-monitoring", threshold_minutes=idle_minutes(), passes=0)
 
@@ -171,6 +174,12 @@ def run(
             sleep(tick)
             continue
 
+        # Insurance on top of the wait above: whatever the idle sensor says, two
+        # passes are never worth running an hour apart, let alone eight seconds.
+        if last_pass_at is not None and now() - last_pass_at < MIN_PASS_INTERVAL:
+            sleep(tick)
+            continue
+
         started = now()
         write_status(state="dreaming", threshold_minutes=idle_minutes(), passes=passes,
                      idle_seconds=round(idle_for, 1))
@@ -185,8 +194,17 @@ def run(
             last = f"{last} (long pass: {elapsed:.0f}s)"
         write_status(state="idle-monitoring", threshold_minutes=idle_minutes(),
                      passes=passes, last_pass=last)
+        last_pass_at = now()
         # Do not dream twice for the same absence: wait for real input first.
-        while running() and (idle() or 0.0) >= threshold:
+        # `running()` means "a stop has been requested", so this guard used to be
+        # inverted - it waited only when asked to leave, and started a new pass
+        # straight away otherwise. One night, 3594 passes, one every 8 seconds.
+        # The wait counts ticks like the outer loop: a bounded run must be able to
+        # end while the user is away, otherwise only a stop file frees it.
+        while not running() and (idle() or 0.0) >= threshold:
+            ticks += 1
+            if max_ticks is not None and ticks > max_ticks:
+                break
             sleep(tick)
 
     write_status(state="stopped", passes=passes, last_pass=last, last_state=state_seen)

@@ -225,7 +225,7 @@ function mountDreams() {
     const target = document.querySelector(".topbar, header, #topbar") || document.body;
     const button = dreamsEl("button", "ghost dreams-open", "☾ Rêves");
     button.id = "dreams-open";
-    button.title = "Lire, lancer et décider les rêves";
+    button.title = "Rêves : lire les passes, en lancer une à la main, décider (Stocker / Exaucer)";
     button.addEventListener("click", () => {
       loadDreams();
       dreamsPanel().classList.add("open");
@@ -238,7 +238,7 @@ function mountDreams() {
         if (!idea) return;
         const badge = dreamsEl("button", "ghost idea-badge", "💡 Idée du jour");
         badge.id = "idea-badge";
-        badge.title = idea.ideas[0].title;
+        badge.title = `Voir l'idée du jour : ${idea.ideas[0].title}`;
         badge.addEventListener("click", () => {
           loadDreams();
           dreamsPanel().classList.add("open");

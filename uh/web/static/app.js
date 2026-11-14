@@ -728,6 +728,10 @@ async function sendMessage(text) {
   let assistant = appendMessage("assistant", "");
   let assistantText = "";
   let openCard = null;
+  // Set when the turn failed. The finally-block used to re-fetch the store and
+  // redraw the transcript on every outcome - so a 500 erased the question and the
+  // error together, which reads as "the app swallowed my message".
+  let failed = "";
 
   const controller = new AbortController();
   state.abort = controller;
@@ -779,11 +783,16 @@ async function sendMessage(text) {
             toolCard(data.name, null, data.content);
           }
         } else if (event === "error") {
-          appendMessage("system", data.message || "error");
+          failed = data.message || "error";
+          const bubble = appendMessage("assistant", `Erreur du modèle : ${failed}`);
+          bubble.classList.add("failed");
         } else if (event === "done") {
           const content = assistant.querySelector(".content");
           if (!assistantText && !content.textContent.trim()) {
-            assistant.remove();
+            // A bubble that disappears looks like the app ate the question.
+            assistant.classList.add("failed");
+            content.textContent =
+              "Le modèle n'a rien renvoyé. Réessaie, ou choisis un autre modèle avec « ⋯ ».";
           } else {
             // The stream was appended as plain text; swap in the Markdown
             // rendering now that the answer is complete.
@@ -794,15 +803,27 @@ async function sendMessage(text) {
       });
     }
   } catch (error) {
-    if (error.name !== "AbortError") appendMessage("system", `error: ${error.message}`);
+    if (error.name !== "AbortError") {
+      failed = error.message || "erreur inconnue";
+      assistant.remove();
+      const bubble = appendMessage(
+        "assistant",
+        `Erreur du modèle : ${failed}. Réessaie, ou choisis un autre modèle avec « ⋯ ».`
+      );
+      bubble.classList.add("failed");
+    }
   } finally {
     state.streaming = false;
     state.abort = null;
     $("send").disabled = false;
     $("stop").disabled = true;
-    const data = await api(`/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=200`);
-    renderHistory(data.messages);
-    updateGauge(data.messages);
+    if (!failed) {
+      const data = await api(
+        `/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=200`
+      );
+      renderHistory(data.messages);
+      updateGauge(data.messages);
+    }
     loadSessions();
   }
 }
