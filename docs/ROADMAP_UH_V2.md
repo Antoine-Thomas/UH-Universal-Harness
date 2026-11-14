@@ -716,8 +716,28 @@ has no remote tools.
 
 Still open: a real Positron on this machine (not installed here - the transport is
 proven against a fake server that speaks all three shapes, including a 401, a 302
-and a closed stream); `sse` entries written by hand still go through the legacy
-path only; the Tauri question is deliberately after P14.1.
+and a closed stream); the Tauri question is deliberately after P14.1.
+
+Two entries from the security review, traced rather than silently closed:
+
+- **DNS rebinding on a non-literal host.** `uh/urlguard.py` decides "loopback" on
+  the literal host and never resolves a name, so a name that resolves to
+  `127.0.0.1` is still treated as remote: it needs `https` (certificate checked
+  against that name) or the explicit `allow_insecure` checkbox, and every tool
+  call from it still needs a click. Resolving at registration time and checking
+  the IP would introduce a TOCTOU (the answer at registration is not the answer at
+  connection), and pinning the resolved IP at connect time (IP + `Host`/SNI) is
+  the only version that would actually hold - it costs a custom connection pool
+  and a second name-verification path, for a threat that already requires the
+  user to paste a hostile name and then approve every call. Decision: not
+  implemented; the residual risk is documented here, and `_check` refuses
+  redirects so an approved address cannot become another one after a 302.
+- **`transport = "sse"` written by hand.** A hand-written `[[mcp.servers]]` with
+  `transport = "sse"` is accepted and uses the legacy one-stream path only; the
+  panel offers no button for it because `transport = "http"` already auto-detects
+  the shape from the URL (a path ending in `/sse` is the legacy stream). What is
+  missing is a UI that can *edit* an existing entry: today a mistake in the URL
+  or the transport is corrected in `config.toml`, by hand.
 
 Positron is Posit's data-science IDE built on **Code OSS**. Since **2026.10** it
 ships an **experimental MCP server** (setting `ai.mcp.enabled`, command
@@ -726,6 +746,36 @@ data, plots and R/Python consoles of a session.
 
 UH never installs Positron: a user who has it connects to it, a user who does not
 is not blocked.
+
+## Tauri vs client MCP - the decision, not the build
+
+**Criteria**, in the order they matter to this product: (1) first launch without a
+terminal, a `.ps1` or a port number; (2) a permission model a buyer can read
+(files, processes) instead of one inherited from the shell; (3) install weight and
+update path; (4) security surface (a desktop app calls the local API without a
+browser, so CSRF disappears - but the token and the loopback bind must stay);
+(5) maintenance across three OS; (6) what a signed installer actually buys a
+person who is being sold a skill, not a runtime.
+
+**Cost.** Tauri means a Rust toolchain, per-platform signing, three installers and
+a WebView that differs from the Edge/Chrome used in the proofs. It does **not**
+touch the MCP client: that lives in the Python process either way, and P14.1 is
+already shipped and tested. Staying in the browser costs nothing new but keeps the
+launcher and the port visible on day one.
+
+**Risks.** Tauri adds a layer to debug (WebView quirks, IPC, permissions) and turns
+a Python package into a signed product with a release cadence. Not doing it means
+the first contact stays a shortcut that opens a window - acceptable for a technical
+buyer, weaker for a non-technical one.
+
+**Recommendation (10 lines).** Keep the MCP client + browser cockpit for now:
+P14.1 is done, the remaining user-facing gap (Positron, a token) is closed inside
+the existing panel. Open Tauri only if a prospect asks for a signed installer or if
+file/process access must go through an OS permission prompt; otherwise Rust,
+signing, three installers and an update channel buy nothing the current launcher
+does not already do. Re-evaluate after one real Positron connection and one
+recorded self-repair demo, because that is when "it looks like an app" starts
+mattering commercially.
 
 ## Ideas, not scheduled
 
