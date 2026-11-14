@@ -1685,7 +1685,7 @@ def cmd_web(args: argparse.Namespace) -> int:
     """Serve the local web interface. The heavy imports stay inside the extra."""
     host = (getattr(args, "host", None) or "127.0.0.1").strip()
     try:
-        from .web.app import LOOPBACK_NAMES, run_server
+        from .web.app import LOOPBACK_NAMES, check_bind, run_server
     except ImportError as exc:
         print(
             "uh web: the [web] extra is not installed "
@@ -1695,10 +1695,17 @@ def cmd_web(args: argparse.Namespace) -> int:
         print('  install it with: pip install "uh-harness[web]"', file=sys.stderr)
         return EXIT_FAILURE
 
+    allow_remote = bool(getattr(args, "allow_remote", False))
+    refusal = check_bind(host, allow_remote=allow_remote)
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return EXIT_FAILURE
+
     if host not in LOOPBACK_NAMES:
         print(
-            f"uh web: WARNING binding {host} (not loopback). The interface is reachable "
-            "from the network and the token in the URL is the only protection.",
+            f"uh web: WARNING binding {host} (not loopback, --allow-remote given). The "
+            "interface is reachable from the network and the token in the URL is the only "
+            "protection.",
             file=sys.stderr,
         )
 
@@ -1749,6 +1756,7 @@ def cmd_web(args: argparse.Namespace) -> int:
             # An explicit --port is a contract; the default one may move to the
             # next free port so a leftover `uh web` never kills the new one.
             port_fallback=getattr(args, "port", None) is None,
+            allow_remote=allow_remote,
         )
     finally:
         # Ctrl+C, an error, a normal exit: the child goes with the parent.
@@ -2679,6 +2687,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     web = sub.add_parser("web", help="local web interface (needs the [web] extra)")
     web.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
+    web.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="accept a non-loopback --host (the token in the URL is then the only protection)",
+    )
     web.add_argument("--port", type=int, default=None, help="port (default 8765, or the next free one)")
     web.add_argument("--no-open", action="store_true", help="do not open a browser")
     web.add_argument(

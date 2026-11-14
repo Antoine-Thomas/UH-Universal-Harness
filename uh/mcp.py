@@ -480,7 +480,18 @@ class Client:
                 del self._stderr[: len(self._stderr) - STDERR_TAIL]
 
     def stderr_tail(self) -> str:
-        return bytes(self._stderr).decode("utf-8", "replace").strip()
+        """The server's own words, with any stored secret replaced by its mask.
+
+        A server that dumps its environment on start must not put the token in an
+        error message that the cockpit renders and the user pastes into a ticket.
+        """
+        raw = bytes(self._stderr).decode("utf-8", "replace").strip()
+        try:
+            from .mcp_cloud import redact
+
+            return redact(raw)
+        except Exception:  # noqa: BLE001 - redaction is never worth failing a call
+            return ""
 
     # -- json-rpc ---------------------------------------------------------- #
     def _write(self, payload: Dict[str, Any]) -> None:
@@ -747,6 +758,16 @@ def build_toolsets(config: Optional[Config] = None) -> Dict[str, Toolset]:
     return toolsets
 
 
+def redact(text: str) -> str:
+    """Hide stored secret values before a message leaves the module."""
+    try:
+        from .mcp_cloud import redact as _redact
+
+        return _redact(text)
+    except Exception:  # noqa: BLE001 - redaction must never break a status call
+        return ""
+
+
 def status(config: Optional[Config] = None) -> Dict[str, Any]:
     """The MCP block of ``/api/tools/status``. Reports only what is known.
 
@@ -770,7 +791,7 @@ def status(config: Optional[Config] = None) -> Dict[str, Any]:
         }
         failed = _FAILED.get(key)
         if failed is not None:
-            entry["reason"] = failed[1]
+            entry["reason"] = redact(failed[1])
         else:
             entry["reason"] = "not started yet: it starts on the first tool call, or on test"
         entries.append(entry)

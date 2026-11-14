@@ -9,11 +9,12 @@ in the same commit as any route change.
 
 | Rule | Value |
 | --- | --- |
-| Bind | `127.0.0.1:8765` by default; `--host` allows anything, with a warning |
-| Auth | token, generated per process; `/?token=…` sets a `HttpOnly; SameSite=Strict` cookie, `Authorization: Bearer …` is also accepted |
+| Bind | `127.0.0.1:8765` by default; another `--host` is refused unless `--allow-remote` is given |
+| Auth | token, generated per process; `/?token=…` sets a `HttpOnly; SameSite=Strict` cookie, `Authorization: Bearer <token>` is also accepted |
 | Missing or wrong token | `401 {"detail": "…"}` |
 | `Host` header | must be the bind host or loopback, else `400 {"detail": "host not allowed"}` |
 | `Origin` header | when present, must match `http://<host>:<port>`, else `400` |
+| `Sec-Fetch-Site` | `cross-site` is always `400`; a cookie-authenticated `POST`/`PUT`/`PATCH`/`DELETE` needs `same-origin` (or a matching `Origin`), else `403` |
 | Headers on every response | `Content-Security-Policy: default-src 'none'; …` (no `unsafe-inline`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` |
 | OpenAPI | disabled (`openapi_url=None`, `docs_url=None`) |
 | Bodies | never logged; keys never appear in any response |
@@ -75,7 +76,7 @@ even when the failing input was one.
 | POST | `/api/fix` | `{instruction}` | `{stamp, applies, error, files, path, notes, diff}` — asks a provider for a unified diff and **proves** it with `git apply --check`; nothing is written to the tree · `400` empty instruction · `502` no provider / model refusal |
 | POST | `/api/fix/{stamp}/apply` | — | `{applied, branch: "fix/auto-<stamp>", reverted, changed?, failed?}` — re-reads and re-checks the stored diff, applies it on a new branch, runs `ruff` on `uh` and `tests`, and reverts the patch when that fails. Never commits, never pushes · `400` not a stamp · `404` unknown proposal · `409` the patch no longer applies |
 | GET | `/api/mcp/cloud` | — | `{templates: [{id, label, what, can_upload, upload_note, docs, fields: [{key, label, secret, required, placeholder, help}]}], upload_targets: [{name, tool, label}]}` — never a stored value |
-| POST | `/api/mcp/http` | `{name, url, token?, label?}` | `{name, transport: "http", url, state: "configured-not-started", reason, secrets}` — records an HTTP/SSE MCP server (Positron, an IDE, a hosted tool server) as a `[[mcp.servers]]` block with `transport = "http"`; **nothing is started**: the stdio client skips it and `uh.mcp_cloud.pending_http_servers` reads it back for the panel. Token → `mcp-secrets.toml` · `400` bad name or non-http(s) URL · `403` not a loopback bind |
+| POST | `/api/mcp/http` | `{name, url, token?, label?, allow_insecure?}` | `{name, transport: "http", url, state: "configured-not-started", reason, warning, insecure, token, secrets}` — records an HTTP/SSE MCP server (Positron, an IDE, a hosted tool server) as a `[[mcp.servers]]` block with `transport = "http"`. The URL is checked by `uh.urlguard`: http(s) only, no credentials in the address, no fragment, and **plain HTTP to a non-loopback host is refused (`400`) unless `allow_insecure: true`** (the token would travel in clear). Token → `mcp-secrets.toml` (owner-only ACL); the answer carries its masked form only. **Nothing is started**: the stdio client skips the entry and `uh.mcp_cloud.pending_http_servers` reads it back for the panel · `400` bad name / refused URL · `403` not a loopback bind |
 | POST | `/api/mcp/custom` | `{name, command, args: [..], env: {KEY: value}}` | `{name, custom: true, config, secrets, parsed, problems, state}` — adds any stdio MCP server: one `[[mcp.servers]]` block, env entries whose **name** looks like a credential (`TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `CREDENTIAL`) go to `mcp-secrets.toml`, the rest stay visible in `config.toml` · `400` bad name / empty command / `env` not an object · `403` not a loopback bind |
 | POST | `/api/mcp/cloud` | `{template, name, fields: {KEY: value}}` | `{name, template, label, can_upload, config, secrets, parsed, problems, state}` — appends (or replaces by name) one `[[mcp.servers]]`; secrets go to `mcp-secrets.toml` (0600) and are merged into the child's environment, never written to `config.toml` · `400` unknown template / missing or unexpected field / bad name · `403` not a loopback bind |
 | POST | `/api/mcp/{name}/test` | — | starts that server, `{name, command, connected: true, state: "connected", protocol, server, version, tools: [names]}`, then stops it · `404` unknown name · `502` the server failed (timeout, crash, JSON-RPC error) |
@@ -98,17 +99,26 @@ even when the failing input was one.
 | GET | `/api/router/settings` | — | `{allow_remote, consent, consent_date, strategy, extra_providers, warning}` |
 | PUT | `/api/router/settings` | `{allow_remote, consent?, strategy?}` | the same object · `400` consent or strategy · `403` off loopback |
 
-`403` on every write route comes from one rule: `uh web` must be bound to
-loopback. There is no override flag.
+`403` on a write route comes from one of two rules. First, the server refuses to
+listen beyond loopback unless it was started with `uh web --allow-remote`: the
+cockpit writes configuration and runs tools, and the token in the URL is its only
+credential. Second, **a state-changing request authenticated by the cookie alone
+is refused (`403`) unless it proves its own origin** (`Origin` matching the bound
+address, or `Sec-Fetch-Site: same-origin`). A cookie is ambient authority: a page
+in another tab would otherwise be able to `POST /api/mcp/http` and register a
+server of its choosing (CSRF / DNS rebinding). A request carrying
+`Authorization: Bearer` has no such problem and needs no origin.
 
-**No response ever carries a full key.** The `keys` object of
+**No response ever carries a full key or MCP token.** The `keys` object of
 `GET /api/providers` is the API-key panel's state: `configured`, the `source`
 of the credential (`environment`, `keys.toml` or `none`), and at most a
 **masked hint** per stored key (3 leading + 4 trailing characters, e.g.
 `sk-…abcd`). A key that comes from the environment is reported as
 `source: environment` with no hint at all: UH never wrote it and does not
 echo it. Delete-by-index exists for the same reason: a key value must not
-travel in a URL, which ends up in an access log.
+travel in a URL, which ends up in an access log. An MCP token is reported the
+same way (`••••` plus its last four characters), read from
+`mcp-secrets.toml` at answer time and never from `config.toml`.
 
 `error_kind` is one of `auth`, `rate_limit`, `payment`, `server`, `timeout`,
 `transport`, `redirect_refused`, `no_base_url` — the same classification the

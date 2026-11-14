@@ -14,7 +14,10 @@ issues and copy between machines.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -23,6 +26,8 @@ from ._compat import tomllib  # 3.10 gets tomli through the shim
 from .config import uh_home
 
 SECRETS_FILE = "mcp-secrets.toml"
+#: Windows commands must not flash a console window for every write.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 
@@ -310,10 +315,139 @@ def secrets_path() -> Path:
     return uh_home() / SECRETS_FILE
 
 
+def _decode_console(raw: bytes) -> str:
+    """Decode a Windows console program's output whatever its code page is."""
+    for encoding in ("utf-8", "oem", "cp1252"):
+        try:
+            return raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", "replace")
+
+
+def restrict(path: Path) -> str:
+    """Make a secrets file readable by its owner only. Returns what was done.
+
+    ``chmod`` is a no-op on Windows: the ACL is what decides, so the file is
+    restricted with ``icacls`` (inheritance removed, one ACE for the current
+    user). Both paths are best effort: a failure must not lose the token that
+    was just written, but the caller can read the returned label and the panel
+    can say "permissions not verified" instead of pretending.
+    """
+    if not path.is_file():
+        return "absent"
+    if os.name == "nt":
+        user = os.environ.get("USERNAME") or ""
+        if not user:
+            return "acl-not-applied"
+        try:
+            done = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:F"],
+                capture_output=True,
+                timeout=10,
+                creationflags=_NO_WINDOW,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return "acl-not-applied"
+        return "acl-owner-only" if done.returncode == 0 else "acl-not-applied"
+    try:
+        path.chmod(0o600)
+    except OSError:
+        return "chmod-not-applied"
+    return "0600"
+
+
+def permissions(path: Optional[Path] = None) -> Dict[str, Any]:
+    """What is known about the secrets file's protection, for tests and the panel.
+
+    ``owner_only`` is True only when it was verified, never assumed: a POSIX mode
+    with no group/other bits, or a Windows ACL where nobody except the current
+    user and SYSTEM/Administrators has an entry.
+    """
+    target = path or secrets_path()
+    if not target.is_file():
+        return {"path": str(target), "exists": False, "owner_only": True, "detail": "absent"}
+    if os.name == "nt":
+        try:
+            listed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                ["icacls", str(target)],
+                capture_output=True,
+                timeout=10,
+                creationflags=_NO_WINDOW,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return {
+                "path": str(target),
+                "exists": True,
+                "owner_only": False,
+                "detail": "icacls indisponible : permissions non vérifiées",
+            }
+        # icacls writes in the console's OEM code page, not UTF-8: decoding it as
+        # UTF-8 throws inside subprocess's reader thread and the answer becomes
+        # "no ACE found", which is the opposite of the truth.
+        text = _decode_console(listed.stdout or b"")
+        user = (os.environ.get("USERNAME") or "").upper()
+        # icacls localises its principal names (this machine says "AUTORITE
+        # NT\Système" and "DROITS DU PROPRIÉTAIRE"), so the decision is taken on
+        # the trailing name, never on an English-only sentence.
+        trusted = {
+            "SYSTEM",
+            "SYSTÈME",
+            "ADMINISTRATORS",
+            "ADMINISTRATEURS",
+            "OWNER RIGHTS",
+            "DROITS DU PROPRIÉTAIRE",
+        }
+        widened: List[str] = []
+        body = text.replace(str(target), "").replace(target.name, "")
+        for line in body.splitlines():
+            if ":(" not in line:
+                continue
+            principal = line.split(":(")[0].strip().upper()
+            if not principal:
+                continue
+            trailer = principal.rsplit("\\", 1)[-1].strip()
+            if trailer in trusted or (user and trailer == user):
+                continue
+            widened.append(line.strip())
+        return {
+            "path": str(target),
+            "exists": True,
+            "owner_only": not widened,
+            "detail": "acl" if not widened else "acl trop large : " + "; ".join(widened)[:300],
+        }
+    mode = target.stat().st_mode & 0o777
+    return {
+        "path": str(target),
+        "exists": True,
+        "owner_only": (mode & 0o077) == 0,
+        "detail": f"{mode:04o}",
+    }
+
+
+def masked(value: str) -> str:
+    """``••••`` plus the last four characters. The UI never receives more."""
+    text = str(value or "")
+    if not text:
+        return ""
+    if len(text) <= 4:
+        return "••••"
+    return "••••" + text[-4:]
+
+
 def read_secrets() -> Dict[str, Dict[str, str]]:
     path = secrets_path()
     if not path.is_file():
         return {}
+    if os.name != "nt":
+        try:
+            # Self-heal a file a copy, an unzip or an old version widened: the
+            # token is already inside, reading it back needs no permission to
+            # leave it readable.
+            if (path.stat().st_mode & 0o077) != 0:
+                path.chmod(0o600)
+        except OSError:
+            pass
     try:
         with path.open("rb") as handle:
             data = tomllib.load(handle)
@@ -330,7 +464,7 @@ def read_secrets() -> Dict[str, Dict[str, str]]:
 
 
 def write_secrets(name: str, values: Dict[str, str]) -> Path:
-    """Store a server's secrets in their own file (0600), replacing its table."""
+    """Store a server's secrets in their own file (owner-only), replacing its table."""
     path = secrets_path()
     existing = read_secrets()
     if values:
@@ -345,11 +479,23 @@ def write_secrets(name: str, values: Dict[str, str]) -> Path:
         lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+    restrict(path)
     return path
+
+
+def redact(text: str) -> str:
+    """Remove every stored secret value from a string before it is shown.
+
+    Server stderr is quoted in error messages to say *why* a launch failed, and
+    a server that dumps its environment would otherwise put the token in the
+    browser, the log and the report in one go.
+    """
+    value = str(text or "")
+    for table in read_secrets().values():
+        for secret in table.values():
+            if len(secret) >= 4 and secret in value:
+                value = value.replace(secret, masked(secret))
+    return value
 
 
 def connect(
@@ -438,25 +584,34 @@ def connect_http(
     *,
     label: str = "",
     token: str = "",
+    allow_insecure: bool = False,
     config_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Record an HTTP/SSE MCP server (Positron, an IDE, a hosted tool server).
 
-    The configuration is written now and honest about the gap: UH's MCP client is
-    stdio-only, so the entry sits in `config.toml` with `transport = "http"` and
-    nothing tries to launch it. When the transport lands, the entry is already
-    there. A token, if given, goes to `mcp-secrets.toml` like every other secret.
+    The URL goes through :mod:`uh.urlguard` *before* anything is written: only
+    http(s), no credentials in the address, and plain HTTP to a remote host is
+    refused unless the caller explicitly allowed it (the token would travel in
+    clear). A token, if given, goes to the owner-only secrets file like every
+    other secret and is never returned - only its masked form.
     """
+    from . import urlguard
+
     entry_name = check_name(name)
-    clean_url = (url or "").strip()
-    if not clean_url.startswith(("http://", "https://")):
-        raise CloudError("url must start with http:// or https://")
+    try:
+        checked = urlguard.check(url, allow_insecure=allow_insecure)
+    except urlguard.URLRejected as exc:
+        raise CloudError(str(exc)) from exc
+
     entry: Dict[str, Any] = {
         "name": entry_name,
         "transport": "http",
-        "url": clean_url,
+        "url": checked.url,
         "timeout": 60,
     }
+    if checked.insecure:
+        # Persisted so a restart keeps warning instead of quietly forgetting.
+        entry["insecure"] = True
     if label:
         entry["note"] = label
     add_server(entry, config_path=config_path)
@@ -465,15 +620,23 @@ def connect_http(
     return {
         "name": entry_name,
         "transport": "http",
-        "url": clean_url,
+        "url": checked.url,
         "state": "configured-not-started",
         "reason": HTTP_NOTE,
+        "warning": checked.warning,
+        "insecure": checked.insecure,
+        "token": masked(token) if token else "",
         "secrets": ["MCP_HTTP_TOKEN"] if token else [],
     }
 
 
-def pending_http_servers(*, config_path: Optional[Path] = None) -> List[Dict[str, str]]:
-    """The HTTP/SSE entries `config.toml` holds, so the panel can show them."""
+def pending_http_servers(*, config_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """The HTTP/SSE entries `config.toml` holds, so the panel can show them.
+
+    The token is reported masked (``••••`` plus its last four characters) and
+    read from the secrets file at call time: ``config.toml`` never contains it,
+    and nothing here hands the browser a value it could replay.
+    """
     path = config_path or (uh_home() / "config.toml")
     if not path.is_file():
         return []
@@ -482,6 +645,7 @@ def pending_http_servers(*, config_path: Optional[Path] = None) -> List[Dict[str
             data = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError):
         return []
+    secrets = read_secrets()
     section = data.get("mcp") or {}
     rows = []
     for entry in section.get("servers") or []:
@@ -489,10 +653,17 @@ def pending_http_servers(*, config_path: Optional[Path] = None) -> List[Dict[str
             continue
         if str(entry.get("transport") or "") != "http":
             continue
+        name = str(entry.get("name") or "")
+        token = str((secrets.get(name) or {}).get("MCP_HTTP_TOKEN") or "")
         rows.append(
             {
-                "name": str(entry.get("name") or ""),
+                "name": name,
                 "url": str(entry.get("url") or ""),
+                "transport": "http",
+                "insecure": bool(entry.get("insecure")),
+                "token": masked(token),
+                "has_token": bool(token),
+                "allow": [str(item) for item in (entry.get("allow") or [])],
                 "state": "configured-not-started",
                 "reason": HTTP_NOTE,
             }
@@ -587,8 +758,12 @@ __all__ = [
     "connect_custom",
     "HTTP_NOTE",
     "connect_http",
+    "masked",
     "pending_http_servers",
+    "permissions",
     "read_secrets",
+    "redact",
+    "restrict",
     "secrets_path",
     "template",
     "template_list",

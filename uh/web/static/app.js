@@ -4163,7 +4163,10 @@ function httpServerSection(pending, note) {
     const row = el("div", "tool-row");
     row.appendChild(el("span", "dot dot-warn"));
     row.appendChild(el("span", "tool-name", `http · ${server.name}`));
-    row.appendChild(el("span", "tool-detail", `${server.url} — configuré, non démarré`));
+    const tokenHint = server.has_token ? ` · jeton ${server.token}` : "";
+    row.appendChild(
+      el("span", "tool-detail", `${server.url}${tokenHint} — configuré, non démarré`)
+    );
     box.appendChild(row);
   });
 

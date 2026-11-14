@@ -48,6 +48,10 @@ CSP = (
     "frame-ancestors 'none'"
 )
 LOOPBACK_NAMES = {"127.0.0.1", "localhost", "::1", "[::1]"}
+#: Methods that change something. A cookie is ambient authority: the browser
+#: attaches it to any request a page makes, so these are refused when the only
+#: credential is the cookie and the request does not prove it came from us.
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 #: An import arrives as one body: the cap stops a wrong file from filling the
 #: disk, and the route stops reading at the boundary instead of after it.
 MAX_IMPORT_BYTES = 256 * 1024 * 1024
@@ -86,6 +90,16 @@ def _store(app: FastAPI) -> Iterator[Store]:
         yield store
     finally:
         store.close()
+
+
+def _redact(text: str) -> str:
+    """No stored secret value leaves through an error message."""
+    try:
+        from .. import mcp_cloud
+
+        return mcp_cloud.redact(text)
+    except Exception:  # noqa: BLE001 - redaction never fails a response
+        return str(text)
 
 
 def _bearer(request: Request) -> Optional[str]:
@@ -217,6 +231,30 @@ def create_app(
         origin = request.headers.get("origin")
         if origin and origin not in allowed_origins:
             return JSONResponse({"detail": "origin not allowed"}, status_code=400)
+        # ``Sec-Fetch-Site`` is set by the browser itself and cannot be forged by
+        # a page: a cross-site request is refused even when it carries no Origin.
+        site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+        if site == "cross-site":
+            return JSONResponse({"detail": "cross-site request refused"}, status_code=400)
+        if (
+            request.method in UNSAFE_METHODS
+            and request.cookies.get(COOKIE_NAME)
+            and not _bearer(request)
+        ):
+            # Cookie-only authentication on a state-changing call: a page the
+            # user happens to have open could otherwise POST to /api/mcp/http and
+            # register a server of its choosing (CSRF / DNS rebinding).
+            same_origin = bool(origin and origin in allowed_origins) or site == "same-origin"
+            if not same_origin:
+                return JSONResponse(
+                    {
+                        "detail": (
+                            "requête refusée : elle modifie l'état sans preuve d'origine. "
+                            "Recharge la page UH et réessaie."
+                        )
+                    },
+                    status_code=403,
+                )
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = CSP
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -1469,6 +1507,7 @@ def create_app(
                 str(body.get("url") or ""),
                 label=str(body.get("label") or ""),
                 token=str(body.get("token") or ""),
+                allow_insecure=bool(body.get("allow_insecure")),
             )
         except mcp_cloud.CloudError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1532,7 +1571,11 @@ def create_app(
         try:
             return await asyncio.to_thread(mcp.test_server, name)
         except mcp.MCPError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            # The server's stderr is quoted in the message; redaction happens in
+            # `stderr_tail`, and again here for any path that formatted a secret.
+            raise HTTPException(
+                status_code=502, detail=_redact(str(exc))
+            ) from exc
 
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])
@@ -1633,6 +1676,26 @@ def first_free_port(host: str, port: int, tries: int = 10) -> Optional[int]:
     return None
 
 
+def check_bind(host: str, *, allow_remote: bool = False) -> Optional[str]:
+    """``None`` when the bind is acceptable, else the sentence to print.
+
+    The cockpit is a local API: it can register MCP servers, write config and run
+    tools. Its only credential is a token in the URL, so listening beyond
+    loopback is not a "warning" - it is a different security model. It therefore
+    needs ``--allow-remote``, which is the user saying so on purpose.
+    """
+    value = (host or "").strip()
+    if value in LOOPBACK_NAMES:
+        return None
+    if allow_remote:
+        return None
+    return (
+        f"uh web refuse d'écouter sur {value} : l'interface modifie la configuration et "
+        "lance des outils, et son seul secret est le jeton de l'URL. Reste sur 127.0.0.1, "
+        "ou ajoute --allow-remote si tu sais ce que ça implique."
+    )
+
+
 def run_server(
     *,
     host: str = "127.0.0.1",
@@ -1643,9 +1706,15 @@ def run_server(
     workspace: Optional[Path] = None,
     static_dir: Optional[Path] = None,
     port_fallback: bool = False,
+    allow_remote: bool = False,
 ) -> int:
     """Start uvicorn and print the tokenised URL. Returns the exit code."""
     import uvicorn
+
+    refusal = check_bind(host, allow_remote=allow_remote)
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return 1
 
     # A busy port used to be uvicorn's exit code 3 and nothing else: the user saw
     # a popup "uh web stopped" with no cause. An old `uh web` still holding the
