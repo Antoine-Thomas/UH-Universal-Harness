@@ -1006,6 +1006,18 @@ a.data-button { text-decoration: none; display: inline-block; }
 }
 .local-model-name { font-family: var(--mono); overflow-wrap: anywhere; }
 
+/* The row itself is the action: no third way to pick a model. */
+.local-model-pick {
+  width: 100%; text-align: left; cursor: pointer;
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 11px;
+}
+.local-model-pick:hover { border-color: var(--accent); background: var(--panel); }
+.local-model-pick:disabled { opacity: .6; cursor: progress; }
+.local-model-hint { font-size: 10px; color: var(--muted); }
+.panel-hint.ok { color: var(--accent); }
+.panel-hint.warn { color: var(--highlight); }
+
 /* The skill form: a real dialog in the page, no framework, Esc and backdrop
    both close it, and a click inside never reaches the panel's click-outside. */
 .modal-backdrop {

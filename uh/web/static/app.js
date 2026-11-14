@@ -3223,13 +3223,10 @@ async function toolsSection() {
     section.appendChild(bar);
   }
 
-  // The same popup as "Connexions", where a person looks for MCP (next to the
-  // storage card). Deliberate duplicate: MCP is a tool, not a model key, and it
-  // must be findable from both places.
-  const addMcp = el("button", "data-button", "+ Connecter un MCP");
-  addMcp.type = "button";
-  addMcp.addEventListener("click", () => mcpConnectModal());
-  section.appendChild(addMcp);
+  // No connection button here on purpose: "Connexions" is the only door to an
+  // external service. This tab is the local maintenance room (backup, skills,
+  // installed tools, repair) - and a second door made people wonder which one
+  // was the real one.
 
   // Cloud connections: a template, a few fields, one button. The token goes to
   // mcp-secrets.toml - config.toml is the file people paste into issues.
@@ -4706,7 +4703,7 @@ async function loadConnections() {
     el(
       "p",
       "data-note",
-      "Un serveur MCP (Positron, VS Code, un outil maison) ou un stockage cloud (S3, Google Drive) pour trier et sauvegarder des dossiers. Les clés des modèles sont dans « Clé API », l'IA de cette machine dans « IA locale »."
+      "Gérez ici toutes vos connexions externes : stockages cloud (S3, Google Drive) et serveurs MCP (Positron, VS Code, un outil personnalisé). Les clés des modèles sont dans « Fournisseurs », l'IA de cette machine dans « IA locale »."
     )
   );
   view.appendChild(help);
@@ -5037,32 +5034,46 @@ async function loadLocalPanel() {
       });
       guide.appendChild(pull);
     } else {
+      // The row is the button. A "Utiliser" per line duplicated the header menu,
+      // and a third way to say the same thing is a third thing to explain.
       const list = el("div", "local-models");
+      const note = el("p", "panel-hint", "");
       models.forEach((name) => {
-        const row = el("div", "local-model");
+        const row = el("button", "local-model local-model-pick");
+        row.type = "button";
+        row.title = `Utiliser ${name} pour le chat`;
         row.appendChild(el("span", "local-model-name", name));
-        const use = el("button", "data-button", "Utiliser");
-        use.type = "button";
-        use.addEventListener("click", async () => {
-          use.disabled = true;
+        row.appendChild(el("span", "local-model-hint", "cliquer pour utiliser"));
+        row.addEventListener("click", async () => {
+          if (row.disabled) return;
+          row.disabled = true;
+          note.textContent = `chargement de ${name}…`;
+          note.className = "panel-hint";
           try {
-            await api("/api/setup", {
+            await api("/api/model", {
               method: "POST",
-              body: JSON.stringify({ choice: "ollama", model: name }),
+              body: JSON.stringify({ provider: "ollama", model: name }),
             });
-            use.textContent = "choisi";
+            note.textContent = `${name} est le modèle du chat.`;
+            note.className = "panel-hint ok";
             await loadStatus();
             await loadModels();
             await loadLlmPanel().catch(() => {});
           } catch (error) {
-            use.textContent = `refusé : ${error.message}`;
-            use.disabled = false;
+            // Ollama answers 500 when it cannot put the model in memory. The raw
+            // code tells a person nothing: say what happened and what to do.
+            note.textContent = /HTTP\s*5\d\d|\b500\b/.test(error.message)
+              ? `${name} : non chargé. Ollama n'a pas pu le mettre en mémoire (VRAM ou délai). Réessaie, ou choisis un modèle plus petit.`
+              : `${name} : ${error.message}`;
+            note.className = "panel-hint warn";
+          } finally {
+            row.disabled = false;
           }
         });
-        row.appendChild(use);
         list.appendChild(row);
       });
       guide.appendChild(list);
+      guide.appendChild(note);
     }
   }
   box.appendChild(guide);

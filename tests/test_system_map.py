@@ -75,3 +75,15 @@ def test_each_entry_says_what_it_holds(entry_label: str) -> None:
     rows = {row["label"]: row for row in system_map.entries()}
 
     assert rows[entry_label]["note"], "a path without a purpose is a riddle"
+
+
+def test_the_map_teaches_the_architecture() -> None:
+    """The model must be able to answer "how does my setup work" without guessing."""
+    block = system_map.brief()
+    assert "cockpit" in block and "UHB" in block
+    assert "8101" in block and "11434" in block
+
+    full = system_map.render()
+    assert "## Architecture" in full
+    assert "optional backend" in full
+    assert "Ollama" in full and "11434" in full

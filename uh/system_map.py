@@ -124,6 +124,14 @@ def render(*, workspace: Optional[Path] = None) -> str:
         lines.append(f"  - {row['note']}")
     lines += [
         "",
+        "## Architecture",
+        "",
+        "- **UH** is the cockpit: the chat, this interface, the MCP clients and the tools.",
+        "- **UHB** is the optional backend: RAG, the SiYuan knowledge base, model routing.",
+        "- UH and UHB talk over HTTP on port **8101**, on loopback only.",
+        "- The local models are served by **Ollama** on port **11434**; UH never starts it",
+        "  without asking.",
+        "",
         "## The cycle",
         "",
         "1. a chat turn is written to the store (chats),",
@@ -150,6 +158,10 @@ def brief(*, workspace: Optional[Path] = None) -> str:
     lines = ["Where things are on this machine (this list is authoritative):"]
     for row in entries(workspace=workspace):
         lines.append(f"- {row['label']}: {row['path']}")
+    lines.append(
+        "Architecture: UH is the cockpit (chat, UI, MCP, tools); UHB is the optional "
+        "backend (RAG, SiYuan, routing) on port 8101; local models run through Ollama on 11434."
+    )
     lines.append(
         "When the user asks where something is, answer with these paths. "
         "A realisation writes one file into `outputs`; a night pass never writes there."

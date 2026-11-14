@@ -97,6 +97,39 @@ Then start it again with the Desktop shortcut (or `uh web`).
   from `site-packages` before reinstalling, or the version you read is not the
   version you run.
 
+## Where to connect things
+
+Two tabs, two jobs - and only one of them connects anything:
+
+| Tab | What it is for | Examples |
+| --- | --- | --- |
+| **Connexions** (`/?panel=conn`) | every external connection | cloud storage (S3, Google Drive), MCP servers (Positron, VS Code, a custom tool) |
+| **Données** (`/?panel=data`) | local maintenance | backup, skills, installed tools, repair UH |
+
+There is **no** MCP button in `Données`, and no connection form anywhere else. If a
+guide or a model sends you to `Données` for a connection, it is wrong. `+ Connecter
+un MCP` in Connexions takes a `.json`/YAML file or a command/URL, tests it for five
+seconds, and only then enables "Enregistrer".
+
+## Pip conflicts (gradio, litellm, mixpanel)
+
+Another project on the same interpreter can pin a dependency differently, and pip
+then prints a wall of "conflicting dependencies". The ceilings that satisfy UH and
+the usual AI stacks:
+
+```powershell
+pip install "tomlkit<0.15.0" "importlib-metadata<9.0" "openai<3.0.0" "pydantic<2.12"
+```
+
+These are ceilings, not pins: pip still upgrades freely below them. A conflict
+message is a *warning* - `uh doctor` and one real turn are the proof. If it persists,
+a clean environment settles it:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install uh-harness
+```
+
 ### The UI is older than the code you read about
 
 `pip install uh-harness` gives the **latest published release**, not `main`. The

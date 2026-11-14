@@ -82,6 +82,8 @@ leaves first, because Windows will not let a running executable be replaced.
 When it cannot run, or when the UI keeps serving an old version, this is the exact
 sequence that repairs the installation. Full version, with the "if it is still
 wrong" cases, in [docs/INSTALL.md](docs/INSTALL.md#clean-manual-upgrade-windows).
+Where a connection lives (and where it does not), and the pip ceilings that keep a
+shared interpreter quiet, are in [docs/INSTALL.md](docs/INSTALL.md#where-to-connect-things).
 
 ```powershell
 # 1. stop every UH process: they hold uh.exe and the web port ("WinError 32")

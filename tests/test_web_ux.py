@@ -31,12 +31,16 @@ def test_a_server_is_tested_before_it_is_saved() -> None:
     assert "save.disabled = false;" in popup
     # Any edit after a successful test invalidates it again.
     assert "const invalidate = () => {" in popup
-    assert "save.disabled = true;\n  };" in popup
+    assert popup.count("save.disabled = true;") >= 2, "disabled at start and after any edit"
     # The save goes through the two existing routes, never through a new one.
     assert 'api("/api/mcp/custom"' in popup
     assert 'api("/api/mcp/http"' in popup
-    # And the popup is reachable from both tabs.
-    assert APP_JS.count("mcpConnectModal()") >= 2
+    # One door: the only click handler that opens the popup lives in the
+    # Connexions section (mcpSection), not in the Data tab.
+    assert APP_JS.count("mcpConnectModal()") == 1
+    call_site = APP_JS.index("() => mcpConnectModal()")
+    section = APP_JS.index("function mcpSection(")
+    assert call_site > section and call_site - section < 1500, "the button belongs to Connexions"
     assert 'api("/api/mcp/import"' in popup
     assert ".json,.yaml,.yml" in popup
 
@@ -155,9 +159,10 @@ def test_the_connections_tab_says_what_it_configures() -> None:
     start = APP_JS.index("async function loadConnections(")
     body = APP_JS[start : start + 1400]
     assert 'el("div", "help-card")' in body
-    assert "Un serveur MCP (Positron, VS Code" in body
-    assert "stockage cloud" in body
-    assert "« Clé API »" in body and "« IA locale »" in body
+    assert "Gérez ici toutes vos connexions externes" in body
+    assert "Positron, VS Code" in body
+    assert "stockages cloud" in body
+    assert "« Fournisseurs »" in body and "« IA locale »" in body
 
 
 def test_the_model_menu_carries_the_provider_and_a_badge() -> None:
@@ -188,3 +193,26 @@ def test_the_telemetry_panel_shows_the_evaluation_table() -> None:
     assert "Évaluation des modèles" in body
     assert "telem-table" in body
     assert "tokens_per_s" in body and "tool_calls" in body
+
+
+def test_the_local_models_have_no_second_button() -> None:
+    """The row is the action; "Utiliser" was a third way to say the same thing."""
+    start = APP_JS.index("const list = el(\"div\", \"local-models\");")
+    body = APP_JS[start : start + 2400]
+    assert '"Utiliser"' not in body.replace("Utiliser ${name}", "")
+    assert "local-model-pick" in body
+    assert 'provider: "ollama", model: name' in body
+    # An Ollama 500 becomes a sentence a person can act on.
+    assert "non chargé" in body
+    assert "VRAM" in body
+
+
+def test_data_no_longer_offers_a_connection() -> None:
+    # One button, in the Connexions section, and no second copy anywhere: the
+    # empty-list hint mentions it, the Data tab builds none.
+    assert APP_JS.count('"+ Connecter un MCP"') == 1
+    assert 'el("button", "data-button primary", "+ Connecter un MCP")' in APP_JS
+    # Data still holds the local maintenance.
+    assert 'dataSection("Sauvegarde"' in APP_JS
+    assert 'dataSection("Skills"' in APP_JS
+    assert 'el("div", "tool-name", "Réparer UH")' in APP_JS
