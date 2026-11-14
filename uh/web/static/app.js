@@ -2814,8 +2814,12 @@ async function toolsSection() {
   const list = el("div", "data-list");
   section.appendChild(list);
   const rows = [];
+  // `data` lives outside the try: the MCP block below reads `data.mcp`, and a
+  // const inside the try put it out of scope - the panel then failed with
+  // "data is not defined" whenever the status call *succeeded*.
+  let data = null;
   try {
-    const data = await api("/api/tools/status");
+    data = await api("/api/tools/status");
     const uhb = data.uhb || {};
     rows.push([
       "UHB · second cerveau",

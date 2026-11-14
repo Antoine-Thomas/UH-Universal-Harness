@@ -581,6 +581,9 @@ they are. Model namespaces are not shared, so each backup uses its own model:
 
 ### Repairing itself, with a brake
 
+![The diff modal: "Le patch s'applique (git apply --check)", the unified diff, and two buttons](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/self-repair.png)
+
+
 `uh fix` asks a provider for a unified diff, then **proves it applies** before it
 shows it:
 
