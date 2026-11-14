@@ -17,10 +17,19 @@ def _snapshot(directory: Path) -> dict[str, tuple[int, int]]:
     if not directory.is_dir():
         return {}
     # Written by a live process of the developer's, not by a test: the session
-    # store (any `uh` window), the dream daemon's heartbeat, and the two logs.
-    # Without these exclusions the guard fires on the user's own machine and
-    # teaches everybody to ignore it.
-    volatile = ("uh.db", "dream-daemon.status", "uh-web.log", "uhb.log")
+    # store (any `uh` window), the dream daemon's heartbeat, the two logs, and
+    # the launcher/icon any `uh web` start regenerates when it was built by an
+    # older version. The guard is about credentials and memory landing in the
+    # real home; a file the product itself rewrites on start would make it fire
+    # on the user's own window, which teaches everybody to ignore it.
+    volatile = (
+        "uh.db",
+        "dream-daemon.status",
+        "uh-web.log",
+        "uhb.log",
+        "uh-web.ps1",
+        "uh-web.ico",
+    )
     return {
         item.name: (item.stat().st_mtime_ns, item.stat().st_size)
         for item in directory.iterdir()
