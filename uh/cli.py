@@ -301,6 +301,32 @@ def _config_detail() -> tuple[str, str]:
     return "INFO", "no config file (defaults + environment only)"
 
 
+def cmd_skills(args: argparse.Namespace) -> int:
+    """`uh skills`: what is installed, and the near-duplicates worth merging."""
+    from . import skills as uh_skills
+
+    listing = uh_skills.list_skills()
+    if not getattr(args, "compress", False):
+        print(f"skills: {listing['user']} yours, {listing['native']} built-in")
+        for entry in listing["skills"]:
+            print(f"  [{entry['origin']}] {entry['name']} - {entry['title']}")
+        return EXIT_OK
+
+    groups = uh_skills.duplicate_groups(threshold=float(getattr(args, "threshold", 0.82)))
+    if not groups:
+        print("skills: no near-duplicate among yours")
+        return EXIT_OK
+    write = bool(getattr(args, "write", False))
+    report = uh_skills.compress(groups, write=write)
+    for row in report:
+        print(f"  keep {row['keep']} <- merge {', '.join(row['merged'])}")
+    if write:
+        print("merged; the absorbed files are in skills/.merged (nothing was deleted)")
+    else:
+        print("dry run: pass --write to apply (the absorbed files move to skills/.merged)")
+    return EXIT_OK
+
+
 def cmd_map(args: argparse.Namespace) -> int:
     """`uh map`: the agent's own map, printed (and optionally written next to config)."""
     from . import system_map
@@ -2359,6 +2385,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--write", action="store_true", help="also write $UH_HOME/SYSTEM_MAP.md"
     )
 
+    skill_cmd = sub.add_parser("skills", help="list your skills, or merge near-duplicates")
+    skill_cmd.add_argument(
+        "--compress",
+        action="store_true",
+        help="find near-duplicate skills and merge each group into its longest member",
+    )
+    skill_cmd.add_argument(
+        "--write",
+        action="store_true",
+        help="apply the merge; absorbed files move to skills/.merged, nothing is deleted",
+    )
+    skill_cmd.add_argument(
+        "--threshold", type=float, default=0.82, help="similarity to call two skills the same"
+    )
+
     chat = sub.add_parser("chat", help="conversation loop with file/terminal/memory tools")
     chat.add_argument("prompt", nargs="?", help="one-shot prompt (otherwise read stdin)")
     chat.add_argument("--model", help="model name (default: config, then first Ollama model)")
@@ -2651,6 +2692,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_doctor(args)
         if args.command == "map":
             return cmd_map(args)
+        if args.command == "skills":
+            return cmd_skills(args)
         if args.command == "chat":
             return cmd_chat(args)
         if args.command == "model":

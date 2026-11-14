@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from .config import uh_home
 
@@ -244,6 +244,83 @@ def prompt_block(name: str, home: Optional[Path] = None) -> Optional[str]:
     return f"## Active skill: {found['title']} ({found['name']})\n\n{body}"
 
 
+def duplicate_groups(
+    home: Optional[Path] = None, threshold: float = 0.82
+) -> List[List[Dict[str, Any]]]:
+    """User skills that say the same thing, grouped. Native skills are read-only.
+
+    Two skills are "the same" when their titles or their descriptions are close
+    enough (difflib over lowercase text). Mechanical, no model: a judgement about
+    *meaning* would need one, and a bad merge is worse than a duplicate.
+    """
+    from difflib import SequenceMatcher
+
+    entries = [entry for entry in list_skills(home)["skills"] if entry["origin"] == "user"]
+    seen: set[str] = set()
+    groups: List[List[Dict[str, Any]]] = []
+    for index, first in enumerate(entries):
+        if first["name"] in seen:
+            continue
+        group = [first]
+        for other in entries[index + 1:]:
+            if other["name"] in seen:
+                continue
+            left_title = str(first["title"]).strip().lower()
+            right_title = str(other["title"]).strip().lower()
+            left_description = str(first["description"]).strip().lower()
+            right_description = str(other["description"]).strip().lower()
+            ratio = SequenceMatcher(None, left_title, right_title).ratio()
+            if left_description and right_description:
+                # Two empty descriptions are "identical" to difflib and would merge
+                # every undocumented skill into one. Only compare what exists.
+                ratio = max(ratio, SequenceMatcher(None, left_description, right_description).ratio())
+            if ratio >= threshold:
+                group.append(other)
+                seen.add(other["name"])
+        if len(group) > 1:
+            seen.add(first["name"])
+            groups.append(group)
+    return groups
+
+
+def compress(
+    groups: Sequence[Sequence[Dict[str, Any]]],
+    *,
+    home: Optional[Path] = None,
+    write: bool = False,
+) -> List[Dict[str, Any]]:
+    """Merge each group into its longest member; keep the other files, don't eat them.
+
+    A merge appends the others under a heading, writes the result over the keeper,
+    and moves the merged files into ``skills/.merged``: nothing is deleted, so a
+    bad merge is one ``mv`` away from being undone.
+    """
+    folder = user_dir(home)
+    stash = folder / ".merged"
+    report: List[Dict[str, Any]] = []
+    for group in groups:
+        keeper = max(group, key=lambda entry: int(entry["instructions_chars"]))
+        merged = [str(entry["name"]) for entry in group if entry["name"] != keeper["name"]]
+        report.append({"keep": keeper["name"], "merged": merged, "applied": bool(write)})
+        if not write:
+            continue
+        target = Path(str(keeper["path"]))
+        parts = [target.read_text(encoding="utf-8").rstrip()]
+        pending: List[Path] = []
+        for name in merged:
+            source = folder / f"{name}.md"
+            if not source.is_file():
+                continue
+            parts.append(f"\n\n## Merged from {name}\n\n{source.read_text(encoding='utf-8').strip()}")
+            pending.append(source)
+        target.write_text("\n".join(parts) + "\n", encoding="utf-8")
+        if pending:
+            stash.mkdir(parents=True, exist_ok=True)
+            for source in pending:
+                source.replace(stash / source.name)
+    return report
+
+
 __all__ = [
     "MAX_DESCRIPTION",
     "MAX_INSTRUCTIONS",
@@ -253,6 +330,8 @@ __all__ = [
     "SkillError",
     "TEMPLATE",
     "create",
+    "compress",
+    "duplicate_groups",
     "list_skills",
     "native_dir",
     "parse",

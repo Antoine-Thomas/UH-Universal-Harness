@@ -13,6 +13,23 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.5.1] — 2026-11-14
+
+### Added
+
+- **`uh skills`** lists what is installed; **`uh skills --compress`** groups the
+  near-duplicates (difflib over titles and descriptions, no model) and merges each
+  group into its longest member. It is a dry run unless `--write`, and the absorbed
+  files are *moved* to `skills/.merged` rather than deleted: a bad merge is one
+  `mv` away from undone. Two skills with empty descriptions are never grouped -
+  difflib calls them identical, and that would merge every undocumented skill.
+
+### Fixed
+
+- The 11 MB MCP test waited on a 15 s budget to read a line through a pipe, which
+  takes ~20 s on a loaded machine: it measures "refused, not buffered", so the
+  budget is 60 s and the reason is written next to it.
+
 ## [1.5.0] — 2026-11-14
 
 The harness stops guessing about itself.

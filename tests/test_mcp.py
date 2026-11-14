@@ -298,8 +298,13 @@ def test_a_json_rpc_error_is_surfaced_with_its_message(make_server) -> None:
 
 
 def test_an_oversized_message_is_refused_not_buffered(make_server) -> None:
-    """11 MB on one line: the reader drains it and reports, the harness survives."""
-    client = mcp.client_for(make_server(timeout=15.0))
+    """11 MB on one line: the reader drains it and reports, the harness survives.
+
+    The budget is generous on purpose: the point is *refused instead of buffered*,
+    not speed, and reading 11 MB through a pipe on a busy machine took most of a
+    15 s timeout - a race, not a behaviour.
+    """
+    client = mcp.client_for(make_server(timeout=60.0))
 
     with pytest.raises(mcp.MCPError) as caught:
         client.call("huge", {})
