@@ -1413,6 +1413,14 @@ function presetCard(data) {
     for (const input of [inputs.name, inputs.base_url, inputs.model]) {
       input.disabled = locked;
     }
+    // Hugging Face is the one built-in whose model is a choice, not a constant:
+    // the router takes any repo id, so the field stays open and offers a list.
+    if (native && native.name === "huggingface") {
+      inputs.model.disabled = false;
+      inputs.model.setAttribute("list", "hf-models");
+    } else {
+      inputs.model.removeAttribute("list");
+    }
   };
 
   select.addEventListener("change", () => {
@@ -2325,6 +2333,7 @@ function isNarrow() {
 }
 
 function wireProviders() {
+  ensureHfModels().catch(() => {});
   $("providers-open").addEventListener("click", openProviders);
   $("providers-close").addEventListener("click", closeProviders);
   $("tab-keys").addEventListener("click", () => showPanelTab("keys"));
@@ -2905,6 +2914,7 @@ async function toolsSection() {
   // Cloud connections: a template, a few fields, one button. The token goes to
   // mcp-secrets.toml - config.toml is the file people paste into issues.
   mountCloud(section);
+  mountFix(section);
 
   section.appendChild(
     el(
@@ -2914,6 +2924,28 @@ async function toolsSection() {
     )
   );
   return section;
+}
+
+
+// One list, created on first use: a dropdown of chat models that ship tools, with
+// the field still free-form - the router accepts any repo id.
+let hfModelsReady = false;
+async function ensureHfModels() {
+  if (hfModelsReady || document.getElementById("hf-models")) return;
+  hfModelsReady = true;
+  const list = document.createElement("datalist");
+  list.id = "hf-models";
+  try {
+    const state = await api("/api/setup");
+    (state.huggingface_models || []).forEach((id) => {
+      const option = document.createElement("option");
+      option.value = id;
+      list.appendChild(option);
+    });
+  } catch (error) {
+    /* an older backend: no suggestions, the field still accepts an id */
+  }
+  document.body.appendChild(list);
 }
 
 function openSkillModal() {
@@ -3861,6 +3893,8 @@ async function boot() {
   await loadModels();
   await loadCommands();
   await loadSessions();
+  // Last, so the first-run screen opens over a UI that is already painted.
+  await maybeOpenSetup().catch(() => {});
   // Narrow screens: the right column starts collapsed (overlay mode).
   if (isNarrow()) closeProviders();
   showRemoteBanner().catch(() => {});
@@ -3915,6 +3949,249 @@ boot()
     dismissSplash();
     document.body.textContent = `UH web error: ${error.message}`;
   });
+
+// --------------------------------------------------------------------------- //
+// self-repair: propose, show the diff, apply on a branch or reject
+// --------------------------------------------------------------------------- //
+function closeOnEscape(backdrop) {
+  document.addEventListener(
+    "keydown",
+    function escape(event) {
+      if (event.key === "Escape") {
+        backdrop.remove();
+        document.removeEventListener("keydown", escape);
+      }
+    },
+    { once: true }
+  );
+}
+
+function mountFix(section) {
+  const box = el("div", "tool-cloud");
+  box.appendChild(el("div", "tool-name", "Réparer UH"));
+  box.appendChild(
+    el(
+      "p",
+      "data-note",
+      "L'IA propose un correctif sur son propre code. Rien n'est écrit avant ton accord, et le patch doit s'appliquer : il est vérifié avec git apply --check."
+    )
+  );
+  const area = document.createElement("textarea");
+  area.className = "modal-area fix-area";
+  area.rows = 3;
+  area.placeholder = "Qu'est-ce qui est cassé ? (ex: le bouton Rêves ne s'ouvre pas quand aucun rêve n'existe)";
+  box.appendChild(area);
+  const status = el("p", "data-note", "");
+  const button = el("button", "data-button", "Proposer un correctif");
+  button.type = "button";
+  button.addEventListener("click", async () => {
+    const instruction = area.value.trim();
+    if (!instruction) {
+      status.textContent = "Décris d'abord ce qui est cassé.";
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "réflexion…";
+    status.textContent = "L'IA lit le code et prépare un diff…";
+    try {
+      const proposal = await api("/api/fix", {
+        method: "POST",
+        body: JSON.stringify({ instruction }),
+      });
+      status.textContent = "";
+      openDiffModal(proposal);
+    } catch (error) {
+      status.textContent = `Refusé : ${error.message}`;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Proposer un correctif";
+    }
+  });
+  box.appendChild(button);
+  box.appendChild(status);
+  section.appendChild(box);
+}
+
+function openDiffModal(proposal) {
+  const backdrop = el("div", "modal-backdrop");
+  const modal = el("div", "modal modal-wide");
+  const form = el("form", "modal-form");
+  form.appendChild(el("p", "modal-title", "Correctif proposé"));
+  form.appendChild(
+    el(
+      "p",
+      "data-note",
+      proposal.applies
+        ? `Le patch s'applique (git apply --check). Fichiers : ${(proposal.files || []).join(", ") || "?"}`
+        : `Le patch ne s'applique pas : ${proposal.error}`
+    )
+  );
+  if (proposal.notes && proposal.notes.length) {
+    form.appendChild(el("p", "data-note", proposal.notes.join(" · ")));
+  }
+  const pre = el("pre", "modal-diff", proposal.diff || "(diff vide)");
+  form.appendChild(pre);
+
+  const error = el("p", "modal-error");
+  const actions = el("div", "modal-actions");
+  const reject = el("button", "data-button", "Rejeter");
+  reject.type = "button";
+  const applyBtn = el("button", "data-button primary", "Appliquer sur une branche");
+  applyBtn.type = "button";
+  applyBtn.disabled = !proposal.applies;
+  actions.appendChild(reject);
+  actions.appendChild(applyBtn);
+  form.appendChild(error);
+  form.appendChild(actions);
+  modal.appendChild(form);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  modal.addEventListener("click", (event) => event.stopPropagation());
+  backdrop.addEventListener("click", () => backdrop.remove());
+  closeOnEscape(backdrop);
+  reject.addEventListener("click", () => backdrop.remove());
+
+  applyBtn.addEventListener("click", async () => {
+    applyBtn.disabled = true;
+    applyBtn.textContent = "application…";
+    error.textContent = "";
+    try {
+      const outcome = await api(`/api/fix/${encodeURIComponent(proposal.stamp)}/apply`, {
+        method: "POST",
+      });
+      if (outcome.applied) {
+        error.textContent = `Appliqué sur ${outcome.branch}. Rien n'est commité ni poussé : relis le diff, puis commit toi-même.`;
+        applyBtn.textContent = "Appliqué";
+      } else {
+        error.textContent = `Appliqué puis annulé : un contrôle a échoué (${(outcome.failed || []).join(" ; ")})`;
+        applyBtn.textContent = "Annulé";
+      }
+    } catch (err) {
+      error.textContent = `Échec : ${err.message}`;
+      applyBtn.disabled = false;
+      applyBtn.textContent = "Appliquer sur une branche";
+    }
+  });
+}
+
+// --------------------------------------------------------------------------- //
+// first run: one screen, one choice, then never again
+// --------------------------------------------------------------------------- //
+async function maybeOpenSetup() {
+  let state = null;
+  try {
+    state = await api("/api/setup");
+  } catch (error) {
+    return; // an older backend: no setup screen, the UI still works
+  }
+  if (!state || !state.needed) return;
+
+  const backdrop = el("div", "modal-backdrop");
+  const modal = el("div", "modal");
+  const form = el("form", "modal-form");
+  form.appendChild(el("p", "modal-title", "Bienvenue dans UH"));
+  form.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Aucun modèle n'est joignable pour l'instant. Choisis une fois, on n'en reparlera plus."
+    )
+  );
+
+  const choice = document.createElement("select");
+  choice.className = "modal-input";
+  const options = [
+    ["huggingface", state.ollama.running ? "Hugging Face (TGI local ou token)" : "Hugging Face (token)"],
+    ["ollama", state.ollama.installed ? "Ollama (installé)" : "Ollama (non installé)"],
+    ["cloud", "Une clé cloud (DeepSeek, OpenRouter…)"],
+  ];
+  options.forEach(([value, label]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    choice.appendChild(option);
+  });
+  form.appendChild(choice);
+
+  const modelSelect = document.createElement("select");
+  modelSelect.className = "modal-input";
+  const fillModels = () => {
+    modelSelect.textContent = "";
+    const list = choice.value === "huggingface" ? state.huggingface_models || [] : [];
+    list.forEach((id) => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      modelSelect.appendChild(option);
+    });
+    modelSelect.hidden = list.length === 0;
+  };
+
+  const cloudSelect = document.createElement("select");
+  cloudSelect.className = "modal-input";
+  (state.cloud || []).forEach((name) => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    cloudSelect.appendChild(option);
+  });
+  cloudSelect.hidden = true;
+
+  const key = document.createElement("input");
+  key.className = "modal-input";
+  key.type = "password";
+  key.placeholder = "Token / clé (jamais affiché après enregistrement)";
+  key.hidden = true;
+
+  const refresh = () => {
+    fillModels();
+    cloudSelect.hidden = choice.value !== "cloud";
+    key.hidden = choice.value === "ollama";
+    key.placeholder =
+      choice.value === "huggingface" ? "Token HF (laisser vide pour un TGI local)" : "Clé du fournisseur";
+  };
+  choice.addEventListener("change", refresh);
+  [modelSelect, cloudSelect, key].forEach((node) => form.appendChild(node));
+  refresh();
+
+  const error = el("p", "modal-error");
+  const actions = el("div", "modal-actions");
+  const submit = el("button", "data-button primary", "Enregistrer");
+  submit.type = "submit";
+  actions.appendChild(submit);
+  form.appendChild(error);
+  form.appendChild(actions);
+  modal.appendChild(form);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  modal.addEventListener("click", (event) => event.stopPropagation());
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    submit.textContent = "enregistrement…";
+    try {
+      await api("/api/setup", {
+        method: "POST",
+        body: JSON.stringify({
+          choice: choice.value,
+          provider: choice.value === "cloud" ? cloudSelect.value : "",
+          key: key.value.trim(),
+          model: modelSelect.hidden ? "" : modelSelect.value,
+        }),
+      });
+      backdrop.remove();
+      await loadStatus();
+      await loadModels();
+      await loadLlmPanel().catch(() => {});
+    } catch (err) {
+      error.textContent = err.message;
+      submit.disabled = false;
+      submit.textContent = "Enregistrer";
+    }
+  });
+}
+
 
 // --------------------------------------------------------------------------- //
 // cloud connections

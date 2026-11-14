@@ -1149,3 +1149,14 @@ body {
 .cloud-fields { margin: 8px 0; }
 .cloud-field { display: block; font-size: 12px; }
 .cloud-label { display: block; color: var(--muted); margin-top: 6px; }
+
+/* --- self-repair: the diff is the artefact, so it gets the room ------------ */
+.modal-wide { max-width: min(90vw, 980px); }
+.modal-diff {
+  max-height: 46vh; overflow: auto; margin: 8px 0;
+  padding: 10px 12px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg);
+  font-size: 12px; line-height: 1.35; white-space: pre;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.fix-area { margin-bottom: 8px; }

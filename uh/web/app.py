@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 import secrets
 import sys
 import threading
@@ -137,6 +138,17 @@ def _provider_for(app: FastAPI, session_id: Optional[str] = None) -> tuple[str, 
 # --------------------------------------------------------------------------- #
 # application factory
 # --------------------------------------------------------------------------- #
+#: A short list, not a catalogue: the router accepts any repo id, and a dropdown
+#: of ten thousand entries helps nobody. Each one is a chat model that ships tools.
+_HF_MODELS = (
+    "Qwen/Qwen2.5-7B-Instruct",
+    "Qwen/Qwen2.5-32B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "meta-llama/Llama-3.1-8B-Instruct",
+    "HuggingFaceH4/zephyr-7b-beta",
+)
+
+
 def create_app(
     *,
     host: str = "127.0.0.1",
@@ -1262,6 +1274,111 @@ def create_app(
             "terminal": app.state.settings.allow_terminal,
             "workspace": str(app.state.settings.workspace),
         }
+
+    # -- self-repair ------------------------------------------------------- #
+    @app.post("/api/fix", dependencies=[Depends(require_token)])
+    async def fix_propose(payload: Annotated[dict, Body()]) -> dict:
+        """Ask for a patch. Nothing is written to the tree: the diff is a proposal."""
+        from .. import fixes
+
+        body = payload or {}
+        instruction = str(body.get("instruction") or "").strip()
+        if not instruction:
+            raise HTTPException(status_code=400, detail="describe what is broken")
+        try:
+            proposal = await asyncio.to_thread(
+                fixes.propose, instruction, repo=app.state.settings.workspace
+            )
+        except fixes.FixError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {**proposal.summary(), "diff": proposal.diff}
+
+    @app.post("/api/fix/{stamp}/apply", dependencies=[Depends(require_token)])
+    async def fix_apply(stamp: str) -> dict:
+        """Apply a recorded proposal on `fix/auto-<stamp>`, then run the linter.
+
+        The proposal is re-read from disk and re-checked, never trusted from the
+        request: a client could otherwise ask to apply anything.
+        """
+        from .. import fixes
+
+        if not re.fullmatch(r"[0-9]{8}-[0-9]{6}", stamp):
+            raise HTTPException(status_code=400, detail="not a proposal timestamp")
+        path = fixes.fixes_dir() / f"{stamp}.diff"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="unknown proposal")
+        text = path.read_text(encoding="utf-8")
+        repo = app.state.settings.workspace
+        applies, error = await asyncio.to_thread(fixes.check, repo, text)
+        if not applies:
+            raise HTTPException(status_code=409, detail=f"the patch does not apply: {error}")
+        proposal = fixes.Proposal(
+            stamp=stamp, instruction="", diff=text, path=path, applies=True
+        )
+        checks = [[sys.executable, "-m", "ruff", "check", "uh", "tests"]]
+        try:
+            outcome = await asyncio.to_thread(fixes.apply, proposal, repo=repo, checks=checks)
+        except fixes.FixError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return outcome
+
+    # -- first run --------------------------------------------------------- #
+    @app.get("/api/setup", dependencies=[Depends(require_token)])
+    async def setup_state() -> dict:
+        """Is the machine able to answer a turn at all, and what would it take?"""
+        from .. import ollama_spawn
+        from ..config import load as load_config
+        from ..providers_admin import catalog, read_providers
+
+        cfg = load_config()
+        provider = str(cfg.get("default_provider") or "")
+        ollama = await asyncio.to_thread(ollama_spawn.status)
+        configured = read_providers()
+        keyed = sorted(name for name, entry in configured.items() if entry.get("keys"))
+        need = not bool(ollama.get("running")) and not keyed
+        return {
+            "needed": need,
+            "provider": provider,
+            "model": str(cfg.get("default_model") or ""),
+            "ollama": {
+                "running": bool(ollama.get("running")),
+                "installed": bool(ollama.get("installed")),
+                "models": list(ollama.get("models") or [])[:12],
+            },
+            "cloud": sorted(catalog()),
+            "huggingface_models": _HF_MODELS,
+        }
+
+    @app.post("/api/setup", dependencies=[Depends(require_token)])
+    async def setup_apply(payload: Annotated[dict, Body()]) -> dict:
+        """Record one choice: a provider, optionally a key, optionally a model."""
+        from ..config import write_layer
+        from ..providers_admin import add_key_to, catalog
+
+        body = payload or {}
+        choice = str(body.get("choice") or "").strip().lower()
+        model = str(body.get("model") or "").strip()
+        key = str(body.get("key") or "").strip()
+        if choice == "ollama":
+            provider = "ollama"
+        elif choice == "huggingface":
+            provider = "huggingface"
+            if key:
+                add_key_to("huggingface", key)
+        elif choice == "cloud":
+            provider = str(body.get("provider") or "").strip().lower()
+            if provider not in catalog():
+                raise HTTPException(status_code=400, detail=f"unknown provider '{provider}'")
+            if not key:
+                raise HTTPException(status_code=400, detail="a cloud provider needs a key")
+            add_key_to(provider, key)
+        else:
+            raise HTTPException(status_code=400, detail="choice must be ollama, huggingface or cloud")
+
+        write_layer("user", "default_provider", provider)
+        if model:
+            write_layer("user", "default_model", model)
+        return {"saved": True, "provider": provider, "model": model}
 
     @app.get("/api/mcp/cloud", dependencies=[Depends(require_token)])
     async def mcp_cloud_catalog() -> dict:

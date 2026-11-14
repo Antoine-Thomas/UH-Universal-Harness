@@ -50,7 +50,7 @@ class Proposal:
             "applies": self.applies,
             "error": self.check_error,
             "files": sorted(
-                {line.split(" b/")[-1][2:].strip() for line in self.diff.splitlines() if line.startswith("+++ b/")}
+                {line[6:].strip() for line in self.diff.splitlines() if line.startswith("+++ b/")}
             ),
             "notes": self.notes,
         }
@@ -150,9 +150,12 @@ def _ask_model(
     notes: List[str] = []
     if provider is None:
         try:
+            from .config import load as load_config
             from .providers import build_provider
 
-            provider = build_provider("", model or None)  # type: ignore[arg-type]
+            cfg = load_config()
+            kind = str(cfg.get("default_provider") or "ollama")
+            provider = build_provider(kind, str(model or cfg.get("default_model") or ""))
         except Exception as exc:  # noqa: BLE001 - no provider is a normal state
             raise FixError(
                 "no provider to ask for a patch: pass --from-file <patch.diff>, or "
