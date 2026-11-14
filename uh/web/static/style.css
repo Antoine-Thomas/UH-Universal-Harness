@@ -959,6 +959,15 @@ a.data-button { text-decoration: none; display: inline-block; }
 .dot-warn { background: var(--highlight); box-shadow: 0 0 6px rgba(253, 197, 2, .6); }
 .dot-off { background: var(--border); }
 
+/* A contextual help card: the tab says what it configures, once. */
+.help-card {
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); background: var(--panel);
+  padding: 8px 12px; margin: 10px 0 0;
+}
+.help-card strong { font-size: 12px; display: block; margin-bottom: 2px; }
+.help-card .data-note { margin: 0; }
+
 /* First launch: a discreet invitation above the transcript. Nothing is blocked,
    nothing is modal, and "Plus tard" is remembered. */
 .setup-banner {

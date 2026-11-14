@@ -587,9 +587,14 @@ class HTTPClient:
         if structured is not None:
             payload["structured"] = structured
         if result.get("isError"):
+            from .mcp import session_hint
+
+            hint = session_hint(text, self.server.name)
+            message = f"{hint}\n\n{text}" if hint else (text or "the MCP server reported an error")
             return {
                 **payload,
-                "error": text or "the MCP server reported an error",
+                "text": message,
+                "error": message,
                 "kind": "tool",
             }
         return payload

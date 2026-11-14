@@ -12,6 +12,42 @@ function escapeHtml(text) {
   return text.replace(/[&<>"']/g, (ch) => ESCAPE[ch]);
 }
 
+// A tab named in a model answer becomes the link that opens it: the answer then
+// guides to the interface instead of describing it. Applied to text, never to a
+// code span (protected before this runs) nor inside an existing link.
+const TAB_LINKS = [
+  [/\bConnexions\b/g, "/?panel=conn"],
+  [/\bClés? API\b/g, "/?panel=keys"],
+  [/\bIA locale\b/g, "/?panel=local"],
+  [/\bDonnées\b/g, "/?panel=data"],
+  [/\bProviders\b/g, "/?panel=providers"],
+  [/\bModèles\b/g, "/?panel=models"],
+  [/\bMémoire\b/g, "/?panel=memory"],
+  [/\bDécision\b/g, "/?panel=decision"],
+  [/\bTélémétrie\b/g, "/?panel=telemetry"],
+  [/\bSecond brain\b/g, "/?panel=uhb"],
+];
+
+function linkTabs(escaped) {
+  // Existing anchors are kept whole (nesting one inside another is invalid HTML),
+  // and a bare URL is protected so "example.com/Connexions" stays a URL.
+  return escaped
+    .split(/(<a\s[^>]*>[\s\S]*?<\/a>)/)
+    .map((part, index) => {
+      if (index % 2 === 1) return part;
+      const urls = [];
+      let out = part.replace(/https?:\/\/\S+/g, (match) => {
+        urls.push(match);
+        return `\u0001${urls.length - 1}\u0001`;
+      });
+      for (const [pattern, href] of TAB_LINKS) {
+        out = out.replace(pattern, (match) => `<a href="${href}">${match}</a>`);
+      }
+      return out.replace(/\u0001(\d+)\u0001/g, (_match, i) => urls[Number(i)]);
+    })
+    .join("");
+}
+
 // Inline formatting, applied to ALREADY escaped text.
 function renderInline(escaped) {
   // Inline code first: its content is protected from further formatting.
@@ -20,14 +56,19 @@ function renderInline(escaped) {
     codes.push(code);
     return `\u0000${codes.length - 1}\u0000`;
   });
-  // Links: [label](url), http/https/mailto only — anything else stays literal.
+  // Links: [label](url) - http/https/mailto open a new tab, a same-origin path
+  // (/?panel=conn) opens in place: that is what a deep link from the model is.
   text = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (match, label, url) => {
-    if (!/^(https?:\/\/|mailto:)/i.test(url)) return match;
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    if (/^(https?:\/\/|mailto:)/i.test(url)) {
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    }
+    if (/^\/(?!\/)/.test(url)) return `<a href="${url}">${label}</a>`;
+    return match;
   });
   text = text.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
   text = text.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+  text = linkTabs(text);
   return text.replace(/\u0000(\d+)\u0000/g, (_match, i) => `<code>${codes[Number(i)]}</code>`);
 }
 

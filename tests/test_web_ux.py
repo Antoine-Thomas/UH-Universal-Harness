@@ -143,3 +143,12 @@ def test_the_development_factory_reads_the_environment(monkeypatch) -> None:
     assert settings["token"] == "dev-token"
     assert settings["allow_terminal"] is True
     assert str(settings["workspace"]) == str(ROOT)
+
+
+def test_the_connections_tab_says_what_it_configures() -> None:
+    start = APP_JS.index("async function loadConnections(")
+    body = APP_JS[start : start + 1400]
+    assert 'el("div", "help-card")' in body
+    assert "Un serveur MCP (Positron, VS Code" in body
+    assert "stockage cloud" in body
+    assert "« Clé API »" in body and "« IA locale »" in body

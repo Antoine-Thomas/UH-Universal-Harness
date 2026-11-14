@@ -4557,13 +4557,18 @@ async function loadConnections() {
   const view = $("conn-view");
   if (!view) return;
   view.textContent = "";
-  view.appendChild(
+  // A contextual card, not a wall: the tab says what it configures, and where
+  // the two things that look like keys actually live.
+  const help = el("div", "help-card");
+  help.appendChild(el("strong", null, "Ce que vous configurez ici"));
+  help.appendChild(
     el(
       "p",
       "data-note",
-      "Ce qui relie UH à l'extérieur : un stockage, des outils. Les clés des modèles sont dans « Clé API », l'IA de cette machine dans « IA locale » — ici, aucune clé de modèle."
+      "Un serveur MCP (Positron, VS Code, un outil maison) ou un stockage cloud (S3, Google Drive) pour trier et sauvegarder des dossiers. Les clés des modèles sont dans « Clé API », l'IA de cette machine dans « IA locale »."
     )
   );
+  view.appendChild(help);
   const list = el("div", "data-list");
   view.appendChild(list);
   await mountCloud(list);

@@ -57,3 +57,23 @@ def test_a_workspace_change_refreshes_the_prompt(tmp_path: Path) -> None:
     assert str(second.resolve()) in content
     assert str(first.resolve()) not in content
     assert "NEVER try to bypass it" in content
+
+
+def test_the_prompt_never_sends_a_ui_question_to_a_config_file() -> None:
+    """A weak model's default answer is "edit config.toml"; the rule forbids it."""
+    content = console.system_message(Path("/tmp/projet"))["content"]
+
+    assert "NEVER tell them to edit a" in content
+    assert "advanced users only" in content
+    assert "config.toml and keys.toml" in content
+    # And it names the tab where the thing actually lives.
+    assert "?panel=conn" in content and "?panel=keys" in content and "?panel=local" in content
+
+
+def test_the_prompt_tells_the_model_what_to_do_with_a_session_error() -> None:
+    content = console.system_message(Path("/tmp/projet"))["content"]
+
+    assert "no session, no console or no kernel is running" in content
+    assert "mcp__positron__execute_code" in content
+    assert "open the CONSOLE in the IDE" in content
+    assert "Never invent a workaround command" in content

@@ -100,6 +100,26 @@ MAX_TOOL_NAME = 64
 
 _NAME_SAFE = re.compile(r"[^A-Za-z0-9_-]+")
 
+#: A tool error that means "no console/kernel is open" is the most common dead
+#: end for an IDE server: the model must be told to open one, not to invent a
+#: workaround or edit a file.
+_SESSION_ERROR = re.compile(
+    r"no (?:active )?session|session (?:is )?not (?:running|started|active|open)"
+    r"|aucune session|no console|no kernel|kernel (?:is )?not (?:running|started)",
+    re.IGNORECASE,
+)
+
+
+def session_hint(text: str, server: str) -> str:
+    """A sentence the model can act on when an IDE has no live session."""
+    if not text or not _SESSION_ERROR.search(text):
+        return ""
+    who = "Positron" if server.strip().lower().startswith("positron") else f"Le serveur '{server}'"
+    return (
+        f"{who} n'a aucune session active : ouvre une console (onglet CONSOLE), "
+        "exécute une première cellule, puis redemande. Rien n'a été exécuté."
+    )
+
 
 class MCPError(RuntimeError):
     """A server-level failure, with a ``kind`` the caller can act on.
@@ -612,8 +632,9 @@ class Client:
         if structured is not None:
             payload["structured"] = structured
         if result.get("isError"):
-            return {**payload, "error": text or "the MCP server reported an error",
-                    "kind": "tool"}
+            hint = session_hint(text, self.config.name)
+            message = f"{hint}\n\n{text}" if hint else (text or "the MCP server reported an error")
+            return {**payload, "text": message, "error": message, "kind": "tool"}
         return payload
 
     def status(self) -> Dict[str, Any]:
