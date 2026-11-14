@@ -71,6 +71,52 @@ uh --version
 uh doctor
 ```
 
+## Upgrading without breaking the install (Windows)
+
+`uh upgrade` does the whole pass by itself: it stops the other UH processes (they
+hold `uh.exe`, which is why `pip` used to answer `WinError 32`), purges pip's
+cache, reinstalls with `--force-reinstall --no-cache-dir`, refreshes the Desktop
+shortcut, and - when it *is* `uh.exe` - hands the install to a detached console and
+leaves first, because Windows will not let a running executable be replaced.
+
+```powershell
+uh upgrade            # clean pass, then relaunch the shortcut
+uh upgrade --no-clean # plain `pip install --upgrade`, no shortcuts touched
+uh upgrade --dry-run  # prints the command, changes nothing
+```
+
+When an installation is too broken for `uh upgrade` to run at all (the entry point
+itself refuses to start, or `WinError 32` comes back), this is the exact sequence
+that repairs it - nothing else is needed:
+
+```powershell
+# 1. stop every UH process: they hold uh.exe and the web port
+Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -eq 'uh.exe' -or $_.CommandLine -like '*-m uh.cli*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+# 2. drop the wheel cache and any half-replaced install
+python -m pip cache purge
+python -m pip install --force-reinstall --no-cache-dir uh-harness
+
+# 3. rebuild the Desktop shortcut with the current launcher (adds --app, and the
+#    step that stops a previous `uh web` before starting a new one)
+uh install-shortcut
+```
+
+Notes that save an hour:
+
+- **A different interpreter?** `python -m pip` installs for the `python` on your
+  `PATH`. Use the same one you launch UH with; `uh --version` and
+  `python -c "import uh; print(uh.__file__)"` must point at the same place.
+- **`--user`** is only for a user-level install outside a virtualenv.
+- **The launcher is a generated file** (`~/.uh/uh-web.ps1`). It carries a version
+  line, and `uh web` rewrites it when it is old - a hand-edited launcher is left
+  alone, so put your own flags in the shortcut, not in that file.
+- **Two versions at once** is the most common "not the right version" report: the
+  page is stamped (`?v=…`) and compares itself with `/api/status`, and a busy port
+  moves the new server to the next one instead of dying with `exit code 3`.
+
 ## What 1.4.0 contains
 
 - **A cockpit, not a chat box.** `uh web` is a three-column window with dockable

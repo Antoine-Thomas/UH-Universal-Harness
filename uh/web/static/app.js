@@ -171,7 +171,15 @@ function updateGauge(messages) {
 // ------------------------------------------------------------------ status --
 async function loadStatus() {
   const status = await api("/api/status");
-  $("status-provider").textContent = `${status.provider || "none"} · v${status.version}`;
+  // Version only. "ollama · v1.5.1" read as "Ollama is required", which is false:
+  // the provider is a choice, made in Configuration, and a user who runs a cloud
+  // key should never be told a local model server is part of the deal.
+  const provider = String(status.provider || "").trim();
+  const label = $("status-provider");
+  label.textContent = `v${status.version}`;
+  label.title = provider
+    ? `UH ${status.version} · fournisseur : ${provider}${status.model ? ` · modèle : ${status.model}` : ""}`
+    : `UH ${status.version} · aucun fournisseur configuré`;
   $("terminal-warning").hidden = !status.terminal;
   // The interface is read from disk on every request, the routes are fixed at
   // import time: two versions can meet, and that is exactly how a button ends up
@@ -189,7 +197,9 @@ async function loadStatus() {
     }
   }
   if (status.provider_error) {
-    $("status-provider").textContent += " (unavailable)";
+    // Say it once, in the tooltip: a missing provider is a configuration fact,
+    // not a permanent red banner over a UI that works without one.
+    label.title += " · fournisseur indisponible";
   }
 }
 

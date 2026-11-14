@@ -612,3 +612,34 @@ Still open:
   next step; auto-merging prose is not.
 - **the map in the provider's own words**: today it is a fixed block. A model that
   can *edit* its map is a different trust question.
+
+## P13 - Self-repair and model independence
+
+**Opened 2026-11-14.** Two things a harness needs before it can be handed to
+somebody who is not its author: it must be able to look at its own code, and it
+must not be married to one model server.
+
+1. **Self-repair, with a brake.** An MCP filesystem server pointed at UH's *own*
+   checkout, a read-only allowlist by default, and a rule that a proposed patch is
+   shown as a diff before it is written. The brake is the CI: a repair that does
+   not pass `ruff`, `mypy` and `pytest` is not a repair, and the pull request is
+   the only place a self-written patch may land. "Fix yourself" without that is
+   how a harness deletes its own entry point at 03:00.
+2. **Hugging Face as a first-class provider.** Local models today means Ollama.
+   The next connector is `text-generation-inference` (OpenAI-compatible `/v1`) plus
+   a plain `transformers` path for a single checkpoint, so a user with a GPU and a
+   HF token needs no extra daemon. The provider interface already fits; what is
+   missing is the catalogue entry, the model listing and the doctor line.
+3. **No provider is the default story.** The cockpit already runs without Ollama -
+   the status bar shows the version, not a vendor - and the next step is to make
+   the first run ask *once* which provider to use, then never mention it again.
+4. **Self-knowledge stays a map, not a memory.** `uh map` is generated from the
+   code; the agent reads it, it does not remember it. A remembered path is a path
+   that goes stale silently.
+
+Still open after P13 as written:
+
+- an approval step per self-written patch (today: the diff review by hand);
+- a sandbox for the self-repair server that cannot see `~/.uh/keys.toml` or
+  `mcp-secrets.toml` - a server that can rewrite the code must not be able to read
+  the credentials in the same breath.
