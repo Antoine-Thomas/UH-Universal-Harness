@@ -160,6 +160,7 @@ class Provider(ABC):
 # from this package, which works because those names are already bound.
 from .cloudflare import CloudflareProvider  # noqa: E402
 from .deepseek import DeepSeekProvider  # noqa: E402
+from .huggingface import HuggingFaceProvider  # noqa: E402
 from .ollama import OllamaProvider  # noqa: E402
 from .omnirouter import OmniRouterProvider  # noqa: E402
 from .openai_compat import OpenAICompatProvider  # noqa: E402
@@ -177,6 +178,7 @@ PROVIDERS: dict[str, Callable[..., Provider]] = {
     "omnirouter": OmniRouterProvider,
     "cloudflare": CloudflareProvider,
     "deepseek": DeepSeekProvider,
+    "huggingface": HuggingFaceProvider,
     "router": _build_router,
 }
 

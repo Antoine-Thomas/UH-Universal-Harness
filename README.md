@@ -559,6 +559,7 @@ and save.
 | `ollama` | httpx, NDJSON | `POST /api/chat`, `GET /api/tags`, `POST /api/pull` | yes |
 | `cloudflare` | httpx, SSE | `POST /v1/chat/completions` (OpenAI-compatible, per-account URL) | yes |
 | `deepseek` | httpx, SSE | `POST /chat/completions` (OpenAI-compatible) | yes |
+| `huggingface` | httpx, SSE | local TGI `http://127.0.0.1:8080/v1`, else `POST /v1/chat/completions` on the HF router | yes |
 | `omnirouter` | httpx, SSE | `POST /v1/chat/completions` (OpenAI-compatible) | yes |
 
 Without `--provider`, `uh chat` builds the chain `ollama`, then `cloudflare`
@@ -577,6 +578,36 @@ fallback: cloudflare -> deepseek (reason: 429 rate limit)
 they are. Model namespaces are not shared, so each backup uses its own model:
 `UH_OMNIROUTER_MODEL` (default `auto/best-free`), `deepseek-flash` for DeepSeek,
 `@cf/meta/llama-3.3-70b-instruct-fp8-fast` for Cloudflare.
+
+### Hugging Face: local models without Ollama
+
+`uh/providers/huggingface.py` speaks `POST /v1/chat/completions`, and picks its
+base URL in this order:
+
+1. `UH_HUGGINGFACE_BASE_URL` (any TGI-shaped endpoint);
+2. **a local TGI server on `http://127.0.0.1:8080/v1`** if a socket accepts a
+   connection there - no account, no token, nothing to install beyond the server;
+3. the remote **router** `https://router.huggingface.co/v1`, with a token.
+
+```bash
+# local, no account at all
+docker run --gpus all -p 8080:80 ghcr.io/huggingface/text-generation-inference   --model-id Qwen/Qwen2.5-7B-Instruct
+uh chat --provider huggingface --model Qwen/Qwen2.5-7B-Instruct
+
+# remote router: a token, stored by the API-key panel
+export HUGGINGFACE_API_KEY=hf_...      # or HF_TOKEN, or the "Hugging Face" row in uh web
+uh chat --provider huggingface --model Qwen/Qwen2.5-7B-Instruct
+```
+
+**Not used, on purpose:** `https://api-inference.huggingface.co/models/<model>`.
+It is the legacy per-task API - raw generation, no chat roles, no token streaming -
+so a chat loop pointed at it looks configured and fails on the first turn, which is
+the most expensive kind of bug to find. The old URL never appears in this codebase.
+
+The token resolution order is `UH_HUGGINGFACE_API_KEY`, `HF_TOKEN`,
+`HUGGINGFACE_API_KEY`, then `[providers.huggingface]` in `$UH_HOME/keys.toml`
+(0600). A provider built for a loopback base URL needs no token: that is the point
+of running the model locally.
 
 ## Free providers, opt-in and local-first
 

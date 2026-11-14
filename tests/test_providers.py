@@ -44,7 +44,14 @@ def isolated_router(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 
 def test_registry_contains_every_provider() -> None:
-    assert set(PROVIDERS) == {"ollama", "omnirouter", "cloudflare", "deepseek", "router"}
+    assert set(PROVIDERS) == {
+        "ollama",
+        "omnirouter",
+        "cloudflare",
+        "deepseek",
+        "huggingface",
+        "router",
+    }
 
 
 def test_build_ollama_provider() -> None:
@@ -151,7 +158,7 @@ def test_providers_list_without_omnirouter_configuration(
     assert "ollama" in out.out
     assert "qwen3:8b" in out.out
     assert "not configured" in out.out
-    assert "registered: cloudflare, deepseek, ollama, omnirouter" in out.out
+    assert "registered: cloudflare, deepseek, huggingface, ollama, omnirouter" in out.out
 
 def test_deepseek_is_listed_before_it_has_a_key() -> None:
     """A provider only visible once it holds a key is one you cannot give a key.

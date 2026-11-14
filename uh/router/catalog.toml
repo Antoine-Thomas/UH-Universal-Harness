@@ -116,3 +116,26 @@ tools = true
 [[providers.deepseek.models]]
 id = "deepseek-v4-pro"
 tools = true
+
+# Hugging Face is the answer to "local models without Ollama": a TGI server on
+# loopback needs no account at all, and the router is the same OpenAI surface for
+# a user who has no GPU. NOT in this file: api-inference.huggingface.co, which is
+# the legacy per-task API and has no chat roles.
+[providers.huggingface]
+base_url = "https://router.huggingface.co/v1"
+auth = "bearer"
+key_url = "https://huggingface.co/settings/tokens"
+docs_url = "https://huggingface.co/docs/inference-providers/tasks/chat-completion"
+verified = "partial"
+checked_at = "2026-11-14"
+limits = "credit-based on the remote router; a local TGI server costs only the GPU"
+notes = "OpenAI-compatible POST /v1/chat/completions. A local TGI on http://127.0.0.1:8080/v1 is tried first and needs no token."
+signup_note = "Token for the router; none for a local server."
+
+[[providers.huggingface.models]]
+id = "Qwen/Qwen2.5-7B-Instruct"
+tools = true
+
+[[providers.huggingface.models]]
+id = "mistralai/Mistral-7B-Instruct-v0.3"
+tools = true
