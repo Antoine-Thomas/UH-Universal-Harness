@@ -1266,11 +1266,27 @@ def create_app(
             else:
                 uhb = {"connected": True, **payload}
 
+        mcp_status = await asyncio.to_thread(mcp.status)
+        if not mcp_status.get("configured"):
+            # An HTTP/SSE entry exists but the stdio client cannot start it: say that
+            # instead of "nothing configured", which would be false.
+            from .. import mcp_cloud
+
+            pending = await asyncio.to_thread(mcp_cloud.pending_http_servers)
+            if pending:
+                mcp_status = {
+                    **mcp_status,
+                    "configured": len(pending),
+                    "reason": (
+                        f"{len(pending)} serveur(s) HTTP/SSE configuré(s), non démarré(s) : "
+                        "le client MCP de UH est stdio (transport HTTP/SSE en P14.1)"
+                    ),
+                }
         return {
             "toolsets": toolsets,
             "ollama": await asyncio.to_thread(ollama_spawn.status),
             "uhb": uhb,
-            "mcp": await asyncio.to_thread(mcp.status),
+            "mcp": mcp_status,
             "terminal": app.state.settings.allow_terminal,
             "workspace": str(app.state.settings.workspace),
         }
@@ -1388,6 +1404,9 @@ def create_app(
         return {
             "templates": mcp_cloud.template_list(),
             "upload_targets": await asyncio.to_thread(mcp_cloud.upload_targets),
+            # Recorded but not started: HTTP/SSE is the P14.1 transport.
+            "http_servers": await asyncio.to_thread(mcp_cloud.pending_http_servers),
+            "http_note": mcp_cloud.HTTP_NOTE,
         }
 
     @app.post("/api/mcp/cloud", dependencies=[Depends(require_token)])
@@ -1426,6 +1445,34 @@ def create_app(
             "problems": problems,
             "state": "connected" if known else "written-but-unreadable",
         }
+
+    @app.post("/api/mcp/http", dependencies=[Depends(require_token)])
+    async def mcp_http(payload: Annotated[dict, Body()]) -> dict:
+        """Record an HTTP/SSE MCP server (Positron, an IDE, a hosted tool server).
+
+        Nothing is started: UH's client is stdio-only today, and the answer says so
+        instead of pretending the server is connected.
+        """
+        from .. import mcp_cloud
+        from ..providers_admin import is_loopback_bind
+
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403,
+                detail="adding a server is only allowed when uh web listens on loopback",
+            )
+        body = payload or {}
+        try:
+            created = await asyncio.to_thread(
+                mcp_cloud.connect_http,
+                str(body.get("name") or ""),
+                str(body.get("url") or ""),
+                label=str(body.get("label") or ""),
+                token=str(body.get("token") or ""),
+            )
+        except mcp_cloud.CloudError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return created
 
     @app.post("/api/mcp/custom", dependencies=[Depends(require_token)])
     async def mcp_custom(payload: Annotated[dict, Body()]) -> dict:

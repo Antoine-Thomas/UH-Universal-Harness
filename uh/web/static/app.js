@@ -2348,6 +2348,94 @@ function isNarrow() {
   return window.matchMedia("(max-width: 1200px)").matches;
 }
 
+
+
+// --------------------------------------------------------------------------- //
+// help: what a person can do here, and where
+// --------------------------------------------------------------------------- //
+const HELP_ACTIONS = [
+  ["Connecter un stockage cloud (S3, Google Drive)", "conn", "Connecter un Cloud"],
+  ["Ajouter un serveur MCP (stdio)", "conn", "Serveur MCP personnalisé"],
+  ["Connecter un IDE ou un outil HTTP (Positron, VS Code…)", "conn", "IDE & outils externes"],
+  ["Lancer une passe de rêve", "decision", "☾ Rêves, dans la barre du haut"],
+  ["Réparer UH (l'IA propose un correctif)", "data", "Réparer UH"],
+];
+
+function openHelpModal() {
+  const backdrop = el("div", "modal-backdrop");
+  const modal = el("div", "modal");
+  const form = el("form", "modal-form");
+  form.appendChild(el("p", "modal-title", "Aide — où cliquer"));
+  form.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Chaque ligne ouvre directement le bon onglet. La même adresse fonctionne dans le chat : [Ouvrir Connexions](/?panel=conn)."
+    )
+  );
+  HELP_ACTIONS.forEach(([label, tab, where]) => {
+    const row = el("div", "help-row");
+    row.appendChild(el("span", "help-label", label));
+    row.appendChild(el("span", "help-where", where));
+    const go = el("button", "data-button", "Ouvrir");
+    go.type = "button";
+    go.addEventListener("click", () => {
+      backdrop.remove();
+      openProviders();
+      showPanelTab(tab);
+    });
+    row.appendChild(go);
+    form.appendChild(row);
+  });
+  const actions = el("div", "modal-actions");
+  const close = el("button", "data-button primary", "Fermer");
+  close.type = "button";
+  close.addEventListener("click", () => backdrop.remove());
+  actions.appendChild(close);
+  form.appendChild(actions);
+  modal.appendChild(form);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  modal.addEventListener("click", (event) => event.stopPropagation());
+  backdrop.addEventListener("click", () => backdrop.remove());
+  closeOnEscape(backdrop);
+}
+
+// A tab nobody notices is a tab that does not exist: the badge stays until one
+// connection exists, then disappears for good.
+async function refreshConnBadge() {
+  const badge = $("conn-badge");
+  if (!badge) return;
+  let connected = false;
+  try {
+    const status = await api("/api/tools/status");
+    connected = Number((status.mcp || {}).configured || 0) > 0;
+  } catch (error) {
+    /* no status: leave the badge as it is */
+  }
+  if (!connected) {
+    try {
+      const catalog = await api("/api/mcp/cloud");
+      connected =
+        (catalog.upload_targets || []).length > 0 || (catalog.http_servers || []).length > 0;
+    } catch (error) {
+      /* ignore */
+    }
+  }
+  badge.hidden = connected;
+}
+
+const PANEL_TABS = new Set([
+  "keys", "providers", "conn", "models", "uhb", "memory", "decision", "telemetry", "data",
+]);
+
+function openPanelFromUrl() {
+  const wanted = (new URLSearchParams(location.search).get("panel") || "").toLowerCase();
+  if (!wanted || !PANEL_TABS.has(wanted)) return;
+  openProviders();
+  showPanelTab(wanted);
+}
+
 function wireProviders() {
   ensureHfModels().catch(() => {});
   $("providers-open").addEventListener("click", openProviders);
@@ -2360,6 +2448,7 @@ function wireProviders() {
   $("tab-decision").addEventListener("click", () => showPanelTab("decision"));
   $("tab-telemetry").addEventListener("click", () => showPanelTab("telemetry"));
   $("tab-conn").addEventListener("click", () => showPanelTab("conn"));
+  $("help-open").addEventListener("click", openHelpModal);
   $("tab-data").addEventListener("click", () => showPanelTab("data"));
   // One button in the topbar, next to the Dreams one: the data panel is a place,
   // not a tab you have to know about.
@@ -3913,6 +4002,11 @@ async function boot() {
   await loadModels();
   await loadCommands();
   await loadSessions();
+  // ?panel=conn opens the right tab: a chat answer can hand the user a link
+  // instead of a sentence describing where to click.
+  openPanelFromUrl();
+  // A tab nobody notices does not exist: badge until one connection is configured.
+  refreshConnBadge().catch(() => {});
   // Last, so the first-run screen opens over a UI that is already painted.
   await maybeOpenSetup().catch(() => {});
   // Narrow screens: the right column starts collapsed (overlay mode).
@@ -4049,6 +4143,87 @@ function customMcpSection() {
   return box;
 }
 
+
+// --------------------------------------------------------------------------- //
+// IDE and external tools: an HTTP/SSE MCP server (Positron, a hosted tool server)
+// --------------------------------------------------------------------------- //
+function httpServerSection(pending, note) {
+  const box = el("div", "tool-cloud");
+  box.appendChild(el("div", "tool-name", "IDE & outils externes (HTTP/SSE)"));
+  box.appendChild(
+    el(
+      "p",
+      "data-note",
+      note ||
+        "UH parle stdio aujourd'hui : un serveur HTTP est enregistré et affiché, mais pas démarré. Le transport HTTP/SSE arrive en P14.1."
+    )
+  );
+
+  (pending || []).forEach((server) => {
+    const row = el("div", "tool-row");
+    row.appendChild(el("span", "dot dot-warn"));
+    row.appendChild(el("span", "tool-name", `http · ${server.name}`));
+    row.appendChild(el("span", "tool-detail", `${server.url} — configuré, non démarré`));
+    box.appendChild(row);
+  });
+
+  const field = (label, placeholder, type = "text") => {
+    const wrap = el("label", "cloud-field");
+    wrap.appendChild(el("span", "cloud-label", label));
+    const input = document.createElement("input");
+    input.className = "cloud-input";
+    input.type = type;
+    input.placeholder = placeholder;
+    input.autocomplete = "off";
+    wrap.appendChild(input);
+    return { wrap, input };
+  };
+
+  const name = field("Nom", "positron");
+  const url = field("URL du serveur MCP", "http://127.0.0.1:8787", "url");
+  const token = field("Jeton (optionnel)", "jamais réaffiché", "password");
+  [name, url, token].forEach((item) => box.appendChild(item.wrap));
+
+  box.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Positron : active « ai.mcp.enabled » dans les réglages, puis « Positron MCP: Add to Coding Agent » — la fenêtre affiche l'URL et le jeton à recopier ici."
+    )
+  );
+
+  const status = el("p", "data-note", "");
+  const button = el("button", "data-button", "Enregistrer ce serveur HTTP");
+  button.type = "button";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "enregistrement…";
+    try {
+      const result = await api("/api/mcp/http", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.input.value.trim(),
+          url: url.input.value.trim(),
+          token: token.input.value.trim(),
+        }),
+      });
+      status.textContent = `Enregistré : ${result.name} → ${result.url} (configuré, non démarré).`;
+      name.input.value = "";
+      url.input.value = "";
+      token.input.value = "";
+      loadConnections().catch(() => {});
+    } catch (error) {
+      status.textContent = `Refusé : ${error.message}`;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Enregistrer ce serveur HTTP";
+    }
+  });
+  box.appendChild(button);
+  box.appendChild(status);
+  return box;
+}
+
 async function loadConnections() {
   const view = $("conn-view");
   if (!view) return;
@@ -4057,6 +4232,16 @@ async function loadConnections() {
   list.appendChild(el("p", "data-note", "Ce qui relie UH à l'extérieur : un stockage cloud, un serveur d'outils. Rien ne s'active sans toi."));
   view.appendChild(list);
   await mountCloud(list);
+  let pending = [];
+  let note = "";
+  try {
+    const catalog = await api("/api/mcp/cloud");
+    pending = catalog.http_servers || [];
+    note = catalog.http_note || "";
+  } catch (error) {
+    /* an older backend: the form still works, the list is just empty */
+  }
+  view.appendChild(httpServerSection(pending, note));
   view.appendChild(customMcpSection());
 }
 

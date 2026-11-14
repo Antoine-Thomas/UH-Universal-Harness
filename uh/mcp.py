@@ -243,6 +243,14 @@ def servers_from_config(config: Optional[Config] = None) -> Tuple[List[ServerCon
     problems: List[str] = []
     seen: Dict[str, int] = {}
     for index, raw in enumerate(raw_servers):
+        # An HTTP/SSE entry is a decision the user made, not a mistake: this client
+        # speaks stdio, so it is skipped without a warning. `uh.mcp_cloud.
+        # pending_http_servers` reads those back for the panel.
+        if isinstance(raw, dict) and str(raw.get("transport") or "").lower() in (
+            "http",
+            "sse",
+        ):
+            continue
         try:
             server = _parse_server(raw, index)
         except MCPError as exc:

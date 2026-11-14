@@ -655,3 +655,74 @@ Still open after P13 as written:
 - a sandbox for the self-repair server that cannot see `~/.uh/keys.toml` or
   `mcp-secrets.toml` - a server that can rewrite the code must not be able to read
   the credentials in the same breath.
+
+## Delivered 2026-11-14
+
+What actually shipped (tags `v1.6.0` and `v1.6.1`, wheels on PyPI):
+
+- **Hugging Face without Ollama** - `uh/providers/huggingface.py`, `/v1/chat/completions`,
+  local TGI preferred (socket probe, no token), the router behind; the legacy
+  `api-inference` task API is never used. Proven end to end, blocking and streaming.
+- **`uh fix`** - a patch must start with `diff --git` and pass `git apply --check`;
+  `--apply` works on `fix/auto-<stamp>` and reverts when a `--check` command fails.
+  No commit, no push, ever.
+- **"Réparer UH"** in the cockpit, with a diff modal (`docs/assets/self-repair.png`).
+- **Cloud + MCP from the UI** - AWS S3 (`put_object`, 7 tools), Google Drive (read),
+  a read-only `self-repair` template, and **any custom stdio server**; secrets in
+  `mcp-secrets.toml` (0600), never in `config.toml`.
+- **Connexions tab** - cloud, custom stdio, and HTTP/SSE entries in one place, third
+  in the strip so it is visible without scrolling, with a "Nouveau" badge until a
+  server exists.
+- **HTTP/SSE entries recorded, not started** - `POST /api/mcp/http` writes
+  `transport = "http"` and the stdio client skips it without a warning.
+- **Aide modal + `?panel=<tab>` deep links** - the chat can answer with a link that
+  opens the right tab, and the system prompt forbids answering a UI question with
+  "run this command".
+- **`uh map` / `SYSTEM_MAP.md`** - paths generated from the code that owns them.
+- **`docs/INSTALL.md`** - the clean manual upgrade (WinError 32), and `uh upgrade`
+  points at it when pip fails.
+- Fixes: `data is not defined` on a successful `/api/tools/status` (the whole Data
+  panel), `tomllib` on Python 3.10 (1.6.0 wheel unusable there), `uh fix` provider
+  resolution, `/__init__.py` in the file list, CRLF patches that do not apply.
+
+## Still open
+
+- **HTTP/SSE transport** for the MCP client - the blocker for Positron, remote
+  servers, and any hosted tool server. Everything else in P14 waits on it.
+- Per-call tool approval (the `allow` list is a model of permission, not a prompt).
+- SVG icons per tab, and the full "verre" theme (only its tokens are used today).
+- The first-run screen covers "no provider" but not "no model for the chosen one".
+- `uh skills --compress` merges mechanically; it does not rewrite prose.
+- A "Tester" button for a cloud upload (the first real send is the test today).
+
+## P14 - Positron and the HTTP/SSE transport
+
+**Audited 2026-11-14, documentation only, no dependency added.**
+
+Positron is Posit's data-science IDE built on **Code OSS**. Since **2026.10** it
+ships an **experimental MCP server** (setting `ai.mcp.enabled`, command
+"Positron MCP: Add to Coding Agent") that lets a third-party agent see the live
+data, plots and R/Python consoles of a session.
+
+Why it is not integrated today: Positron exposes that server over **HTTP/SSE**,
+and UH's client is **stdio only** (`docs/MCP.md`). The address can already be
+recorded (Connexions → IDE & outils externes) and the panel says
+`configuré, non démarré` - which is the honest state.
+
+Order, if this is picked up: 1) HTTP/SSE transport in `uh/mcp.py` (URL, headers,
+session, timeouts, and the same failure kinds); 2) then the Positron entry from the
+UI becomes usable with no further change; 3) only then consider anything that
+needs Positron's own API. UH never installs Positron: a user who has it connects to
+it, a user who does not is not blocked.
+
+## Ideas, not scheduled
+
+- A **vitrine**: sales page + a GIF of the self-repair loop (recordable through the
+  CDP harness already used for the proofs).
+- **Multi-agent side by side**: several chats, several models, one window.
+- **"Appliquer" that produces a real deliverable**: a dream's plan turned into a
+  finished file in `UH Outputs` with a diff shown first.
+- **Cost telemetry per turn** (tokens are counted; the price is not).
+- **Sandbox for the self-repair server**: it must never be able to read
+  `keys.toml` / `mcp-secrets.toml` in the same breath as it reads the source.
+- **Hugging Face model catalogue** fetched from the router instead of five constants.

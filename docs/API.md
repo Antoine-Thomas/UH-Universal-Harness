@@ -75,6 +75,7 @@ even when the failing input was one.
 | POST | `/api/fix` | `{instruction}` | `{stamp, applies, error, files, path, notes, diff}` — asks a provider for a unified diff and **proves** it with `git apply --check`; nothing is written to the tree · `400` empty instruction · `502` no provider / model refusal |
 | POST | `/api/fix/{stamp}/apply` | — | `{applied, branch: "fix/auto-<stamp>", reverted, changed?, failed?}` — re-reads and re-checks the stored diff, applies it on a new branch, runs `ruff` on `uh` and `tests`, and reverts the patch when that fails. Never commits, never pushes · `400` not a stamp · `404` unknown proposal · `409` the patch no longer applies |
 | GET | `/api/mcp/cloud` | — | `{templates: [{id, label, what, can_upload, upload_note, docs, fields: [{key, label, secret, required, placeholder, help}]}], upload_targets: [{name, tool, label}]}` — never a stored value |
+| POST | `/api/mcp/http` | `{name, url, token?, label?}` | `{name, transport: "http", url, state: "configured-not-started", reason, secrets}` — records an HTTP/SSE MCP server (Positron, an IDE, a hosted tool server) as a `[[mcp.servers]]` block with `transport = "http"`; **nothing is started**: the stdio client skips it and `uh.mcp_cloud.pending_http_servers` reads it back for the panel. Token → `mcp-secrets.toml` · `400` bad name or non-http(s) URL · `403` not a loopback bind |
 | POST | `/api/mcp/custom` | `{name, command, args: [..], env: {KEY: value}}` | `{name, custom: true, config, secrets, parsed, problems, state}` — adds any stdio MCP server: one `[[mcp.servers]]` block, env entries whose **name** looks like a credential (`TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `CREDENTIAL`) go to `mcp-secrets.toml`, the rest stay visible in `config.toml` · `400` bad name / empty command / `env` not an object · `403` not a loopback bind |
 | POST | `/api/mcp/cloud` | `{template, name, fields: {KEY: value}}` | `{name, template, label, can_upload, config, secrets, parsed, problems, state}` — appends (or replaces by name) one `[[mcp.servers]]`; secrets go to `mcp-secrets.toml` (0600) and are merged into the child's environment, never written to `config.toml` · `400` unknown template / missing or unexpected field / bad name · `403` not a loopback bind |
 | POST | `/api/mcp/{name}/test` | — | starts that server, `{name, command, connected: true, state: "connected", protocol, server, version, tools: [names]}`, then stops it · `404` unknown name · `502` the server failed (timeout, crash, JSON-RPC error) |
@@ -137,9 +138,9 @@ contract of the bundled one:
 ```
 attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
-decision-panel  decision-view  hardware-card  input  keys-priority  keys-view
+decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 data-open  data-panel  data-view  tab-data
-conn-view  tab-conn
+conn-badge  conn-view  tab-conn
 memory-graph  skill-badge  skill-open
 llm-badge  llm-open  llm-panel
 pane-detach  pane-reset  pane-&lt;name&gt;  pane-body  pane-head

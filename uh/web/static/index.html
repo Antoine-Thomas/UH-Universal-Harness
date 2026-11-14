@@ -93,12 +93,13 @@
         <button id="pane-reset" class="icon-button" title="Réancrer tous les panneaux" aria-label="Réinitialiser le layout">⟲</button>
         <button id="panel-float" class="icon-button" title="Détacher le panneau" aria-label="Détacher le panneau">⧉</button>
         <button id="panel-dock" class="icon-button" title="Réancrer le panneau" aria-label="Réancrer le panneau" hidden>⇲</button>
+        <button id="help-open" class="icon-button" aria-label="Aide">?</button>
         <button id="providers-close" class="icon-button" aria-label="Close">×</button>
       </header>
       <nav class="panel-tabs" role="tablist">
         <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">API keys</button>
         <button id="tab-providers" class="panel-tab" role="tab" aria-selected="false" aria-controls="providers-view">Providers</button>
-        <button id="tab-conn" class="panel-tab" role="tab" aria-selected="false" aria-controls="conn-view">Connexions</button>
+        <button id="tab-conn" class="panel-tab" role="tab" aria-selected="false" aria-controls="conn-view">Connexions<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
         <button id="tab-models" class="panel-tab" role="tab" aria-selected="false" aria-controls="models-view">Models</button>
         <button id="tab-uhb" class="panel-tab" role="tab" aria-selected="false" aria-controls="uhb-view">Second brain</button>
         <button id="tab-memory" class="panel-tab" role="tab" aria-selected="false" aria-controls="memory-view">Memory</button>

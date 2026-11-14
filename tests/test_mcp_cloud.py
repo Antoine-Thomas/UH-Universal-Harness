@@ -252,3 +252,34 @@ def test_a_custom_server_keeps_the_servers_already_there(
     text = config.read_text(encoding="utf-8")
     assert "# hand-written" in text
     assert text.count("[[mcp.servers]]") == 2
+
+def test_an_http_server_is_recorded_and_not_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Positron and the like are HTTP: record the address, say it is not started."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+
+    created = mcp_cloud.connect_http("positron", "http://127.0.0.1:8787", token="jeton")
+
+    assert created["state"] == "configured-not-started"
+    assert "stdio" in created["reason"]
+    config = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert 'transport = "http"' in config
+    assert 'url = "http://127.0.0.1:8787"' in config
+    assert "jeton" not in config, "the token belongs in mcp-secrets.toml"
+
+    servers, problems = mcp.servers_from_config()
+    assert servers == [], "the stdio client must not try to launch it"
+    assert problems == [], "a deliberate HTTP entry is not a mistake"
+
+    pending = mcp_cloud.pending_http_servers()
+    assert [row["name"] for row in pending] == ["positron"]
+
+
+def test_an_http_server_needs_a_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+
+    with pytest.raises(mcp_cloud.CloudError):
+        mcp_cloud.connect_http("positron", "127.0.0.1:8787")
+
+    assert not (tmp_path / "config.toml").exists()

@@ -246,6 +246,14 @@ def _quote(text: str) -> str:
 
 def _entry_block(entry: Dict[str, Any]) -> str:
     lines = ["[[mcp.servers]]", f"name = {_quote(entry['name'])}"]
+    if entry.get("transport"):
+        # An HTTP/SSE server needs no command: it is a URL. The stdio client skips
+        # it (see `servers_from_config`), and the panel says so instead of pretending.
+        lines.append(f"transport = {_quote(entry['transport'])}")
+        lines.append(f"url = {_quote(entry.get('url', ''))}")
+        if entry.get("timeout"):
+            lines.append(f"timeout = {int(entry['timeout'])}")
+        return "\n".join(lines) + "\n"
     lines.append(f"command = {_quote(entry['command'])}")
     if entry.get("args"):
         lines.append("args = [" + ", ".join(_quote(str(a)) for a in entry["args"]) + "]")
@@ -417,6 +425,81 @@ def connect_custom(
     }
 
 
+
+HTTP_NOTE = (
+    "UH speaks stdio today: an HTTP/SSE server is recorded, shown, and not started. "
+    "HTTP/SSE is the P14.1 transport."
+)
+
+
+def connect_http(
+    name: str,
+    url: str,
+    *,
+    label: str = "",
+    token: str = "",
+    config_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Record an HTTP/SSE MCP server (Positron, an IDE, a hosted tool server).
+
+    The configuration is written now and honest about the gap: UH's MCP client is
+    stdio-only, so the entry sits in `config.toml` with `transport = "http"` and
+    nothing tries to launch it. When the transport lands, the entry is already
+    there. A token, if given, goes to `mcp-secrets.toml` like every other secret.
+    """
+    entry_name = check_name(name)
+    clean_url = (url or "").strip()
+    if not clean_url.startswith(("http://", "https://")):
+        raise CloudError("url must start with http:// or https://")
+    entry: Dict[str, Any] = {
+        "name": entry_name,
+        "transport": "http",
+        "url": clean_url,
+        "timeout": 60,
+    }
+    if label:
+        entry["note"] = label
+    add_server(entry, config_path=config_path)
+    if token:
+        write_secrets(entry_name, {"MCP_HTTP_TOKEN": token})
+    return {
+        "name": entry_name,
+        "transport": "http",
+        "url": clean_url,
+        "state": "configured-not-started",
+        "reason": HTTP_NOTE,
+        "secrets": ["MCP_HTTP_TOKEN"] if token else [],
+    }
+
+
+def pending_http_servers(*, config_path: Optional[Path] = None) -> List[Dict[str, str]]:
+    """The HTTP/SSE entries `config.toml` holds, so the panel can show them."""
+    path = config_path or (uh_home() / "config.toml")
+    if not path.is_file():
+        return []
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return []
+    section = data.get("mcp") or {}
+    rows = []
+    for entry in section.get("servers") or []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("transport") or "") != "http":
+            continue
+        rows.append(
+            {
+                "name": str(entry.get("name") or ""),
+                "url": str(entry.get("url") or ""),
+                "state": "configured-not-started",
+                "reason": HTTP_NOTE,
+            }
+        )
+    return rows
+
+
 def upload_plan(server: str, tool: str, path: Path, *, bucket: str = "", key: str = "") -> Dict[str, Any]:
     """Store one file with the cloud server's own upload tool.
 
@@ -502,6 +585,9 @@ __all__ = [
     "check_name",
     "connect",
     "connect_custom",
+    "HTTP_NOTE",
+    "connect_http",
+    "pending_http_servers",
     "read_secrets",
     "secrets_path",
     "template",
