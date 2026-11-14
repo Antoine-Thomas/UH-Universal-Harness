@@ -697,23 +697,35 @@ What actually shipped (tags `v1.6.0` and `v1.6.1`, wheels on PyPI):
 
 ## P14 - Positron and the HTTP/SSE transport
 
-**Audited 2026-11-14, documentation only, no dependency added.**
+**P14.1 shipped 2026-11-14: `uh/mcp_http.py`.** The transport speaks both shapes
+the ecosystem uses - Streamable HTTP (2025-03-26, one endpoint, JSON or SSE body,
+`Mcp-Session-Id`) and the legacy HTTP+SSE stream Positron ships (one GET whose
+`endpoint` event names the POST target) - with the same failure kinds as the stdio
+client. A recorded entry now becomes *connected* from the panel: "Tester la
+connexion" runs the handshake and lists the tools, a save runs the same test in
+the same gesture, and the states are distinct (configuré / connexion en cours /
+connecté (N outils) / jeton refusé / injoignable / protocole incompatible), each
+with the sentence that says what to change. A client that drops mid-session is
+detected by the watchdog (a `ping`, then 1-2-4…60 s of backoff).
+
+The prerequisite held: **a remote tool never runs on its own**. `build_toolsets`
+returns nothing without an approver, and every `tools/call` asks first - the web
+cockpit puts the question on the turn's SSE stream (`approval`) with Autoriser /
+Refuser; no answer inside 120 s is a refusal. A console turn (no approver) simply
+has no remote tools.
+
+Still open: a real Positron on this machine (not installed here - the transport is
+proven against a fake server that speaks all three shapes, including a 401, a 302
+and a closed stream); `sse` entries written by hand still go through the legacy
+path only; the Tauri question is deliberately after P14.1.
 
 Positron is Posit's data-science IDE built on **Code OSS**. Since **2026.10** it
 ships an **experimental MCP server** (setting `ai.mcp.enabled`, command
 "Positron MCP: Add to Coding Agent") that lets a third-party agent see the live
 data, plots and R/Python consoles of a session.
 
-Why it is not integrated today: Positron exposes that server over **HTTP/SSE**,
-and UH's client is **stdio only** (`docs/MCP.md`). The address can already be
-recorded (Connexions → IDE & outils externes) and the panel says
-`configuré, non démarré` - which is the honest state.
-
-Order, if this is picked up: 1) HTTP/SSE transport in `uh/mcp.py` (URL, headers,
-session, timeouts, and the same failure kinds); 2) then the Positron entry from the
-UI becomes usable with no further change; 3) only then consider anything that
-needs Positron's own API. UH never installs Positron: a user who has it connects to
-it, a user who does not is not blocked.
+UH never installs Positron: a user who has it connects to it, a user who does not
+is not blocked.
 
 ## Ideas, not scheduled
 

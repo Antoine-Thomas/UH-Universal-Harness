@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
 import re
 import secrets
 import sys
@@ -579,8 +580,6 @@ def create_app(
             search_on = llm_params.web_search_enabled(settings)
         except Exception as exc:  # noqa: BLE001 - a malformed blob is a 400, not a 500
             raise HTTPException(status_code=400, detail=f"invalid settings: {exc}") from exc
-        toolsets = _toolsets(app, web_search=search_on)
-
         loop = asyncio.get_running_loop()
         queue: "asyncio.Queue[dict]" = asyncio.Queue()
 
@@ -590,6 +589,17 @@ def create_app(
         def work() -> None:
             store = None
             session_obj = None
+            # Built here, not before: an HTTP/SSE toolset needs `emit` to ask its
+            # per-call approval on this turn's stream.
+            toolsets = _toolsets(app, web_search=search_on)
+            try:
+                from .. import mcp_http as uh_mcp_http
+
+                toolsets.update(
+                    uh_mcp_http.build_toolsets(notify=emit, config=app.state.cfg)
+                )
+            except Exception:  # noqa: BLE001 - a remote server never breaks a turn
+                pass
             try:
                 store = Store(app.state.settings.store_path)
                 session_obj = ChatSession(
@@ -1305,9 +1315,26 @@ def create_app(
                 uhb = {"connected": True, **payload}
 
         mcp_status = await asyncio.to_thread(mcp.status)
-        if not mcp_status.get("configured"):
-            # An HTTP/SSE entry exists but the stdio client cannot start it: say that
-            # instead of "nothing configured", which would be false.
+        # HTTP/SSE entries are not started by the stdio client, but they are
+        # configured and they have a live state of their own (P14.1). Counting
+        # only the stdio servers made the panel say "nothing configured" over a
+        # Positron entry that exists.
+        from .. import mcp_http as uh_mcp_http
+
+        http_rows = await asyncio.to_thread(uh_mcp_http.status)
+        if http_rows:
+            connected_count = sum(1 for row in http_rows if row.get("connected"))
+            summary = f"{connected_count}/{len(http_rows)} serveur(s) HTTP connecté(s)"
+            mcp_status = {
+                **mcp_status,
+                "configured": int(mcp_status.get("configured") or 0) + len(http_rows),
+                "http": http_rows,
+                "http_reason": summary,
+                # The stdio half may be empty; its "nothing configured" sentence
+                # would then contradict the rows right beside it.
+                "reason": summary if not mcp_status.get("servers") else mcp_status.get("reason", ""),
+            }
+        elif not mcp_status.get("configured"):
             from .. import mcp_cloud
 
             pending = await asyncio.to_thread(mcp_cloud.pending_http_servers)
@@ -1316,8 +1343,8 @@ def create_app(
                     **mcp_status,
                     "configured": len(pending),
                     "reason": (
-                        f"{len(pending)} serveur(s) HTTP/SSE configuré(s), non démarré(s) : "
-                        "le client MCP de UH est stdio (transport HTTP/SSE en P14.1)"
+                        f"{len(pending)} serveur(s) HTTP/SSE configuré(s) : ouvre "
+                        "« Connexions » et clique sur « Tester la connexion »."
                     ),
                 }
         return {
@@ -1438,12 +1465,35 @@ def create_app(
     async def mcp_cloud_catalog() -> dict:
         """The templates the UI may offer, and which servers can already store a file."""
         from .. import mcp_cloud
+        from .. import mcp_http as uh_mcp_http
+
+        def _http_rows() -> list:
+            """Recorded HTTP entries, each with the state this process can prove.
+
+            The secrets file supplies the masked token, the transport supplies the
+            live state: the panel gets one row per entry and never a value it could
+            replay.
+            """
+            recorded = {row["name"]: row for row in mcp_cloud.pending_http_servers()}
+            live = {row["name"]: row for row in uh_mcp_http.status()}
+            rows = []
+            for name, base in recorded.items():
+                row = {**base, **{k: v for k, v in live.get(name, {}).items() if k != "url"}}
+                row.setdefault("state", "configured")
+                row.setdefault("label", "configuré")
+                row.setdefault("tools", [])
+                rows.append(row)
+            for name, row in live.items():
+                if name not in recorded:
+                    rows.append(row)
+            return rows
 
         return {
             "templates": mcp_cloud.template_list(),
             "upload_targets": await asyncio.to_thread(mcp_cloud.upload_targets),
-            # Recorded but not started: HTTP/SSE is the P14.1 transport.
-            "http_servers": await asyncio.to_thread(mcp_cloud.pending_http_servers),
+            # Recorded entries with their live state: configured, connected,
+            # jeton refusé, injoignable or protocole incompatible (P14.1).
+            "http_servers": await asyncio.to_thread(_http_rows),
             "http_note": mcp_cloud.HTTP_NOTE,
         }
 
@@ -1488,8 +1538,9 @@ def create_app(
     async def mcp_http(payload: Annotated[dict, Body()]) -> dict:
         """Record an HTTP/SSE MCP server (Positron, an IDE, a hosted tool server).
 
-        Nothing is started: UH's client is stdio-only today, and the answer says so
-        instead of pretending the server is connected.
+        The entry is written, then asked: the handshake happens in this same
+        gesture, and the answer carries the state the panel shows. The stdio
+        client still skips the entry - a URL belongs to `uh.mcp_http`.
         """
         from .. import mcp_cloud
         from ..providers_admin import is_loopback_bind
@@ -1511,7 +1562,13 @@ def create_app(
             )
         except mcp_cloud.CloudError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return created
+        # Recording is not connecting: the entry is written, then asked. A save
+        # that needs a second gesture ("now press Test") is a save that leaves
+        # the user with "configured" and no idea whether it works.
+        from .. import mcp_http as uh_mcp_http
+
+        connection = await asyncio.to_thread(uh_mcp_http.test_connection, created["name"])
+        return {**created, "connection": connection, "state": connection.get("state")}
 
     @app.post("/api/mcp/custom", dependencies=[Depends(require_token)])
     async def mcp_custom(payload: Annotated[dict, Body()]) -> dict:
@@ -1558,12 +1615,17 @@ def create_app(
 
     @app.post("/api/mcp/{name}/test", dependencies=[Depends(require_token)])
     async def mcp_test(name: str) -> dict:
-        """Start one configured MCP server, list its tools, stop it again.
+        """Ask one configured MCP server a question *now*.
 
-        The button asks the server a question *now*: the answer is never served
-        from the process cache, so a green dot here means this second.
+        An HTTP/SSE entry is asked over its own transport (P14.1); a stdio entry
+        is started, listed and stopped. Either way the answer is never served from
+        the process cache, so a green dot here means this second.
         """
         from .. import mcp
+        from .. import mcp_http as uh_mcp_http
+
+        if any(server.name == name for server in await asyncio.to_thread(uh_mcp_http.servers_from_config)):
+            return await asyncio.to_thread(uh_mcp_http.test_connection, name)
 
         servers, _ = await asyncio.to_thread(mcp.servers_from_config)
         if not any(server.name == name for server in servers):
@@ -1576,6 +1638,39 @@ def create_app(
             raise HTTPException(
                 status_code=502, detail=_redact(str(exc))
             ) from exc
+
+    # -- remote tool approval (P14.1) -------------------------------------- #
+    @app.get("/api/mcp/approvals", dependencies=[Depends(require_token)])
+    async def mcp_approvals() -> dict:
+        """Questions a remote tool is waiting on right now.
+
+        The SSE stream carries each one when it is asked; this route exists for a
+        page that missed the frame (reload, second window) and must not leave a
+        call hanging behind a banner nobody can see.
+        """
+        from .. import mcp_http as uh_mcp_http
+
+        return {"pending": uh_mcp_http.GATE.pending()}
+
+    @app.post("/api/mcp/approvals/{ticket}", dependencies=[Depends(require_token)])
+    async def mcp_approve(ticket: str, payload: Annotated[dict, Body()]) -> dict:
+        """Answer one question: ``{"allow": true}`` runs the call, anything else refuses."""
+        from .. import mcp_http as uh_mcp_http
+        from ..providers_admin import is_loopback_bind
+
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403,
+                detail="answering an approval is only allowed when uh web listens on loopback",
+            )
+        body = payload or {}
+        resolved = uh_mcp_http.GATE.resolve(ticket, bool(body.get("allow")))
+        if not resolved:
+            raise HTTPException(
+                status_code=404,
+                detail="cette demande a expiré ou n'existe plus",
+            )
+        return {"resolved": True, "ticket": ticket, "allow": bool(body.get("allow"))}
 
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])
@@ -1741,6 +1836,32 @@ def run_server(
         workspace=workspace,
         static_dir=static_dir,
     )
+    if os.environ.get("UH_DEV_RELOAD") == "1":
+        # A route added after the server started is a 404 until the process is
+        # restarted (routes are frozen at import, the static files are not).
+        # UH_DEV_RELOAD=1 makes uvicorn watch the package: the class of bug the
+        # message in app.js describes never happens while working on the UI.
+        os.environ.update(
+            {
+                "UH_WEB_HOST": host,
+                "UH_WEB_PORT": str(port),
+                "UH_WEB_TOKEN": app.state.token,
+                "UH_WEB_ALLOW_TERMINAL": "1" if allow_terminal else "0",
+                "UH_WEB_WORKSPACE": str(app.state.settings.workspace),
+            }
+        )
+        print(f"UH web (dev, auto-reload) - http://{host}:{port}/?token={app.state.token}")
+        print("  UH_DEV_RELOAD=1: a Python change restarts the worker, the token stays.")
+        uvicorn.run(
+            "uh.web.dev:app",
+            factory=True,
+            reload=True,
+            reload_dirs=[str(Path(__file__).parent)],
+            host=host,
+            port=port,
+            log_level="info",
+        )
+        return 0
     url = f"http://{host}:{port}/?token={app.state.token}"
     print(f"UH web - {url}")
     print(f"  provider: {app.state.kind or 'none'} · model: {app.state.model or 'none'}")

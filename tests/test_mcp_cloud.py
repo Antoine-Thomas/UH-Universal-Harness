@@ -256,13 +256,17 @@ def test_a_custom_server_keeps_the_servers_already_there(
 def test_an_http_server_is_recorded_and_not_started(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Positron and the like are HTTP: record the address, say it is not started."""
+    """Recording writes the entry; the stdio client never tries to launch it.
+
+    Starting it is `uh.mcp_http`'s job (P14.1) and it waits for a click: this test
+    is about the config half, which must stay honest on its own.
+    """
     monkeypatch.setenv("UH_HOME", str(tmp_path))
 
     created = mcp_cloud.connect_http("positron", "http://127.0.0.1:8787", token="jeton")
 
     assert created["state"] == "configured-not-started"
-    assert "stdio" in created["reason"]
+    assert "accord" in created["reason"], "the approval prerequisite is part of the note"
     config = (tmp_path / "config.toml").read_text(encoding="utf-8")
     assert 'transport = "http"' in config
     assert 'url = "http://127.0.0.1:8787"' in config
@@ -274,6 +278,7 @@ def test_an_http_server_is_recorded_and_not_started(
 
     pending = mcp_cloud.pending_http_servers()
     assert [row["name"] for row in pending] == ["positron"]
+    assert pending[0]["token"] == "••••eton"
 
 
 def test_an_http_server_needs_a_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

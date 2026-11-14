@@ -573,8 +573,8 @@ def connect_custom(
 
 
 HTTP_NOTE = (
-    "UH speaks stdio today: an HTTP/SSE server is recorded, shown, and not started. "
-    "HTTP/SSE is the P14.1 transport."
+    "Serveur HTTP/SSE enregistré : UH lui parle directement, et demande ton accord "
+    "avant chaque appel d'outil."
 )
 
 
