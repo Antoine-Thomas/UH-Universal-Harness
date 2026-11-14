@@ -940,6 +940,19 @@ a.data-button { text-decoration: none; display: inline-block; }
 .approval-card p { margin: 0 0 6px; }
 .approval-card pre { border-top: 1px solid var(--border); }
 .tool-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+/* The MCP popup: the only place a server is added, from two entry points. */
+.mcp-connect { max-height: 88vh; overflow-y: auto; }
+.mcp-connect.is-dragging { outline: 2px dashed var(--accent); outline-offset: -4px; }
+.mcp-import {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 8px; border: 1px dashed var(--border); border-radius: var(--radius);
+}
+.mcp-import .cloud-input { flex: 1 1 220px; }
+/* `.cloud-field` is a flex column: the UA rule for [hidden] loses against a
+   class selector, so the transport switch must hide its fields explicitly. */
+.cloud-field[hidden] { display: none; }
+.mcp-status { min-height: 1.2em; font-family: var(--mono); }
 .tool-test { display: flex; flex-wrap: wrap; gap: 6px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot-ok { background: var(--accent); box-shadow: 0 0 6px var(--accent); }

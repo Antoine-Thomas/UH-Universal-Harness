@@ -3082,6 +3082,14 @@ async function toolsSection() {
     section.appendChild(bar);
   }
 
+  // The same popup as "Connexions", where a person looks for MCP (next to the
+  // storage card). Deliberate duplicate: MCP is a tool, not a model key, and it
+  // must be findable from both places.
+  const addMcp = el("button", "data-button", "+ Connecter un MCP");
+  addMcp.type = "button";
+  addMcp.addEventListener("click", () => mcpConnectModal());
+  section.appendChild(addMcp);
+
   // Cloud connections: a template, a few fields, one button. The token goes to
   // mcp-secrets.toml - config.toml is the file people paste into issues.
   mountFix(section);
@@ -4155,90 +4163,11 @@ boot()
   });
 
 // --------------------------------------------------------------------------- //
-// Connexions: the clouds and the MCP servers a person can add themselves
+// Connexions: cloud storage, MCP servers, and the one popup that adds them
 // --------------------------------------------------------------------------- //
-function customMcpSection() {
-  const box = el("div", "tool-cloud");
-  box.appendChild(el("div", "tool-name", "Serveur MCP personnalisé"));
-  box.appendChild(
-    el(
-      "p",
-      "data-note",
-      "Un serveur MCP lancé comme un programme : une commande, ses arguments, ses variables. Les valeurs dont le nom ressemble à un secret (TOKEN, KEY, SECRET…) vont dans mcp-secrets.toml, jamais dans config.toml."
-    )
-  );
-
-  const field = (label, placeholder, multiline = false) => {
-    const wrap = el("label", "cloud-field");
-    wrap.appendChild(el("span", "cloud-label", label));
-    const input = multiline ? document.createElement("textarea") : document.createElement("input");
-    input.className = multiline ? "modal-area" : "cloud-input";
-    if (multiline) input.rows = 3;
-    else input.type = "text";
-    input.placeholder = placeholder;
-    input.autocomplete = "off";
-    wrap.appendChild(input);
-    return { wrap, input };
-  };
-
-  const name = field("Nom (minuscules, chiffres, - ou _)", "mon-serveur");
-  const command = field("Commande", "npx");
-  const args = field("Arguments (un par ligne)", "-y\n@modelcontextprotocol/server-filesystem\nC:/docs", true);
-  const env = field("Variables d'environnement (KEY=valeur, une par ligne)", "S3_BUCKET=mes-docs", true);
-  [name, command, args, env].forEach((item) => box.appendChild(item.wrap));
-
-  const status = el("p", "data-note", "");
-  const button = el("button", "data-button", "Ajouter ce serveur");
-  button.type = "button";
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    button.textContent = "ajout…";
-    const variables = {};
-    env.input.value
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .forEach((line) => {
-        const index = line.indexOf("=");
-        if (index > 0) variables[line.slice(0, index).trim()] = line.slice(index + 1).trim();
-      });
-    try {
-      const result = await api("/api/mcp/custom", {
-        method: "POST",
-        body: JSON.stringify({
-          name: name.input.value.trim(),
-          command: command.input.value.trim(),
-          args: args.input.value.split(/\r?\n/).map((a) => a.trim()).filter(Boolean),
-          env: variables,
-        }),
-      });
-      status.textContent = result.parsed
-        ? `Ajouté : ${result.name}. Ouvre « Données » pour le tester.`
-        : `Écrit, mais illisible par UH : ${(result.problems || []).join(" ; ")}`;
-      if (result.parsed) {
-        name.input.value = "";
-        command.input.value = "";
-        args.input.value = "";
-        env.input.value = "";
-      }
-    } catch (error) {
-      status.textContent = `Refusé : ${error.message}`;
-    } finally {
-      button.disabled = false;
-      button.textContent = "Ajouter ce serveur";
-    }
-  });
-  box.appendChild(button);
-  box.appendChild(status);
-  return box;
-}
-
-
-// --------------------------------------------------------------------------- //
-// IDE and external tools: an HTTP/SSE MCP server (Positron, a hosted tool server)
-// --------------------------------------------------------------------------- //
-// The states are the transport's (uh/mcp_http.py), spelled for a person: what
-// happened, and what to do about it. A code alone ("HTTP 401") is a dead end.
+// Three ideas share this tab, and none of them is a model key: a storage account
+// (sort, sync, back up folders), an MCP server (a tool UH may call), an IDE. The
+// keys live in "Clé API", the local model in "IA locale" - and the header says so.
 const HTTP_STATE_TEXT = {
   connected: "connecté",
   configured: "configuré",
@@ -4254,7 +4183,7 @@ const HTTP_STATE_TEXT = {
 
 function httpStateDot(state) {
   if (state === "connected") return "dot-ok";
-  if (state === "configured" || state === "connecting" || state === "reconnecting") {
+  if (!state || state === "configured" || state === "connecting" || state === "reconnecting") {
     return "dot-off";
   }
   return "dot-warn";
@@ -4270,20 +4199,20 @@ function httpStateLine(server) {
   return server.reason ? `${label} — ${server.reason}` : label;
 }
 
-// One remote server: its state, its tools, and the button that asks it *now*.
-function httpServerRow(server) {
+// One server row: state, what it is, and the button that asks it *now*.
+function mcpServerRow(server) {
   const row = el("div", "tool-row");
   const dot = el("span", `dot ${httpStateDot(server.state)}`);
   dot.setAttribute("aria-hidden", "true");
   row.appendChild(dot);
-  row.appendChild(el("span", "tool-name", `http · ${server.name}`));
+  row.appendChild(el("span", "tool-name", `${server.transport === "stdio" ? "stdio" : "http"} · ${server.name}`));
 
   const tokenHint = server.has_token ? ` · jeton ${server.token}` : "";
-  row.appendChild(el("span", "tool-detail", `${server.url}${tokenHint}`));
+  const where = server.url || server.command || "";
+  row.appendChild(el("span", "tool-detail", `${where}${tokenHint}`));
 
   const state = el("span", "tool-detail", httpStateLine(server));
   row.appendChild(state);
-
   if (server.insecure) {
     row.appendChild(
       el("span", "panel-hint", "HTTP non chiffré : le jeton circule en clair. Préfère https://.")
@@ -4295,7 +4224,6 @@ function httpServerRow(server) {
   test.setAttribute("aria-label", `Tester la connexion à ${server.name}`);
   test.addEventListener("click", async () => {
     test.disabled = true;
-    const previous = state.textContent;
     state.textContent = "connexion en cours…";
     try {
       const result = await api(`/api/mcp/${encodeURIComponent(server.name)}/test`, {
@@ -4305,9 +4233,7 @@ function httpServerRow(server) {
       if (result.state === "connected") {
         state.textContent = `connecté · ${count} outil(s) · ${result.duration_ms} ms`;
         dot.className = "dot dot-ok";
-        if (result.warning) state.textContent += ` — ${result.warning}`;
       } else {
-        // The advice is the point: it says what to change, not just what failed.
         state.textContent = `${HTTP_STATE_TEXT[result.state] || result.state} — ${
           result.advice || result.reason || ""
         }`;
@@ -4316,7 +4242,6 @@ function httpServerRow(server) {
     } catch (error) {
       state.textContent = `échec du test : ${error.message}`;
       dot.className = "dot dot-warn";
-      if (!state.textContent) state.textContent = previous;
     } finally {
       test.disabled = false;
     }
@@ -4325,126 +4250,349 @@ function httpServerRow(server) {
   return row;
 }
 
-function httpServerSection(pending, note) {
+function mcpSection(servers, note) {
   const box = el("div", "tool-cloud");
-  box.appendChild(el("div", "tool-name", "IDE & outils externes (HTTP/SSE)"));
+  box.appendChild(el("div", "tool-name", "Serveurs MCP"));
   box.appendChild(
     el(
       "p",
       "data-note",
       note ||
-        "Un serveur MCP qui s'adresse par une URL : Positron, un IDE, un outil hébergé. UH lui parle directement, et demande ton accord avant chaque appel d'outil."
+        "Un outil que UH peut appeler : un serveur lancé comme un programme, un IDE, un service. Chaque appel d'un serveur distant te demande ton accord."
+    )
+  );
+  const rows = el("div", "tool-rows");
+  if (!servers.length) {
+    rows.appendChild(
+      el("p", "data-note", "Aucun serveur pour l'instant. « + Connecter un MCP » en ajoute un.")
+    );
+  }
+  servers.forEach((server) => rows.appendChild(mcpServerRow(server)));
+  box.appendChild(rows);
+
+  const add = el("button", "data-button primary", "+ Connecter un MCP");
+  add.type = "button";
+  add.addEventListener("click", () => mcpConnectModal());
+  box.appendChild(add);
+  return box;
+}
+
+// --------------------------------------------------------------------------- //
+// The popup: name, transport, command or URL, an import, a test, then a save
+// --------------------------------------------------------------------------- //
+// "Enregistrer" stays disabled until the probe answered `connected`: a broken
+// entry never reaches config.toml. Editing any field after a successful test
+// disables it again - the tested configuration is the one that gets saved.
+function mcpConnectModal(initial) {
+  const backdrop = el("div", "modal-backdrop");
+  const modal = el("div", "modal mcp-connect");
+  const form = el("form", "modal-form");
+  form.appendChild(el("p", "modal-title", "Connecter un serveur MCP"));
+  form.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Un programme (stdio) ou une adresse (http/sse). UH teste avant d'enregistrer : rien n'entre dans config.toml sans un test réussi, et un jeton part dans mcp-secrets.toml."
     )
   );
 
-  const list = el("div", "tool-rows");
-  if (!(pending || []).length) {
-    list.appendChild(
-      el("p", "data-note", "Aucun serveur externe pour l'instant. Ajoute son adresse ci-dessous.")
-    );
-  }
-  (pending || []).forEach((server) => list.appendChild(httpServerRow(server)));
-  box.appendChild(list);
-
-  const field = (label, placeholder, type = "text") => {
+  const field = (label, placeholder, multiline = false) => {
     const wrap = el("label", "cloud-field");
     wrap.appendChild(el("span", "cloud-label", label));
-    const input = document.createElement("input");
-    input.className = "cloud-input";
-    input.type = type;
+    const input = multiline ? document.createElement("textarea") : document.createElement("input");
+    input.className = multiline ? "modal-area" : "cloud-input";
+    if (multiline) input.rows = 3;
+    else {
+      input.type = "text";
+      input.autocomplete = "off";
+    }
     input.placeholder = placeholder;
-    input.autocomplete = "off";
     wrap.appendChild(input);
     return { wrap, input };
   };
 
-  const name = field("Nom", "positron");
-  const url = field("Adresse du serveur MCP", "http://127.0.0.1:8787/mcp", "url");
-  const token = field("Jeton (optionnel, jamais réaffiché)", "••••", "password");
-  [name, url, token].forEach((item) => box.appendChild(item.wrap));
+  // Import first: a file that already exists is the common case.
+  const importRow = el("div", "mcp-import");
+  importRow.appendChild(el("span", "cloud-label", "Importer un fichier .json ou .yaml"));
+  const file = document.createElement("input");
+  file.type = "file";
+  file.accept = ".json,.yaml,.yml,application/json";
+  file.className = "cloud-input";
+  importRow.appendChild(file);
+  importRow.appendChild(el("span", "panel-hint", "ou dépose le fichier sur cette fenêtre"));
+  form.appendChild(importRow);
 
+  const transport = document.createElement("select");
+  transport.className = "modal-input";
+  [
+    ["stdio", "stdio — un programme local"],
+    ["http", "http — une adresse (Streamable HTTP)"],
+    ["sse", "sse — une adresse (flux d'événements)"],
+  ].forEach(([value, label]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    transport.appendChild(option);
+  });
+  const transportWrap = el("label", "cloud-field");
+  transportWrap.appendChild(el("span", "cloud-label", "Transport"));
+  transportWrap.appendChild(transport);
+  form.appendChild(transportWrap);
+
+  const name = field("Nom (minuscules, chiffres, - ou _)", "mon-serveur");
+  const command = field("Commande", "npx");
+  const args = field("Arguments (un par ligne)", "-y\n@modelcontextprotocol/server-filesystem\nC:/docs", true);
+  const env = field("Variables d'environnement (KEY=valeur, une par ligne)", "S3_BUCKET=mes-docs", true);
+  const url = field("Adresse du serveur MCP", "http://127.0.0.1:8787/mcp", false);
+  url.input.type = "url";
+  const token = field("Jeton (optionnel, jamais réaffiché)", "••••", false);
+  token.input.type = "password";
   const insecureWrap = el("label", "cloud-field");
   const insecure = document.createElement("input");
   insecure.type = "checkbox";
-  insecure.id = "http-allow-insecure";
   insecureWrap.appendChild(insecure);
   insecureWrap.appendChild(
     el("span", "cloud-label", "Autoriser le HTTP non chiffré vers une autre machine")
   );
-  box.appendChild(insecureWrap);
 
-  box.appendChild(
-    el(
-      "p",
-      "data-note",
-      "Positron : active « ai.mcp.enabled » dans les réglages, puis « Positron MCP: Add to Coding Agent » — la fenêtre affiche l'adresse et le jeton à recopier ici."
-    )
-  );
+  const stdioFields = [name, command, args, env];
+  const httpFields = [name, url, token];
+  stdioFields.forEach((item) => form.appendChild(item.wrap));
+  httpFields.forEach((item) => form.appendChild(item.wrap));
+  form.appendChild(insecureWrap);
 
-  const status = el("p", "data-note", "");
-  const button = el("button", "data-button", "Enregistrer et tester");
-  button.type = "button";
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    button.textContent = "enregistrement…";
-    status.textContent = "";
-    try {
-      const result = await api("/api/mcp/http", {
-        method: "POST",
-        body: JSON.stringify({
-          name: name.input.value.trim(),
-          url: url.input.value.trim(),
-          token: token.input.value.trim(),
-          allow_insecure: insecure.checked,
-        }),
+  const status = el("p", "data-note mcp-status", "Teste la connexion : « Enregistrer » s'active ensuite.");
+  form.appendChild(status);
+
+  const actions = el("div", "modal-actions");
+  const test = el("button", "data-button", "Tester la connexion");
+  const save = el("button", "data-button primary", "Enregistrer");
+  const cancel = el("button", "data-button", "Annuler");
+  [test, save, cancel].forEach((button) => {
+    button.type = "button";
+    actions.appendChild(button);
+  });
+  save.disabled = true;
+  form.appendChild(actions);
+  modal.appendChild(form);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  modal.addEventListener("click", (event) => event.stopPropagation());
+  backdrop.addEventListener("click", () => backdrop.remove());
+  closeOnEscape(backdrop);
+
+  // The tested configuration is what gets saved: any edit invalidates it.
+  let tested = null;
+  const invalidate = () => {
+    tested = null;
+    save.disabled = true;
+  };
+  [name.input, command.input, args.input, env.input, url.input, token.input, transport, insecure]
+    .forEach((node) => node.addEventListener("input", invalidate));
+  transport.addEventListener("change", invalidate);
+
+  const syncTransport = () => {
+    const isHttp = transport.value !== "stdio";
+    stdioFields.forEach((item) => (item.wrap.hidden = isHttp));
+    httpFields.forEach((item) => (item.wrap.hidden = !isHttp));
+  };
+  transport.addEventListener("change", syncTransport);
+  syncTransport();
+
+  const payload = () => {
+    const variables = {};
+    env.input.value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const index = line.indexOf("=");
+        if (index > 0) variables[line.slice(0, index).trim()] = line.slice(index + 1).trim();
       });
-      const connection = result.connection || {};
-      if (result.state === "connected") {
-        const count = (connection.tools || []).length;
-        status.textContent = `Connecté : ${result.name} — ${count} outil(s) en ${connection.duration_ms} ms.`;
-        name.input.value = "";
-        url.input.value = "";
-        token.input.value = "";
-        insecure.checked = false;
-        await loadConnections();
-      } else {
-        // Saved, but not connected: say what the server answered and what to do.
-        status.textContent = `Enregistré, mais pas encore connecté : ${
-          HTTP_STATE_TEXT[result.state] || result.state
-        }. ${connection.advice || connection.reason || ""}`;
-        await loadConnections().catch(() => {});
+    const common = { name: name.input.value.trim(), transport: transport.value };
+    if (transport.value === "stdio") {
+      return {
+        ...common,
+        command: command.input.value.trim(),
+        args: args.input.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+        env: variables,
+      };
+    }
+    return {
+      ...common,
+      url: url.input.value.trim(),
+      token: token.input.value.trim(),
+      allow_insecure: insecure.checked,
+    };
+  };
+
+  const fill = (server) => {
+    transport.value = server.transport || "stdio";
+    syncTransport();
+    name.input.value = server.name || "";
+    command.input.value = server.command || "";
+    args.input.value = (server.args || []).join("\n");
+    env.input.value = Object.entries(server.env || {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n");
+    url.input.value = server.url || "";
+    token.input.value = server.token || "";
+    insecure.checked = false;
+    invalidate();
+    status.textContent = `Importé : ${server.name}. Teste la connexion avant d'enregistrer.`;
+  };
+
+  const importText = async (text, filename) => {
+    try {
+      const result = await api("/api/mcp/import", {
+        method: "POST",
+        body: JSON.stringify({ text, filename }),
+      });
+      const found = result.servers || [];
+      if (!found.length) {
+        status.textContent = "Ce fichier ne contient aucun serveur.";
+        return;
+      }
+      fill(found[0]);
+      if (found.length > 1) {
+        status.textContent = `${found.length} serveurs dans le fichier : ${
+          found[0].name
+        } est rempli, les autres s'ajoutent en rouvrant le fichier (${found
+          .map((server) => server.name)
+          .join(", ")}).`;
       }
     } catch (error) {
+      status.textContent = `Import refusé : ${error.message}`;
+    }
+  };
+
+  const readFile = async (chosen) => {
+    if (!chosen) return;
+    const text = await chosen.text();
+    await importText(text, chosen.name);
+  };
+  file.addEventListener("change", () => readFile(file.files && file.files[0]));
+  modal.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    modal.classList.add("is-dragging");
+  });
+  modal.addEventListener("dragleave", () => modal.classList.remove("is-dragging"));
+  modal.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    modal.classList.remove("is-dragging");
+    const dropped = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    await readFile(dropped);
+  });
+
+  test.addEventListener("click", async () => {
+    test.disabled = true;
+    status.textContent = "test en cours (5 s max)…";
+    try {
+      const result = await api("/api/mcp/probe", {
+        method: "POST",
+        body: JSON.stringify(payload()),
+      });
+      if (result.state === "connected") {
+        tested = payload();
+        save.disabled = false;
+        const count = (result.tools || []).length;
+        status.textContent = `Connecté · ${count} outil(s) · ${result.duration_ms} ms. « Enregistrer » est actif.`;
+      } else {
+        invalidate();
+        status.textContent = `${HTTP_STATE_TEXT[result.state] || result.state} — ${
+          result.advice || result.reason || ""
+        }`;
+      }
+    } catch (error) {
+      invalidate();
       status.textContent = `Refusé : ${error.message}`;
     } finally {
-      button.disabled = false;
-      button.textContent = "Enregistrer et tester";
+      test.disabled = false;
     }
   });
-  box.appendChild(button);
-  box.appendChild(status);
-  return box;
+
+  save.addEventListener("click", async () => {
+    if (!tested) return;
+    save.disabled = true;
+    save.textContent = "enregistrement…";
+    try {
+      if (tested.transport === "stdio") {
+        await api("/api/mcp/custom", {
+          method: "POST",
+          body: JSON.stringify({
+            name: tested.name,
+            command: tested.command,
+            args: tested.args,
+            env: tested.env,
+          }),
+        });
+      } else {
+        await api("/api/mcp/http", {
+          method: "POST",
+          body: JSON.stringify({
+            name: tested.name,
+            url: tested.url,
+            token: tested.token,
+            allow_insecure: tested.allow_insecure,
+          }),
+        });
+      }
+      backdrop.remove();
+      await loadConnections();
+    } catch (error) {
+      status.textContent = `Refusé : ${error.message}`;
+      save.disabled = false;
+    } finally {
+      save.textContent = "Enregistrer";
+    }
+  });
+  cancel.addEventListener("click", () => backdrop.remove());
+
+  if (initial) fill(initial);
+  name.input.focus();
+  return modal;
 }
 
 async function loadConnections() {
   const view = $("conn-view");
   if (!view) return;
   view.textContent = "";
+  view.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Ce qui relie UH à l'extérieur : un stockage, des outils. Les clés des modèles sont dans « Clé API », l'IA de cette machine dans « IA locale » — ici, aucune clé de modèle."
+    )
+  );
   const list = el("div", "data-list");
-  list.appendChild(el("p", "data-note", "Ce qui relie UH à l'extérieur : un stockage cloud, un serveur d'outils. Rien ne s'active sans toi."));
   view.appendChild(list);
   await mountCloud(list);
-  let pending = [];
+
+  let servers = [];
   let note = "";
   try {
     const catalog = await api("/api/mcp/cloud");
-    pending = catalog.http_servers || [];
+    servers = catalog.http_servers || [];
     note = catalog.http_note || "";
   } catch (error) {
-    /* an older backend: the form still works, the list is just empty */
+    /* an older backend: the popup still works, the list is just empty */
   }
-  view.appendChild(httpServerSection(pending, note));
-  view.appendChild(customMcpSection());
+  // The backend note describes a recorded server; with none, the section's own
+  // sentence is the right one.
+  if (!servers.length) note = "";
+  try {
+    const status = await api("/api/tools/status");
+    const stdio = ((status.mcp || {}).servers || []).map((server) => ({
+      ...server,
+      transport: "stdio",
+      url: server.command || "",
+      has_token: false,
+    }));
+    servers = servers.concat(stdio);
+  } catch (error) {
+    /* no stdio list: the http rows are enough to work */
+  }
+  view.appendChild(mcpSection(servers, note));
 }
 
 

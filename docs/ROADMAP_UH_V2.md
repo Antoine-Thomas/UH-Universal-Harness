@@ -747,6 +747,29 @@ data, plots and R/Python consoles of a session.
 UH never installs Positron: a user who has it connects to it, a user who does not
 is not blocked.
 
+## P14.2 - the Connexions UI (storage, MCP, local AI)
+
+**Shipped.** A first launch that never blocks (banner + "Plus tard"), three
+separate tabs (`Clé API` / `IA locale` / `Connexions`), "Stockage cloud (dossiers)"
+instead of "Connecter un Cloud", and one `+ Connecter un MCP` popup (in
+`Connexions`, again in `Données`) that imports `.json` or the documented YAML
+subset, probes the candidate for five seconds and keeps `Enregistrer` disabled
+until the probe answers `connected`. Secrets stay masked (`••••` + 4) and go to
+`mcp-secrets.toml` (owner-only), never to `config.toml`, never to a log. Tests:
+`test_mcp_import.py`, `test_web_mcp_probe.py`, `test_web_secrets_dom.py` (mask in
+the answer, absent from the access log), `test_web_ux.py` (the popup gating).
+
+Still open:
+
+- [ ] editing an existing server from the UI (today a wrong URL is fixed in
+      `config.toml` by hand);
+- [ ] YAML beyond the subset: anchors, multi-line blocks, `- key: value` lists;
+- [ ] an end-to-end run of the popup in CI (today it is proven by CDP, recorded in
+      `docs/UX.md`);
+- [ ] the real Positron connection: "Tester la connexion" against an installed
+      Positron, the only proof this machine cannot produce;
+- [ ] refresh the README's Connexions screenshot, which predates the rename.
+
 ## Tauri vs client MCP - the decision, not the build
 
 **Criteria**, in the order they matter to this product: (1) first launch without a

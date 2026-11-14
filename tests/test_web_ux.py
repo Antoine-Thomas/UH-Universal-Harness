@@ -14,19 +14,31 @@ APP_JS = (ROOT / "uh" / "web" / "static" / "app.js").read_text(encoding="utf-8")
 
 
 def test_each_remote_server_has_its_own_test_button() -> None:
-    start = APP_JS.index("function httpServerRow(")
-    body = APP_JS[start : start + 3000]
+    start = APP_JS.index("function mcpServerRow(")
+    body = APP_JS[start : start + 2600]
     assert '"Tester la connexion"' in body
     assert "api(`/api/mcp/${encodeURIComponent(server.name)}/test`" in body
     assert "duration_ms" in body, "the answer must show how long it took"
 
 
-def test_a_save_tests_in_the_same_gesture() -> None:
-    start = APP_JS.index("async function loadConnections(")
-    form = APP_JS[start - 8000 : start]
-    assert '"Enregistrer et tester"' in form
-    assert "result.connection" in form
-    assert "loadConnections()" in form, "the list is redrawn from the server's answer"
+def test_a_server_is_tested_before_it_is_saved() -> None:
+    start = APP_JS.index("function mcpConnectModal(")
+    end = APP_JS.index("async function loadConnections(")
+    popup = APP_JS[start:end]
+    # "Enregistrer" starts disabled and only the probe re-enables it.
+    assert "save.disabled = true;" in popup
+    assert 'api("/api/mcp/probe"' in popup, "the popup tests the candidate first"
+    assert "save.disabled = false;" in popup
+    # Any edit after a successful test invalidates it again.
+    assert "const invalidate = () => {" in popup
+    assert "save.disabled = true;\n  };" in popup
+    # The save goes through the two existing routes, never through a new one.
+    assert 'api("/api/mcp/custom"' in popup
+    assert 'api("/api/mcp/http"' in popup
+    # And the popup is reachable from both tabs.
+    assert APP_JS.count("mcpConnectModal()") >= 2
+    assert 'api("/api/mcp/import"' in popup
+    assert ".json,.yaml,.yml" in popup
 
 
 def test_the_states_are_spelled_for_a_person() -> None:

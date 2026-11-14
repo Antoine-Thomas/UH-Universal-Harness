@@ -92,6 +92,45 @@ Then start it again with the Desktop shortcut (or `uh web`).
 - **`WinError 32` comes back**: something outside UH holds the file (an IDE, an
   antivirus scan, a terminal with the exe open). Close it, or reboot and reinstall
   in the same session.
+- **`Ignoring incompletely removed distribution ~h_harness-…`**: an older install
+  was interrupted and pip ignores that folder. Delete the `~h_harness-*` directory
+  from `site-packages` before reinstalling, or the version you read is not the
+  version you run.
+
+### The UI is older than the code you read about
+
+`pip install uh-harness` gives the **latest published release**, not `main`. The
+`Connexions` and `IA locale` tabs landed after 1.6.1, so a machine still on 1.6.1
+shows the previous tab strip (`Clés API · Fournisseurs · Modèles …`) even after a
+clean reinstall - and no setting in the UI changes that. Two ways out:
+
+```bash
+# a) run main, which is what the screenshots and docs describe
+python -m pip install --force-reinstall --no-cache-dir \
+  "git+https://github.com/Antoine-Thomas/UH-Universal-Harness.git@main"
+
+# b) stay on the release, and read CHANGELOG.md for what is not in it yet
+python -m pip install --force-reinstall --no-cache-dir uh-harness
+```
+
+The shortcut launches `…\Scripts\uh.exe`, so **the interpreter is the install**:
+`where uh` and `python -c "import uh; print(uh.__file__)"` tell you which one your
+shortcut really starts. A second Python with an older wheel can hold the port while
+the one you upgrade stays idle.
+
+### After entering an API key: what healthy looks like
+
+- `uh doctor` answers without an error;
+- no `HTTP 500` and no traceback in the window or in `~/.uh/uh-web.log` in the
+  thirty seconds that follow the save;
+- the panel shows a **masked hint only** (`sk-…abcd`), never the key - there is no
+  "show the key" button by design;
+- the value lands in `keys.toml` (LLM providers) or `mcp-secrets.toml` (MCP
+  servers), owner-only, and **never** in `config.toml`;
+- `Tester la connexion` answers in a few seconds with OK, `Key refused` (401),
+  `Quota` (429) or `Timeout` - an unhandled 500 is a bug, not a state;
+- if a 500 does happen: open an issue with the `uh doctor` output, the traceback,
+  and **only the masked hint**. Never paste the key.
 
 ### macOS and Linux
 

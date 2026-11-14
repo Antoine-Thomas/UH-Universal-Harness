@@ -1614,6 +1614,85 @@ def create_app(
             "state": "connected" if known else "written-but-unreadable",
         }
 
+    @app.post("/api/mcp/import", dependencies=[Depends(require_token)])
+    async def mcp_import_file(payload: Annotated[dict, Body()]) -> dict:
+        """Read an MCP configuration file (JSON, or the documented YAML subset).
+
+        Nothing is saved: the popup fills its fields with the answer, the user
+        reviews them, tests, then saves. A file that holds several servers comes
+        back as several entries.
+        """
+        from .. import mcp_import
+
+        body = payload or {}
+        try:
+            found = await asyncio.to_thread(
+                mcp_import.parse,
+                str(body.get("text") or ""),
+                str(body.get("filename") or ""),
+            )
+        except mcp_import.MCPImportError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"servers": found}
+
+    @app.post("/api/mcp/probe", dependencies=[Depends(require_token)])
+    async def mcp_probe(payload: Annotated[dict, Body()]) -> dict:
+        """Test a candidate server *before* it is saved. Writes nothing.
+
+        The popup keeps its "Enregistrer" button disabled until this answers
+        ``connected``: a broken entry never lands in ``config.toml``. The whole
+        handshake is capped at five seconds, and the token is used, never stored.
+        """
+        from .. import mcp as uh_mcp
+        from .. import mcp_http as uh_mcp_http
+        from .. import urlguard
+        from ..providers_admin import is_loopback_bind
+
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403,
+                detail="testing a server is only allowed when uh web listens on loopback",
+            )
+        body = payload or {}
+        name = str(body.get("name") or "candidat").strip() or "candidat"
+        transport = str(body.get("transport") or "http").strip().lower()
+        timeout = 5.0
+        if transport in {"http", "sse"}:
+            try:
+                checked = urlguard.check(
+                    str(body.get("url") or ""),
+                    allow_insecure=bool(body.get("allow_insecure")),
+                )
+            except urlguard.URLRejected as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            server = uh_mcp_http.HTTPServer(
+                name=name,
+                url=checked.url,
+                transport=transport,
+                token=str(body.get("token") or ""),
+                timeout=timeout,
+                insecure=checked.insecure,
+            )
+            return await asyncio.to_thread(uh_mcp_http.probe, server)
+
+        command = str(body.get("command") or "").strip()
+        if not command:
+            raise HTTPException(status_code=400, detail="command is required for a stdio server")
+        raw_args = body.get("args") or []
+        if isinstance(raw_args, str):
+            raw_args = raw_args.splitlines()
+        env = body.get("env") or {}
+        if not isinstance(env, dict):
+            raise HTTPException(status_code=400, detail="env must be an object of KEY=value")
+        candidate = uh_mcp.ServerConfig(
+            name=name,
+            command=command,
+            args=tuple(str(item).strip() for item in raw_args if str(item).strip()),
+            env={str(key): str(value) for key, value in env.items() if str(key).strip()},
+            timeout=timeout,
+        )
+        return await asyncio.to_thread(uh_mcp.probe_server, candidate, timeout=timeout)
+
     @app.post("/api/mcp/{name}/test", dependencies=[Depends(require_token)])
     async def mcp_test(name: str) -> dict:
         """Ask one configured MCP server a question *now*.

@@ -34,8 +34,22 @@ away, in the `Clé API` tab.
 | --- | --- | --- |
 | `Clé API` | LLM credentials (OpenRouter, DeepSeek, Hugging Face…) | not a storage account |
 | `IA locale` | how to run a model on this machine | not a credential store |
-| `Connexions` | cloud **storage** (S3, Google Drive: sort, sync, back up folders), MCP servers, IDEs | not an LLM key |
+| `Connexions` | cloud **storage** (S3, Google Drive: sort, sync, back up folders) and **MCP servers** (a tool UH may call, an IDE, a hosted service) | not an LLM key |
 
 The three first tabs are the ones visible without scrolling; everything else comes
 after. A deep link reaches any of them: `/?panel=keys`, `/?panel=local`,
 `/?panel=conn`.
+
+## 4. A server is tested before it is saved
+
+![MCP popup](assets/mcp-connect-popup.png)
+
+`+ Connecter un MCP` (in `Connexions`, and again in `Données` where people look
+for it) opens one popup for all three transports. It imports a `.json` or a
+**documented YAML subset** (maps, scalar lists, quoted strings - anchors and
+multi-line blocks are refused with the line number rather than half-read), fills
+the fields, and **tests before saving**: `Enregistrer` starts disabled and only a
+`connected` probe re-enables it, with the tool count and the duration shown.
+Editing any field after the test disables it again - the tested configuration is
+the one that gets written. The probe is capped at five seconds, writes nothing, and
+the token it uses goes to `mcp-secrets.toml` only when the user saves.

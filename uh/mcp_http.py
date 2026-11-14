@@ -515,15 +515,20 @@ class HTTPClient:
         self._post(message)
 
     # -- lifecycle --------------------------------------------------------- #
-    def start(self) -> "HTTPClient":
-        """Handshake, then the tool list. Raises :class:`MCPError`."""
+    def start(self, *, limit: float | None = None) -> "HTTPClient":
+        """Handshake, then the tool list. Raises :class:`MCPError`.
+
+        ``limit`` caps the whole handshake (the popup promises five seconds);
+        without it the configured timeout applies, floored by START_TIMEOUT.
+        """
+        budget = limit if limit is not None else max(self.server.timeout, START_TIMEOUT)
         self.state = "connecting"
         self._closed = False
         try:
             if self.transport == "sse":
-                self._open_stream(timeout=max(self.server.timeout, START_TIMEOUT))
+                self._open_stream(timeout=budget)
                 # Wait for the endpoint event: without it there is nowhere to POST.
-                deadline = time.monotonic() + max(self.server.timeout, START_TIMEOUT)
+                deadline = time.monotonic() + budget
                 while self.endpoint == self.server.url and time.monotonic() < deadline:
                     time.sleep(0.05)
                     if self.state == "disconnected":
@@ -535,7 +540,7 @@ class HTTPClient:
                     "capabilities": {},
                     "clientInfo": {"name": "uh", "version": _version()},
                 },
-                timeout=max(self.server.timeout, START_TIMEOUT),
+                timeout=budget,
             )
         except MCPError:
             self.state = "configured"
@@ -1054,6 +1059,59 @@ def test_connection(name: str, *, config: Optional[Config] = None) -> Dict[str, 
             client.close()
 
 
+def probe(server: HTTPServer, *, timeout: float = 5.0) -> Dict[str, Any]:
+    """Handshake against a candidate HTTP/SSE entry, writing nothing.
+
+    The popup tests before it saves, so nothing here registers a client, keeps a
+    session or touches ``config.toml``. The five-second cap is the promise of the
+    button; a server that needs longer says so instead of freezing the dialog.
+    """
+    candidate = HTTPServer(
+        name=server.name,
+        url=server.url,
+        transport=server.transport,
+        token=server.token,
+        timeout=timeout,
+        allow=server.allow,
+        insecure=server.insecure,
+    )
+    started = time.monotonic()
+    client = HTTPClient(candidate)
+    try:
+        client.start(limit=timeout)
+        elapsed = int((time.monotonic() - started) * 1000)
+        return {
+            **client.status(),
+            "state": "connected",
+            "label": LABELS["connected"],
+            "duration_ms": elapsed,
+            "reason": "",
+            "advice": "",
+            "warning": (
+                "HTTP non chiffré : le jeton circule en clair sur le réseau."
+                if server.insecure
+                else ""
+            ),
+        }
+    except MCPError as exc:
+        elapsed = int((time.monotonic() - started) * 1000)
+        kind = KIND_TO_STATE.get(exc.kind) or _kind_of(str(exc))
+        return {
+            "name": server.name,
+            "transport": client.transport,
+            "url": server.url,
+            "connected": False,
+            "state": kind,
+            "label": LABELS.get(kind, kind),
+            "tools": [],
+            "duration_ms": elapsed,
+            "reason": redact(str(exc)),
+            "advice": explain(kind, ""),
+        }
+    finally:
+        client.close()
+
+
 __all__ = [
     "ADVICE",
     "APPROVAL_TIMEOUT",
@@ -1066,6 +1124,7 @@ __all__ = [
     "Toolset",
     "build_toolsets",
     "client_for",
+    "probe",
     "compute_backoff",
     "ensure_watchdog",
     "explain",

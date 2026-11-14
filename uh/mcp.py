@@ -351,7 +351,12 @@ class Client:
     def alive(self) -> bool:
         return not self._dead and self._process is not None and self._process.poll() is None
 
-    def start(self) -> "Client":
+    def start(self, *, limit: float | None = None) -> "Client":
+        """Start the process and handshake. ``limit`` caps the initialize wait.
+
+        A probe from the cockpit promises an answer in five seconds; the default
+        (START_TIMEOUT) stays generous for a cold ``npx`` on a first run.
+        """
         if self.alive:
             return self
         argv = [self._resolve_command(), *self.config.args]
@@ -392,7 +397,7 @@ class Client:
                 "capabilities": {},
                 "clientInfo": {"name": "uh", "version": _version()},
             },
-            timeout=max(self.config.timeout, START_TIMEOUT),
+            timeout=limit if limit is not None else max(self.config.timeout, START_TIMEOUT),
         )
         self.protocol_version = str(result.get("protocolVersion") or PROTOCOL_VERSION)
         info = result.get("serverInfo")
@@ -825,5 +830,75 @@ def test_server(name: str, config: Optional[Config] = None) -> Dict[str, Any]:
     try:
         client.start()
         return {**client.status(), "state": "connected"}
+    finally:
+        client.close()
+
+
+#: The five states the cockpit shows for a candidate entry, in the vocabulary the
+#: HTTP transport already uses (one table, so a probe and a saved server agree).
+PROBE_LABELS = {
+    "connected": "connecté",
+    "auth": "jeton refusé",
+    "unreachable": "injoignable",
+    "incompatible": "protocole incompatible",
+    "timeout": "délai dépassé",
+    "invalid": "configuration refusée",
+}
+
+_PROBE_STATES = {
+    "auth": "auth",
+    "timeout": "timeout",
+    "configuration": "invalid",
+    "protocol": "incompatible",
+    "server": "incompatible",
+    "transport": "unreachable",
+    "unavailable": "unreachable",
+}
+
+
+def probe_server(config: ServerConfig, *, timeout: float = 5.0) -> Dict[str, Any]:
+    """Handshake against a candidate stdio entry, writing nothing.
+
+    The cockpit's "+ Connecter un MCP" popup tests before it saves: this spawns
+    the command with the caller's own config (same rules as ``config.toml``),
+    keeps the whole exchange under ``timeout`` seconds, and never touches the
+    registry or the disk.
+    """
+    started = time.monotonic()
+    client = Client(config)
+    try:
+        client.start(limit=timeout)
+        elapsed = int((time.monotonic() - started) * 1000)
+        return {
+            **client.status(),
+            "state": "connected",
+            "label": PROBE_LABELS["connected"],
+            "duration_ms": elapsed,
+            "reason": "",
+            "advice": "",
+        }
+    except MCPError as exc:
+        elapsed = int((time.monotonic() - started) * 1000)
+        state = _PROBE_STATES.get(exc.kind, "unreachable")
+        if state == "timeout":
+            advice = (
+                f"Pas de réponse en {timeout:.0f} s. Un npx qui télécharge son paquet "
+                "au premier lancement peut dépasser ce délai : relance le test."
+            )
+        elif state == "invalid":
+            advice = "Vérifie la commande (npx, uvx, un .exe) et qu'elle est dans le PATH."
+        else:
+            advice = "Le programme a démarré mais n'a pas répondu comme un serveur MCP."
+        return {
+            "name": config.name,
+            "command": config.command,
+            "connected": False,
+            "state": state,
+            "label": PROBE_LABELS.get(state, state),
+            "tools": [],
+            "duration_ms": elapsed,
+            "reason": redact(str(exc)),
+            "advice": advice,
+        }
     finally:
         client.close()

@@ -17,6 +17,15 @@ Conventions worth knowing:
 
 ### Added
 
+- **`+ Connecter un MCP`** (in `Connexions` and in `Données`): one popup for
+  `stdio`, `http` and `sse`, with a `.json` / YAML-subset import, a five-second
+  probe (`POST /api/mcp/probe`, writes nothing) and an `Enregistrer` button that
+  stays disabled until the probe answers `connected`. Editing a field after the
+  test disables it again.
+- `POST /api/mcp/import`: reads a Claude-Desktop-style JSON (`mcpServers`), a bare
+  server, or a list, plus the documented YAML subset; refuses what it cannot read
+  with the line number instead of half-parsing it.
+
 - **MCP over HTTP.** `uh/mcp_http.py` speaks Streamable HTTP and the legacy
   HTTP+SSE stream Positron publishes: `initialize`, `tools/list`, `tools/call`,
   `ping`, sessions, per-request timeouts and the same failure kinds as the stdio
