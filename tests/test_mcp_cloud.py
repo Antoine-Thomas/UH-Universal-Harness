@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import tomllib
 
 from uh import mcp, mcp_cloud
+from uh._compat import tomllib  # 3.10 has no tomllib in the stdlib
 
 
 def test_the_catalogue_names_the_packages_it_installs() -> None:
