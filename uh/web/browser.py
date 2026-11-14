@@ -144,7 +144,13 @@ def centered_position(width: int = 1280, height: int = 880) -> Optional[str]:
     try:
         import ctypes
 
-        user32 = ctypes.windll.user32
+        # `ctypes.windll` only exists on Windows, and mypy resolves the module for
+        # the platform it runs on: `getattr` keeps the Linux gate green while doing
+        # exactly the same call here.
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:  # pragma: no cover - the platform check above guards it
+            return None
+        user32 = windll.user32
         screen_w = int(user32.GetSystemMetrics(0))
         screen_h = int(user32.GetSystemMetrics(1))
         if screen_w <= 0 or screen_h <= 0:
