@@ -7,5 +7,5 @@ configuration, the console with zero-config onboarding, and the local web UI
 with its API-key panel.
 """
 
-__version__ = "1.5.1"
+__version__ = "1.6.0"
 __all__ = ["__version__"]

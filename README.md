@@ -117,7 +117,16 @@ Notes that save an hour:
   page is stamped (`?v=…`) and compares itself with `/api/status`, and a busy port
   moves the new server to the next one instead of dying with `exit code 3`.
 
-## What 1.4.0 contains
+## What UH contains
+
+- **No Ollama required.** A cloud key (DeepSeek, OpenRouter, …) or **Hugging Face**
+  (a local TGI server, or a token for the router) is enough - see
+  [Hugging Face](#hugging-face-local-models-without-ollama).
+- **It can propose a patch on its own code**, prove that the patch applies, and
+  apply it on an isolated branch - never commit, never push
+  ([Repairing itself](#repairing-itself-with-a-brake)).
+- **Cloud storage in two clicks**: AWS S3 (write) or Google Drive (read) from the
+  Data panel, secrets kept out of `config.toml`.
 
 - **A cockpit, not a chat box.** `uh web` is a three-column window with dockable
   consoles — API keys, providers, models, second brain, memory graph, decision

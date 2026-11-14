@@ -13,6 +13,42 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.6.0] — 2026-11-14
+
+Three pillars, one release: a provider that needs no Ollama, a harness that can
+propose a patch on its own code, and a cloud connection a non-developer can set up.
+
+### Added
+
+- **Hugging Face, first-class.** `uh/providers/huggingface.py` speaks
+  `POST /v1/chat/completions` and resolves its base URL in this order:
+  `UH_HUGGINGFACE_BASE_URL`, a **local TGI on `127.0.0.1:8080`** (probed with a
+  socket, no token, no account), then the router `https://router.huggingface.co/v1`.
+  The legacy `api-inference.huggingface.co` per-task API is never used - it has no
+  chat roles, and a chat loop pointed at it fails on the first turn.
+- **`uh fix`: a patch must apply before anyone believes it.** The answer must start
+  with `diff --git`, it must pass `git apply --check`, `--apply` works on a
+  `fix/auto-<stamp>` branch, and a failed `--check` command **reverts** the patch.
+  Nothing is ever committed or pushed by the harness.
+- **"Réparer UH" in the Data panel** with a diff modal: propose, read the diff,
+  apply on a branch or reject. Proven by driving the real window
+  ([screen](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/assets/self-repair.png)).
+- **Cloud connections from the UI** - AWS S3 (`put_object`, 7 tools) and Google
+  Drive (read-only), with the `self-repair` read-only filesystem template. Secrets
+  go to `mcp-secrets.toml` (0600), never to `config.toml`.
+- **First run asks once**: `GET/POST /api/setup` offers Hugging Face, Ollama or a
+  cloud key, and the screen appears only when nothing can answer a turn.
+
+### Fixed
+
+- The Data panel threw `data is not defined` whenever `/api/tools/status`
+  succeeded: the MCP block read `data.mcp` outside the `try` that declared it, so
+  the whole panel (MCP, Cloud, Réparer UH) was replaced by an error line.
+- `uh fix` could not reach a configured provider (`build_provider("")`), and the
+  file list came out as `/__init__.py` instead of `uh/__init__.py`.
+- A diff written from Python was translated to CRLF on Windows, and a patch whose
+  lines end in `\r` does not apply: `newline="\n"` on every patch file.
+
 ## [1.5.1] — 2026-11-14
 
 ### Added
