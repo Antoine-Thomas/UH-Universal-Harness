@@ -13,6 +13,45 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [Unreleased]
+
+### Added
+
+- **MCP over HTTP.** `uh/mcp_http.py` speaks Streamable HTTP and the legacy
+  HTTP+SSE stream Positron publishes: `initialize`, `tools/list`, `tools/call`,
+  `ping`, sessions, per-request timeouts and the same failure kinds as the stdio
+  client. A configured entry is tested from "Connexions" - and by the save
+  itself: `connecté · 3 outil(s) · 187 ms`, `jeton refusé`, `injoignable` or
+  `protocole incompatible`, each with the sentence that says what to change.
+  A dropped stream is detected and retried with a 1-2-4…60 s backoff.
+- **Per-call approval for remote tools.** No approver, no tools: every
+  `tools/call` on an HTTP/SSE server asks first (an `approval` frame in the turn's
+  stream, Autoriser / Refuser in the cockpit); an unanswered ticket is a refusal.
+  A console turn exposes no remote tools for the same reason.
+- `uh web --allow-remote` is the only way to bind beyond loopback; `--host` alone
+  is refused.
+- `UH_DEV_RELOAD=1` restarts the worker on a Python change, so a route added after
+  the server started no longer answers 404 while working on the UI.
+
+### Security
+
+- A user-typed MCP URL goes through `uh/urlguard.py`: http(s) only, no
+  credentials in the address, no fragment, and plain HTTP to a non-loopback host
+  is refused unless explicitly allowed. Redirects are never followed.
+- `mcp-secrets.toml` is restricted with `icacls` on Windows (`chmod` is a no-op
+  there); a widened file is narrowed again when it is read.
+- The MCP token is masked in every answer (`••••` plus its last four characters)
+  and redacted from error messages, including a server's own stderr.
+- A cookie-authenticated `POST`/`PUT`/`PATCH`/`DELETE` needs a same-origin proof
+  (CSRF / DNS rebinding), and `Sec-Fetch-Site: cross-site` is refused outright.
+
+### Fixed
+
+- A 401 while opening the SSE stream crashed the test with a `NoneType` instead of
+  reporting "jeton refusé".
+- `/api/tools/status` no longer says "nothing configured" next to a configured
+  HTTP server.
+
 ## [1.6.1] — 2026-11-14
 
 ### Fixed

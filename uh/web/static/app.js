@@ -132,6 +132,62 @@ function toolCard(name, args, result) {
   return card;
 }
 
+// A remote MCP tool never runs on its own: the turn pauses here until a person
+// answers. No answer inside `timeout` is a refusal, so a closed window cannot
+// turn into a silent execution.
+function approvalCard(data) {
+  const card = el("div", "tool-card approval-card");
+  card.setAttribute("role", "group");
+  card.setAttribute("aria-label", `Autorisation demandée pour ${data.tool}`);
+  const head = el("p", null, "");
+  head.appendChild(el("strong", null, "Autorisation demandée. "));
+  head.appendChild(
+    document.createTextNode(
+      `Le modèle veut appeler « ${data.tool} » sur le serveur distant « ${data.server} ». Rien n'a encore été exécuté.`
+    )
+  );
+  card.appendChild(head);
+  const payload = el("pre", null, JSON.stringify(data.arguments || {}, null, 2));
+  card.appendChild(payload);
+
+  const actions = el("div", "tool-actions");
+  const allow = el("button", "data-button primary", "Autoriser");
+  const deny = el("button", "data-button", "Refuser");
+  allow.type = "button";
+  deny.type = "button";
+  actions.appendChild(allow);
+  actions.appendChild(deny);
+  card.appendChild(actions);
+  $("messages").appendChild(card);
+  $("messages").scrollTop = $("messages").scrollHeight;
+
+  const answer = async (granted) => {
+    allow.disabled = true;
+    deny.disabled = true;
+    try {
+      await api(`/api/mcp/approvals/${encodeURIComponent(data.id)}`, {
+        method: "POST",
+        body: JSON.stringify({ allow: granted }),
+      });
+      actions.textContent = granted ? "Autorisé." : "Refusé : rien n'a été exécuté.";
+    } catch (error) {
+      actions.textContent = `Cette demande n'est plus valable (${error.message}).`;
+    }
+  };
+  allow.addEventListener("click", () => answer(true));
+  deny.addEventListener("click", () => answer(false));
+  if (data.timeout) {
+    setTimeout(() => {
+      if (!allow.disabled) {
+        allow.disabled = true;
+        deny.disabled = true;
+        actions.textContent = "Délai dépassé : la demande a expiré, rien n'a été exécuté.";
+      }
+    }, Number(data.timeout) * 1000);
+  }
+  return card;
+}
+
 function fillToolCard(card, content) {
   card.querySelector("pre").textContent = content;
   const label = card.querySelector(".state");
@@ -792,6 +848,8 @@ async function sendMessage(text) {
           } else {
             toolCard(data.name, null, data.content);
           }
+        } else if (event === "approval") {
+          approvalCard(data);
         } else if (event === "error") {
           failed = data.message || "error";
           const bubble = appendMessage("assistant", `Erreur du modèle : ${failed}`);
@@ -2355,7 +2413,7 @@ function isNarrow() {
 // --------------------------------------------------------------------------- //
 const HELP_ACTIONS = [
   ["Connecter un stockage cloud (S3, Google Drive)", "conn", "Connecter un Cloud"],
-  ["Ajouter un serveur MCP (stdio)", "conn", "Serveur MCP personnalisé"],
+  ["Ajouter un serveur MCP (programme local)", "conn", "Serveur MCP personnalisé"],
   ["Connecter un IDE ou un outil HTTP (Positron, VS Code…)", "conn", "IDE & outils externes"],
   ["Lancer une passe de rêve", "decision", "☾ Rêves, dans la barre du haut"],
   ["Réparer UH (l'IA propose un correctif)", "data", "Réparer UH"],
@@ -4016,7 +4074,32 @@ async function boot() {
   // like a broken app, and the session the user left is the one they want.
   const newest = document.querySelector("#session-list li[data-id]");
   if (!state.sessionId && newest) await openSession(newest.dataset.id);
+  if (!state.sessionId && !newest) firstRunHint();
   if (location.hash === "#providers") openProviders();
+}
+
+// First launch: an empty chat pane is a wall. One sentence and the link that
+// opens the right tab - never "run this command": a capability that lives in the
+// interface is reached from the interface.
+function firstRunHint() {
+  const bubble = el("div", "msg assistant");
+  const content = el("div", "content md");
+  content.appendChild(
+    document.createTextNode(
+      "Bienvenue dans UH. Pour commencer, connecte ce que tu utilises déjà : "
+    )
+  );
+  const link = document.createElement("a");
+  link.href = "/?panel=conn";
+  link.textContent = "ouvrir Connexions";
+  content.appendChild(link);
+  content.appendChild(
+    document.createTextNode(
+      " — un stockage cloud, un serveur d'outils, un IDE. Tout se règle depuis l'interface, sans commande."
+    )
+  );
+  bubble.appendChild(content);
+  $("messages").appendChild(bubble);
 }
 
 // ------------------------------------------------------------------ splash -- //
@@ -4074,7 +4157,7 @@ function customMcpSection() {
     el(
       "p",
       "data-note",
-      "N'importe quel serveur MCP (stdio) : une commande, ses arguments, ses variables. Les valeurs dont le nom ressemble à un secret (TOKEN, KEY, SECRET…) vont dans mcp-secrets.toml, jamais dans config.toml."
+      "Un serveur MCP lancé comme un programme : une commande, ses arguments, ses variables. Les valeurs dont le nom ressemble à un secret (TOKEN, KEY, SECRET…) vont dans mcp-secrets.toml, jamais dans config.toml."
     )
   );
 
@@ -4147,6 +4230,94 @@ function customMcpSection() {
 // --------------------------------------------------------------------------- //
 // IDE and external tools: an HTTP/SSE MCP server (Positron, a hosted tool server)
 // --------------------------------------------------------------------------- //
+// The states are the transport's (uh/mcp_http.py), spelled for a person: what
+// happened, and what to do about it. A code alone ("HTTP 401") is a dead end.
+const HTTP_STATE_TEXT = {
+  connected: "connecté",
+  configured: "configuré",
+  connecting: "connexion en cours",
+  auth: "jeton refusé",
+  unreachable: "injoignable",
+  incompatible: "protocole incompatible",
+  timeout: "délai dépassé",
+  disconnected: "coupure détectée",
+  reconnecting: "reconnexion en cours",
+  invalid: "adresse refusée",
+};
+
+function httpStateDot(state) {
+  if (state === "connected") return "dot-ok";
+  if (state === "configured" || state === "connecting" || state === "reconnecting") {
+    return "dot-off";
+  }
+  return "dot-warn";
+}
+
+function httpStateLine(server) {
+  if (server.state === "connected") {
+    const count = (server.tools || []).length;
+    const when = server.duration_ms !== undefined ? ` · ${server.duration_ms} ms` : "";
+    return `connecté · ${count} outil(s)${when}`;
+  }
+  const label = HTTP_STATE_TEXT[server.state] || server.state || "configuré";
+  return server.reason ? `${label} — ${server.reason}` : label;
+}
+
+// One remote server: its state, its tools, and the button that asks it *now*.
+function httpServerRow(server) {
+  const row = el("div", "tool-row");
+  const dot = el("span", `dot ${httpStateDot(server.state)}`);
+  dot.setAttribute("aria-hidden", "true");
+  row.appendChild(dot);
+  row.appendChild(el("span", "tool-name", `http · ${server.name}`));
+
+  const tokenHint = server.has_token ? ` · jeton ${server.token}` : "";
+  row.appendChild(el("span", "tool-detail", `${server.url}${tokenHint}`));
+
+  const state = el("span", "tool-detail", httpStateLine(server));
+  row.appendChild(state);
+
+  if (server.insecure) {
+    row.appendChild(
+      el("span", "panel-hint", "HTTP non chiffré : le jeton circule en clair. Préfère https://.")
+    );
+  }
+
+  const test = el("button", "data-button", "Tester la connexion");
+  test.type = "button";
+  test.setAttribute("aria-label", `Tester la connexion à ${server.name}`);
+  test.addEventListener("click", async () => {
+    test.disabled = true;
+    const previous = state.textContent;
+    state.textContent = "connexion en cours…";
+    try {
+      const result = await api(`/api/mcp/${encodeURIComponent(server.name)}/test`, {
+        method: "POST",
+      });
+      const count = (result.tools || []).length;
+      if (result.state === "connected") {
+        state.textContent = `connecté · ${count} outil(s) · ${result.duration_ms} ms`;
+        dot.className = "dot dot-ok";
+        if (result.warning) state.textContent += ` — ${result.warning}`;
+      } else {
+        // The advice is the point: it says what to change, not just what failed.
+        state.textContent = `${HTTP_STATE_TEXT[result.state] || result.state} — ${
+          result.advice || result.reason || ""
+        }`;
+        dot.className = `dot ${httpStateDot(result.state)}`;
+      }
+    } catch (error) {
+      state.textContent = `échec du test : ${error.message}`;
+      dot.className = "dot dot-warn";
+      if (!state.textContent) state.textContent = previous;
+    } finally {
+      test.disabled = false;
+    }
+  });
+  row.appendChild(test);
+  return row;
+}
+
 function httpServerSection(pending, note) {
   const box = el("div", "tool-cloud");
   box.appendChild(el("div", "tool-name", "IDE & outils externes (HTTP/SSE)"));
@@ -4155,20 +4326,18 @@ function httpServerSection(pending, note) {
       "p",
       "data-note",
       note ||
-        "UH parle stdio aujourd'hui : un serveur HTTP est enregistré et affiché, mais pas démarré. Le transport HTTP/SSE arrive en P14.1."
+        "Un serveur MCP qui s'adresse par une URL : Positron, un IDE, un outil hébergé. UH lui parle directement, et demande ton accord avant chaque appel d'outil."
     )
   );
 
-  (pending || []).forEach((server) => {
-    const row = el("div", "tool-row");
-    row.appendChild(el("span", "dot dot-warn"));
-    row.appendChild(el("span", "tool-name", `http · ${server.name}`));
-    const tokenHint = server.has_token ? ` · jeton ${server.token}` : "";
-    row.appendChild(
-      el("span", "tool-detail", `${server.url}${tokenHint} — configuré, non démarré`)
+  const list = el("div", "tool-rows");
+  if (!(pending || []).length) {
+    list.appendChild(
+      el("p", "data-note", "Aucun serveur externe pour l'instant. Ajoute son adresse ci-dessous.")
     );
-    box.appendChild(row);
-  });
+  }
+  (pending || []).forEach((server) => list.appendChild(httpServerRow(server)));
+  box.appendChild(list);
 
   const field = (label, placeholder, type = "text") => {
     const wrap = el("label", "cloud-field");
@@ -4183,24 +4352,35 @@ function httpServerSection(pending, note) {
   };
 
   const name = field("Nom", "positron");
-  const url = field("URL du serveur MCP", "http://127.0.0.1:8787", "url");
-  const token = field("Jeton (optionnel)", "jamais réaffiché", "password");
+  const url = field("Adresse du serveur MCP", "http://127.0.0.1:8787/mcp", "url");
+  const token = field("Jeton (optionnel, jamais réaffiché)", "••••", "password");
   [name, url, token].forEach((item) => box.appendChild(item.wrap));
+
+  const insecureWrap = el("label", "cloud-field");
+  const insecure = document.createElement("input");
+  insecure.type = "checkbox";
+  insecure.id = "http-allow-insecure";
+  insecureWrap.appendChild(insecure);
+  insecureWrap.appendChild(
+    el("span", "cloud-label", "Autoriser le HTTP non chiffré vers une autre machine")
+  );
+  box.appendChild(insecureWrap);
 
   box.appendChild(
     el(
       "p",
       "data-note",
-      "Positron : active « ai.mcp.enabled » dans les réglages, puis « Positron MCP: Add to Coding Agent » — la fenêtre affiche l'URL et le jeton à recopier ici."
+      "Positron : active « ai.mcp.enabled » dans les réglages, puis « Positron MCP: Add to Coding Agent » — la fenêtre affiche l'adresse et le jeton à recopier ici."
     )
   );
 
   const status = el("p", "data-note", "");
-  const button = el("button", "data-button", "Enregistrer ce serveur HTTP");
+  const button = el("button", "data-button", "Enregistrer et tester");
   button.type = "button";
   button.addEventListener("click", async () => {
     button.disabled = true;
     button.textContent = "enregistrement…";
+    status.textContent = "";
     try {
       const result = await api("/api/mcp/http", {
         method: "POST",
@@ -4208,18 +4388,30 @@ function httpServerSection(pending, note) {
           name: name.input.value.trim(),
           url: url.input.value.trim(),
           token: token.input.value.trim(),
+          allow_insecure: insecure.checked,
         }),
       });
-      status.textContent = `Enregistré : ${result.name} → ${result.url} (configuré, non démarré).`;
-      name.input.value = "";
-      url.input.value = "";
-      token.input.value = "";
-      loadConnections().catch(() => {});
+      const connection = result.connection || {};
+      if (result.state === "connected") {
+        const count = (connection.tools || []).length;
+        status.textContent = `Connecté : ${result.name} — ${count} outil(s) en ${connection.duration_ms} ms.`;
+        name.input.value = "";
+        url.input.value = "";
+        token.input.value = "";
+        insecure.checked = false;
+        await loadConnections();
+      } else {
+        // Saved, but not connected: say what the server answered and what to do.
+        status.textContent = `Enregistré, mais pas encore connecté : ${
+          HTTP_STATE_TEXT[result.state] || result.state
+        }. ${connection.advice || connection.reason || ""}`;
+        await loadConnections().catch(() => {});
+      }
     } catch (error) {
       status.textContent = `Refusé : ${error.message}`;
     } finally {
       button.disabled = false;
-      button.textContent = "Enregistrer ce serveur HTTP";
+      button.textContent = "Enregistrer et tester";
     }
   });
   box.appendChild(button);
@@ -4247,6 +4439,7 @@ async function loadConnections() {
   view.appendChild(httpServerSection(pending, note));
   view.appendChild(customMcpSection());
 }
+
 
 
 // --------------------------------------------------------------------------- //

@@ -932,6 +932,13 @@ body {
   align-items: center; font-size: 11px;
 }
 .tool-detail { grid-column: 2 / 3; font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+.tool-row .panel-hint, .tool-row .data-button { grid-column: 2 / 3; justify-self: start; }
+.tool-rows { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
+/* The approval card pauses a turn: it is a question, not a tool log. */
+.approval-card { padding: 10px 12px; }
+.approval-card p { margin: 0 0 6px; }
+.approval-card pre { border-top: 1px solid var(--border); }
+.tool-actions { display: flex; gap: 8px; margin-top: 8px; }
 .tool-test { display: flex; flex-wrap: wrap; gap: 6px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot-ok { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
