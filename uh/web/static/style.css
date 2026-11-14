@@ -1137,3 +1137,15 @@ body {
   #pane-detach, #pane-reset { display: none; }
   .pane-window { display: none; }
 }
+
+/* --- cloud connections ---------------------------------------------------- */
+.tool-cloud { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-top: 10px; }
+.cloud-input {
+  display: block; width: 100%; max-width: 420px; margin: 4px 0 8px;
+  padding: 6px 8px; font-family: inherit; font-size: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text);
+}
+.cloud-fields { margin: 8px 0; }
+.cloud-field { display: block; font-size: 12px; }
+.cloud-label { display: block; color: var(--muted); margin-top: 6px; }

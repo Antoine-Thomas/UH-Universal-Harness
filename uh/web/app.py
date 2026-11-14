@@ -24,9 +24,9 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator, Optional
+from typing import Annotated, Callable, Iterator, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -801,14 +801,34 @@ def create_app(
         return {"archived": stamp, "path": path}
 
     @app.post("/api/dreams/{stamp}/fulfill", dependencies=[Depends(require_token)])
-    async def dream_fulfill(stamp: str) -> dict:
-        """Write a plan of action. Applying it stays a human decision."""
+    async def dream_fulfill(stamp: str, upload: str = "") -> dict:
+        """Write a plan of action, optionally storing it on a connected cloud.
+
+        Applying it stays a human decision; the upload is the operator's choice,
+        taken with the button ("Exaucer et uploader sur AWS S3"). A cloud that
+        refuses is reported next to the plan, never instead of it.
+        """
         from .. import dream_store
 
         path = dream_store.fulfill(stamp)
         if path is None:
             raise HTTPException(status_code=404, detail="unknown dream")
-        return {"stamp": stamp, "plan": path, "applied": False}
+
+        pushed: dict[str, object] = {"requested": bool(upload), "ok": False}
+        if upload:
+            from .. import mcp_cloud
+
+            targets = {item["name"]: item for item in await asyncio.to_thread(mcp_cloud.upload_targets)}
+            target = targets.get(upload)
+            if target is None:
+                pushed["error"] = f"'{upload}' is not a cloud server that can store a file"
+            else:
+                from .. import mcp_cloud as cloud
+
+                pushed = await asyncio.to_thread(
+                    cloud.upload_plan, target["name"], target["tool"], Path(path)
+                )
+        return {"stamp": stamp, "plan": path, "applied": False, "upload": pushed}
 
     @app.post("/api/dreams/daemon/{action}", dependencies=[Depends(require_token)])
     async def dream_daemon_control(action: str) -> dict:
@@ -1241,6 +1261,53 @@ def create_app(
             "mcp": await asyncio.to_thread(mcp.status),
             "terminal": app.state.settings.allow_terminal,
             "workspace": str(app.state.settings.workspace),
+        }
+
+    @app.get("/api/mcp/cloud", dependencies=[Depends(require_token)])
+    async def mcp_cloud_catalog() -> dict:
+        """The templates the UI may offer, and which servers can already store a file."""
+        from .. import mcp_cloud
+
+        return {
+            "templates": mcp_cloud.template_list(),
+            "upload_targets": await asyncio.to_thread(mcp_cloud.upload_targets),
+        }
+
+    @app.post("/api/mcp/cloud", dependencies=[Depends(require_token)])
+    async def mcp_cloud_connect(payload: Annotated[dict, Body()]) -> dict:
+        """Create a `[[mcp.servers]]` entry from a template.
+
+        The token never comes back and never lands in `config.toml`: secrets are
+        written to `mcp-secrets.toml` (0600) and merged into the child's
+        environment at spawn. The file is then re-read to prove the entry parses -
+        a panel that says "connected" on unparsable TOML is a lie.
+        """
+        from .. import mcp, mcp_cloud
+        from ..providers_admin import is_loopback_bind
+
+        body = payload or {}
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403,
+                detail="connecting a cloud server is only allowed when uh web listens on loopback",
+            )
+        try:
+            created = await asyncio.to_thread(
+                mcp_cloud.connect,
+                str(body.get("template") or ""),
+                str(body.get("name") or ""),
+                {str(k): str(v) for k, v in (body.get("fields") or {}).items()},
+            )
+        except mcp_cloud.CloudError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        servers, problems = await asyncio.to_thread(mcp.servers_from_config)
+        known = any(server.name == created["name"] for server in servers)
+        return {
+            **created,
+            "parsed": known,
+            "problems": problems,
+            "state": "connected" if known else "written-but-unreadable",
         }
 
     @app.post("/api/mcp/{name}/test", dependencies=[Depends(require_token)])

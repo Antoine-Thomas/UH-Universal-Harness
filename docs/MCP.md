@@ -136,3 +136,33 @@ that lists its gaps:
 `tests/test_mcp.py` runs a real fake server (`sys.executable`, a real pipe, real
 JSON-RPC) that also hangs, exits mid-call, returns a JSON-RPC error and writes
 11 MB on one line. No network, no installation.
+
+## Cloud connections (no TOML)
+
+The Data panel offers **Connecter un Cloud**. A template names a real npm package,
+the fields a server needs, and - when it can write - the tool that stores a file.
+Each template below was probed with `npx -y <package>` and a real `tools/list`
+before being written down; a template that installs nothing would be worse than no
+template.
+
+| Template | Package | Upload | Fields |
+| --- | --- | --- | --- |
+| AWS S3 | `mcp-server-s3` (7 tools: `list_buckets`, `list_objects`, `get_object`, `put_object`, `delete_object`, `presigned_url`, `bucket_info`) | `put_object` | `AWS_ACCESS_KEY_ID`*, `AWS_SECRET_ACCESS_KEY`*, `AWS_REGION`, `S3_BUCKET` |
+| Google Drive | `@modelcontextprotocol/server-gdrive` | none - this server reads | `GDRIVE_OAUTH_PATH`, `GDRIVE_CREDENTIALS_PATH` |
+
+``*`` = secret.
+
+**Where the values go.** Non-secret fields land in `config.toml` as the entry's
+`env`. Secrets land in `$UH_HOME/mcp-secrets.toml` (mode 0600) and are merged into
+the child's environment at spawn (`uh.mcp.secrets_for`). `config.toml` is the file
+people paste into an issue or copy to another machine; a token does not belong in
+it. The connect endpoint re-reads the config afterwards: `parsed: false` means the
+entry was written but the client refuses it, and the panel says so instead of
+showing a green dot.
+
+**Exaucer + upload.** `POST /api/dreams/{stamp}/fulfill?upload=<server>` writes the
+plan to `dreams/actions/` *and* to `outputs_dir`, then stores it through that
+server's upload tool as `uh/<stamp>.md` in the bucket named by `S3_BUCKET`. A
+refusal (wrong region, missing permission) comes back as
+`{"ok": false, "error": "..."}` next to the plan: the local copy is never lost
+because the cloud said no.

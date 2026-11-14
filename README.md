@@ -88,6 +88,15 @@ uh doctor
   result sizes, and every failure returned as a tool result instead of a crashed
   turn ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)).
   The Data panel shows one row per server and a test button that asks it *now*.
+- **Cloud connections in two clicks** (no TOML). The Data panel offers "Connecter
+  un Cloud": pick **AWS S3** or **Google Drive**, fill the labelled fields, press
+  Connect. UH writes the `[[mcp.servers]]` entry for you, keeps the secrets in
+  `mcp-secrets.toml` (never in `config.toml`), re-reads the file to prove it
+  parses, then shows a green dot once the server has listed its tools. "Exaucer"
+  on a dream offers **Exaucer + AWS S3** when a cloud that can write is connected:
+  the plan lands in `UH Outputs` *and* in the bucket, and a refusal from the cloud
+  is printed next to the plan instead of replacing it
+  ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)).
 - **A night pass that knows the tooling.** `uh dream --now` (or the idle daemon,
   or the 03:00 scheduled task) reads SiYuan, the RAG, the installed **skills**
   and the configured **MCP servers**, then proposes ideas *and* workflows that

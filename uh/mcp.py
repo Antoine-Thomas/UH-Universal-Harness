@@ -204,10 +204,25 @@ def _parse_server(raw: Any, index: int) -> ServerConfig:
         command=command.strip(),
         args=tuple(args),
         cwd=cwd,
-        env=dict(env_raw),
+        env={**dict(env_raw), **secrets_for(name)},
         allow=tuple(allow) if allow is not None else None,
         timeout=float(timeout_raw),
     )
+
+
+def secrets_for(name: str) -> Dict[str, str]:
+    """Environment values kept out of ``config.toml`` (see ``uh.mcp_cloud``).
+
+    A token in ``config.toml`` ends up in a screenshot, a backup or an issue; the
+    same token in ``mcp-secrets.toml`` (0600) does not. A broken secrets file is
+    an empty dict, never a failed start: the server then fails on its own terms.
+    """
+    try:
+        from .mcp_cloud import read_secrets
+
+        return dict(read_secrets().get(name, {}))
+    except Exception:  # noqa: BLE001 - never let a secret file break a spawn
+        return {}
 
 
 def servers_from_config(config: Optional[Config] = None) -> Tuple[List[ServerConfig], List[str]]:

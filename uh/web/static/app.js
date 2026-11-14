@@ -2892,6 +2892,10 @@ async function toolsSection() {
     section.appendChild(bar);
   }
 
+  // Cloud connections: a template, a few fields, one button. The token goes to
+  // mcp-secrets.toml - config.toml is the file people paste into issues.
+  mountCloud(section);
+
   section.appendChild(
     el(
       "p",
@@ -3901,3 +3905,100 @@ boot()
     dismissSplash();
     document.body.textContent = `UH web error: ${error.message}`;
   });
+
+// --------------------------------------------------------------------------- //
+// cloud connections
+// --------------------------------------------------------------------------- //
+async function mountCloud(section) {
+  let catalog = null;
+  try {
+    catalog = await api("/api/mcp/cloud");
+  } catch (error) {
+    return; // an older backend: no catalogue, no section, no error banner
+  }
+  const templates = catalog.templates || [];
+  if (!templates.length) return;
+
+  const box = el("div", "tool-cloud");
+  box.appendChild(el("div", "tool-name", "Connecter un Cloud"));
+  box.appendChild(
+    el(
+      "p",
+      "data-note",
+      "Le serveur tourne chez toi (npx) et parle à ton compte. Les clés vont dans mcp-secrets.toml, jamais dans config.toml."
+    )
+  );
+
+  const select = el("select", "model-select");
+  select.id = "cloud-template";
+  templates.forEach((template) => {
+    const option = el("option", null, template.label);
+    option.value = template.id;
+    select.appendChild(option);
+  });
+  box.appendChild(select);
+
+  const name = el("input", "cloud-input");
+  name.placeholder = "nom du serveur (ex: s3-docs)";
+  name.value = "cloud";
+  box.appendChild(name);
+
+  const fields = el("div", "cloud-fields");
+  const inputs = new Map();
+  const draw = () => {
+    fields.textContent = "";
+    inputs.clear();
+    const template = templates.find((item) => item.id === select.value) || templates[0];
+    (template.fields || []).forEach((field) => {
+      const row = el("label", "cloud-field");
+      row.appendChild(el("span", "cloud-label", field.label + (field.required ? "" : " (optionnel)")));
+      const input = el("input", "cloud-input");
+      input.type = field.secret ? "password" : "text";
+      input.placeholder = field.placeholder || "";
+      input.autocomplete = "off";
+      if (field.help) input.title = field.help;
+      inputs.set(field.key, input);
+      row.appendChild(input);
+      fields.appendChild(row);
+    });
+    if (template.upload_note) {
+      fields.appendChild(el("p", "data-note", template.upload_note));
+    }
+  };
+  select.addEventListener("change", draw);
+  draw();
+  box.appendChild(fields);
+
+  const status = el("p", "data-note", "");
+  const button = el("button", "data-button", "Connecter");
+  button.type = "button";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "connexion…";
+    const payload = { template: select.value, name: name.value, fields: {} };
+    inputs.forEach((input, key) => {
+      if (input.value.trim()) payload.fields[key] = input.value.trim();
+    });
+    try {
+      const result = await api("/api/mcp/cloud", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      status.textContent = result.parsed
+        ? `Connecté : ${result.name} (${result.label}). Clique « Tester ${result.name} » ci-dessus.`
+        : `Écrit, mais illisible par UH : ${(result.problems || []).join(" ; ")}`;
+      inputs.forEach((input) => {
+        if (input.type === "password") input.value = "";
+      });
+      if (typeof loadData === "function") setTimeout(loadData, 1500);
+    } catch (error) {
+      status.textContent = `Refusé : ${error.message}`;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Connecter";
+    }
+  });
+  box.appendChild(button);
+  box.appendChild(status);
+  section.appendChild(box);
+}

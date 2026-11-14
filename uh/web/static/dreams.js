@@ -1,3 +1,5 @@
+// Servers that can store a file (upload targets), refreshed with the panel.
+let cloudTargets = [];
 // --------------------------------------------------------------------------- //
 // Dreams - read what the daemon produced, then decide.
 //
@@ -120,6 +122,14 @@ async function loadDreams() {
     list.textContent = "Impossible de lire les rêves : " + err.message;
     return;
   }
+  // Which clouds can store a plan. An older backend has no route: no button, no
+  // error banner - the local "Exaucer" still works.
+  try {
+    const catalog = await dreamsApi("/api/mcp/cloud");
+    cloudTargets = catalog.upload_targets || [];
+  } catch (err) {
+    cloudTargets = [];
+  }
 
   const daemon = data.daemon || {};
   const running = DREAM_IDLE_STATES.includes(daemon.state);
@@ -155,6 +165,12 @@ async function loadDreams() {
         <button class="danger" data-act="delete">Effacer</button>
         <button class="ghost" data-act="archive">Stocker</button>
         <button class="primary" data-act="fulfill">Exaucer</button>
+        ${cloudTargets
+          .map(
+            (target) =>
+              `<button class="primary" data-act="fulfill-cloud" data-server="${target.name}">Exaucer + ${target.label || target.name}</button>`
+          )
+          .join("")}
       </div>`;
     row.querySelectorAll("button[data-act]").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -169,6 +185,17 @@ async function loadDreams() {
             });
             panel.querySelector("#dreams-detail").textContent =
               `Plan écrit (rien n'est appliqué) : ${answer.plan}`;
+          } else if (act === "fulfill-cloud") {
+            // The plan is written first; the upload either works or says why.
+            const server = button.dataset.server;
+            const answer = await dreamsApi(
+              `/api/dreams/${dream.stamp}/fulfill?upload=${encodeURIComponent(server)}`,
+              { method: "POST" }
+            );
+            const pushed = answer.upload || {};
+            panel.querySelector("#dreams-detail").textContent = pushed.ok
+              ? `Plan écrit et déposé sur ${server} : ${pushed.bucket}/${pushed.key}`
+              : `Plan écrit, envoi refusé (${pushed.error || "inconnu"}) : ${answer.plan}`;
           } else {
             await dreamsApi(`/api/dreams/${dream.stamp}/${act}`, { method: "POST" });
           }

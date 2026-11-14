@@ -58,7 +58,7 @@ even when the failing input was one.
 | GET | `/api/dreams/{stamp}` | — | one dream, including `report`; `404` if unknown |
 | DELETE | `/api/dreams/{stamp}` | — | `{deleted}`; `404` if unknown |
 | POST | `/api/dreams/{stamp}/archive` | — | `{archived, path}` under `~/.uh/dreams/archived/` |
-| POST | `/api/dreams/{stamp}/fulfill` | — | `{stamp, plan, applied: false}` — writes a plan in `~/.uh/dreams/actions/`, applies nothing |
+| POST | `/api/dreams/{stamp}/fulfill?upload=<server>` | — | `{stamp, plan, applied: false, upload}` — writes a plan in `~/.uh/dreams/actions/` **and** in `outputs_dir`; with `upload`, also stores it through that cloud server's upload tool (`{ok, bucket, key}` or `{ok: false, error}`). Applying stays a human decision |
 | POST | `/api/dreams/daemon/{action}` | `start` \| `stop` | starts the idle daemon (only on an explicit click) or ends it after the current pass |
 | GET | `/api/system/ollama` | — | `{installed, running, models, boost: active\|available\|unavailable, reason, optional: true, url, savings: {local_passes, passes_logged, tokens_saved_estimate, basis}}` — always `200` |
 | GET | `/api/system/capabilities` | — | `{tier, ram_gb, cpu_cores, gpu, os, arch, recommended_model, recommended_budget, local_possible, sentence}` |
@@ -70,6 +70,8 @@ even when the failing input was one.
 | GET | `/api/skills` | — | `{skills: [{name, title, description, origin, native, path, bytes, modified}], user, native, user_dir, native_dir, native_available}` |
 | POST | `/api/skills` | `{title, description, instructions, name?}` | writes `$UH_HOME/skills/<name>.md`, returns `{name, path, bytes, title, description}`; `400` for a missing title/instructions, a name that could escape the folder, or an existing file |
 | GET | `/api/tools/status` | — | `{toolsets: {name: [tools]}, ollama, uhb: {connected, reason}, mcp: {supported: true, configured, servers: [{name, command, connected, state, protocol, server, version, tools, reason?}], problems?}, terminal, workspace}` · `state` is `connected`, `idle` (configured, not started) or `failed`; a server is never reported connected without a live process |
+| GET | `/api/mcp/cloud` | — | `{templates: [{id, label, what, can_upload, upload_note, docs, fields: [{key, label, secret, required, placeholder, help}]}], upload_targets: [{name, tool, label}]}` — never a stored value |
+| POST | `/api/mcp/cloud` | `{template, name, fields: {KEY: value}}` | `{name, template, label, can_upload, config, secrets, parsed, problems, state}` — appends (or replaces by name) one `[[mcp.servers]]`; secrets go to `mcp-secrets.toml` (0600) and are merged into the child's environment, never written to `config.toml` · `400` unknown template / missing or unexpected field / bad name · `403` not a loopback bind |
 | POST | `/api/mcp/{name}/test` | — | starts that server, `{name, command, connected: true, state: "connected", protocol, server, version, tools: [names]}`, then stops it · `404` unknown name · `502` the server failed (timeout, crash, JSON-RPC error) |
 | POST | `/api/dreams/run` | `{budget?}` | one pass now, in its own process: `{started: true, pid, budget, log}` · `400` budget not an integer · `409` a pass is already running |
 | POST | `/api/uhb/start` | — | starts UHB from the panel (off the event loop, 25 s budget): `{connected: true, …status}` · `{connected: false, reason, log, checkout}` when it still does not answer · `400` `UH_UHB_URL` disabled · `503` the spawn itself failed |
