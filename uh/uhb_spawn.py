@@ -25,6 +25,7 @@ traceback, and an empty log would make a failed spawn impossible to diagnose.
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -34,6 +35,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 from urllib.parse import urlsplit
+
+from .config import uh_home
 
 ENV_PATH = "UH_UHB_PATH"
 DEFAULT_URL = "http://127.0.0.1:8101"
@@ -313,6 +316,111 @@ def running() -> Optional[Spawned]:
     return _RUNNING
 
 
+def pid_file() -> Path:
+    """Where a launched UHB is recorded, so another `uh web` can stop it.
+
+    Without the file, a UHB started by a previous instance (or by the dream task,
+    or by hand on the same port) was invisible: `ensure()` saw the port answering
+    and returned "not mine", and "Quitter UH" could only stop a child of its own.
+    """
+    return uh_home() / "uhb.pid"
+
+
+def record_pid(child: "Spawned", origin: str) -> None:
+    try:
+        path = pid_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {"pid": child.pid, "url": child.url, "origin": origin, "at": time.time()},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except OSError:  # a read-only home must not fail a start
+        pass
+
+
+def _command_line(pid: int) -> str:
+    """The command line of ``pid``, or "" when it cannot be read."""
+    if os.name == "nt":
+        try:
+            import subprocess as _sp
+
+            out = _sp.run(  # noqa: S603,S607 - fixed argv, no shell
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return (out.stdout or "").strip()
+        except Exception:  # noqa: BLE001 - a failed probe means "unknown", not "kill"
+            return ""
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
+    except OSError:
+        return ""
+
+
+def stop_recorded_hint() -> str:
+    """``"pid 1234 (uh web 8765)"`` when a uid file exists, else ""."""
+    path = pid_file()
+    try:
+        record = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except (OSError, ValueError):
+        return ""
+    pid = int(record.get("pid") or 0)
+    return f"pid {pid} ({record.get('origin') or 'origine inconnue'})" if pid else ""
+
+
+def stop_recorded(timeout: float = STOP_TIMEOUT) -> bool:
+    """Stop the UHB recorded in the pid file, whoever started it. Never raises.
+
+    The command line is checked before the kill: a recycled pid must never cost an
+    unrelated process. A UHB the user started by hand is only stopped when it was
+    recorded by a `uh web` (the origin field), which is what "UH arrête ce que UH a
+    démarré" means.
+    """
+    path = pid_file()
+    if not path.is_file():
+        return False
+    try:
+        record = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except (OSError, ValueError):
+        path.unlink(missing_ok=True)
+        return False
+    pid = int(record.get("pid") or 0)
+    if pid <= 0:
+        path.unlink(missing_ok=True)
+        return False
+    command = _command_line(pid)
+    if not command or "uhb" not in command.lower():
+        # The pid now belongs to something else, or the process is already gone.
+        path.unlink(missing_ok=True)
+        return False
+    try:
+        if os.name == "nt":
+            import subprocess as _sp
+
+            _sp.run(  # noqa: S603,S607 - fixed argv, no shell
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                timeout=timeout,
+            )
+        else:
+            os.kill(pid, 15)  # SIGTERM
+    except Exception:  # noqa: BLE001 - best effort, the caller reports
+        return False
+    finally:
+        path.unlink(missing_ok=True)
+    return True
+
+
 def ensure(
     enabled: bool = True,
     timeout: float = START_TIMEOUT,
@@ -338,7 +446,12 @@ def ensure(
         return _RUNNING
     check = checker or status_ok
     if port_open(target):
-        return None  # someone else's UHB, or a leftover: do not fight it
+        # Someone else's UHB, or a leftover: do not fight it - but do say where it
+        # came from, so "Quitter UH" can still stop it instead of leaving an orphan.
+        recorded = stop_recorded_hint()
+        if recorded:
+            print(f"uh web: UHB déjà en écoute sur {target} ({recorded})", file=sys.stderr)
+        return None  # do not fight it
 
     checkout = find_checkout()
     if checkout is None:
@@ -362,6 +475,7 @@ def ensure(
             )
         if check(target, 1.0):
             _RUNNING = Spawned(process=process, url=target, log=log, checkout=checkout)
+            record_pid(_RUNNING, origin=f"uh web ({os.getpid()})")
             return _RUNNING
         time.sleep(0.1)
 
@@ -484,13 +598,18 @@ def _spawn(command: List[str], checkout: Path, log: Path) -> subprocess.Popen:
 
 
 def stop_running(timeout: float = STOP_TIMEOUT) -> bool:
-    """Stop the UHB this process started. True when there was one."""
+    """Stop the UHB this process started, then any recorded one. True if one went."""
     global _RUNNING
     child, _RUNNING = _RUNNING, None
-    if child is None:
-        return False
-    child.stop(timeout)
-    return True
+    stopped = False
+    if child is not None:
+        child.stop(timeout)
+        stopped = True
+    # An orphan from a previous instance (or the dream task) is recorded in the pid
+    # file: the port answered, `ensure()` said "not mine", and nothing stopped it.
+    if stop_recorded(timeout=timeout):
+        stopped = True
+    return stopped
 
 
 __all__ = [

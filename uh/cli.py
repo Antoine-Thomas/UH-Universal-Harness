@@ -1693,6 +1693,57 @@ def cmd_router_token_rotate(_args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _quit_existing_uh(host: str, port: int, timeout: float = 6.0) -> int:
+    """Stop the UH serving ``port``, then let the caller start its own.
+
+    The route needs the token, so the one this UH home stores is used: two instances
+    of the same home share it (the file is the point of the stable token). A UH
+    started from another home cannot be authenticated this way - say it instead of
+    killing a process by name.
+    """
+    import time
+
+    import httpx
+
+    from .web.app import _stable_token, _uh_version_on
+
+    version = _uh_version_on(host, port)
+    if version is None:
+        print(f"uh web: nothing answers as UH on {host}:{port}")
+        return 0
+    token = _stable_token(rotate=False)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        answer = httpx.post(
+            f"http://{host}:{port}/api/system/quit",
+            json={"confirm": True},
+            headers=headers,
+            timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001 - reported, never a traceback
+        print(f"uh web: cannot reach {host}:{port} ({type(exc).__name__})", file=sys.stderr)
+        return EXIT_FAILURE
+    if answer.status_code == 401:
+        print(
+            f"uh web: the UH on {host}:{port} does not share this home's token "
+            f"({uh_config.uh_home()}) - stop it from its own window or with the "
+            "cleanup script, then relaunch.",
+            file=sys.stderr,
+        )
+        return EXIT_FAILURE
+    if answer.status_code >= 400:
+        print(f"uh web: quit refused ({answer.status_code}): {answer.text[:200]}", file=sys.stderr)
+        return EXIT_FAILURE
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _uh_version_on(host, port, timeout=0.5) is None:
+            print(f"uh web: UH {version} on {host}:{port} stopped")
+            return 0
+        time.sleep(0.3)
+    print(f"uh web: {host}:{port} still answers after the quit request", file=sys.stderr)
+    return EXIT_FAILURE
+
+
 def cmd_web(args: argparse.Namespace) -> int:
     """Serve the local web interface. The heavy imports stay inside the extra."""
     host = (getattr(args, "host", None) or "127.0.0.1").strip()
@@ -1756,6 +1807,11 @@ def cmd_web(args: argparse.Namespace) -> int:
         else:
             if child is not None:
                 print(f"uh web: UHB started (pid {child.pid}) - {child.url} - log {child.log}")
+    if getattr(args, "quit_existing", False):
+        quit_code = _quit_existing_uh(host, int(args.port or 8765))
+        if quit_code != 0:
+            return quit_code
+
     try:
         return run_server(
             host=host,
@@ -1767,7 +1823,8 @@ def cmd_web(args: argparse.Namespace) -> int:
             static_dir=static_dir,
             # An explicit --port is a contract; the default one may move to the
             # next free port so a leftover `uh web` never kills the new one.
-            port_fallback=getattr(args, "port", None) is None,
+            port_fallback=bool(getattr(args, "port_fallback", False)),
+            rotate_token=bool(getattr(args, "rotate_token", False)),
             allow_remote=allow_remote,
         )
     finally:
@@ -2704,7 +2761,27 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="accept a non-loopback --host (the token in the URL is then the only protection)",
     )
-    web.add_argument("--port", type=int, default=None, help="port (default 8765, or the next free one)")
+    web.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="port (default 8765; a busy port is reported, not silently skipped)",
+    )
+    web.add_argument(
+        "--port-fallback",
+        action="store_true",
+        help="if the port is taken by something that is not UH, use the next free one",
+    )
+    web.add_argument(
+        "--rotate-token",
+        action="store_true",
+        help="replace the stored web token ($UH_HOME/web-token) and use the new one",
+    )
+    web.add_argument(
+        "--quit-existing",
+        action="store_true",
+        help="stop the UH already serving the target port, then start this one",
+    )
     web.add_argument("--no-open", action="store_true", help="do not open a browser")
     web.add_argument(
         "--app",

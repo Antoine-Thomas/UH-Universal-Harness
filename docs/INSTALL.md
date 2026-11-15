@@ -39,6 +39,54 @@ Two rules that explain most support questions:
   `python -c "import uh; print(uh.__file__)"` must agree.
 - **`--user`** is only for a user-level install outside a virtualenv.
 
+## Stop UH and its second brain (without touching Wazuh)
+
+Closing the browser window does **not** stop `uh web`, and a `uhb.exe` started by a
+previous instance survives on its own. Use **Quitter UH** (the power button in the
+Configuration header), `uh web --quit-existing`, or this script. It is deliberately
+narrow: it only looks at the owners of the UH ports and at the children whose
+command line says `uhb`, and it skips anything whose path mentions `wazuh`/`ossec`
+(a SIEM agent must never be killed by a UH cleanup).
+
+```powershell
+# Owners of the ports UH uses (8765-8775), then their uhb children.
+$ports  = 8765..8775
+$owners = foreach ($p in $ports) {
+  Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.OwningProcess }
+}
+foreach ($id in ($owners | Sort-Object -Unique)) {
+  $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
+  if (-not $proc) { continue }
+  if ([string]$proc.ExecutablePath -match 'wazuh|ossec') { Write-Host "skip (wazuh) $id"; continue }
+  if ([string]$proc.CommandLine -notmatch '(?i)(\buh(\.exe)?\b|-m\s+uh\b|uhb)') { Write-Host "skip (not UH) $id"; continue }
+  Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" |
+    Where-Object { [string]$_.CommandLine -match '(?i)uhb' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+  Write-Host "stopped $id ($($proc.ExecutablePath))"
+}
+Remove-Item (Join-Path $HOME '.uh\uhb.pid') -ErrorAction SilentlyContinue
+```
+
+Never use `Get-Process pythonw | Stop-Process -Force`: it kills the Hermes gateway,
+any other Python tray app, and it is how a "cleanup" becomes an incident.
+
+### Two installs, two products
+
+`uh web` prints its version and the file it serves. If
+`Get-Command uh` answers `...\Python3xx\Scripts\uh.exe` while you work from a
+checkout, the shortcut runs the **installed** package, not your code. Make the
+installed entry point point at the checkout:
+
+```powershell
+python -m pip install -e . --no-deps    # from the checkout
+python -c "import uh; print(uh.__file__)"   # must be inside the checkout
+```
+
+A second `uh web` on another port is no longer a silent fallback: it says which
+instance already holds 8765 and exits 0 (`/healthz` is how it knows).
+
 ## Clean manual upgrade (Windows)
 
 `uh upgrade` does this itself. Run the sequence by hand when it cannot: pip answers
