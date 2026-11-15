@@ -264,7 +264,10 @@ def _stable_token(rotate: bool = False) -> str:
         token = secrets.token_urlsafe(32)
         path.write_text(token, encoding="utf-8")
         try:
-            path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # owner-only, on every platform
+            # POSIX: owner read/write only. Windows has no such bits - chmod there
+            # only toggles the read-only flag, and the file is protected by the
+            # profile's ACL instead. Say that rather than promise 0600 everywhere.
+            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         except OSError:  # pragma: no cover - a filesystem without chmod
             pass
         return token
