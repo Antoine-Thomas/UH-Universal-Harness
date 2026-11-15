@@ -314,6 +314,9 @@ async function loadStatus() {
 // distinction that matters (a paid API vs a local model) and the provider name were
 // hidden behind a flat list of ids. The toggle now REDUCES the menu to the current
 // model instead of being the only way to see the rest.
+//: Which boot steps failed: shown once, so a partial start is visible instead of
+//: looking like a working app with empty panels.
+const bootFailures = [];
 const MODELS_ADVANCED_KEY = "uh.models.advanced";
 //: The header's last choice, kept in the browser as well as in config.toml: the
 //: server write can be refused (a hand-edited config), and a restart that forgets
@@ -545,12 +548,24 @@ function renderAttachments() {
   box.hidden = state.attachments.length === 0;
 }
 
+// One session-creation path, memoised: two concurrent callers used to POST two
+// sessions and the second answer re-pointed `state.sessionId` in the middle of a
+// turn, which is how a message ended up in a session nobody was reading.
+let sessionPending = null;
+
 async function ensureSession() {
   if (state.sessionId) return state.sessionId;
-  const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
-  state.sessionId = data.session.id;
-  await loadSessions();
-  return state.sessionId;
+  if (sessionPending) return sessionPending;
+  sessionPending = (async () => {
+    try {
+      const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
+      state.sessionId = data.session.id;
+      return state.sessionId;
+    } finally {
+      sessionPending = null;
+    }
+  })();
+  return sessionPending;
 }
 
 async function uploadFile(file) {
@@ -1126,7 +1141,7 @@ async function sendMessage(text) {
     }, STALL_MS);
   };
   try {
-    if (!state.sessionId) await newSession();
+    if (!state.sessionId) await ensureSession();
     touchStream();
     const response = await fetch(`/api/sessions/${encodeURIComponent(state.sessionId)}/chat`, {
       method: "POST",
@@ -4514,6 +4529,21 @@ async function showRemoteBanner() {
   banner.hidden = false;
 }
 
+// One boot step, isolated: a rejected load reports itself and the next step still
+// runs. The old chain was a single unguarded sequence, so one throw (a TDZ, a bad
+// payload, a 500) left the rest of boot undone - session list, transcript, and the
+// "no session" state - while the page looked alive.
+async function bootStep(label, run) {
+  try {
+    await run();
+    return true;
+  } catch (error) {
+    console.error(`boot: ${label} failed`, error);
+    bootFailures.push(label);
+    return false;
+  }
+}
+
 async function boot() {
   wireLayout();
   wireAttachments();
@@ -4525,12 +4555,18 @@ async function boot() {
   wireDock();
   wirePanes();
   wireModelToggle();
-  await loadStatus();
+  await bootStep("status", loadStatus);
   // The settings table first, so the first session opened knows its defaults.
-  await loadLlmPanel().catch(() => {});
-  await loadModels();
-  await loadCommands();
-  await loadSessions();
+  await bootStep("llm-panel", () => loadLlmPanel().catch(() => {}));
+  await bootStep("models", loadModels);
+  await bootStep("commands", loadCommands);
+  await bootStep("sessions", loadSessions);
+  if (bootFailures.length) {
+    showAppError(
+      `UH a démarré partiellement (${bootFailures.join(", ")}). Le chat reste utilisable ; ` +
+        "recharge la page (Ctrl+F5) si un panneau est vide."
+    );
+  }
   // ?panel=conn opens the right tab: a chat answer can hand the user a link
   // instead of a sentence describing where to click.
   openPanelFromUrl();
@@ -4546,7 +4582,7 @@ async function boot() {
   // Open the most recent session on first load: an empty pane on arrival looks
   // like a broken app, and the session the user left is the one they want.
   const newest = document.querySelector("#session-list li[data-id]");
-  if (!state.sessionId && newest) await openSession(newest.dataset.id);
+  if (!state.sessionId && newest) await bootStep("open-last", () => openSession(newest.dataset.id));
   if (!state.sessionId && !newest) firstRunHint();
   if (location.hash === "#providers") openProviders();
 }

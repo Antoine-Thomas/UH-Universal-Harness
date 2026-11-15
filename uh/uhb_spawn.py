@@ -446,11 +446,20 @@ def ensure(
         return _RUNNING
     check = checker or status_ok
     if port_open(target):
-        # Someone else's UHB, or a leftover: do not fight it - but do say where it
-        # came from, so "Quitter UH" can still stop it instead of leaving an orphan.
+        # Someone else's UHB, or a leftover: do not fight it - but do not adopt it in
+        # silence either. A UHB from a previous session is an older backend behind a
+        # newer UI, which is invisible until a route answers 404.
         recorded = stop_recorded_hint()
         if recorded:
             print(f"uh web: UHB déjà en écoute sur {target} ({recorded})", file=sys.stderr)
+        else:
+            print(
+                f"uh web: UHB déjà en écoute sur {target}, non enregistré par cette "
+                "installation (démarré à la main, par une session précédente ou par la "
+                "tâche dream). UH l'utilise tel quel ; `uh web --quit-existing` arrête "
+                "celui qu'il a lancé, ce pid reste à ta main.",
+                file=sys.stderr,
+            )
         return None  # do not fight it
 
     checkout = find_checkout()

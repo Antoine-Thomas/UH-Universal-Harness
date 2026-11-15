@@ -2094,17 +2094,31 @@ def create_app(
         from ..providers_admin import catalog as provider_catalog
         from ..providers_admin import read_providers
 
-        local: list[str] = []
-        local_rows: list[dict] = []
-        try:
+        def _local_menu() -> list[dict]:
+            """Discovery and capability probes, off the event loop.
+
+            ``list_models`` and ``/api/show`` are synchronous httpx calls. Inside an
+            ``async def`` route they froze the server for up to 1.5 s plus 0.6 s per
+            local model - five models meant a multi-second stall on every menu load,
+            which reads exactly like "the app stopped answering".
+            """
             from ..providers.ollama import list_models
 
-            local_rows = [
-                {"name": str(entry["name"]), "size": int(entry.get("size") or 0)}
-                for entry in list_models(timeout=1.5)
-            ]
-        except ProviderError:
-            local_rows = []
+            try:
+                return [
+                    {
+                        "name": str(entry["name"]),
+                        "size": int(entry.get("size") or 0),
+                        # Asked, not assumed: a local model that cannot call tools is
+                        # the usual reason a turn comes back as a code block.
+                        "tools_ok": _local_tools_ok(str(entry["name"])),
+                    }
+                    for entry in list_models(timeout=1.5)
+                ]
+            except ProviderError:
+                return []
+
+        local_rows = await asyncio.to_thread(_local_menu)
         local = [row["name"] for row in local_rows]
 
         choices: list[dict] = [
@@ -2116,9 +2130,7 @@ def create_app(
                 # The menu sorts local models by weight: the biggest one is the one
                 # worth trying first, and a flat alphabetical list said nothing.
                 "size": row["size"],
-                # Asked, not assumed: a local model that cannot call tools is
-                # the usual reason a turn comes back as a code block.
-                "tools_ok": _local_tools_ok(row["name"]),
+                "tools_ok": row["tools_ok"],
             }
             for row in local_rows
         ]

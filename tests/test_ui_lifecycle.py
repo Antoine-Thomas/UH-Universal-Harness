@@ -132,3 +132,48 @@ def test_the_cleanup_documentation_spares_wazuh() -> None:
         assert "pythonw" not in text.split("Stop-Process")[0][-200:], (
             "no blanket pythonw filter next to a Stop-Process"
         )
+
+
+def test_the_boot_never_dies_halfway() -> None:
+    """INVARIANT: one failed load does not cancel the rest of the boot.
+
+    boot() chained unguarded `await`s; the TDZ on `api` proved in production that a
+    single throw left the session list, the transcript and the "no session" hint
+    undone while the page still looked alive.
+    """
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("async function boot() {", 1)[1].split("\n}\n", 1)[0]
+
+    assert "bootStep(" in body, "each step must be isolated"
+    for bare in ("  await loadStatus();", "  await loadModels();", "  await loadSessions();"):
+        assert bare not in body, f"unguarded step in boot(): {bare}"
+    assert "bootFailures" in script, "a partial start must be visible, not silent"
+
+
+def test_one_session_creation_path_only() -> None:
+    """INVARIANT: two senders cannot create two sessions for one turn.
+
+    `newSession()` (a button) and `ensureSession()` (an upload) both POSTed
+    /api/sessions, and sendMessage() called the first one: a second answer re-pointed
+    state.sessionId in the middle of a turn.
+    """
+    script = APP.read_text(encoding="utf-8")
+    send = script.split("async function sendMessage(text) {", 1)[1].split("\nasync function ", 1)[0]
+    assert "await newSession()" not in send, "sendMessage must go through ensureSession()"
+    assert "await ensureSession()" in send
+    assert "sessionPending" in script, "the in-flight creation must be memoised"
+
+
+def test_the_model_menu_does_not_freeze_the_event_loop() -> None:
+    """INVARIANT: no synchronous httpx call inside an async route.
+
+    /api/models probed Ollama (1.5 s) then /api/show for every local model (0.6 s
+    each) inside `async def models()`: five models stalled the whole server for
+    seconds, which reads as "the app stopped answering".
+    """
+    source = APP_PY.read_text(encoding="utf-8")
+    route = source.split('@app.get("/api/models"', 1)[1].split("@app.", 1)[0]
+    assert "asyncio.to_thread(_local_menu)" in route
+    assert "list_models(timeout=1.5)" in route, "the probe still happens, just off-loop"
+    # The blocking call must live inside the sync helper, not in the route body.
+    assert route.index("def _local_menu()") < route.index("list_models(timeout=1.5)")
