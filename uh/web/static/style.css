@@ -522,6 +522,11 @@ body {
 .providers-list { overflow-y: auto; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
 .provider-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; background: var(--bg); }
 /* One line per stored key: a masked hint and the only action that makes sense. */
+#install-badge {
+  font-size: 10px; color: var(--muted); margin-left: 6px;
+  font-family: var(--mono); white-space: nowrap;
+}
+#install-badge.warn { color: var(--highlight, #f59e0b); }
 .key-rows { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .key-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .key-hint { font-family: var(--mono); font-size: 11px; color: var(--muted); }

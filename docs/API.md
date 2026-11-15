@@ -190,7 +190,7 @@ memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
 layout  menu-toggle  messages  model-advanced  model-note  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
-providers-open  providers-panel  router-settings  search  quit-uh
+install-badge  providers-open  providers-panel  router-settings  search  quit-uh
 remote-banner  search-results  send  session-list  session-title  sidebar
 sidebar-toggle
 splash  splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models

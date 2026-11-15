@@ -196,3 +196,32 @@ def test_a_stored_key_can_be_deleted_from_the_panel() -> None:
     assert 'keyRows(card, "cloudflare"' in script
     # And it re-reads the list instead of guessing the new state.
     assert "await loadProviders()" in script
+
+
+def test_the_product_says_which_install_is_running() -> None:
+    """INVARIANT: the interface and the CLI both name the copy that answers.
+
+    Two installs on one machine is the cause of "none of your fixes reach me"; no
+    screen and no command said which one the browser was talking to.
+    """
+    source = APP_PY.read_text(encoding="utf-8")
+    assert "def _install_info()" in source
+    assert '"install": _install_info()' in source
+    script = APP.read_text(encoding="utf-8")
+    assert 'id="install-badge"' in INDEX.read_text(encoding="utf-8")
+    assert "dépôt" in script and "paquet installé" in script
+    cli = CLI.read_text(encoding="utf-8")
+    assert 'rows.append(("OK", "install"' in cli
+    assert "pip install -e . --no-deps" in cli
+
+
+def test_status_exposes_the_install_without_leaking_a_path_outside_the_home(
+    tmp_path, monkeypatch
+) -> None:
+    """The block is a path and two booleans - no key, no token, no config value."""
+    from uh.web.app import _install_info
+
+    info = _install_info()
+    assert set(info) == {"package", "root", "editable", "python"}
+    assert info["editable"] in (True, False)
+    assert info["package"].endswith(("__init__.py", ".py"))

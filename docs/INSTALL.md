@@ -72,6 +72,20 @@ Remove-Item (Join-Path $HOME '.uh\uhb.pid') -ErrorAction SilentlyContinue
 Never use `Get-Process pythonw | Stop-Process -Force`: it kills the Hermes gateway,
 any other Python tray app, and it is how a "cleanup" becomes an incident.
 
+### Which copy is running?
+
+Three places answer it, and they must agree:
+
+- `uh doctor` prints an `install` line: `dépôt (éditable) : …` or `paquet installé :
+  …`, and warns when the command you just ran comes from site-packages while the
+  current folder is a checkout;
+- `/api/status` carries `install: {package, root, editable, python}`;
+- the sidebar footer shows `dépôt · 1.7.1` or `paquet installé · 1.7.1`, with the
+  full path and the interpreter in its tooltip.
+
+If the footer says `paquet installé` while you are working in a checkout, the fixes
+you just built are not the code your browser is running.
+
 ### Two installs, two products
 
 `uh web` prints its version and the file it serves. If

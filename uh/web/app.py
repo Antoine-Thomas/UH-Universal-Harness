@@ -201,6 +201,26 @@ _HF_MODELS = (
 )
 
 
+def _install_info() -> dict:
+    """Which copy of UH this process is: a checkout, or the installed package.
+
+    The whole class of "the fixes never reach me" came from this - the shortcut ran
+    Python310's installed 1.6.1 while the work lived in a checkout - and nothing in
+    the product said so.
+    """
+    import uh as uh_package
+
+    package = Path(uh_package.__file__).resolve()
+    root = package.parent.parent
+    editable = "site-packages" not in str(package) and (root / "pyproject.toml").is_file()
+    return {
+        "package": str(package),
+        "root": str(root),
+        "editable": editable,
+        "python": sys.executable,
+    }
+
+
 def _uh_version_on(host: str, port: int, timeout: float = 1.5) -> Optional[str]:
     """Version of the UH answering on this port, or ``None``.
 
@@ -467,6 +487,7 @@ def create_app(
             "schema_version": schema,
             "terminal": app.state.settings.allow_terminal,
             "workspace": str(app.state.settings.workspace),
+            "install": _install_info(),
         }
 
     @app.get("/api/commands", dependencies=[Depends(require_token)])

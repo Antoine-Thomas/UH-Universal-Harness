@@ -274,6 +274,18 @@ async function loadStatus() {
     ? `UH ${status.version} · fournisseur : ${provider}${status.model ? ` · modèle : ${status.model}` : ""}`
     : `UH ${status.version} · aucun fournisseur configuré`;
   $("terminal-warning").hidden = !status.terminal;
+  // Which copy of UH is answering. "The fixes never reach me" was a two-install
+  // problem, and the interface said nothing about it.
+  const install = status.install || {};
+  const badge = $("install-badge");
+  if (badge) {
+    const kind = install.editable ? "dépôt" : "paquet installé";
+    badge.textContent = `${kind} · ${status.version}`;
+    badge.title = install.package
+      ? `${kind} : ${install.package}\npython : ${install.python || "?"}`
+      : "installation inconnue";
+    badge.classList.toggle("warn", Boolean(install.editable) === false);
+  }
   // The interface is read from disk on every request, the routes are fixed at
   // import time: two versions can meet, and that is exactly how a button ends up
   // calling a route its server has never heard of.

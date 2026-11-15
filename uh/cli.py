@@ -409,6 +409,28 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         )
         failures += 1
 
+    # 1b. Which UH is this? A shortcut that runs the installed package while the
+    # work lives in a checkout is how every fix "never arrived".
+    import uh as uh_package
+
+    package = Path(uh_package.__file__).resolve()
+    editable = "site-packages" not in str(package) and (package.parent.parent / "pyproject.toml").is_file()
+    checkout = Path.cwd() / "pyproject.toml"
+    if editable:
+        rows.append(("OK", "install", f"dépôt (éditable) : {package}"))
+    elif checkout.is_file() and (Path.cwd() / "uh").is_dir():
+        rows.append(
+            (
+                "WARN",
+                "install",
+                f"paquet installé ({package}) alors que ce dossier est un dépôt : "
+                f"python -m pip install -e . --no-deps",
+            )
+        )
+        warnings += 1
+    else:
+        rows.append(("OK", "install", f"paquet installé : {package}"))
+
     # 2. httpx
     try:
         import httpx  # noqa: F401
