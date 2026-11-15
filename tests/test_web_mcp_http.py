@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -214,17 +215,82 @@ def test_an_approval_ticket_can_be_read_and_answered(tmp_path, monkeypatch) -> N
         answered = await call(
             app, "POST", f"/api/mcp/approvals/{ticket['id']}", json_body={"allow": True}
         )
-        gone = await call(
+        return listed, answered
+
+    listed, answered = run(scenario())
+    # The worker has finished its whole cycle here, so the ticket is gone from
+    # ``pending`` for good: the second POST below cannot race with a ``finally``.
+    worker.join(timeout=5)
+
+    async def again():
+        return await call(
             app, "POST", f"/api/mcp/approvals/{ticket['id']}", json_body={"allow": True}
         )
-        return listed, answered, gone
 
-    listed, answered, gone = run(scenario())
-    worker.join(timeout=5)
+    gone = run(again())
 
     assert listed.json()["pending"][0]["tool"] == "write"
     assert answered.status_code == 200 and answered.json()["resolved"] is True
     assert gone.status_code == 404, "a ticket is answered once"
+
+
+def test_a_second_answer_is_refused_while_the_worker_has_not_returned(
+    tmp_path, monkeypatch
+) -> None:
+    """The race the loaded runner caught: answer, then answer again immediately.
+
+    The first POST sets ``done``; the worker has not been scheduled back yet, so the
+    ticket is still in ``pending``. Without the ``done`` check the route resolved it
+    a second time and answered 200 - the CI cell ubuntu/py3.10 failed on exactly
+    this, while a fast laptop always passed.
+    """
+    app = make_app(tmp_path, monkeypatch)
+
+    gate = mcp_http.GATE
+    seen = []
+    worker = threading.Thread(
+        target=lambda: gate.ask(
+            "positron", "write", {"path": "x"}, notify=seen.append, timeout=5
+        )
+    )
+    worker.start()
+    for _ in range(100):
+        if gate.pending():
+            break
+        asyncio.run(asyncio.sleep(0.02))
+    (ticket,) = gate.pending()
+
+    async def twice():
+        first = await call(
+            app, "POST", f"/api/mcp/approvals/{ticket['id']}", json_body={"allow": True}
+        )
+        second = await call(
+            app, "POST", f"/api/mcp/approvals/{ticket['id']}", json_body={"allow": True}
+        )
+        return first, second
+
+    first, second = run(twice())
+    worker.join(timeout=5)
+
+    assert first.status_code == 200, "the first answer runs the call"
+    assert second.status_code == 404, "the same ticket cannot be answered twice"
+
+
+def test_resolve_refuses_a_ticket_whose_answer_is_already_decided() -> None:
+    """Deterministic version of the race: the state between ``done.set()`` and the
+    worker's ``finally``.
+
+    ``_pending`` is touched directly because that is exactly what the route reads in
+    that window; the point is that a second answer must be refused *and* must not
+    overwrite the decision that was already taken.
+    """
+    gate = mcp_http.ApprovalGate()
+    ticket = mcp_http.Ticket("positron", "write", {"path": "x"})
+    gate._pending[ticket.id] = ticket  # noqa: SLF001 - the window under test
+    ticket.done.set()
+
+    assert gate.resolve(ticket.id, True) is False
+    assert ticket.answer is None, "a refused answer must not overwrite the decision"
 
 
 def test_no_tool_runs_without_an_approver(tmp_path, monkeypatch) -> None:
