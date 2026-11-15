@@ -67,6 +67,18 @@ MAX_IMPORT_BYTES = 256 * 1024 * 1024
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
+def _local_tools_ok(name: str) -> Optional[bool]:
+    """Whether a local model declares tool support (``None`` when it cannot say).
+
+    Ollama answers ``/api/show``; older builds do not, and "unknown" is a fact the
+    header can show - unlike a guess, which would label a working model as broken.
+    """
+    from ..providers.ollama import model_capabilities
+
+    capabilities = model_capabilities(name)
+    return None if capabilities is None else "tools" in capabilities
+
+
 def _hostname(host_header: str) -> str:
     value = (host_header or "").strip()
     if value.startswith("["):  # [::1]:8765
@@ -1840,7 +1852,16 @@ def create_app(
             local = []
 
         choices: list[dict] = [
-            {"id": name, "provider": "ollama", "local": True, "note": ""} for name in local
+            {
+                "id": name,
+                "provider": "ollama",
+                "local": True,
+                "note": "",
+                # Asked, not assumed: a local model that cannot call tools is
+                # the usual reason a turn comes back as a code block.
+                "tools_ok": _local_tools_ok(name),
+            }
+            for name in local
         ]
         configured = read_providers()
         for spec_name, spec in provider_catalog().items():
@@ -1854,6 +1875,7 @@ def create_app(
                         "provider": spec_name,
                         "local": False,
                         "note": "outils" if model_spec.tools else "",
+                        "tools_ok": bool(model_spec.tools),
                     }
                 )
         for name, entry in read_custom().items():
@@ -1863,7 +1885,14 @@ def create_app(
                 continue
             if entry.get("model"):
                 choices.append(
-                    {"id": str(entry["model"]), "provider": name, "local": False, "note": ""}
+                    {
+                        "id": str(entry["model"]),
+                        "provider": name,
+                        "local": False,
+                        "note": "",
+                        # A hand-written provider entry says nothing about tools.
+                        "tools_ok": None,
+                    }
                 )
 
         current = {
@@ -1871,6 +1900,9 @@ def create_app(
             "provider": app.state.kind,
             "local": app.state.kind == "ollama",
             "note": "actif",
+            "tools_ok": (
+                _local_tools_ok(str(app.state.model)) if app.state.kind == "ollama" else None
+            ),
         }
         if not any(
             row["id"] == current["id"] and row["provider"] == current["provider"]

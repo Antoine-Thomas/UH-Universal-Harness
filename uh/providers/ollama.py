@@ -228,6 +228,48 @@ def list_models(base_url_override: str | None = None, timeout: float = DISCOVERY
     return models
 
 
+#: ``/api/show`` costs one round-trip per model, and the header asks on every
+#: reload: the answer only changes when the model is pulled or replaced, so it is
+#: kept for the life of the process. A miss is cached too - a model that cannot
+#: say is not worth asking twice.
+_CAPABILITIES: dict[str, frozenset] = {}
+
+
+def model_capabilities(
+    name: str, base_url_override: str | None = None, timeout: float = 0.6
+) -> Optional[frozenset]:
+    """Capabilities Ollama reports for ``name``, or ``None`` when it cannot say.
+
+    Ollama answers ``/api/show`` with ``{"capabilities": ["completion", "tools"]}``
+    on the versions that call tools; anything else (old build, unknown model,
+    timeout) is ``None`` - "unknown" is a fact the UI can show, a guess is not.
+    """
+    root = (base_url_override or base_url()).rstrip("/")
+    key = f"{root}|{name}"
+    if key in _CAPABILITIES:
+        return _CAPABILITIES[key] or None
+    try:
+        response = httpx.post(f"{root}/api/show", json={"model": name}, timeout=timeout)
+    except httpx.HTTPError:
+        _CAPABILITIES[key] = frozenset()
+        return None
+    if response.status_code != 200:
+        _CAPABILITIES[key] = frozenset()
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        _CAPABILITIES[key] = frozenset()
+        return None
+    raw = payload.get("capabilities") if isinstance(payload, dict) else None
+    if not isinstance(raw, list):
+        _CAPABILITIES[key] = frozenset()
+        return None
+    found = frozenset(str(item).lower() for item in raw)
+    _CAPABILITIES[key] = found
+    return found or None
+
+
 def pull_model(
     name: str,
     on_event: Callable[[dict], None],

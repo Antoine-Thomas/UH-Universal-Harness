@@ -99,6 +99,34 @@ def test_the_menu_lists_api_models_with_their_provider(monkeypatch, calls, tmp_p
     assert payload["current"]["provider"] == "ollama"
 
 
+def test_a_local_model_that_cannot_call_tools_says_so(monkeypatch, calls, tmp_path) -> None:
+    """The menu tells the truth about tools instead of letting the turn fail.
+
+    Ollama answers /api/show with its capabilities; lfm3 does not list "tools",
+    which is exactly the model that answers a task with a code block.
+    """
+    import uh.providers.ollama as ollama_mod
+
+    monkeypatch.setattr(ollama_mod, "model_capabilities", lambda name: frozenset({"completion"}))
+
+    payload = call(monkeypatch, calls, tmp_path, "GET", "/api/models").json()
+
+    local = [row for row in payload["choices"] if row["local"]]
+    assert local and all(row["tools_ok"] is False for row in local)
+
+
+def test_an_unknown_capability_is_not_a_warning(monkeypatch, calls, tmp_path) -> None:
+    """No answer is not a "no": an old Ollama must not get its models flagged."""
+    import uh.providers.ollama as ollama_mod
+
+    monkeypatch.setattr(ollama_mod, "model_capabilities", lambda name: None)
+
+    payload = call(monkeypatch, calls, tmp_path, "GET", "/api/models").json()
+
+    local = [row for row in payload["choices"] if row["local"]]
+    assert local and all(row["tools_ok"] is None for row in local)
+
+
 def test_a_provider_without_a_key_is_not_offered(monkeypatch, calls, tmp_path) -> None:
     import uh.providers_admin as admin
 

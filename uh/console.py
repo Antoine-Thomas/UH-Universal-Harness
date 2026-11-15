@@ -366,6 +366,13 @@ class ChatSession:
             except Exception:  # noqa: BLE001 - a broken sink must not kill the turn
                 pass
 
+    def _notice(self, text: str) -> None:
+        """One line about how a turn ended. stderr for the console, an event for
+        the web transcript: the same sentence in both places, never a silent
+        downgrade."""
+        self.console.errout(f"! {text}")
+        self._emit("notice", message=text)
+
     # -- persistence helpers ----------------------------------------------- #
     def _stored_messages(self, session_id: str) -> list[dict]:
         assert self.store is not None
@@ -590,6 +597,7 @@ class ChatSession:
                 max_iterations=self.max_iterations,
                 on_token=on_token if self.stream else None,
                 context=self.context,
+                on_notice=self._notice,
             )
         except BudgetExhausted as exc:
             self.console.error(f"uh chat: {exc}")

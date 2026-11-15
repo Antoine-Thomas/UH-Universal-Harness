@@ -141,3 +141,94 @@ def test_original_message_list_is_not_mutated(tmp_path: Path) -> None:
     assert original == [{"role": "user", "content": "hi"}]
     assert history is not original
     assert len(history) == 2
+
+
+class RunnableToolset:
+    """One tool that runs a snippet - the shape the code-block guard looks for."""
+
+    name = "positron"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+        self.tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "execute_code",
+                    "description": "run a snippet",
+                    "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
+                },
+            }
+        ]
+
+    def call(self, name: str, args: dict) -> dict:
+        self.calls.append((name, args))
+        return {"output": "42"}
+
+
+def test_a_code_block_is_refused_once_and_the_tool_is_called() -> None:
+    """A model that answers with code is asked again, and the tool runs it.
+
+    This is the loop's rule, not a per-provider one: nothing here knows which
+    model answered, so a local model and a hosted one travel the same path.
+    """
+    toolset = RunnableToolset()
+    provider = ScriptedProvider(
+        [
+            {"role": "assistant", "content": "Sure, run this:\n```python\nprint(41+1)\n```\n"},
+            tool_call("execute_code", code="print(41+1)"),
+            {"role": "assistant", "content": "42"},
+        ]
+    )
+    notices: list[str] = []
+
+    history = run_turn(
+        [{"role": "user", "content": "run it"}],
+        provider,
+        {"positron": toolset},
+        on_notice=notices.append,
+    )
+
+    assert toolset.calls == [("execute_code", {"code": "print(41+1)"})]
+    nudge = provider.calls[1][-1]
+    assert nudge["role"] == "system", "the second call must carry the retry instruction"
+    assert "execute_code" in nudge["content"], "a nudge that does not name the tool is advice"
+    assert last_assistant_message(history)["content"] == "42"
+    assert notices == [], "a corrected turn is not a notice"
+
+
+def test_a_second_code_block_ends_the_turn_with_a_notice() -> None:
+    """One retry, never a loop: the user is paying for every extra call."""
+    toolset = RunnableToolset()
+    provider = ScriptedProvider(
+        [
+            {"role": "assistant", "content": "```bash\nls\n```"},
+            {"role": "assistant", "content": "```bash\nls -la\n```"},
+        ]
+    )
+    notices: list[str] = []
+
+    history = run_turn(
+        [{"role": "user", "content": "list the files"}],
+        provider,
+        {"positron": toolset},
+        on_notice=notices.append,
+    )
+
+    assert toolset.calls == []
+    assert len(provider.calls) == 2, "exactly one retry"
+    assert len(notices) == 1 and "execute_code" in notices[0]
+    assert last_assistant_message(history)["content"].startswith("```bash"), "the answer still reaches the user"
+
+
+def test_a_code_explanation_with_no_runnable_tool_is_left_alone(tmp_path: Path) -> None:
+    """The guard must not tax a question that was never about running anything."""
+    provider = ScriptedProvider([{"role": "assistant", "content": "```python\nprint(1)\n```"}])
+
+    run_turn(
+        [{"role": "user", "content": "how would that look in python?"}],
+        provider,
+        {"file": FileToolset(workspace=tmp_path)},
+    )
+
+    assert len(provider.calls) == 1

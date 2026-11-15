@@ -330,7 +330,13 @@ async function loadModels() {
     for (const choice of items) {
       const mark = choice.local ? "💻" : "☁️";
       const note = choice.note && choice.note !== "actif" ? ` · ${choice.note}` : "";
-      const option = el("option", null, `${mark} ${choice.id}${note}`);
+      // Only when the provider says so: /api/models answers null when it cannot
+      // tell, and a badge on a working model is worse than no badge.
+      const warn = choice.tools_ok === false ? " · outils non fiables" : "";
+      const option = el("option", null, `${mark} ${choice.id}${note}${warn}`);
+      if (choice.tools_ok === false) {
+        option.title = "Ce modèle ne déclare pas le support des outils : il risque de répondre par du code.";
+      }
       option.value = `${choice.provider}/${choice.id}`;
       if (choice.id === current.id && choice.provider === current.provider) option.selected = true;
       group.appendChild(option);

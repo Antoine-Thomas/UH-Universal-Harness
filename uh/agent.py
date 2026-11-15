@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import sys
 from typing import (
     TYPE_CHECKING,
@@ -133,6 +134,47 @@ def _split_call(call: Any) -> tuple[str, dict]:
     return str(call.get("name") or ""), _coerce_arguments(call.get("arguments"))
 
 
+#: A fenced block in a language the harness can actually run. Wider than the
+#: common four on purpose: a model that answers in PowerShell is in exactly the
+#: same failure mode, it just names the fence differently.
+_CODE_FENCE = re.compile(
+    r"```(?:python|py|bash|sh|zsh|shell|js|javascript|node|powershell|ps1|cmd)\b",
+    re.IGNORECASE,
+)
+#: Tool names that mean "this harness can run something for you". The check runs
+#: on the indexed names, because that is what the model is offered - a toolset
+#: named `positron` only counts if it publishes a callable such as `execute_code`.
+_RUNNABLE_HINTS = ("execute", "terminal", "shell", "command", "run", "python", "code")
+#: Injected once, in the language the system prompt is written in. Naming the
+#: tool matters: "call a tool" is advice, "call `terminal`" is an instruction.
+_NUDGE = (
+    "You answered with a code block instead of using a tool. You can run this "
+    "yourself: call `{tool}` now with the code as its argument. Never hand code "
+    "to the user to copy and paste when a tool can do the work."
+)
+
+
+def _runnable_tools(index: Dict[str, "Toolset"]) -> List[str]:
+    """Names of the tools that execute something, deterministically ordered.
+
+    Provider-agnostic by construction: nothing here looks at which model is
+    answering, only at what the harness can do for it.
+    """
+    names = [
+        name
+        for name in index
+        if any(hint in name.lower() for hint in _RUNNABLE_HINTS)
+        or any(hint in str(getattr(index[name], "name", "")).lower() for hint in _RUNNABLE_HINTS)
+    ]
+    # `terminal`/`execute_code` first: they run a snippet, which is what the
+    # model was trying to hand over in a fenced block.
+    return sorted(names, key=lambda name: (0 if "execute" in name.lower() else 1, name))
+
+
+def _answers_with_code(content: Any) -> bool:
+    return bool(_CODE_FENCE.search(str(content or "")))
+
+
 def _execute(index: Dict[str, "Toolset"], name: str, args: dict) -> dict:
     """Run one tool, always returning a ``role: tool`` message (never raising)."""
     toolset = index.get(name)
@@ -218,6 +260,7 @@ def run_turn(
     max_iterations: int = 8,
     on_token: Optional[Callable[[str], None]] = None,
     context: Optional["ContextManager"] = None,
+    on_notice: Optional[Callable[[str], None]] = None,
 ) -> List[dict]:
     """Run the agent loop until a final answer or until the budget is spent.
 
@@ -230,6 +273,10 @@ def run_turn(
     ``context`` prunes what is *sent* on every iteration, without touching the
     history this function returns: a tool loop that grows past the model's window
     is exactly when it matters, and the store keeps everything.
+
+    ``on_notice`` receives one line when the turn ends badly but legitimately
+    (a model that keeps answering with code): the caller decides whether that is
+    a console line, a web event, or nothing at all.
     """
     if max_iterations < 1:
         raise ValueError("max_iterations must be >= 1")
@@ -238,6 +285,11 @@ def run_turn(
     index = _tool_index(toolsets)
     definitions = _tool_definitions(toolsets)
     total_iterations = int(max_iterations)
+    runnable = _runnable_tools(index)
+    # One nudge per turn, not one per iteration: a model that ignores it twice
+    # will not be talked into it on the fourth try, and the user is paying for
+    # every extra call.
+    nudges_left = 1 if runnable else 0
 
     for _iteration in range(1, total_iterations + 1):  # the count is only for the error
         outgoing = context.prepare(history) if context is not None else history
@@ -250,6 +302,19 @@ def run_turn(
 
         calls = message.get("tool_calls") or []
         if not calls:
+            # A turn that was asked to *do* something and came back with a fenced
+            # block is not finished: the user would have to copy the code back
+            # into the agent. This is the loop's job, not the prompt's, so it
+            # holds for every provider instead of the ones we remembered to test.
+            if nudges_left and _answers_with_code(message.get("content")):
+                nudges_left -= 1
+                history.append({"role": "system", "content": _NUDGE.format(tool=runnable[0])})
+                continue
+            if runnable and _answers_with_code(message.get("content")) and on_notice is not None:
+                on_notice(
+                    f"the model answered with code instead of calling `{runnable[0]}` "
+                    "after a retry; the snippet was left in the transcript"
+                )
             return history
 
         for call in calls:
