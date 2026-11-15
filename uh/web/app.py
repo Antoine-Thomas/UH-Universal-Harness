@@ -2143,9 +2143,15 @@ def create_app(
             uh_config.write_layer("user", "default_provider", kind)
             uh_config.write_layer("user", "default_model", model)
         except uh_config.ConfigError:
-            # A hand-written config with a nested table: the switch still holds for
-            # this process, and the answer says plainly that it was not saved.
-            persisted = False
+            # The flat writer refuses a config that also holds tables
+            # ([[mcp.servers]]). One root line can still be set without touching
+            # them, which is the difference between "my model is remembered" and
+            # "my model resets at every restart".
+            try:
+                uh_config.write_flat_key_preserving_tables("default_provider", kind)
+                uh_config.write_flat_key_preserving_tables("default_model", model)
+            except (uh_config.ConfigError, OSError):
+                persisted = False
         if session_id:
             session = _session_or_404(app, str(session_id))
             app.state.session_models[session["id"]] = (kind, model)

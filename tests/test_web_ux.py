@@ -234,8 +234,8 @@ def test_the_model_menu_separates_api_from_local() -> None:
     following = re.search(r"\n(?:async )?function ", APP_JS[start + 1 :])
     body = APP_JS[start : start + 1 + following.start()] if following else APP_JS[start:]
 
-    assert '["API (cloud)", api]' in body, "cloud models are their own group, first"
-    assert '["Local (Ollama)", local]' in body, "local models are the second group"
+    assert '["API (cloud)", apiChoices]' in body, "cloud models are their own group, first"
+    assert '["Local (Ollama)", localChoices]' in body, "local models are the second group"
     assert "Number(b.size || 0) - Number(a.size || 0)" in body, "local models sort by weight"
     assert "replace(\"API · \", \"\")" in body, "the provider is shown next to the id"
     assert "Go" in body, "a local line carries its size"
@@ -245,3 +245,18 @@ def test_the_menu_shows_both_groups_by_default() -> None:
     """A chooser that shows one option is a label with a chevron."""
     body = APP_JS.split("function modelsAdvanced() {", 1)[1].split("\n}", 1)[0]
     assert "stored === null ? true" in body, "unset means the full list"
+
+
+def test_a_local_variable_never_shadows_the_fetch_helper() -> None:
+    """`const api = ...` inside a function broke the whole page at boot.
+
+    The TDZ error ("Cannot access 'api' before initialization") is caught here
+    because a live click is too late: any local binding named `api` shadows the
+    module's fetch helper for every call in that scope.
+    """
+    start = APP_JS.index("async function loadModels(")
+    following = re.search(r"\n(?:async )?function ", APP_JS[start + 1 :])
+    body = APP_JS[start : start + 1 + following.start()] if following else APP_JS[start:]
+
+    assert "const api =" not in body and "let api =" not in body, "shadowing api() breaks boot"
+    assert "const apiChoices =" in body

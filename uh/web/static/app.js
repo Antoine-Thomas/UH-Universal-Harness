@@ -395,15 +395,17 @@ async function loadModels() {
   // Two categories, in a fixed order: the cloud models first (they are the ones a
   // user pays for and picks deliberately), then the local ones by weight - the
   // biggest is the one worth trying, and alphabetical order said nothing about it.
-  const api = choices
+  // `apiChoices`, not `api`: `api()` is the module's fetch helper, and shadowing it
+  // here threw "Cannot access 'api' before initialization" at boot.
+  const apiChoices = choices
     .filter((choice) => !choice.local)
     .sort((a, b) => `${a.provider}${a.id}`.localeCompare(`${b.provider}${b.id}`));
-  const local = choices
+  const localChoices = choices
     .filter((choice) => choice.local)
     .sort((a, b) => Number(b.size || 0) - Number(a.size || 0) || a.id.localeCompare(b.id));
   const groups = [
-    ["API (cloud)", api],
-    ["Local (Ollama)", local],
+    ["API (cloud)", apiChoices],
+    ["Local (Ollama)", localChoices],
   ];
 
   for (const [label, items] of groups) {

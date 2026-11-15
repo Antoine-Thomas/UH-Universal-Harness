@@ -274,6 +274,7 @@ def test_a_refused_write_is_reported_not_hidden(monkeypatch, calls, tmp_path) ->
         raise web_app.uh_config.ConfigError("nested table")
 
     monkeypatch.setattr(web_app.uh_config, "write_layer", refuse)
+    monkeypatch.setattr(web_app.uh_config, "write_flat_key_preserving_tables", refuse)
 
     body = call(
         monkeypatch,
@@ -286,3 +287,34 @@ def test_a_refused_write_is_reported_not_hidden(monkeypatch, calls, tmp_path) ->
 
     assert body["provider"] == "deepseek", "the switch still holds for this process"
     assert body["persisted"] is False, "and the browser is told it was not saved"
+
+
+def test_the_choice_is_written_even_when_the_config_holds_tables(monkeypatch, calls, tmp_path) -> None:
+    """The real config carries [[mcp.servers]], and the flat writer refuses those.
+
+    That refusal is why the model reset at every restart on this machine. One root
+    line can be set in place, above the first table header, with the block intact.
+    """
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "default_model = \"lfm3:latest\"\n\n[[mcp.servers]]\nname = \"atelier\"\n"
+        "command = \"npx\"\nargs = [\"-y\", \"server-filesystem\"]\n",
+        encoding="utf-8",
+    )
+
+    body = call(
+        monkeypatch,
+        calls,
+        tmp_path,
+        "POST",
+        "/api/model",
+        body={"provider": "deepseek", "model": "deepseek-flash"},
+    ).json()
+
+    assert body["persisted"] is True
+    text = config.read_text(encoding="utf-8")
+    assert "[[mcp.servers]]" in text, "the MCP block must survive the write"
+    assert 'default_provider = "deepseek"' in text
+    assert 'default_model = "deepseek-flash"' in text
+    # A root key written below the header would belong to the table: it is above it.
+    assert text.index("default_model") < text.index("[[mcp.servers]]")

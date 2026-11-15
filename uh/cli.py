@@ -580,7 +580,7 @@ def _build_chain(
         if local_names and ollama_model not in local_names:
             ollama_model = None
 
-    if not ollama_model:
+    if not ollama_model and not requested_model:
         try:
             from .ollama_spawn import pick_model
 

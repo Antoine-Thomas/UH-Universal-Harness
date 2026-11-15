@@ -16,6 +16,7 @@ an error, so a newer file never breaks an older build.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -209,6 +210,45 @@ def write_layer(layer: str, key: str, raw_value: Any) -> Path:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(dump_flat_toml(existing), encoding="utf-8")
+    return path
+
+
+def write_flat_key_preserving_tables(key: str, raw_value: Any) -> Path:
+    """Set one root-level key without rewriting the file around it.
+
+    :func:`write_layer` refuses a file that carries a table (``[[mcp.servers]]``):
+    its writer is flat and would drop the block. But a root key is one line, and a
+    key written before the first table header belongs to the root - so the edit is
+    in place, tables untouched. This is what lets "choose deepseek-flash" survive a
+    restart on a config that also holds MCP servers.
+    """
+    if key not in KEY_TYPES:
+        raise ConfigError(f"unknown config key '{key}'")
+    value = coerce(key, raw_value)
+    line = dump_flat_toml({key: value}).strip()
+    path = user_config_path()
+
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    lines = text.splitlines()
+    first_table = next(
+        (index for index, entry in enumerate(lines) if entry.lstrip().startswith("[")),
+        len(lines),
+    )
+
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    for index in range(first_table):
+        if pattern.match(lines[index]):
+            lines[index] = line
+            break
+    else:
+        # Insert above the first table: below it the key would belong to that table.
+        insert_at = first_table
+        while insert_at > 0 and not lines[insert_at - 1].strip():
+            insert_at -= 1
+        lines.insert(insert_at, line)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
     return path
 
 
