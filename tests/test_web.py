@@ -123,6 +123,32 @@ def test_index_sets_the_cookie_and_survives_a_reload(
     run(scenario())
 
 
+def test_the_icon_routes_never_answer_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A page that declares no icon makes the browser ask for /favicon.ico.
+
+    That request 404'd on every cold load, which the console reports as a broken
+    resource. The routes answer an empty 204 (no file exists), and the page
+    declares both icons so a healthy load never asks at all.
+    """
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            for path in (
+                "/favicon.ico",
+                "/apple-touch-icon.png",
+                "/apple-touch-icon-precomposed.png",
+            ):
+                response = await http.get(path)
+                assert response.status_code == 204, path
+            page = await http.get(f"/?token={TOKEN}")
+            assert 'rel="icon"' in page.text
+            assert 'rel="apple-touch-icon"' in page.text
+            assert "data:image/svg+xml" in page.text
+
+    run(scenario())
+
+
 def test_host_and_origin_are_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = make_app(tmp_path, monkeypatch)
 

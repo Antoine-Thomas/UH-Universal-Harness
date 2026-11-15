@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import os
 import re
 import secrets
@@ -28,7 +29,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Callable, Iterator, Optional
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -42,6 +43,11 @@ from ..toolsets import build_toolsets
 from .sse import frame
 
 STATIC_DIR = Path(__file__).parent / "static"
+#: Requests that 404 are otherwise invisible once the server runs without a
+#: terminal (the shortcut's hidden console swallows uvicorn's access log).
+#: A missing asset then costs an F12 session on the user's side; this line puts
+#: the path and its referer where the server is started from.
+LOGGER = logging.getLogger("uh.web")
 COOKIE_NAME = "uh_token"
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
@@ -257,6 +263,12 @@ def create_app(
                     status_code=403,
                 )
         response = await call_next(request)
+        if response.status_code == 404:
+            LOGGER.warning(
+                "404 %s referer=%s",
+                request.url.path,
+                request.headers.get("referer") or "-",
+            )
         response.headers["Content-Security-Policy"] = CSP
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -297,6 +309,17 @@ def create_app(
             status_code=401,
             detail="open the URL printed by `uh web` (it carries the token)",
         )
+
+    # -- icon fallbacks ---------------------------------------------------- #
+    # Declared in index.html as data URIs, so a healthy page never asks for
+    # these. Browsers, bookmark bars and "add to home screen" still hit them
+    # directly: an empty 204 is the honest answer (there is no file to send),
+    # and it keeps the console free of a 404 that no code change can fix.
+    @app.get("/favicon.ico")
+    @app.get("/apple-touch-icon.png")
+    @app.get("/apple-touch-icon-precomposed.png")
+    async def icon_fallback() -> Response:
+        return Response(status_code=204)
 
     # -- status ------------------------------------------------------------ #
     @app.get("/api/status", dependencies=[Depends(require_token)])
