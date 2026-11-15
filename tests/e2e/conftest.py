@@ -22,11 +22,17 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+#: Which interpreter runs `uh web`, and from where. Default: this checkout's venv,
+#: started inside the checkout (an editable install). A release check points them at
+#: a fresh venv and a neutral folder, so the wheel - not the checkout - is under test:
+#:   UH_E2E_PYTHON=/tmp/v/bin/python UH_E2E_CWD=/tmp pytest -m e2e
 _CANDIDATES = [
+    Path(os.environ["UH_E2E_PYTHON"]) if os.environ.get("UH_E2E_PYTHON") else None,
     ROOT / ".venv" / "Scripts" / "python.exe",  # Windows
     ROOT / ".venv" / "bin" / "python",  # POSIX
 ]
-PYTHON = next((path for path in _CANDIDATES if path.is_file()), Path(sys.executable))
+PYTHON = next((path for path in _CANDIDATES if path and path.is_file()), Path(sys.executable))
+CWD = Path(os.environ.get("UH_E2E_CWD") or ROOT)
 
 pw_api = pytest.importorskip("playwright.sync_api", reason="e2e needs the test-only playwright")
 
@@ -65,7 +71,7 @@ class Server:
                 "--port",
                 str(self.port),
             ],
-            cwd=str(ROOT),
+            cwd=str(CWD),
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

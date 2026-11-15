@@ -13,6 +13,48 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.7.1] — 2026-11-15
+
+**The lifecycle, not the transcript.** Every symptom of the 1.7.0 round came back one
+level lower: the token, the cookie, the port and the end of a stream. No tag until the
+maintainer says so.
+
+### Fixed
+
+- **A 401 no longer erases the page.** The token of another instance (or a restart)
+  used to replace the whole document with one sentence: transcript, composer and
+  draft included. The message lands in a banner, the page stays.
+- **The token survives a restart.** `$UH_HOME/web-token` (0600 on POSIX, profile ACL
+  on Windows) replaces the per-process random token; `uh web --rotate-token` replaces
+  it on purpose. The cookie is `uh_token_<port>`, so two instances no longer share
+  one authority.
+- **A message is never lost before the turn is accepted.** Enter and the button go
+  through one `submitComposer()`; the field is emptied on the server's `open` frame;
+  a message during a turn is refused visibly and keeps its text; a silent stream
+  ends after 45 s with the draft restored (`UH_STALL_MS`).
+- **Every stream ends.** A `ping` frame every 15 s, a 10-minute cap, a guaranteed
+  `done`; `boot()` isolates each step so one failure no longer cancels the rest.
+- **One instance per port.** `/healthz` lets a second `uh web` recognise the first
+  (print its URL, exit 0) instead of silently serving another copy on the next port;
+  the fallback is opt-in (`--port-fallback`), and `--quit-existing` stops the other.
+- **A second brain that cannot be orphaned silently.** A launched UHB is recorded in
+  `$UH_HOME/uhb.pid`; "Quitter UH" stops a recorded one whoever started it, after
+  checking the command line.
+
+### Added
+
+- **Turn journal** in `$UH_HOME/uh-web.log` (rotated): one line per turn event with
+  turn id, tool name, duration, `ok`/`error` and the ending reason
+  (`done`/`error`/`deadline`/`stopped`). Never a prompt, an answer, an argument or a
+  key.
+- **Delete a stored API key** from the panel (the route existed, the button did not),
+  with a confirmation naming the mask; the value never reaches the browser.
+- **Which copy is running**: `/api/status` exposes `install`, the footer shows
+  `dépôt` or `paquet installé`, and `uh doctor` warns when the command comes from
+  site-packages while the folder is a checkout.
+- **CI e2e job** (ubuntu + windows): the Playwright suite that catches "the product
+  breaks while every unit test stays green". Advisory until ten green runs.
+
 ## [1.7.0] — 2026-11-15
 
 **One door per subject, honest errors, and an agent that knows its own setup.**

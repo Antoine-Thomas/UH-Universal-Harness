@@ -784,7 +784,13 @@ def create_app(
                     turnlog.event("turn_error", turn=turn_id, detail=str(event.get("message") or "")[:200])
             except Exception:  # noqa: BLE001 - the journal never breaks a turn
                 pass
-            loop.call_soon_threadsafe(queue.put_nowait, event)
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, event)
+            except RuntimeError:
+                # The stream is gone (client left, or the cap fired): the worker still
+                # finishes its tool call, and nobody is reading. Dropping the event is
+                # the only correct move - re-raising would kill the worker thread.
+                pass
 
         turnlog.event(
             "turn_start",
