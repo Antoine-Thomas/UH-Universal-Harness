@@ -59,9 +59,7 @@ jobs:
           pip install playwright
 
       - name: Install Playwright Browsers
-        uses: microsoft/playwright-github-action@v1
-        with:
-          browsers: chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Web tests
         run: pytest -q tests/test_web.py
@@ -98,9 +96,7 @@ jobs:
           pip install playwright
 
       - name: Install Playwright Browsers
-        uses: microsoft/playwright-github-action@v1
-        with:
-          browsers: chromium
+        run: npx playwright install --with-deps chromium
 
       - name: End-to-end suite (excluded from the default run)
         run: pytest -o addopts="" -m e2e -q
