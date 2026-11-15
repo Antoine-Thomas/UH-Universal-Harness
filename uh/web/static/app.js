@@ -32,7 +32,7 @@ async function apiResult(path, options = {}) {
   });
   const body = await response.json().catch(() => ({}));
   if (response.status === 401) {
-    document.body.textContent = "Session expired: reopen the URL printed by `uh web`.";
+    showSessionBanner();
     return { ok: false, status: 401, body: {} };
   }
   return { ok: response.ok, status: response.status, body };
@@ -45,8 +45,8 @@ async function api(path, options = {}) {
     ...options,
   });
   if (response.status === 401) {
-    document.body.textContent = "Session expired: reopen the URL printed by `uh web`.";
-    throw new Error("unauthorized");
+    showSessionBanner();
+    throw new Error("jeton périmé : cette page n'est plus reliée à UH");
   }
   if (response.status === 404) {
     // The interface knows a route this server does not: an older `uh web` is
@@ -61,6 +61,32 @@ async function api(path, options = {}) {
     throw new Error(detail.detail || `HTTP ${response.status}`);
   }
   return response.json();
+}
+
+// A 401 is a fact about the cookie, not an order to delete the interface. An older
+// tab talking to a restarted (or a second) `uh web` used to lose the whole page -
+// transcript, composer and draft included - on any api() call. It now says so in a
+// banner and leaves everything in place.
+function showSessionBanner() {
+  const box = $("app-banner");
+  if (!box || !box.hidden) return;
+  box.textContent = "";
+  box.appendChild(el("strong", null, "Jeton périmé. "));
+  box.appendChild(
+    document.createTextNode(
+      "Cette page n'est plus authentifiée : UH a redémarré, ou une autre instance a " +
+        "pris le cookie. Ton brouillon est gardé. Ouvre l'URL imprimée par `uh web` " +
+        "dans un autre onglet, ou relance `uh web` : cette page n'est plus reliée."
+    )
+  );
+  box.hidden = false;
+}
+
+function showAppError(text) {
+  const box = $("app-banner");
+  if (!box) return;
+  box.textContent = text;
+  box.hidden = false;
 }
 
 // --------------------------------------------------------------- rendering --
@@ -1026,12 +1052,45 @@ async function reconcileTranscript() {
   }
 }
 
+//: No frame for this long and the turn is declared dead on the client side too:
+//: a tool that never returns must not leave the composer locked for ever.
+const STALL_MS = Number(window.UH_STALL_MS || 45000);
+
+// One door for Enter and for the button. A second message during a turn is refused
+// with a sentence the user can see - never accepted and lost, never silently
+// dropped because `state.streaming` was still true from a turn that died.
+function canSend() {
+  return !state.streaming;
+}
+
+function restoreDraft(text) {
+  const input = $("input");
+  if (!input || !text) return;
+  if (!input.value.trim()) {
+    input.value = text;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
+  }
+}
+
+function submitComposer() {
+  const input = $("input");
+  const text = input.value.trim();
+  if (!text) return;
+  if (!canSend()) {
+    modelNote("un tour est déjà en cours : attends sa fin ou clique Stop", "warn");
+    return;  // the text stays in the field, where the user left it
+  }
+  sendMessage(text);
+}
+
 async function sendMessage(text) {
-  if (state.streaming) return;
-  if (!state.sessionId) await newSession();
+  if (!canSend()) return;
+  // The lock is taken BEFORE the first await: `newSession()` used to run unter the
+  // same flag, so a double Enter could create two sessions and two turns.
+  state.streaming = true;
 
   const attachments = state.attachments.map((item) => item.path);
-  state.streaming = true;
   $("send").disabled = true;
   $("stop").disabled = false;
   appendMessage("user", attachments.length ? `${text}\n\n[${attachments.length} file(s) attached]` : text);
@@ -1049,7 +1108,26 @@ async function sendMessage(text) {
 
   const controller = new AbortController();
   state.abort = controller;
+  // Life sign watchdog: every SSE frame resets it, and a silent stream ends with a
+  // visible bubble plus a free composer instead of a phantom "streaming" state.
+  let stallTimer = null;
+  let stallFired = false;
+  const touchStream = () => {
+    if (stallTimer) window.clearTimeout(stallTimer);
+    stallTimer = window.setTimeout(() => {
+      stallFired = true;
+      failed = `pas de réponse depuis ${Math.round(STALL_MS / 1000)} s`;
+      assistant.classList.add("failed");
+      assistantContent.textContent =
+        `Pas de réponse depuis ${Math.round(STALL_MS / 1000)} s. ` +
+        "Le tour est abandonné côté navigateur : tu peux réessayer (le texte est gardé).";
+      restoreDraft(text);
+      if (state.abort) state.abort.abort();
+    }, STALL_MS);
+  };
   try {
+    if (!state.sessionId) await newSession();
+    touchStream();
     const response = await fetch(`/api/sessions/${encodeURIComponent(state.sessionId)}/chat`, {
       method: "POST",
       credentials: "same-origin",
@@ -1063,7 +1141,9 @@ async function sendMessage(text) {
       signal: controller.signal,
     });
     if (response.status === 401) {
-      document.body.textContent = "Session expired: reopen the URL printed by `uh web`.";
+      showSessionBanner();
+      restoreDraft(text);
+      failed = "jeton périmé";
       return;
     }
     if (!response.ok) {
@@ -1083,7 +1163,20 @@ async function sendMessage(text) {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       buffer = parseFrames(buffer, (event, data) => {
-        if (event === "token") {
+        touchStream();
+        if (event === "open") {
+          guardedStep("open", () => {
+            // The turn is accepted: only now is the field emptied. A refusal (400,
+            // 503, dead token) leaves the draft where the user can see it.
+            const input = $("input");
+            if (input && input.value.trim() === text.trim()) {
+              input.value = "";
+              input.style.height = "auto";
+            }
+          });
+        } else if (event === "ping") {
+          // A life sign, not content: the watchdog above already restarted.
+        } else if (event === "token") {
           guardedStep("token", () => {
             assistantText += data.text || "";
             assistantContent.textContent = assistantText;
@@ -1142,10 +1235,12 @@ async function sendMessage(text) {
       assistantContent.textContent = `Erreur du modèle : ${failed}. Réessaie, ou choisis un autre modèle avec « ⋯ ».`;
     }
   } finally {
+    if (stallTimer) window.clearTimeout(stallTimer);
     state.streaming = false;
     state.abort = null;
     $("send").disabled = false;
     $("stop").disabled = true;
+    if (failed && !stallFired) restoreDraft(text);
     if (!failed) {
       try {
         await reconcileTranscript();
@@ -1171,9 +1266,11 @@ async function quitUh() {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     });
-    document.body.textContent = result.uhb_stopped
-      ? "UH est arrêté, second brain compris. Tu peux fermer cet onglet."
-      : "UH est arrêté. Relance-le avec le raccourci ou `uh web`.";
+    showAppError(
+      result.uhb_stopped
+        ? "UH est arrêté, second brain compris. Tu peux fermer cet onglet."
+        : "UH est arrêté. Relance-le avec le raccourci ou `uh web`."
+    );
   } catch (error) {
     $("quit-uh").disabled = false;
     modelNote(`arrêt refusé : ${error.message}`, "warn");
@@ -4386,19 +4483,12 @@ function wireComposer() {
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      const text = input.value.trim();
-      if (!text) return;
-      input.value = "";
-      input.style.height = "auto";
-      sendMessage(text);
+      submitComposer();
     }
   });
   $("composer").addEventListener("submit", (event) => {
     event.preventDefault();
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = "";
-    sendMessage(text);
+    submitComposer();
   });
   $("stop").addEventListener("click", stopTurn);
   $("new-session").addEventListener("click", newSession);
@@ -4528,7 +4618,9 @@ boot()
   .then(dismissSplash)
   .catch((error) => {
     dismissSplash();
-    document.body.textContent = `UH web error: ${error.message}`;
+    // The shell stays: a failed boot is one banner, not a blank page. The chat is
+    // usually still usable, and a reload is one click away.
+    showAppError(`UH n'a pas fini de démarrer : ${error.message}. Recharge la page (Ctrl+F5).`);
   });
 
 // --------------------------------------------------------------------------- //

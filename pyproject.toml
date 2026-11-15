@@ -104,3 +104,8 @@ exclude = ["^\\.venv/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The e2e tests launch a real `uh web` and a real Chromium: they are the ones that
+# catch "the product breaks while every unit test stays green", but they cost a
+# browser and ~20 s each. Run them with: pytest -o addopts="" -m e2e
+markers = ["e2e: end-to-end tests that start a server and drive a real browser"]
+addopts = "-m 'not e2e'"

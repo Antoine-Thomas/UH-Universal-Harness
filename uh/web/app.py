@@ -43,12 +43,20 @@ from ..toolsets import build_toolsets
 from .sse import frame
 
 STATIC_DIR = Path(__file__).parent / "static"
+#: The cookie is host-scoped, not port-scoped: with one name, two `uh web` on
+#: 127.0.0.1 overwrite each other's token and the older tab answers 401 to
+#: everything. One name per port gives each instance its own slot in the same jar.
+COOKIE_PREFIX = "uh_token"
+#: The token used to be random per process, so every restart invalidated every open
+#: tab. It now lives in `$UH_HOME/web-token` (0600) and survives a restart;
+#: `uh web --rotate-token` replaces it on purpose.
+TOKEN_FILE = "web-token"
 #: Requests that 404 are otherwise invisible once the server runs without a
 #: terminal (the shortcut's hidden console swallows uvicorn's access log).
 #: A missing asset then costs an F12 session on the user's side; this line puts
 #: the path and its referer where the server is started from.
 LOGGER = logging.getLogger("uh.web")
-COOKIE_NAME = "uh_token"
+COOKIE_NAME = COOKIE_PREFIX  # kept for older imports; the app uses its port-scoped name
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
     "connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; "
@@ -62,6 +70,10 @@ UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 #: An import arrives as one body: the cap stops a wrong file from filling the
 #: disk, and the route stops reading at the boundary instead of after it.
 MAX_IMPORT_BYTES = 256 * 1024 * 1024
+#: Life sign cadence on a chat stream, and the hard stop: a turn that never returns
+#: used to leave `state.streaming` true for ever, and the next message vanished.
+HEARTBEAT_S = 15.0
+TURN_CAP_S = 600.0
 #: Tools the panel's "Tester" button may run for a remote MCP server. Read-only by
 #: contract, decided on the name family: a button is not a blank cheque - anything
 #: that writes still goes through a chat turn and its approval card.
@@ -134,7 +146,8 @@ def _bearer(request: Request) -> Optional[str]:
 
 
 def require_token(request: Request) -> None:
-    supplied = request.cookies.get(COOKIE_NAME) or _bearer(request)
+    cookie_name = getattr(request.app.state, "cookie_name", COOKIE_NAME)
+    supplied = request.cookies.get(cookie_name) or _bearer(request)
     if not supplied or not secrets.compare_digest(supplied, request.app.state.token):
         raise HTTPException(status_code=401, detail="missing or invalid token")
 
@@ -187,6 +200,78 @@ _HF_MODELS = (
 )
 
 
+def _uh_version_on(host: str, port: int, timeout: float = 1.5) -> Optional[str]:
+    """Version of the UH answering on this port, or ``None``.
+
+    ``/healthz`` is unauthenticated on purpose: a second instance has no token for
+    the first one, and the answer it needs ("is this port already a UH?") carries
+    no secret.
+    """
+    import httpx
+
+    try:
+        response = httpx.get(f"http://{host}:{port}/healthz", timeout=timeout)
+    except Exception:  # noqa: BLE001 - any failure means "not a UH we can see"
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or payload.get("app") != "uh":
+        return None
+    return str(payload.get("version") or "?")
+
+
+def _open_url(url: str, *, app_window: bool = False) -> None:
+    """Open the cockpit in a browser window, best effort."""
+    import webbrowser
+
+    try:
+        if app_window:
+            import subprocess as _subprocess
+
+            for candidate in ("msedge", "chrome"):
+                try:
+                    _subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+                        [candidate, f"--app={url}"],
+                        stdout=_subprocess.DEVNULL,
+                        stderr=_subprocess.DEVNULL,
+                    )
+                    return
+                except OSError:
+                    continue
+        webbrowser.open(url)
+    except Exception:  # noqa: BLE001 - opening a browser never fails a start
+        pass
+
+
+def _stable_token(rotate: bool = False) -> str:
+    """The web token for this UH home: created once, reused at every restart.
+
+    A per-process token meant that any restart invalidated every open tab, which
+    reads exactly like "the app broke": the console fills with 401 and the page
+    used to be replaced by one sentence. The file is 0600, outside the repository,
+    and the transport guards (loopback bind, Host/Origin, Sec-Fetch-Site) are what
+    actually protect it - a rotating string was never the security boundary.
+    """
+    import stat
+
+    path = uh_config.uh_home() / TOKEN_FILE
+    if rotate or not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_urlsafe(32)
+        path.write_text(token, encoding="utf-8")
+        try:
+            path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # owner-only, on every platform
+        except OSError:  # pragma: no cover - a filesystem without chmod
+            pass
+        return token
+    saved = path.read_text(encoding="utf-8").strip()
+    return saved or _stable_token(rotate=True)
+
+
 def create_app(
     *,
     host: str = "127.0.0.1",
@@ -203,7 +288,8 @@ def create_app(
     app = FastAPI(title="UH", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     cfg = cfg or uh_config.load()
     app.state.cfg = cfg
-    app.state.token = token or secrets.token_urlsafe(32)
+    app.state.token = token or _stable_token(rotate=False)
+    app.state.cookie_name = f"{COOKIE_PREFIX}_{port}"
     app.state.active = {}  # dict[str, ChatSession]: in-flight turns
     app.state.session_models = {}  # dict[str, tuple[str, str]]: per-session model
     app.state.pulling = set()  # model names a background `ollama pull` is fetching
@@ -273,7 +359,7 @@ def create_app(
             return JSONResponse({"detail": "cross-site request refused"}, status_code=400)
         if (
             request.method in UNSAFE_METHODS
-            and request.cookies.get(COOKIE_NAME)
+            and request.cookies.get(getattr(app.state, "cookie_name", COOKIE_NAME))
             and not _bearer(request)
         ):
             # Cookie-only authentication on a state-changing call: a page the
@@ -319,11 +405,11 @@ def create_app(
         # code). The build stamp makes the mismatch visible to the client, and the
         # query string keeps a cached app.js from outliving a restart.
         page = page.replace("{{BUILD}}", __version__).replace("{{VERSION}}", __version__)
-        cookie = request.cookies.get(COOKIE_NAME)
+        cookie = request.cookies.get(app.state.cookie_name)
         if token and secrets.compare_digest(token, app.state.token):
             response = HTMLResponse(page)
             response.set_cookie(
-                COOKIE_NAME,
+                app.state.cookie_name,
                 token,
                 httponly=True,
                 samesite="strict",
@@ -337,6 +423,18 @@ def create_app(
             status_code=401,
             detail="open the URL printed by `uh web` (it carries the token)",
         )
+
+    # -- health ------------------------------------------------------------ #
+    @app.get("/healthz")
+    async def healthz() -> dict:
+        """Unauthenticated, and deliberately boring: "a UH answers here, version X".
+
+        It is what lets a second `uh web` recognise the one already holding the port,
+        instead of silently serving a different copy on the next free port - the
+        state where the browser has new files and the server does not know the new
+        routes.
+        """
+        return {"app": "uh", "version": __version__}
 
     # -- icon fallbacks ---------------------------------------------------- #
     # Declared in index.html as data URIs, so a healthy page never asks for
@@ -706,8 +804,29 @@ def create_app(
                     "settings": chat_params,
                 },
             )
+            # No event for 15 s means "still working", not "no answer": the browser
+            # needs a life sign, and so does the user watching a silent stream.
+            waited = 0.0
             while True:
-                event = await queue.get()
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    waited += HEARTBEAT_S
+                    if waited >= TURN_CAP_S:
+                        yield frame(
+                            "error",
+                            {
+                                "message": (
+                                    "aucune réponse du modèle depuis "
+                                    f"{int(TURN_CAP_S)} s : tour interrompu côté client"
+                                )
+                            },
+                        )
+                        yield frame("done", {"session": display_id(session["id"]), "capped": True})
+                        return
+                    yield frame("ping", {"waited": int(waited)})
+                    continue
+                waited = 0.0
                 if event.get("type") == "__end__":
                     yield frame("done", {"session": display_id(session["id"])})
                     return
@@ -2274,6 +2393,7 @@ def run_server(
     static_dir: Optional[Path] = None,
     port_fallback: bool = False,
     allow_remote: bool = False,
+    rotate_token: bool = False,
 ) -> int:
     """Start uvicorn and print the tokenised URL. Returns the exit code."""
     import uvicorn
@@ -2289,21 +2409,42 @@ def run_server(
     # the browser gets the new files and the server does not know the new routes
     # ("Not Found" on a button that exists). Move to the next free port instead.
     if _port_busy(host, port):
+        version = _uh_version_on(host, port)
+        if version:
+            # Two copies of the product on one host is the bug behind "the UI is
+            # broken 99% of the time": the browser gets files from disk and routes
+            # from an older process. Say it, and point at the one that answers.
+            token = _stable_token(rotate=False)
+            url = f"http://{host}:{port}/?token={token}"
+            print(
+                f"uh web: {host}:{port} sert déjà UH {version} (autre processus).",
+                file=sys.stderr,
+            )
+            print(f"  ouvre cette instance : {url}", file=sys.stderr)
+            print(
+                "  ou lance celle-ci ailleurs : uh web --port <autre port> ;"
+                " `uh web --quit-existing` arrête l'autre.",
+                file=sys.stderr,
+            )
+            if open_browser:
+                _open_url(url, app_window=app_window)
+            return 0
         free = first_free_port(host, port + 1) if port_fallback else None
         if free is None:
             where = f"{port}-{port + 9}" if port_fallback else str(port)
             print(
-                f"uh web: {host}:{where} {'are all in use' if port_fallback else 'is already in use'}."
-                " Stop the other `uh web` or pass --port.",
+                f"uh web: {host}:{where} {'are all in use' if port_fallback else 'is already in use'}"
+                " by something that is not UH. Stop it or pass --port.",
                 file=sys.stderr,
             )
             return 1
-        print(f"uh web: {host}:{port} is already in use (another `uh web`?); using {free}")
+        print(f"uh web: {host}:{port} is used by another program; using {free}")
         port = free
 
     app = create_app(
         host=host,
         port=port,
+        token=_stable_token(rotate=rotate_token),
         allow_terminal=allow_terminal,
         workspace=workspace,
         static_dir=static_dir,

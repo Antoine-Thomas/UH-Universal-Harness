@@ -28,6 +28,7 @@ even when the failing input was one.
 | --- | --- | --- | --- |
 | GET | `/` | `?token=` | HTML page (sets the cookie when the token matches) |
 | GET | `/static/*` | — | the three interface files (or `--static-dir`) |
+| GET | `/healthz` | — | `{app: "uh", version}` — **unauthenticated on purpose**: it is how a second `uh web` recognises the instance already holding the port instead of silently serving another copy on the next one. Carries no secret |
 | GET | `/favicon.ico` | — | `204`, empty. The page declares its icon as a data URI; this route answers the request a browser makes anyway (bookmark bar, "add to home screen") without a 404 in the console |
 | GET | `/apple-touch-icon.png` | — | `204`, empty — same rule as `/favicon.ico` |
 | GET | `/apple-touch-icon-precomposed.png` | — | `204`, empty — same rule as `/favicon.ico` |
@@ -157,6 +158,7 @@ served by `--static-dir` is free to use its own, but the ones below are the
 contract of the bundled one:
 
 ```
+app-banner
 attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view

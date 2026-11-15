@@ -219,7 +219,7 @@ def test_a_remote_bind_needs_the_flag(host: str) -> None:
 
 def test_a_cookie_only_post_without_origin_is_refused(tmp_path: Path, monkeypatch) -> None:
     app = make_app(tmp_path, monkeypatch)
-    cookie = {"uh_token": TOKEN}
+    cookie = {f"uh_token_{8765}": TOKEN}
 
     async def scenario():
         return await call(
@@ -245,7 +245,7 @@ def test_a_cookie_post_from_another_origin_is_refused(tmp_path: Path, monkeypatc
             "POST",
             "/api/mcp/http",
             headers={"Origin": "http://evil.example"},
-            cookies={"uh_token": TOKEN},
+            cookies={f"uh_token_{8765}": TOKEN},
             json_body={"name": "evil", "url": "http://127.0.0.1:8787"},
         )
 
@@ -263,7 +263,7 @@ def test_a_cookie_post_from_the_page_itself_is_accepted(tmp_path: Path, monkeypa
             "POST",
             "/api/mcp/http",
             headers={"Origin": BASE, "Sec-Fetch-Site": "same-origin"},
-            cookies={"uh_token": TOKEN},
+            cookies={f"uh_token_{8765}": TOKEN},
             json_body={"name": "positron", "url": "http://127.0.0.1:8787"},
         )
 
