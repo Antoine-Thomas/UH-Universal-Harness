@@ -839,45 +839,40 @@ not come from this repository.
 
 Reported after the six `fix(web)`/`fix(agent)` commits (`aaa564c`..`fa4f676`).
 Measured before touching code again; the causes are not what the symptoms suggest.
+**Delivered 2026-11-15** in `e89e3a3`..`64bd9c1`.
 
-- [x] **404 `/favicon.ico` still in the console** — measured: the instance on 8765
-      serves the *old* bundle (`/static/app.js` has no `reconcileTranscript`), so it
-      answers 404 by construction. New code answers 204. Nothing to fix in the code:
-      the running server was never restarted. A `uh web --restart` (or a build stamp
-      check in the UI) belongs here so this cannot look like a regression again.
-- [x] **"the chat loses messages / does not answer"** — same cause: old bundle on
-      the running instance. The append-only transcript is in the repository, not in
-      the process. Verification requires a restart.
-- [ ] **"the chat is too short" (context)** — measured: budget resolves to 24 000
-      tokens (`hardware.budget_for_tier()`, native window 262 144 for `lfm3:latest`),
-      not the 3 000 default. So the budget is not the cause; `max_tokens` defaults to
-      2 048 for the *answer*, which truncates a long reply. Open: raise the default
-      to 4 096 and show the truncation in the transcript instead of stopping silently.
-- [ ] **temperature ("la chaleur")** — default 0.7, panel exposes it per conversation.
-      Nothing measured as broken; the panel is the fix, and it already exists.
-- [ ] **Positron "fails again"** — measured, three distinct layers, all real:
-      1. availability is fine: `mcp_http.build_toolsets()` builds 9 tools for the
-         configured `positron` server (`mcp__positron__execute_code`, …);
-      2. **visibility is broken**: `/api/tools/status` only builds the stdio MCP
-         toolsets (`uh.toolsets.build_toolsets`) and never `mcp_http`, so the panel
-         shows `atelier` and never Positron — "configured but invisible" is exactly
-         the state we promised not to ship;
-      3. **every call is gated** by a 120 s approval card; an unanswered card returns
-         "appel refusé : … Rien n'a été exécuté", which reads as "Positron failed".
-      Fixes: list HTTP MCP servers in `/api/tools/status`; name the gate in the card
-      ("Positron wants to run execute_code") with a per-server "always allow";
-      add a "tester Positron" button that runs `list_sessions` end to end.
-- [ ] **Providers tab empty** — measured through CDP with a real click on the new
-      code: `#providers-list` renders 5 775 characters, seven providers, no console
-      error. The reachable defect is elsewhere: `showPanelTab()` has no `keys` branch,
-      so clicking the *tab* loads nothing (the list is only loaded by the ⚙ /
-      `providers-open` button), and on a collapsed panel the tab strip is visible
-      while its content is empty. Fix: `if (name === "keys") loadProviders()`.
-- [ ] **MCP `atelier` tools fail** — `mcp__atelier__search_files` answered "Erreur"
-      while its sibling calls worked; the stdio server runs `npx
-      @modelcontextprotocol/server-filesystem` on `C:/Users/searc/Desktop/NOT IA`, so
-      the search ran outside the allowed root. Either the workspace root given to the
-      server widens, or the error message says which root was refused.
+- [x] **404 `/favicon.ico` in the console** — the instance on 8765 served the old
+      bundle. Live after the restart: `204` on both icon paths, `reconcileTranscript`
+      present in the served `app.js`. The version banner also compares the *bundle*
+      (`?v=`) with `/api/status`, which is the state that made this invisible.
+- [x] **"the chat loses messages / does not answer"** — same cause (old bundle). The
+      append-only transcript is now what 8765 serves.
+- [x] **"the chat is too short"** — `max_tokens` default 2048 → 4096, and both
+      provider families report `done_reason`/`finish_reason` as one `truncated` flag
+      that `run_turn` turns into a visible notice (the flag never enters the history).
+      The context budget was measured at 24 000 tokens: never the cause.
+- [x] **Positron "fails again"** — `/api/tools/status` now probes and reports
+      `connected: true`, protocol `2025-03-26`, server `positron 0.1.74`, 9 tools
+      (measured live). The panel lists HTTP servers (it read only the cloud store),
+      "Toujours autoriser ce serveur" is a session-scoped trust in the gate, and
+      "Tester un appel" runs one read-only tool with its latency.
+- [x] **Providers tab empty** — `showPanelTab()` had no `keys` branch: the tab only
+      uncovered an empty section. Clicking it now loads the list (5 775 chars,
+      seven providers, measured through CDP with a real click).
+- [x] **MCP `atelier` "Erreur"** — a path outside the roots returns
+      `{kind: outside_root, requested, allowed, error}` naming the config line.
+- [x] **Model selection not persisted** — `POST /api/model` writes
+      `default_provider`/`default_model`; the flat writer refused the real config
+      because it holds `[[mcp.servers]]`, so `write_flat_key_preserving_tables`
+      edits the two root lines in place. Live proof: `deepseek/deepseek-flash`
+      served after a restart. The browser keeps the same pair in localStorage.
+- [x] **UHB survives UH** — the job object and the `finally` were already there;
+      closing the browser window stops nothing. `POST /api/system/quit` + a power
+      button stop UHB then the server (live: `{"quitting":true,"uhb_stopped":true}`,
+      no `uhb.exe` afterwards).
+- [x] **Confusing model selector** — two groups ("API (cloud)" then "Local (Ollama)"
+      by weight), class badges, provider name on API lines, size on local lines,
+      tool-support badge kept; the toggle now reduces to the current model.
 
 ## P19 - hermes-webui mechanisms (deferred, decided 2026-11-15)
 
