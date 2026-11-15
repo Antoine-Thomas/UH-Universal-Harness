@@ -19,6 +19,7 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,8 +90,26 @@ class Server:
             match = re.search(rf"(http://127\.0\.0\.1:{self.port}/\?token=\S+)", line)
             if match:
                 self.url = match.group(1)
+                self.wait_ready()
                 return self
         raise AssertionError("server never printed its URL:\n" + "".join(self.lines[-12:]))
+
+    def wait_ready(self, timeout: float = 30.0) -> "Server":
+        """Block until uvicorn really answers, not until it prints its URL.
+
+        The launcher prints ``UH web - http://…/?token=…`` *before* ``uvicorn.run``
+        binds the port, so reading that line is not proof the server is up: a fast
+        client (the e2e suite, a launcher timer) still gets ``connection refused``.
+        ``/healthz`` is unauthenticated on purpose, so it is the right probe.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                httpx.get(self.base + "/healthz", timeout=2.0)
+                return self
+            except httpx.HTTPError:
+                time.sleep(0.2)
+        raise AssertionError("server never answered /healthz:\n" + "".join(self.lines[-12:]))
 
     def token(self) -> str:
         return self.url.split("token=", 1)[1]
