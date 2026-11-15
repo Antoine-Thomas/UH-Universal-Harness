@@ -2563,6 +2563,12 @@ function showPanelTab(name) {
     }
   }
   if (name === "models") loadCapabilities().catch(() => {});
+  // The tab strip is visible even when the column is collapsed or the panel was
+  // opened by a shortcut: clicking "Fournisseurs" must load the list, not just
+  // uncover an empty section (that is what it did - only the ⚙ button loaded it).
+  if (name === "keys") {
+    openProviders();
+  }
   if (name === "uhb") {
     loadMemoryGraph().catch(() => {});
     loadUhb().catch(() => {});

@@ -469,3 +469,25 @@ def test_the_columns_follow_the_window_until_the_user_drags() -> None:
     assert defaults, "layout defaults must stay declarative"
     assert "sidebar: null" in defaults.group(1), "no width until the splitter is dragged"
     assert "removeProperty" in script, "clearing a drag must hand the column back to CSS"
+
+
+@KEEP
+def test_every_panel_tab_loads_its_own_content() -> None:
+    """A tab that only uncovers an empty section is a button that lies.
+
+    "Fournisseurs" was the case: the list was loaded by the ⚙ button only, so
+    clicking the tab showed a blank panel - reported as "the tab is empty".
+    """
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("function showPanelTab(name) {", 1)[1].split("\nfunction ", 1)[0]
+    html = INDEX.read_text(encoding="utf-8")
+
+    assert 'name === "keys"' in body, "the Fournisseurs tab must load the providers"
+    assert "openProviders()" in body, "one door: the same loader as the ⚙ button"
+
+    # Every view the tab switch names must exist in the markup: a tab bound to a
+    # missing section would fail silently on click.
+    views = re.findall(r'"([a-z]+-view)"', body)
+    assert len(views) >= 8, f"tab/view pairs look truncated: {views}"
+    for view in views:
+        assert f'id="{view}"' in html, f"{view} is switched but absent from index.html"
