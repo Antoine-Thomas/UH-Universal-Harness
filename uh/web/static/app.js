@@ -1119,6 +1119,29 @@ async function sendMessage(text) {
   }
 }
 
+async function quitUh() {
+  if ($("quit-uh").disabled) return;
+  // Closing the browser window leaves the server (and UHB) running: this is the
+  // only gesture that actually stops UH, so it asks once and says what it does.
+  const go = window.confirm(
+    "Quitter UH ?\n\nLe serveur s'arrête et le second brain (UHB) aussi. La page ne répondra plus."
+  );
+  if (!go) return;
+  $("quit-uh").disabled = true;
+  try {
+    const result = await api("/api/system/quit", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
+    document.body.textContent = result.uhb_stopped
+      ? "UH est arrêté, second brain compris. Tu peux fermer cet onglet."
+      : "UH est arrêté. Relance-le avec le raccourci ou `uh web`.";
+  } catch (error) {
+    $("quit-uh").disabled = false;
+    modelNote(`arrêt refusé : ${error.message}`, "warn");
+  }
+}
+
 async function stopTurn() {
   if (!state.sessionId) return;
   await api(`/api/sessions/${encodeURIComponent(state.sessionId)}/stop`, { method: "POST" });
@@ -2771,6 +2794,7 @@ function wireProviders() {
   $("tab-telemetry").addEventListener("click", () => showPanelTab("telemetry"));
   $("tab-conn").addEventListener("click", () => showPanelTab("conn"));
   $("help-open").addEventListener("click", openHelpModal);
+  $("quit-uh").addEventListener("click", quitUh);
   $("tab-data").addEventListener("click", () => showPanelTab("data"));
   // One button in the topbar, next to the Dreams one: the data panel is a place,
   // not a tab you have to know about.

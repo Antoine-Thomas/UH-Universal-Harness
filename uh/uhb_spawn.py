@@ -472,6 +472,13 @@ def _spawn(command: List[str], checkout: Path, log: Path) -> subprocess.Popen:
     if job:
         # Keep the handle for the lifetime of the child: closing it kills the job.
         _JOBS[process.pid] = job
+    else:
+        # Silent best effort is how "uhb.exe survived UH" gets reported: if the job
+        # was refused, the parent's own exit is the only thing that stops UHB.
+        print(
+            "uh web: job object unavailable - UHB will only stop if UH exits cleanly",
+            file=sys.stderr,
+        )
     handle.close()
     return process
 

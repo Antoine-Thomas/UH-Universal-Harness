@@ -1913,6 +1913,43 @@ def create_app(
             "latency_ms": round((time.perf_counter() - started) * 1000),
         }
 
+    @app.post("/api/system/quit", dependencies=[Depends(require_token)])
+    async def system_quit(payload: Annotated[dict, Body()]) -> dict:
+        """Quit UH: stop the second brain, then end this process.
+
+        Closing the browser window does not stop a server, so `uhb.exe` outlived
+        what the user thought they had closed. One button, one honest shutdown:
+        the answer is sent first, then the process ends - with UHB already stopped,
+        so nothing is left behind even when the job object was refused.
+        """
+        from .. import uhb_spawn
+        from ..providers_admin import is_loopback_bind
+
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403, detail="quitter UH n'est permis que si le serveur écoute en loopback"
+            )
+        if not (payload or {}).get("confirm"):
+            raise HTTPException(status_code=400, detail='envoie {"confirm": true} pour quitter')
+        active = [key for key in getattr(app.state, "active", {})]
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail="un tour est en cours : arrête-le (Stop) avant de quitter UH",
+            )
+        stopped = await asyncio.to_thread(uhb_spawn.stop_running)
+
+        async def end_soon() -> None:
+            # The response must reach the browser, then the process ends: uvicorn
+            # has no "exit now" path, and a half-stopped server holding the port is
+            # exactly the state this route exists to remove.
+            await asyncio.sleep(0.5)
+            LOGGER.warning("quit requested from the interface: stopping uh web")
+            os._exit(0)
+
+        asyncio.get_running_loop().create_task(end_soon())
+        return {"quitting": True, "uhb_stopped": stopped}
+
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])
     async def search(q: str, limit: int = 20) -> dict:

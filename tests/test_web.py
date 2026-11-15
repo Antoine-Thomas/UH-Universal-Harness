@@ -1361,3 +1361,28 @@ def test_the_three_boost_states(running: bool, installed: bool, expected: str) -
         patch.setattr(ollama_spawn, "find_binary", lambda: "binary" if installed else None)
         patch.setattr(ollama_spawn, "models", lambda *a, **k: ["qwen3:8b"] if running else [])
         assert ollama_spawn.status()["boost"] == expected
+
+
+def test_quitting_uh_needs_a_confirmation_and_a_free_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route ends the process: it must refuse a stray POST above all.
+
+    Closing the browser window leaves `uh web` (and UHB) running - that is the
+    real leak. The explicit quit is the fix, so its guards matter more than its
+    happy path (which is verified live, not here: it calls os._exit).
+    """
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            without = await http.post("/api/system/quit", headers=AUTH, json={})
+            assert without.status_code == 400, "no confirm, no exit"
+            assert "confirm" in without.json()["detail"]
+
+            app.state.active["session-1"] = object()
+            busy = await http.post("/api/system/quit", headers=AUTH, json={"confirm": True})
+            assert busy.status_code == 409, "a running turn must not be cut by a quit"
+            app.state.active.clear()
+
+    run(scenario())

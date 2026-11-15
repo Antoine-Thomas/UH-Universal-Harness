@@ -89,6 +89,7 @@ even when the failing input was one.
 | POST | `/api/mcp/approvals/{ticket}` | `{allow: bool, always?: bool}` | `{resolved: true, ticket, allow, always, trusted}` — answers one pending call; anything but `allow: true` refuses it and nothing runs. `always: true` trusts that **server** for the life of the process (in memory only, never written); `trusted` lists the servers trusted so far · `404` expired or unknown ticket · `403` off loopback |
 | POST | `/api/mcp/{name}/call` | `{tool, arguments?}` | `{ok: true, server, tool, result, latency_ms}` — runs **one read-only tool** for the panel's "Tester un appel" button (`list_*`, `get_*`, `search_*`, `read*` only: a write is unreachable this way and still needs a chat turn and its approval card); a failing connection answers `{ok: false, error, latency_ms}` · `400` a tool that is not read-only · `404` unknown server · `403` off loopback |
 | POST | `/api/dreams/run` | `{budget?}` | one pass now, in its own process: `{started: true, pid, budget, log}` · `400` budget not an integer · `409` a pass is already running |
+| POST | `/api/system/quit` | `{confirm: true}` | `{quitting: true, uhb_stopped}` — stops the UHB this process started, answers, then ends `uh web`. Closing the browser window never stops a server, which is how `uhb.exe` outlived UH · `400` without `confirm` · `403` off loopback · `409` a turn is still running |
 | POST | `/api/uhb/start` | — | starts UHB from the panel (off the event loop, 25 s budget): `{connected: true, …status}` · `{connected: false, reason, log, checkout}` when it still does not answer · `400` `UH_UHB_URL` disabled · `503` the spawn itself failed |
 | POST | `/api/uhb/stop` | — | stops the UHB this process started: `{connected: false, stopped}` |
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
@@ -170,7 +171,7 @@ memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
 layout  menu-toggle  messages  model-advanced  model-note  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
-providers-open  providers-panel  router-settings  search
+providers-open  providers-panel  router-settings  search  quit-uh
 remote-banner  search-results  send  session-list  session-title  sidebar
 sidebar-toggle
 splash  splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
