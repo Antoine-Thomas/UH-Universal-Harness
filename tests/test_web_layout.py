@@ -491,3 +491,20 @@ def test_every_panel_tab_loads_its_own_content() -> None:
     assert len(views) >= 8, f"tab/view pairs look truncated: {views}"
     for view in views:
         assert f'id="{view}"' in html, f"{view} is switched but absent from index.html"
+
+
+@KEEP
+def test_the_model_choice_is_remembered_by_the_browser_too() -> None:
+    """A restart that forgets the model is the bug; two memories are the fix.
+
+    config.toml carries the choice, and the browser keeps the same pair: when the
+    file refuses the write (a hand-edited config), the page still restores what
+    the user picked instead of showing the first local model.
+    """
+    script = APP.read_text(encoding="utf-8")
+
+    assert 'const MODEL_CHOICE_KEY = "uh.selected_model"' in script
+    assert "storeModelChoice(" in script, "the switch must write the pair"
+    assert "storedModelChoice()" in script, "and the boot must read it back"
+    assert "state.modelRestored" in script, "one restore attempt, never a loop"
+    assert 'result.persisted === false' in script, "a refused config write is shown"

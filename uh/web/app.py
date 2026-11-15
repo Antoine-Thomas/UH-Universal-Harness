@@ -240,8 +240,19 @@ def create_app(
                 str(cfg.get("omnirouter_model") or ""),
                 preferred=str(cfg.get("default_provider") or "") or None,
             )
-            app.state.kind = chain[0][0]
-            app.state.model = resolved
+            # `chain[0]` is the first link of the *fallback* order (local first),
+            # not necessarily the pair the user chose. Reporting it made the header
+            # say "ollama · deepseek-flash": two things that do not go together.
+            preferred_kind = str(cfg.get("default_provider") or "").strip().lower()
+            kinds = [kind for kind, _ in chain]
+            if preferred_kind and preferred_kind in kinds:
+                app.state.kind = preferred_kind
+                app.state.model = resolved
+            else:
+                # The chosen provider is not usable (no key, not installed): say
+                # which pair is actually serving, model included.
+                app.state.kind = chain[0][0]
+                app.state.model = str(getattr(chain[0][1], "model", "") or resolved)
         except ProviderError as exc:
             app.state.provider_error = str(exc)
 
@@ -2079,6 +2090,17 @@ def create_app(
             app.state.provider_factory(kind, model)
         except ProviderError as exc:
             raise HTTPException(status_code=400, detail=_provider_detail(exc, kind, model)) from exc
+        # The header switch is the product's default, not a per-tab whim: it goes
+        # to config.toml, so the next `uh web` starts on the same model instead of
+        # silently falling back to the first local one.
+        persisted = True
+        try:
+            uh_config.write_layer("user", "default_provider", kind)
+            uh_config.write_layer("user", "default_model", model)
+        except uh_config.ConfigError:
+            # A hand-written config with a nested table: the switch still holds for
+            # this process, and the answer says plainly that it was not saved.
+            persisted = False
         if session_id:
             session = _session_or_404(app, str(session_id))
             app.state.session_models[session["id"]] = (kind, model)
@@ -2087,9 +2109,10 @@ def create_app(
                 "provider": kind,
                 "model": model,
                 "note": note,
+                "persisted": persisted,
             }
         app.state.kind, app.state.model = kind, model
-        return {"provider": kind, "model": model, "note": note}
+        return {"provider": kind, "model": model, "note": note, "persisted": persisted}
 
     # Jalon 7a: provider panel. Imported late to keep the module import light.
     from .providers_api import register_provider_routes

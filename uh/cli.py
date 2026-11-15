@@ -567,7 +567,18 @@ def _build_chain(
 
     reasons: list[str] = []
     ollama_entry: tuple[str, Provider] | None = None
+    requested_model = model
     ollama_model = model
+    if ollama_model:
+        # A configured ``default_model`` can name a cloud model ("deepseek-flash").
+        # Using it as an Ollama tag built a local link carrying a cloud id: the
+        # header read "ollama · deepseek-flash" and the chosen provider was ignored.
+        try:
+            local_names = [str(item["name"]) for item in list_models()]
+        except ProviderError:
+            local_names = []
+        if local_names and ollama_model not in local_names:
+            ollama_model = None
 
     if not ollama_model:
         try:
@@ -647,6 +658,7 @@ def _build_chain(
 
     resolved = (
         ollama_model
+        or requested_model
         or str(getattr(chain[0][1], "model", "") or "")
         or omnirouter_model
         or DEFAULT_OMNIROUTER_MODEL

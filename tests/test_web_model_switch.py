@@ -219,3 +219,70 @@ def test_a_catalogue_provider_is_listed_once(monkeypatch, calls, tmp_path) -> No
     pairs = [(row["provider"], row["id"]) for row in payload["choices"]]
     assert len(pairs) == len(set(pairs)), f"duplicate entries: {pairs}"
     assert ("deepseek", "deepseek-flash") in pairs
+
+
+def test_the_header_choice_survives_a_restart(monkeypatch, calls, tmp_path) -> None:
+    """Picking deepseek-flash and restarting used to come back on lfm3: «non persisté».
+
+    The switch is written to config.toml, so a second app built on the same home
+    starts on the pair the user chose - not on the first local model it finds.
+    """
+    body = call(
+        monkeypatch,
+        calls,
+        tmp_path,
+        "POST",
+        "/api/model",
+        body={"provider": "deepseek", "model": "deepseek-flash"},
+    ).json()
+
+    assert body["provider"] == "deepseek"
+    assert body["persisted"] is True
+    config = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert 'default_provider = "deepseek"' in config
+    assert 'default_model = "deepseek-flash"' in config
+
+    # Restart: a new app on the same home reads the pair back. A cloud provider
+    # only joins the chain when its key exists, so the restart needs one.
+    import uh.keys as keys_mod
+    import uh.providers.deepseek as deepseek_mod
+    import uh.providers.ollama as ollama
+
+    import uh.cli as cli_mod
+
+    monkeypatch.setattr(ollama, "list_models", lambda timeout=1.5: LOCAL)
+    # cli imported the function by name: patching the module is not enough.
+    monkeypatch.setattr(cli_mod, "list_models", lambda timeout=1.5: LOCAL)
+    monkeypatch.setattr(deepseek_mod, "resolve_api_key", lambda *a, **k: "sk-test")
+    monkeypatch.setattr(keys_mod, "has_key", lambda name: name == "deepseek")
+    fresh = create_app(
+        token=TOKEN,
+        port=PORT,
+        host="127.0.0.1",
+        workspace=tmp_path,
+        provider_factory=lambda kind, model: None,
+    )
+    assert fresh.state.kind == "deepseek", "the chosen provider is the default at boot"
+    assert fresh.state.model == "deepseek-flash"
+
+
+def test_a_refused_write_is_reported_not_hidden(monkeypatch, calls, tmp_path) -> None:
+    """A config the writer cannot touch must say so, not fail the switch."""
+    import uh.web.app as web_app
+
+    def refuse(*args, **kwargs):
+        raise web_app.uh_config.ConfigError("nested table")
+
+    monkeypatch.setattr(web_app.uh_config, "write_layer", refuse)
+
+    body = call(
+        monkeypatch,
+        calls,
+        tmp_path,
+        "POST",
+        "/api/model",
+        body={"provider": "deepseek", "model": "deepseek-flash"},
+    ).json()
+
+    assert body["provider"] == "deepseek", "the switch still holds for this process"
+    assert body["persisted"] is False, "and the browser is told it was not saved"

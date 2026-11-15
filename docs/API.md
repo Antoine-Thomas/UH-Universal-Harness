@@ -94,7 +94,7 @@ even when the failing input was one.
 | POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
 | GET | `/api/models` | — | `{provider, model, current, choices: [{id, provider, local, note}], ollama, providers, pulling}` — an API provider appears only when it holds a key |
-| POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider, note}` · `400` when the pair does not fit (a local id with an API provider, an uninstalled Ollama model, an unknown provider) |
+| POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider, note, persisted}` — the pair is **written to `config.toml`** (`default_provider`, `default_model`), so the next `uh web` starts on it; `persisted: false` means the file refused the write (a hand-edited config with a table) and the switch only holds for this process · `400` when the pair does not fit (a local id with an API provider, an uninstalled Ollama model, an unknown provider) |
 | GET | `/api/providers` | — | `{providers: [{name, base_url, model, keys, verified, custom, in_chain}], key_entry_allowed, keys: {cloudflare: {configured, source, account_id, key_hints}, deepseek: {configured, key_hints}, omniroute: {detected, base_url, has_key, config_path}}}` |
 | GET | `/api/providers/presets` | — | `{presets: [{name, label, base_url, model}], gateway_only: [{name, label, note}]}` · form defaults only, nothing is stored |
 | POST | `/api/providers/{name}/keys` | `{key}` | `{stored: true, keys: n}` · `400` · `403` off loopback · `404` unknown |

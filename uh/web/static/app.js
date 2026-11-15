@@ -274,6 +274,31 @@ async function loadStatus() {
 // current one is the only line, because a dropdown of five local models is a
 // question nobody asked while trying to type a message.
 const MODELS_ADVANCED_KEY = "uh.models.advanced";
+//: The header's last choice, kept in the browser as well as in config.toml: the
+//: server write can be refused (a hand-edited config), and a restart that forgets
+//: the model is the bug this pair exists to prevent.
+const MODEL_CHOICE_KEY = "uh.selected_model";
+
+function storedModelChoice() {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(MODEL_CHOICE_KEY) || "null");
+    if (!raw || !raw.provider || !raw.model) return null;
+    return { provider: String(raw.provider), model: String(raw.model) };
+  } catch (error) {
+    return null;
+  }
+}
+
+function storeModelChoice(provider, model) {
+  try {
+    window.localStorage.setItem(
+      MODEL_CHOICE_KEY,
+      JSON.stringify({ provider, model, at: new Date().toISOString() })
+    );
+  } catch (error) {
+    /* a private window has no storage: config.toml still carries the choice */
+  }
+}
 
 function modelsAdvanced() {
   try {
@@ -327,6 +352,28 @@ async function loadModels() {
   const current = data.current || { id: data.model, provider: data.provider || "ollama" };
   const advanced = modelsAdvanced();
 
+  // A browser that remembers a choice the server does not (a refused config write,
+  // a config.toml edited by hand) restores it once, then shows what the server
+  // says. Guarded by state.modelRestored: one attempt, never a loop.
+  const saved = storedModelChoice();
+  if (
+    saved &&
+    !state.modelRestored &&
+    (saved.provider !== current.provider || saved.model !== current.id)
+  ) {
+    state.modelRestored = true;
+    try {
+      await api("/api/model", {
+        method: "POST",
+        body: JSON.stringify({ provider: saved.provider, model: saved.model }),
+      });
+      await loadModels();
+      return;
+    } catch (error) {
+      modelNote(`modèle enregistré indisponible : ${error.message}`, "warn");
+    }
+  }
+
   const groups = new Map();
   for (const choice of choices) {
     const isCurrent = choice.id === current.id && choice.provider === current.provider;
@@ -374,9 +421,16 @@ async function loadModels() {
     const payload = { provider, model };
     if (state.sessionId) payload.session_id = state.sessionId;
     try {
-      await api("/api/model", { method: "POST", body: JSON.stringify(payload) });
+      const result = await api("/api/model", { method: "POST", body: JSON.stringify(payload) });
       // The select already shows the model: the note only confirms the engine.
-      modelNote(providerLabel(provider, provider === "ollama"), "ok");
+      storeModelChoice(provider, model);
+      const where = providerLabel(provider, provider === "ollama");
+      modelNote(
+        result && result.persisted === false
+          ? `${where} · choix non enregistré (config.toml non modifiable)`
+          : where,
+        result && result.persisted === false ? "warn" : "ok"
+      );
     } catch (error) {
       // A refused switch changed nothing: put the selector back where it was.
       select.value = `${current.provider}/${current.id}`;
