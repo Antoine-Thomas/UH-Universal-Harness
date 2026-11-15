@@ -25,6 +25,7 @@ import secrets
 import sys
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Callable, Iterator, Optional
@@ -33,7 +34,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, attachments
+from .. import __version__, attachments, turnlog
 from .. import commands as uh_commands
 from .. import config as uh_config
 from ..console import ChatSession, Console
@@ -735,8 +736,43 @@ def create_app(
         loop = asyncio.get_running_loop()
         queue: "asyncio.Queue[dict]" = asyncio.Queue()
 
+        # One journal line per turn event: what ran, how long, and how it ended. The
+        # turn id ties the lines together; nothing a user typed goes in it.
+        turn_id = uuid.uuid4().hex[:8]
+        turn_started = time.perf_counter()
+        tool_since: dict[str, float] = {}
+        turn_reason = "done"
+
         def emit(event: dict) -> None:
+            nonlocal turn_reason
+            kind = str(event.get("type") or "")
+            try:
+                if kind == "tool_call":
+                    name = str(event.get("name") or "tool")
+                    tool_since[name] = time.perf_counter()
+                    turnlog.event("tool_start", turn=turn_id, tool=name)
+                elif kind == "tool_result":
+                    name = str(event.get("name") or "tool")
+                    began = tool_since.pop(name, None)
+                    elapsed = int((time.perf_counter() - began) * 1000) if began else None
+                    # ok/error only: the payload is the user's data.
+                    status = "error" if '"error"' in str(event.get("content") or "") else "ok"
+                    turnlog.event("tool_end", turn=turn_id, tool=name, ms=elapsed, status=status)
+                elif kind == "error":
+                    turn_reason = "error"
+                    turnlog.event("turn_error", turn=turn_id, detail=str(event.get("message") or "")[:200])
+            except Exception:  # noqa: BLE001 - the journal never breaks a turn
+                pass
             loop.call_soon_threadsafe(queue.put_nowait, event)
+
+        turnlog.event(
+            "turn_start",
+            turn=turn_id,
+            session=display_id(session["id"]),
+            provider=kind,
+            model=model,
+            budget=chat_params.get("max_tokens") if isinstance(chat_params, dict) else None,
+        )
 
         def work() -> None:
             store = None
@@ -791,6 +827,13 @@ def create_app(
                 emit({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
             finally:
                 app.state.active.pop(session["id"], None)
+                turnlog.event(
+                    "turn_end",
+                    turn=turn_id,
+                    reason=turn_reason,
+                    ms=int((time.perf_counter() - turn_started) * 1000),
+                    tools=len(tool_since),
+                )
                 emit({"type": "__end__"})
                 if store is not None:
                     store.close()
@@ -816,6 +859,7 @@ def create_app(
                 except asyncio.TimeoutError:
                     waited += HEARTBEAT_S
                     if waited >= TURN_CAP_S:
+                        turnlog.event("turn_end", turn=turn_id, reason="deadline")
                         yield frame(
                             "error",
                             {

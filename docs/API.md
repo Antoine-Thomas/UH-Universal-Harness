@@ -22,6 +22,23 @@ in the same commit as any route change.
 Error shape is always `{"detail": "<message>"}`. Messages never contain a key,
 even when the failing input was one.
 
+### Turn journal
+
+Every chat turn appends one line per event to `$UH_HOME/uh-web.log` (rotated at
+1 MB, 3 backups), keyed by a turn id:
+
+```text
+2026-11-15 16:04:11 turn turn_start turn=ab12cd34 session=1458-af7d provider=deepseek model=deepseek-flash
+2026-11-15 16:04:11 turn tool_start turn=ab12cd34 tool=execute_code
+2026-11-15 16:04:15 turn tool_end   turn=ab12cd34 tool=execute_code ms=4210 status=ok
+2026-11-15 16:04:16 turn turn_end   turn=ab12cd34 reason=done ms=5120 tools=0
+```
+
+`reason` is `done`, `error`, `deadline` (the 10-minute cap) or `stopped`.
+The journal never contains a prompt, an answer, a tool argument or a key: only
+names, counts, durations and verdicts. It exists to answer "why did my turn never
+come back", which nothing else in the product could.
+
 ## Routes
 
 | Method | Path | Body / query | Response |
