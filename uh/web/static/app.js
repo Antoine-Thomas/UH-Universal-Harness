@@ -152,34 +152,45 @@ function approvalCard(data) {
 
   const actions = el("div", "tool-actions");
   const allow = el("button", "data-button primary", "Autoriser");
+  const always = el("button", "data-button", "Toujours autoriser ce serveur");
   const deny = el("button", "data-button", "Refuser");
   allow.type = "button";
+  always.type = "button";
   deny.type = "button";
+  always.title = "Vaut pour cette session : redémarrer UH redemande l'accord";
   actions.appendChild(allow);
+  actions.appendChild(always);
   actions.appendChild(deny);
   card.appendChild(actions);
   $("messages").appendChild(card);
   $("messages").scrollTop = $("messages").scrollHeight;
 
-  const answer = async (granted) => {
+  const answer = async (granted, forever = false) => {
     allow.disabled = true;
+    always.disabled = true;
     deny.disabled = true;
     try {
       await api(`/api/mcp/approvals/${encodeURIComponent(data.id)}`, {
         method: "POST",
-        body: JSON.stringify({ allow: granted }),
+        body: JSON.stringify({ allow: granted, always: forever }),
       });
-      actions.textContent = granted ? "Autorisé." : "Refusé : rien n'a été exécuté.";
+      actions.textContent = !granted
+        ? "Refusé : rien n'a été exécuté."
+        : forever
+          ? `Autorisé pour cette session : « ${data.server} » ne redemandera plus.`
+          : "Autorisé.";
     } catch (error) {
       actions.textContent = `Cette demande n'est plus valable (${error.message}).`;
     }
   };
   allow.addEventListener("click", () => answer(true));
+  always.addEventListener("click", () => answer(true, true));
   deny.addEventListener("click", () => answer(false));
   if (data.timeout) {
     setTimeout(() => {
       if (!allow.disabled) {
         allow.disabled = true;
+        always.disabled = true;
         deny.disabled = true;
         actions.textContent = "Délai dépassé : la demande a expiré, rien n'a été exécuté.";
       }
@@ -4483,6 +4494,42 @@ function mcpServerRow(server) {
     }
   });
   row.appendChild(test);
+  // A green dot says "the handshake worked", not "a tool answers". One read-only
+  // call, timed, is the difference between a promise and a measurement - and it
+  // is the answer to "Positron marche ou pas ?" without leaving the panel.
+  if (server.transport !== "stdio") {
+    const readOnly = (server.tools || []).find((name) =>
+      /^(list_|get_|search_)/.test(String(name))
+    );
+    const probe = el("button", "data-button", "Tester un appel");
+    probe.type = "button";
+    probe.setAttribute("aria-label", `Exécuter un outil en lecture seule sur ${server.name}`);
+    probe.title = `Exécute ${readOnly || "list_sessions"} et mesure la latence`;
+    probe.addEventListener("click", async () => {
+      probe.disabled = true;
+      state.textContent = "appel en cours…";
+      try {
+        const result = await api(`/api/mcp/${encodeURIComponent(server.name)}/call`, {
+          method: "POST",
+          body: JSON.stringify({ tool: readOnly || "list_sessions" }),
+        });
+        if (result.ok) {
+          const preview = JSON.stringify(result.result || {}).slice(0, 140);
+          state.textContent = `appel ok · ${result.latency_ms} ms · ${preview}`;
+          dot.className = "dot dot-ok";
+        } else {
+          state.textContent = `appel refusé : ${result.error}`;
+          dot.className = "dot dot-warn";
+        }
+      } catch (error) {
+        state.textContent = `échec de l'appel : ${error.message}`;
+        dot.className = "dot dot-warn";
+      } finally {
+        probe.disabled = false;
+      }
+    });
+    row.appendChild(probe);
+  }
   return row;
 }
 
@@ -4823,15 +4870,23 @@ async function loadConnections() {
   if (!servers.length) note = "";
   try {
     const status = await api("/api/tools/status");
-    const stdio = ((status.mcp || {}).servers || []).map((server) => ({
+    const mcp = status.mcp || {};
+    const stdio = (mcp.servers || []).map((server) => ({
       ...server,
       transport: "stdio",
       url: server.command || "",
       has_token: false,
     }));
-    servers = servers.concat(stdio);
+    // The HTTP entries declared in config.toml (Positron, an IDE…) are not in the
+    // cloud store: reading only that store is why the panel showed none of them
+    // while the model could already call their tools.
+    const seen = new Set(servers.map((item) => `${item.name}|${item.url || ""}`));
+    const http = (mcp.http || [])
+      .filter((server) => !seen.has(`${server.name}|${server.url || ""}`))
+      .map((server) => ({ ...server, transport: "http", has_token: false }));
+    servers = servers.concat(http, stdio);
   } catch (error) {
-    /* no stdio list: the http rows are enough to work */
+    /* no tool list: the cloud rows are enough to work */
   }
   view.appendChild(mcpSection(servers, note));
 }

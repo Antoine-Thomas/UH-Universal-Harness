@@ -734,11 +734,25 @@ KIND_TO_STATE = {
 }
 
 
-def status() -> List[Dict[str, Any]]:
-    """Every HTTP entry with the state this process can prove, no network call."""
+def status(probe: bool = False) -> List[Dict[str, Any]]:
+    """Every HTTP entry with the state this process can prove.
+
+    ``probe=True`` adds one handshake attempt for an entry that is not live yet.
+    Without it the panel could only say "configured, 0 tool" - which is what made
+    a working Positron look broken: nothing in the process had ever tried it. The
+    probe records a failure with its reason, so a real one is reported as such.
+    """
     rows: List[Dict[str, Any]] = []
     for server in servers_from_config():
         key = server.key()
+        if probe:
+            with _LOCK:
+                live = _CLIENTS.get(key)
+            if live is None or not live.alive:
+                try:
+                    client_for(server)
+                except MCPError:
+                    pass  # reported below, from _FAILED
         with _LOCK:
             client = _CLIENTS.get(key)
             failed = _FAILED.get(key)
@@ -863,16 +877,30 @@ class ApprovalGate:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._pending: Dict[str, Ticket] = {}
+        #: Servers the user trusted for the life of this process ("toujours
+        #: autoriser"). In memory only: a restart asks again, and nothing about a
+        #: permission decision is ever written to disk.
+        self._trusted: set[str] = set()
+
+    def trust(self, server: str) -> None:
+        with self._lock:
+            self._trusted.add(server)
+
+    def trusted(self) -> List[str]:
+        with self._lock:
+            return sorted(self._trusted)
 
     def pending(self) -> List[Dict[str, Any]]:
         with self._lock:
             return [ticket.public() for ticket in self._pending.values()]
 
-    def resolve(self, ticket_id: str, allow: bool) -> bool:
+    def resolve(self, ticket_id: str, allow: bool, always: bool = False) -> bool:
         with self._lock:
             ticket = self._pending.get(ticket_id)
         if ticket is None:
             return False
+        if always and allow:
+            self.trust(ticket.server)
         ticket.answer = bool(allow)
         ticket.done.set()
         return True
@@ -886,6 +914,10 @@ class ApprovalGate:
         notify: Callable[[Dict[str, Any]], None],
         timeout: float = APPROVAL_TIMEOUT,
     ) -> bool:
+        with self._lock:
+            if server in self._trusted:
+                # The user already said "always" for this server in this session.
+                return True
         ticket = Ticket(server, tool, arguments)
         with self._lock:
             self._pending[ticket.id] = ticket

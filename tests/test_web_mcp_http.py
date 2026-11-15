@@ -240,3 +240,88 @@ def test_no_tool_runs_without_an_approver(tmp_path, monkeypatch) -> None:
         )
         assert mcp_http.build_toolsets() == {}
         assert json.dumps(mcp_http.status()) .count("positron") >= 1
+
+
+def test_the_tools_panel_shows_a_configured_http_server(tmp_path, monkeypatch) -> None:
+    """Positron was configured, reachable, offered to the model - and invisible.
+
+    /api/tools/status listed only the stdio toolsets, so the panel could never
+    answer "does Positron work?". It probes once and reports the tools it got.
+    """
+    app = make_app(tmp_path, monkeypatch)
+    with FakeMCP() as fake:
+
+        async def scenario():
+            await call(
+                app, "POST", "/api/mcp/http", json_body={"name": "positron", "url": fake.url}
+            )
+            return await call(app, "GET", "/api/tools/status")
+
+        response = run(scenario())
+
+    assert response.status_code == 200, response.text
+    rows = response.json()["mcp"]["http"]
+    positron = next(row for row in rows if row["name"] == "positron")
+    assert positron["connected"] is True, positron
+    assert positron["transport"] == "http"
+    assert positron["tools"] == ["read", "write", "list"]
+    assert positron["error"] == ""
+
+
+def test_the_probe_button_runs_a_read_tool_and_refuses_a_write(tmp_path, monkeypatch) -> None:
+    """One timed read-only call is the proof; a write is not reachable this way."""
+    app = make_app(tmp_path, monkeypatch)
+    with FakeMCP() as fake:
+
+        async def scenario():
+            await call(
+                app, "POST", "/api/mcp/http", json_body={"name": "positron", "url": fake.url}
+            )
+            ok = await call(app, "POST", "/api/mcp/positron/call", json_body={"tool": "list"})
+            refused = await call(
+                app, "POST", "/api/mcp/positron/call", json_body={"tool": "write"}
+            )
+            return ok, refused
+
+        ok, refused = run(scenario())
+
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["ok"] is True, body
+    assert body["tool"] == "list"
+    assert body["latency_ms"] >= 0
+    assert refused.status_code == 400
+    assert "lecture seule" in refused.json()["detail"]
+
+
+def test_never_ask_again_is_a_session_decision(tmp_path, monkeypatch) -> None:
+    """« Toujours autoriser » lives in memory: no file, and a restart asks again."""
+    import threading
+    import time
+
+    gate = mcp_http.ApprovalGate()
+    asked: list[dict] = []
+
+    def notify(event):
+        asked.append(event)
+
+    def answer_soon():
+        for _ in range(300):
+            pending = gate.pending()
+            if pending:
+                gate.resolve(pending[0]["id"], True, always=True)
+                return
+            time.sleep(0.01)
+
+    threading.Thread(target=answer_soon, daemon=True).start()
+    assert gate.ask("positron", "execute_code", {}, notify=notify, timeout=5.0) is True
+    assert gate.trusted() == ["positron"]
+
+    # Second call: the same server, no question at all.
+    asked.clear()
+    assert gate.ask("positron", "execute_code", {}, notify=notify, timeout=1.0) is True
+    assert asked == [], "a trusted server must not ask again"
+
+    # Another server is still gated.
+    assert gate.ask("atelier", "write_file", {}, notify=notify, timeout=0.1) is False
+    assert len(asked) == 1, "an untrusted server still asks"

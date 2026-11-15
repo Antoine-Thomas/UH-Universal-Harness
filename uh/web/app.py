@@ -62,6 +62,11 @@ UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 #: An import arrives as one body: the cap stops a wrong file from filling the
 #: disk, and the route stops reading at the boundary instead of after it.
 MAX_IMPORT_BYTES = 256 * 1024 * 1024
+#: Tools the panel's "Tester" button may run for a remote MCP server. Read-only by
+#: contract, decided on the name family: a button is not a blank cheque - anything
+#: that writes still goes through a chat turn and its approval card.
+MCP_PROBE_TOOL_RE = re.compile(r"^(list_|get_|search_|read|list$|describe|info)", re.IGNORECASE)
+MCP_PROBE_TOOLS_HELP = "list_*, get_*, search_*, read* (lecture seule)"
 
 
 # --------------------------------------------------------------------------- #
@@ -1357,7 +1362,20 @@ def create_app(
         # Positron entry that exists.
         from .. import mcp_http as uh_mcp_http
 
-        http_rows = await asyncio.to_thread(uh_mcp_http.status)
+        # One handshake attempt per unprobed entry, so the panel can say
+        # "connecté, 9 outils" instead of "configuré, 0 outil" over a server that
+        # nothing had ever tried. Bounded: a server that hangs must not hang the
+        # panel, and the bounded fallback is the network-free snapshot.
+        def _probe() -> list:
+            return uh_mcp_http.status(probe=True)
+
+        try:
+            http_rows = await asyncio.wait_for(asyncio.to_thread(_probe), timeout=8.0)
+        except asyncio.TimeoutError:
+            http_rows = await asyncio.to_thread(uh_mcp_http.status)
+        http_rows = [
+            {**row, "error": row.get("error") or row.get("reason") or ""} for row in http_rows
+        ]
         if http_rows:
             connected_count = sum(1 for row in http_rows if row.get("connected"))
             summary = f"{connected_count}/{len(http_rows)} serveur(s) HTTP connecté(s)"
@@ -1813,13 +1831,76 @@ def create_app(
                 detail="answering an approval is only allowed when uh web listens on loopback",
             )
         body = payload or {}
-        resolved = uh_mcp_http.GATE.resolve(ticket, bool(body.get("allow")))
+        resolved = uh_mcp_http.GATE.resolve(
+            ticket, bool(body.get("allow")), always=bool(body.get("always"))
+        )
         if not resolved:
             raise HTTPException(
                 status_code=404,
                 detail="cette demande a expiré ou n'existe plus",
             )
-        return {"resolved": True, "ticket": ticket, "allow": bool(body.get("allow"))}
+        return {
+            "resolved": True,
+            "ticket": ticket,
+            "allow": bool(body.get("allow")),
+            "always": bool(body.get("always")),
+            "trusted": uh_mcp_http.GATE.trusted(),
+        }
+
+    @app.post("/api/mcp/{name}/call", dependencies=[Depends(require_token)])
+    async def mcp_call(name: str, payload: Annotated[dict, Body()]) -> dict:
+        """Run one read-only tool for a "Tester" button, and time it.
+
+        The human is the approver: they clicked. Only :data:`MCP_PROBE_TOOLS` is
+        reachable this way, so a bug in the panel cannot become a remote write,
+        and the answer carries the latency - a green dot without a number is a
+        promise, not a measurement.
+        """
+        from .. import mcp_http as uh_mcp_http
+        from ..providers_admin import is_loopback_bind
+
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403,
+                detail="tester un serveur MCP n'est permis que si uh web écoute en loopback",
+            )
+        body = payload or {}
+        tool = str(body.get("tool") or "list_sessions").strip()
+        if not MCP_PROBE_TOOL_RE.match(tool):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"« {tool} » n'est pas un outil de test en lecture seule ; "
+                    f"autorisés : {MCP_PROBE_TOOLS_HELP}"
+                ),
+            )
+        server = next(
+            (item for item in uh_mcp_http.servers_from_config() if item.name == name), None
+        )
+        if server is None:
+            known = ", ".join(item.name for item in uh_mcp_http.servers_from_config()) or "aucun"
+            raise HTTPException(
+                status_code=404, detail=f"aucun serveur MCP HTTP nommé « {name} » (connus : {known})"
+            )
+        started = time.perf_counter()
+        try:
+            client = await asyncio.to_thread(uh_mcp_http.client_for, server)
+            result = await asyncio.to_thread(client.call, tool, dict(body.get("arguments") or {}))
+        except uh_mcp_http.MCPError as exc:
+            return {
+                "ok": False,
+                "server": name,
+                "tool": tool,
+                "error": str(exc),
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+            }
+        return {
+            "ok": True,
+            "server": name,
+            "tool": tool,
+            "result": result,
+            "latency_ms": round((time.perf_counter() - started) * 1000),
+        }
 
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])
