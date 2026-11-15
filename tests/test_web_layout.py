@@ -449,3 +449,23 @@ def test_every_form_field_can_be_autofilled() -> None:
             offenders.append(f"app.js:{script[: match.start()].count(chr(10)) + 1}")
 
     assert not offenders, "form fields without an id or a name: " + ", ".join(offenders)
+
+
+@KEEP
+def test_the_columns_follow_the_window_until_the_user_drags() -> None:
+    """Fixed 260/340 px columns is the "hard frame": a laptop loses its chat.
+
+    The splitter still writes an explicit width when it is dragged - that part is
+    the user's choice - but the default has to come from the stylesheet clamp.
+    """
+    css = CSS.read_text(encoding="utf-8")
+    grid = css.split(".layout {", 1)[1].split("}", 1)[0]
+    assert "clamp(" in grid, "the default column widths must be fluid"
+    assert "var(--sidebar-w, 260px)" not in css
+    assert "var(--right-w, 340px)" not in css
+
+    script = APP.read_text(encoding="utf-8")
+    defaults = re.search(r"const LAYOUT_DEFAULTS = \{([^}]*)\}", script)
+    assert defaults, "layout defaults must stay declarative"
+    assert "sidebar: null" in defaults.group(1), "no width until the splitter is dragged"
+    assert "removeProperty" in script, "clearing a drag must hand the column back to CSS"

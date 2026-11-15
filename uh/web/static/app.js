@@ -490,7 +490,10 @@ function wireAttachments() {
 
 // ---------------------------------------------------------------- sessions --
 const LAYOUT_KEY = "uh.layout.v1";
-const LAYOUT_DEFAULTS = { sidebar: 260, right: 340, sidebarCollapsed: false };
+// null = "follow the window". A column width in px only exists once the user has
+// dragged the splitter; until then the stylesheet clamps it, so a 1280 px laptop
+// does not lose 600 px of conversation to two fixed columns.
+const LAYOUT_DEFAULTS = { sidebar: null, right: null, sidebarCollapsed: false };
 const LAYOUT_LIMITS = { sidebar: [180, 460], right: [200, 560] };
 
 function layoutPrefs() {
@@ -513,8 +516,14 @@ function saveLayoutPrefs(patch) {
 
 function applyLayoutPrefs(prefs = layoutPrefs()) {
   const style = $("layout").style;
-  style.setProperty("--sidebar-w", `${prefs.sidebar}px`);
-  style.setProperty("--right-w", `${prefs.right}px`);
+  // A stored (or dragged) width wins; no width means the CSS clamp decides.
+  for (const [key, property] of [
+    ["sidebar", "--sidebar-w"],
+    ["right", "--right-w"],
+  ]) {
+    if (typeof prefs[key] === "number") style.setProperty(property, `${prefs[key]}px`);
+    else style.removeProperty(property);
+  }
   $("layout").classList.toggle("sidebar-collapsed", Boolean(prefs.sidebarCollapsed));
   const toggle = $("sidebar-toggle");
   toggle.textContent = prefs.sidebarCollapsed ? "»" : "«";
