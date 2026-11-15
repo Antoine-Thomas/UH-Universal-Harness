@@ -835,6 +835,59 @@ not come from this repository.
 - [ ] a screenshot of the connected state, filed next to
       `docs/assets/p14-connected.png`.
 
+## P18 - 1.7.0 field report (opened 2026-11-15)
+
+Reported after the six `fix(web)`/`fix(agent)` commits (`aaa564c`..`fa4f676`).
+Measured before touching code again; the causes are not what the symptoms suggest.
+
+- [x] **404 `/favicon.ico` still in the console** — measured: the instance on 8765
+      serves the *old* bundle (`/static/app.js` has no `reconcileTranscript`), so it
+      answers 404 by construction. New code answers 204. Nothing to fix in the code:
+      the running server was never restarted. A `uh web --restart` (or a build stamp
+      check in the UI) belongs here so this cannot look like a regression again.
+- [x] **"the chat loses messages / does not answer"** — same cause: old bundle on
+      the running instance. The append-only transcript is in the repository, not in
+      the process. Verification requires a restart.
+- [ ] **"the chat is too short" (context)** — measured: budget resolves to 24 000
+      tokens (`hardware.budget_for_tier()`, native window 262 144 for `lfm3:latest`),
+      not the 3 000 default. So the budget is not the cause; `max_tokens` defaults to
+      2 048 for the *answer*, which truncates a long reply. Open: raise the default
+      to 4 096 and show the truncation in the transcript instead of stopping silently.
+- [ ] **temperature ("la chaleur")** — default 0.7, panel exposes it per conversation.
+      Nothing measured as broken; the panel is the fix, and it already exists.
+- [ ] **Positron "fails again"** — measured, three distinct layers, all real:
+      1. availability is fine: `mcp_http.build_toolsets()` builds 9 tools for the
+         configured `positron` server (`mcp__positron__execute_code`, …);
+      2. **visibility is broken**: `/api/tools/status` only builds the stdio MCP
+         toolsets (`uh.toolsets.build_toolsets`) and never `mcp_http`, so the panel
+         shows `atelier` and never Positron — "configured but invisible" is exactly
+         the state we promised not to ship;
+      3. **every call is gated** by a 120 s approval card; an unanswered card returns
+         "appel refusé : … Rien n'a été exécuté", which reads as "Positron failed".
+      Fixes: list HTTP MCP servers in `/api/tools/status`; name the gate in the card
+      ("Positron wants to run execute_code") with a per-server "always allow";
+      add a "tester Positron" button that runs `list_sessions` end to end.
+- [ ] **Providers tab empty** — measured through CDP with a real click on the new
+      code: `#providers-list` renders 5 775 characters, seven providers, no console
+      error. The reachable defect is elsewhere: `showPanelTab()` has no `keys` branch,
+      so clicking the *tab* loads nothing (the list is only loaded by the ⚙ /
+      `providers-open` button), and on a collapsed panel the tab strip is visible
+      while its content is empty. Fix: `if (name === "keys") loadProviders()`.
+- [ ] **MCP `atelier` tools fail** — `mcp__atelier__search_files` answered "Erreur"
+      while its sibling calls worked; the stdio server runs `npx
+      @modelcontextprotocol/server-filesystem` on `C:/Users/searc/Desktop/NOT IA`, so
+      the search ran outside the allowed root. Either the workspace root given to the
+      server widens, or the error message says which root was refused.
+
+## P19 - hermes-webui mechanisms (deferred, decided 2026-11-15)
+
+Not before 1.7.0 is stable. Four mechanisms from `nesquena/hermes-webui` are worth
+porting, none of them blocking a demo: `data-tid` on tool cards so a result finds
+its card however the events interleave; a "a response was in progress when you
+left" banner backed by server-side turn state; model + Stop in the composer footer;
+the `aria` tree contract from `static/a11y-helpers.js`. Reading only - no vendoring
+of a 123 000-line front end into a 5 300-line one.
+
 ## Tauri vs client MCP - the decision, not the build
 
 **Criteria**, in the order they matter to this product: (1) first launch without a
