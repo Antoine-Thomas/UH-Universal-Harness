@@ -846,6 +846,68 @@ function parseFrames(buffer, onEvent) {
   return rest;
 }
 
+// One stream frame must never take the whole turn down. A single bad payload
+// (a node that is not there, an unexpected shape) used to throw inside
+// parseFrames, which caught it, replayed the event as `{raw}`, and left the
+// answer half-rendered with no visible reason.
+function guardedStep(label, step) {
+  try {
+    step();
+  } catch (error) {
+    console.error(`chat: "${label}" handler failed`, error);
+    const bubble = appendMessage("system", `Évènement « ${label} » illisible : ${error.message}`);
+    bubble.classList.add("failed");
+  }
+}
+
+// The store is written by the turn's worker thread, so right after `done` it can
+// still be one message behind the DOM. Rebuilding the thread from it - what the
+// finally block used to do after every turn - is exactly how an answer the user
+// had just read disappeared. Reconcile instead: adopt the ids the store does
+// know about, and say so when it holds fewer rows than the screen. Nothing is
+// ever removed here.
+async function reconcileTranscript() {
+  const data = await api(`/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=200`);
+  const boxes = [...$("messages").querySelectorAll(".msg")];
+  const stored = data.messages || [];
+  updateGauge(stored);
+  if (stored.length < boxes.length) {
+    console.warn(
+      `transcript: the store returned ${stored.length} message(s) for ${boxes.length} on screen; keeping the DOM`
+    );
+    const bubble = appendMessage(
+      "system",
+      "Le transcript enregistré contient moins de messages que l'écran : rien n'a été effacé. Recharge la session pour le relire depuis le store."
+    );
+    bubble.classList.add("failed");
+    return;
+  }
+  const claimed = new Set(
+    boxes.map((box) => box.dataset.messageId).filter((id) => id !== undefined)
+  );
+  for (const box of boxes) {
+    if (box.dataset.messageId !== undefined) continue;
+    const role = box.classList.contains("user")
+      ? "user"
+      : box.classList.contains("assistant")
+        ? "assistant"
+        : "system";
+    const node = box.querySelector(".content");
+    const text = node ? node.textContent : "";
+    // Matched on role + exact text, last unclaimed wins: the streamed bubble is
+    // the one that was just added, not an older twin of the same question.
+    const match = stored.find(
+      (message) =>
+        !claimed.has(String(message.id)) &&
+        (message.role || "assistant") === role &&
+        (message.content || "") === text
+    );
+    if (!match) continue;
+    claimed.add(String(match.id));
+    box.dataset.messageId = match.id;
+  }
+}
+
 async function sendMessage(text) {
   if (state.streaming) return;
   if (!state.sessionId) await newSession();
@@ -855,10 +917,14 @@ async function sendMessage(text) {
   $("send").disabled = true;
   $("stop").disabled = false;
   appendMessage("user", attachments.length ? `${text}\n\n[${attachments.length} file(s) attached]` : text);
-  let assistant = appendMessage("assistant", "");
+  const assistant = appendMessage("assistant", "");
+  // Held here instead of re-found later: `lastChild` stopped being the content
+  // node once the Markdown swap ran, and `querySelector(".content")` returned
+  // null on a bubble whose content node had already been swapped out.
+  const assistantContent = assistant.querySelector(".content") || assistant.appendChild(el("div", "content"));
   let assistantText = "";
   let openCard = null;
-  // Set when the turn failed. The finally-block used to re-fetch the store and
+  // Set when the turn failed. The finally block used to re-fetch the store and
   // redraw the transcript on every outcome - so a 500 erased the question and the
   // error together, which reads as "the app swallowed my message".
   let failed = "";
@@ -900,49 +966,62 @@ async function sendMessage(text) {
       buffer += decoder.decode(value, { stream: true });
       buffer = parseFrames(buffer, (event, data) => {
         if (event === "token") {
-          assistantText += data.text || "";
-          assistant.lastChild.textContent = assistantText;
-          $("messages").scrollTop = $("messages").scrollHeight;
+          guardedStep("token", () => {
+            assistantText += data.text || "";
+            assistantContent.textContent = assistantText;
+            $("messages").scrollTop = $("messages").scrollHeight;
+          });
         } else if (event === "tool_call") {
-          openCard = toolCard(data.name, data.args, undefined);
+          guardedStep("tool_call", () => {
+            openCard = toolCard(data.name, data.args, undefined);
+          });
         } else if (event === "tool_result") {
-          if (openCard) {
-            fillToolCard(openCard, data.content);
-            openCard = null;
-          } else {
-            toolCard(data.name, null, data.content);
-          }
+          guardedStep("tool_result", () => {
+            if (openCard) {
+              fillToolCard(openCard, data.content);
+              openCard = null;
+            } else {
+              toolCard(data.name, null, data.content);
+            }
+          });
+        } else if (event === "notice") {
+          guardedStep("notice", () => {
+            appendMessage("system", String(data.message || ""));
+          });
         } else if (event === "approval") {
-          approvalCard(data);
+          guardedStep("approval", () => {
+            approvalCard(data);
+          });
         } else if (event === "error") {
-          failed = data.message || "error";
-          const bubble = appendMessage("assistant", `Erreur du modèle : ${failed}`);
-          bubble.classList.add("failed");
+          guardedStep("error", () => {
+            failed = data.message || "error";
+            const bubble = appendMessage("assistant", `Erreur du modèle : ${failed}`);
+            bubble.classList.add("failed");
+          });
         } else if (event === "done") {
-          const content = assistant.querySelector(".content");
-          if (!assistantText && !content.textContent.trim()) {
-            // A bubble that disappears looks like the app ate the question.
-            assistant.classList.add("failed");
-            content.textContent =
-              "Le modèle n'a rien renvoyé. Réessaie, ou choisis un autre modèle avec « ⋯ ».";
-          } else {
-            // The stream was appended as plain text; swap in the Markdown
-            // rendering now that the answer is complete.
-            content.classList.add("md");
-            content.innerHTML = renderMarkdown(assistantText);
-          }
+          guardedStep("done", () => {
+            if (!assistantText && !assistantContent.textContent.trim()) {
+              // A bubble that disappears looks like the app ate the question.
+              assistant.classList.add("failed");
+              assistantContent.textContent =
+                "Le modèle n'a rien renvoyé. Réessaie, ou choisis un autre modèle avec « ⋯ ».";
+            } else {
+              // The stream was appended as plain text; swap in the Markdown
+              // rendering now that the answer is complete.
+              assistantContent.classList.add("md");
+              assistantContent.innerHTML = renderMarkdown(assistantText);
+            }
+          });
         }
       });
     }
   } catch (error) {
     if (error.name !== "AbortError") {
       failed = error.message || "erreur inconnue";
-      assistant.remove();
-      const bubble = appendMessage(
-        "assistant",
-        `Erreur du modèle : ${failed}. Réessaie, ou choisis un autre modèle avec « ⋯ ».`
-      );
-      bubble.classList.add("failed");
+      // The bubble stays. Removing it is what made a failed turn look like the
+      // question had been swallowed along with the answer.
+      assistant.classList.add("failed");
+      assistantContent.textContent = `Erreur du modèle : ${failed}. Réessaie, ou choisis un autre modèle avec « ⋯ ».`;
     }
   } finally {
     state.streaming = false;
@@ -950,11 +1029,11 @@ async function sendMessage(text) {
     $("send").disabled = false;
     $("stop").disabled = true;
     if (!failed) {
-      const data = await api(
-        `/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=200`
-      );
-      renderHistory(data.messages);
-      updateGauge(data.messages);
+      try {
+        await reconcileTranscript();
+      } catch (error) {
+        console.warn("transcript: reconcile failed, keeping what is on screen", error);
+      }
     }
     loadSessions();
   }

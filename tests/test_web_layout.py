@@ -390,3 +390,36 @@ def test_the_shell_reads_as_a_window_and_a_phone_gets_none() -> None:
     assert "overflow: hidden" in layout, "the rounded corners have to clip the columns"
     assert "body { padding: 0; }" in mobile, "a phone is full bleed"
     assert ".layout { border: 0; border-radius: 0; box-shadow: none; }" in mobile
+
+
+@KEEP
+def test_a_finished_turn_never_rebuilds_the_thread() -> None:
+    """A redraw from the store after every turn is how an answer vanished.
+
+    The store is written by the turn's worker thread, so right after `done` it can
+    still be one message behind the DOM. Rebuilding the thread from it erased the
+    reply the user had just read; the turn now reconciles in place instead.
+    """
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("async function sendMessage(text) {", 1)[1].split(
+        "async function stopTurn()", 1
+    )[0]
+
+    assert "renderHistory(" not in body, "sendMessage must not redraw from the store"
+    assert "reconcileTranscript(" in body, "the turn ends by reconciling, not redrawing"
+    assert "assistant.remove()" not in body, "a failed turn keeps its bubble"
+    assert "assistant.lastChild" not in body, "the content node is held, not guessed"
+
+
+@KEEP
+def test_the_reconciliation_never_removes_a_message() -> None:
+    """Fewer rows in the store than on screen is a lag, not a deletion order."""
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("async function reconcileTranscript() {", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+
+    assert ".remove()" not in body
+    assert 'textContent = ""' not in body
+    assert "stored.length < boxes.length" in body, "a short store must be detected"
+    assert "dataset.messageId" in body, "the ids are what the store is read for"
