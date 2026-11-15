@@ -109,6 +109,44 @@ _SESSION_ERROR = re.compile(
     re.IGNORECASE,
 )
 
+#: The filesystem MCP server refuses a path outside its roots with one sentence:
+#: "Access denied - path outside allowed directories: <asked> not in <roots>".
+_ROOT_REFUSAL = re.compile(
+    r"outside (?:the )?allowed director(?:y|ies)\W*:?\s*(?P<requested>.+?)\s+not in\s+(?P<allowed>.+)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def outside_root(text: str, server: str) -> Optional[Dict[str, Any]]:
+    """The filesystem server's refusal, as data a model or a user can act on.
+
+    The server says it in one sentence ("Access denied - path outside allowed
+    directories: X not in Y"). Returning "Erreur" discarded the only useful part:
+    which path was asked for, which roots exist, and the line to change.
+    """
+    match = _ROOT_REFUSAL.search(text or "")
+    if match is None:
+        return None
+    requested = match.group("requested").strip().splitlines()[0].strip(" \t'S\"")
+    allowed = [
+        part.strip().strip("'\"")
+        for part in re.split(r"\s*,\s*", match.group("allowed").strip().splitlines()[0])
+        if part.strip(" '\"")
+    ]
+    message = (
+        f"« {requested} » est hors des racines autorisées du serveur '{server}' "
+        f"({', '.join(allowed) or 'aucune'}). Rien n'a été lu ni écrit. "
+        f"Élargis le root dans ~/.uh/config.toml : [[mcp.servers]] name = \"{server}\", "
+        "l'argument de chemin de la commande."
+    )
+    return {
+        "kind": "outside_root",
+        "requested": requested,
+        "allowed": allowed,
+        "error": message,
+        "text": message,
+    }
+
 
 def session_hint(text: str, server: str) -> str:
     """A sentence the model can act on when an IDE has no live session."""
@@ -632,6 +670,12 @@ class Client:
         if structured is not None:
             payload["structured"] = structured
         if result.get("isError"):
+            # A path outside the server's roots is a configuration fact, not a
+            # generic failure: "Erreur" told the user nothing and the model tried
+            # three other tools instead of naming the one line to change.
+            outside = outside_root(text, self.config.name)
+            if outside is not None:
+                return {**payload, **outside}
             hint = session_hint(text, self.config.name)
             message = f"{hint}\n\n{text}" if hint else (text or "the MCP server reported an error")
             return {**payload, "text": message, "error": message, "kind": "tool"}
