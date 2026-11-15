@@ -164,7 +164,7 @@ class OllamaProvider(Provider):
 
         # The final NDJSON event carries prompt_eval_count / eval_count.
         self._record_meta(model=final.get("model"), usage=final)
-        streamed = {"role": "assistant", "content": "".join(parts), "tool_calls": tool_calls}
+        streamed: dict = {"role": "assistant", "content": "".join(parts), "tool_calls": tool_calls}
         if final.get("done_reason") == "length":
             streamed["truncated"] = True
         return streamed

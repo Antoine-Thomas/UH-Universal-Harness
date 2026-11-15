@@ -244,11 +244,10 @@ def test_the_header_choice_survives_a_restart(monkeypatch, calls, tmp_path) -> N
 
     # Restart: a new app on the same home reads the pair back. A cloud provider
     # only joins the chain when its key exists, so the restart needs one.
+    import uh.cli as cli_mod
     import uh.keys as keys_mod
     import uh.providers.deepseek as deepseek_mod
     import uh.providers.ollama as ollama
-
-    import uh.cli as cli_mod
 
     monkeypatch.setattr(ollama, "list_models", lambda timeout=1.5: LOCAL)
     # cli imported the function by name: patching the module is not enough.

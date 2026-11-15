@@ -297,7 +297,7 @@ class OmniRouterProvider(Provider):
             raise self._error(exc) from exc
 
         self._record_meta(model=served_model, usage=usage)
-        streamed = {
+        streamed: dict = {
             "role": "assistant",
             "content": "".join(parts),
             "tool_calls": [fragments[index] for index in sorted(fragments)],
