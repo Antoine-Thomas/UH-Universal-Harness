@@ -895,9 +895,18 @@ class ApprovalGate:
             return [ticket.public() for ticket in self._pending.values()]
 
     def resolve(self, ticket_id: str, allow: bool, always: bool = False) -> bool:
+        """Answer one question, once.
+
+        ``done`` is the whole point of the check: the worker removes the ticket from
+        ``_pending`` in its ``finally``, but only *after* being scheduled again. A
+        second POST that lands in that window used to re-resolve a ticket whose
+        answer had already been given, and the route answered 200 instead of 404.
+        On a loaded runner that window is wide enough to fail a test - and in the
+        product it means "answer once" was a hope, not a rule.
+        """
         with self._lock:
             ticket = self._pending.get(ticket_id)
-        if ticket is None:
+        if ticket is None or ticket.done.is_set():
             return False
         if always and allow:
             self.trust(ticket.server)
