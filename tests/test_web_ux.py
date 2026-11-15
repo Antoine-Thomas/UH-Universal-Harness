@@ -221,3 +221,27 @@ def test_data_no_longer_offers_a_connection() -> None:
     assert 'dataSection("Sauvegarde"' in APP_JS
     assert 'dataSection("Skills"' in APP_JS
     assert 'el("div", "tool-name", "Réparer UH")' in APP_JS
+
+
+def test_the_model_menu_separates_api_from_local() -> None:
+    """Two categories, cloud first, local by weight: a flat list hid the difference.
+
+    The user reported "listes à plat, pas de groupement, pas de badge": this pins
+    the two optgroups, the provider name next to an API id, and the size next to a
+    local one (which is also the sort key).
+    """
+    start = APP_JS.index("async function loadModels(")
+    following = re.search(r"\n(?:async )?function ", APP_JS[start + 1 :])
+    body = APP_JS[start : start + 1 + following.start()] if following else APP_JS[start:]
+
+    assert '["API (cloud)", api]' in body, "cloud models are their own group, first"
+    assert '["Local (Ollama)", local]' in body, "local models are the second group"
+    assert "Number(b.size || 0) - Number(a.size || 0)" in body, "local models sort by weight"
+    assert "replace(\"API · \", \"\")" in body, "the provider is shown next to the id"
+    assert "Go" in body, "a local line carries its size"
+
+
+def test_the_menu_shows_both_groups_by_default() -> None:
+    """A chooser that shows one option is a label with a chevron."""
+    body = APP_JS.split("function modelsAdvanced() {", 1)[1].split("\n}", 1)[0]
+    assert "stored === null ? true" in body, "unset means the full list"

@@ -253,14 +253,28 @@ async function loadStatus() {
   // calling a route its server has never heard of.
   const pageVersion = String(document.body.dataset.uhVersion || "");
   const servedVersion = String(status.version || "");
+  // What this script was served with. The page and the bundle can disagree after a
+  // restart (a cached app.js keeps running code the server no longer serves), and
+  // that is the state where a button calls a route that is not there.
+  let bundleBuild = "";
+  try {
+    bundleBuild = new URL(import.meta.url).searchParams.get("v") || "";
+  } catch (error) {
+    bundleBuild = "";
+  }
   const warning = $("version-warning");
   if (warning) {
-    const stale = Boolean(pageVersion && servedVersion && pageVersion !== servedVersion);
-    warning.hidden = !stale;
-    if (stale) {
+    const stalePage = Boolean(pageVersion && servedVersion && pageVersion !== servedVersion);
+    const staleBundle = Boolean(bundleBuild && servedVersion && bundleBuild !== servedVersion);
+    warning.hidden = !stalePage && !staleBundle;
+    if (stalePage) {
       warning.textContent =
         `Interface ${pageVersion} servie par un serveur ${servedVersion} : une ancienne instance ` +
         "occupe encore le port. Ferme cette fenêtre et relance « uh web ».";
+    } else if (staleBundle) {
+      warning.textContent =
+        `UH a été mis à jour (interface ${bundleBuild}, serveur ${servedVersion}) : ` +
+        "recharge la page pour charger le code du serveur.";
     }
   }
   if (status.provider_error) {
@@ -270,9 +284,10 @@ async function loadStatus() {
   }
 }
 
-// Which models the header offers. The full list is one click away; by default the
-// current one is the only line, because a dropdown of five local models is a
-// question nobody asked while trying to type a message.
+// Which models the header offers. Both categories are visible by default: the one
+// distinction that matters (a paid API vs a local model) and the provider name were
+// hidden behind a flat list of ids. The toggle now REDUCES the menu to the current
+// model instead of being the only way to see the rest.
 const MODELS_ADVANCED_KEY = "uh.models.advanced";
 //: The header's last choice, kept in the browser as well as in config.toml: the
 //: server write can be refused (a hand-edited config), and a restart that forgets
@@ -302,7 +317,10 @@ function storeModelChoice(provider, model) {
 
 function modelsAdvanced() {
   try {
-    return window.localStorage.getItem(MODELS_ADVANCED_KEY) === "1";
+    const stored = window.localStorage.getItem(MODELS_ADVANCED_KEY);
+    // Unset means the full list: the menu is a chooser, and a chooser that shows
+    // one option is a label with a chevron.
+    return stored === null ? true : stored === "1";
   } catch (error) {
     return false;
   }
@@ -374,24 +392,42 @@ async function loadModels() {
     }
   }
 
-  const groups = new Map();
-  for (const choice of choices) {
-    const isCurrent = choice.id === current.id && choice.provider === current.provider;
-    if (!advanced && !isCurrent) continue;
-    const label = providerLabel(choice.provider, choice.local);
-    if (!groups.has(label)) groups.set(label, []);
-    groups.get(label).push(choice);
-  }
+  // Two categories, in a fixed order: the cloud models first (they are the ones a
+  // user pays for and picks deliberately), then the local ones by weight - the
+  // biggest is the one worth trying, and alphabetical order said nothing about it.
+  const api = choices
+    .filter((choice) => !choice.local)
+    .sort((a, b) => `${a.provider}${a.id}`.localeCompare(`${b.provider}${b.id}`));
+  const local = choices
+    .filter((choice) => choice.local)
+    .sort((a, b) => Number(b.size || 0) - Number(a.size || 0) || a.id.localeCompare(b.id));
+  const groups = [
+    ["API (cloud)", api],
+    ["Local (Ollama)", local],
+  ];
+
   for (const [label, items] of groups) {
+    const visible = items.filter(
+      (choice) =>
+        advanced || (choice.id === current.id && choice.provider === current.provider)
+    );
+    if (!visible.length) continue;
     const group = document.createElement("optgroup");
     group.label = label;
-    for (const choice of items) {
-      const mark = choice.local ? "💻" : "☁️";
-      const note = choice.note && choice.note !== "actif" ? ` · ${choice.note}` : "";
+    for (const choice of visible) {
+      const mark = choice.local ? "💻 Local" : "☁️ API";
+      // The provider is part of the name: "deepseek-flash" alone does not say who
+      // serves it, and the same id can exist on two providers.
+      const providerName = choice.local
+        ? ""
+        : ` · ${providerLabel(choice.provider, false).replace("API · ", "")}`;
+      const size = choice.local && choice.size
+        ? ` · ${(Number(choice.size) / 1_000_000_000).toFixed(1)} Go`
+        : "";
       // Only when the provider says so: /api/models answers null when it cannot
       // tell, and a badge on a working model is worse than no badge.
       const warn = choice.tools_ok === false ? " · outils non fiables" : "";
-      const option = el("option", null, `${mark} ${choice.id}${note}${warn}`);
+      const option = el("option", null, `${mark} ${choice.id}${providerName}${size}${warn}`);
       if (choice.tools_ok === false) {
         option.title = "Ce modèle ne déclare pas le support des outils : il risque de répondre par du code.";
       }

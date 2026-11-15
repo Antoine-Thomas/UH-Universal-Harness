@@ -1973,24 +1973,32 @@ def create_app(
         from ..providers_admin import read_providers
 
         local: list[str] = []
+        local_rows: list[dict] = []
         try:
             from ..providers.ollama import list_models
 
-            local = [entry["name"] for entry in list_models(timeout=1.5)]
+            local_rows = [
+                {"name": str(entry["name"]), "size": int(entry.get("size") or 0)}
+                for entry in list_models(timeout=1.5)
+            ]
         except ProviderError:
-            local = []
+            local_rows = []
+        local = [row["name"] for row in local_rows]
 
         choices: list[dict] = [
             {
-                "id": name,
+                "id": row["name"],
                 "provider": "ollama",
                 "local": True,
                 "note": "",
+                # The menu sorts local models by weight: the biggest one is the one
+                # worth trying first, and a flat alphabetical list said nothing.
+                "size": row["size"],
                 # Asked, not assumed: a local model that cannot call tools is
                 # the usual reason a turn comes back as a code block.
-                "tools_ok": _local_tools_ok(name),
+                "tools_ok": _local_tools_ok(row["name"]),
             }
-            for name in local
+            for row in local_rows
         ]
         configured = read_providers()
         for spec_name, spec in provider_catalog().items():
