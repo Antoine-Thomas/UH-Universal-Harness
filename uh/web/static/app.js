@@ -1715,6 +1715,43 @@ function keyActions(form, label) {
   return result;
 }
 
+// One row per stored key: the masked hint the server already returns, and a delete
+// button wired to the route that exists (DELETE .../keys with a 1-based index). The
+// value never reaches the browser, so deletion is by position - and the confirmation
+// names the hint, because "delete key 2" is not a question anyone can answer.
+function keyRows(card, provider, hints) {
+  const list = el("div", "key-rows");
+  hints.forEach((hint, position) => {
+    const row = el("div", "key-row");
+    row.appendChild(el("span", "key-hint", hint || `clé ${position + 1}`));
+    const drop = el("button", "data-button danger", "Supprimer");
+    drop.type = "button";
+    drop.setAttribute("aria-label", `Supprimer la clé ${position + 1} de ${provider}`);
+    drop.addEventListener("click", async () => {
+      const sure = window.confirm(
+        `Supprimer la clé « ${hint || position + 1} » de ${provider} ?\n\n` +
+          "Elle ne sera plus utilisée par UH. Cette action est immédiate."
+      );
+      if (!sure) return;
+      drop.disabled = true;
+      try {
+        await api(`/api/providers/${encodeURIComponent(provider)}/keys`, {
+          method: "DELETE",
+          body: JSON.stringify({ index: position + 1 }),
+        });
+        await loadProviders();
+      } catch (error) {
+        row.appendChild(el("span", "panel-hint", `refusé : ${error.message}`));
+        drop.disabled = false;
+      }
+    });
+    row.appendChild(drop);
+    list.appendChild(row);
+  });
+  card.appendChild(list);
+  return list;
+}
+
 function cloudflareCard(section) {
   const card = keyCard("Cloudflare Workers AI", "free", "ok");
   let status = "not configured";
@@ -1726,6 +1763,11 @@ function cloudflareCard(section) {
   card.appendChild(el("div", "provider-meta", status));
   if (section.account_id) {
     card.appendChild(el("div", "provider-url", `account ${section.account_id}`));
+  }
+  // Only a value UH stores can be deleted from here: "from the environment" belongs
+  // to the caller's shell, not to this panel.
+  if (state.keyEntryAllowed && section.source !== "environment" && (section.key_hints || []).length) {
+    keyRows(card, "cloudflare", section.key_hints);
   }
 
   if (state.keyEntryAllowed) {
@@ -1771,6 +1813,11 @@ function deepseekCard(section) {
         : "not configured",
     ),
   );
+  // A revoked key stayed on screen for ever because nothing could remove it: the
+  // route existed, the interface had no button.
+  if (state.keyEntryAllowed && (section.key_hints || []).length) {
+    keyRows(card, "deepseek", section.key_hints);
+  }
 
   if (state.keyEntryAllowed) {
     const form = el("form", "custom-form");

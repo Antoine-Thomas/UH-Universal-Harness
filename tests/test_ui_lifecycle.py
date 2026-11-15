@@ -177,3 +177,22 @@ def test_the_model_menu_does_not_freeze_the_event_loop() -> None:
     assert "list_models(timeout=1.5)" in route, "the probe still happens, just off-loop"
     # The blocking call must live inside the sync helper, not in the route body.
     assert route.index("def _local_menu()") < route.index("list_models(timeout=1.5)")
+
+
+def test_a_stored_key_can_be_deleted_from_the_panel() -> None:
+    """INVARIANT: every stored key has a delete button, on the route that exists.
+
+    A revoked key stayed on screen for ever: the route (DELETE by 1-based index)
+    existed, the panel only printed "N key(s) · hints". The value never reaches the
+    browser, so the button deletes by position and names the mask.
+    """
+    script = APP.read_text(encoding="utf-8")
+    assert "function keyRows(" in script
+    assert 'method: "DELETE"' in script
+    assert "/api/providers/${encodeURIComponent(provider)}/keys" in script
+    assert "window.confirm(" in script, "deleting a key is irreversible: ask"
+    # Wired for both providers that expose hints.
+    assert 'keyRows(card, "deepseek"' in script
+    assert 'keyRows(card, "cloudflare"' in script
+    # And it re-reads the list instead of guessing the new state.
+    assert "await loadProviders()" in script
