@@ -7,6 +7,7 @@ artifact a unit test can hold - and the factory the reloader uses. The live proo
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -168,7 +169,11 @@ def test_the_connections_tab_says_what_it_configures() -> None:
 def test_the_model_menu_carries_the_provider_and_a_badge() -> None:
     """The same id can exist on two providers: the menu says which one, and how."""
     start = APP_JS.index("async function loadModels(")
-    body = APP_JS[start : start + 3200]
+    # Bounded by the next top-level function, not by a character count: the menu
+    # gained a tools badge and a fixed window then cut the assertions off.
+    following = re.search(r"\n(?:async )?function ", APP_JS[start + 1 :])
+    end = start + 1 + following.start() if following else len(APP_JS)
+    body = APP_JS[start:end]
     assert '"optgroup"' in body, "local and API entries are grouped"
     assert "providerLabel(" in body
     assert "💻" in body and "☁️" in body, "local vs API, without reading the URL"

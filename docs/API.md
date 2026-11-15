@@ -28,6 +28,9 @@ even when the failing input was one.
 | --- | --- | --- | --- |
 | GET | `/` | `?token=` | HTML page (sets the cookie when the token matches) |
 | GET | `/static/*` | — | the three interface files (or `--static-dir`) |
+| GET | `/favicon.ico` | — | `204`, empty. The page declares its icon as a data URI; this route answers the request a browser makes anyway (bookmark bar, "add to home screen") without a 404 in the console |
+| GET | `/apple-touch-icon.png` | — | `204`, empty — same rule as `/favicon.ico` |
+| GET | `/apple-touch-icon-precomposed.png` | — | `204`, empty — same rule as `/favicon.ico` |
 | GET | `/api/status` | — | `{version, provider, model, provider_error, sessions, store, schema_version, terminal, workspace}` |
 | GET | `/api/commands` | — | `{commands: [{name, aliases, help, args, group}]}` |
 | GET | `/api/sessions` | `?limit=` | `{sessions: [{…, short_id}]}` |
