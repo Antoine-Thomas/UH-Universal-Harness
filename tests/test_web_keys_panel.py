@@ -179,6 +179,24 @@ def test_cloudflare_refuses_a_wrong_account_id(
     assert keys_mod.get_provider("cloudflare") is None
 
 
+def test_cloudflare_empty_submission_is_not_a_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An untouched form must not look like a broken provider."""
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            response = await http.post(
+                "/api/providers/cloudflare/config", json={}, headers=AUTH
+            )
+            assert response.status_code == 200
+            assert response.json() == {}
+
+    run(scenario())
+    assert keys_mod.get_provider("cloudflare") is None
+
+
 def test_cloudflare_write_needs_a_loopback_bind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

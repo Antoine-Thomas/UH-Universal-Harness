@@ -415,56 +415,69 @@ class ChatSession:
             self.console.stream_write(delta)
             self._emit("token", text=delta)
 
+        produced: list[dict] = []
         try:
-            code = self._run_into(chunks, on_token)
-        except TurnCancelled:
-            self.console.errout("uh chat: stopped")
-            self._emit("error", message="stopped")
-            del self.history[before:]
-            return 1
-        except KeyboardInterrupt:
-            # Ctrl+C lands inside httpx/httpcore while a provider streams: the
-            # traceback belongs nowhere on screen, and half an answer must not
-            # be recorded. Drop the turn, keep the session alive.
-            return self._interrupted(before, chunks)
-        if code != 0:
-            del self.history[before:]
-            return code
-
-        content = (last_assistant_message(self.history) or {}).get("content") or ""
-        used_tools = any(message.get("role") == "tool" for message in self.history[before:])
-
-        if not content and used_tools:
-            # A small model can call a tool and then send an empty message. Ask
-            # once more; the synthetic nudge is dropped so it never reaches the
-            # stored session.
-            self.console.errout("uh chat: no text after a tool call, asking once more")
-            nudge = {
-                "role": "user",
-                "content": "Answer the original question now, in plain text, without calling a tool.",
-            }
-            position = len(self.history)
             try:
-                code = self._run_into(chunks, on_token, extra=[nudge])
+                code = self._run_into(chunks, on_token)
+            except TurnCancelled:
+                self.console.errout("uh chat: stopped")
+                self._emit("error", message="stopped")
+                del self.history[before:]
+                return 1
             except KeyboardInterrupt:
+                # Ctrl+C lands inside httpx/httpcore while a provider streams: the
+                # traceback belongs nowhere on screen, and half an answer must not
+                # be recorded. Drop the turn, keep the session alive.
                 return self._interrupted(before, chunks)
             if code != 0:
+                # The provider failed (HTTP, timeout, budget): the turn leaves the
+                # live history, but what was said is still recorded below - a
+                # failed turn must not erase the conversation.
+                produced = list(self.history[before:])
+                del self.history[before:]
                 return code
-            if len(self.history) > position:
-                del self.history[position]
-            content = (last_assistant_message(self.history) or {}).get("content") or ""
 
-        self._print_answer(content, chunks)
-        self._record_usage(usage_before)
-        self.console.detail(self.usage_line())
-        self._note_context()
-        self._emit("answer", content=content)
-        try:
-            self._persist(self.history[before:])
-        except StoreError as exc:
-            self.console.error(f"uh chat: cannot record session: {exc}")
-        self._record_decision(started, route_before, self.history[before:])
-        return 0
+            content = (last_assistant_message(self.history) or {}).get("content") or ""
+            used_tools = any(message.get("role") == "tool" for message in self.history[before:])
+
+            if not content and used_tools:
+                # A small model can call a tool and then send an empty message. Ask
+                # once more; the synthetic nudge is dropped so it never reaches the
+                # stored session.
+                self.console.errout("uh chat: no text after a tool call, asking once more")
+                nudge = {
+                    "role": "user",
+                    "content": "Answer the original question now, in plain text, without calling a tool.",
+                }
+                position = len(self.history)
+                try:
+                    code = self._run_into(chunks, on_token, extra=[nudge])
+                except KeyboardInterrupt:
+                    return self._interrupted(before, chunks)
+                if code != 0:
+                    produced = list(self.history[before:])
+                    del self.history[before:]
+                    return code
+                if len(self.history) > position:
+                    del self.history[position]
+                content = (last_assistant_message(self.history) or {}).get("content") or ""
+
+            produced = list(self.history[before:])
+            self._print_answer(content, chunks)
+            self._record_usage(usage_before)
+            self.console.detail(self.usage_line())
+            self._note_context()
+            self._emit("answer", content=content)
+            self._record_decision(started, route_before, produced)
+            return 0
+        finally:
+            # Recorded even when the turn failed: the user's message and whatever
+            # the model managed to say survive an HTTP error, a timeout or a crash.
+            if produced:
+                try:
+                    self._persist(produced)
+                except StoreError as exc:
+                    self.console.error(f"uh chat: cannot record session: {exc}")
 
     def _route_snapshot(self) -> Optional[dict]:
         """The UHB plan on the toolset before a turn (identity, not equality).

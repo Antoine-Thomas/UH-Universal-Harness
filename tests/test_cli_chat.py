@@ -75,6 +75,39 @@ def test_once_budget_exhausted_exits_one(
     assert "max_iterations" in captured.err or "no final answer" in captured.err
 
 
+def test_a_failed_turn_is_still_recorded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A provider error must not erase the turn: the user message is stored."""
+    from uh import config as uh_config
+    from uh import console as uh_console
+    from uh.store import Store
+
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    stub = StubProvider(error=ProviderError("HTTP 500"))
+    store = Store(tmp_path / "uh.db")
+    session = uh_console.ChatSession(
+        provider_factory=lambda kind, model: stub,
+        provider_kind="stub",
+        chain=[("stub", stub)],
+        model="stub:1b",
+        toolsets={},
+        workspace=tmp_path,
+        cfg=uh_config.load(),
+        stream=True,
+        store=store,
+        max_iterations=2,
+        announce=False,
+    )
+
+    assert session.run_text("bonjour") == 1
+
+    messages = store.get_messages(session.session_id)
+    assert [message["role"] for message in messages] == ["user"]
+    assert messages[0]["content"] == "bonjour"
+    store.close()
+
+
 def test_unknown_provider_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(["chat", "--once", "--provider", "openai", "--model", "x"])
     assert code == 1

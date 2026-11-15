@@ -73,10 +73,14 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
     def save_cloudflare_config(payload: Annotated[dict, Body()]) -> dict:
         require_loopback()
         body = payload or {}
+        token = body.get("token")
+        if not token:
+            # No credential submitted: nothing to store. An empty answer, not a
+            # 400 - the panel submits this form on every save, including one the
+            # user never filled in, and a 400 there read as "Cloudflare is broken".
+            return {}
         try:
-            stored = save_cloudflare(
-                str(body.get("account_id") or ""), body.get("token")
-            )
+            stored = save_cloudflare(str(body.get("account_id") or ""), token)
         except AdminError as exc:
             raise translate(exc) from exc
         return {"stored": True, **stored}

@@ -1798,10 +1798,18 @@ function cloudflareCard(section) {
       const typed = token.value;
       token.value = ""; // cleared before the request: never re-displayed
       if (!typed) return;
+      const accountId = account.value.trim();
+      if (!accountId) {
+        // The account id is required: posting an empty one is what produced the
+        // HTTP 400. Nothing is sent, so the server never sees an empty form.
+        result.textContent = "account id required (32 hex characters)";
+        result.className = "test-result warn";
+        return;
+      }
       try {
         await api("/api/providers/cloudflare/config", {
           method: "POST",
-          body: JSON.stringify({ account_id: account.value.trim(), token: typed }),
+          body: JSON.stringify({ account_id: accountId, token: typed }),
         });
         await loadProviders();
       } catch (error) {

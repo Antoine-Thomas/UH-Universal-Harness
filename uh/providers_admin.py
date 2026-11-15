@@ -207,9 +207,9 @@ def catalog() -> dict[str, Any]:
 
 
 def _in_chain() -> set[str]:
-    from .router.provider import RouterProvider
-
     try:
+        from .router.provider import RouterProvider
+
         router = RouterProvider(cfg=uh_config.load())
     except Exception:  # noqa: BLE001 - the panel must render even when the router cannot
         return set()
