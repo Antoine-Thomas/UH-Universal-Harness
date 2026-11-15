@@ -14,6 +14,11 @@ jobs:
   test:
     name: tests (gate)
     runs-on: ubuntu-latest
+    # The e2e suite lives in the same job on purpose: publishing is irreversible
+    # (PyPI never lets a version be replaced), so the tests that actually caught the
+    # product breaking - a real server, a real browser, two instances, a stale
+    # cookie - must be part of the gate and not a separate advisory job.
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,15 +26,22 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,web]"
+          pip install playwright
+
+      - name: Browser with system libraries
+        run: python -m playwright install --with-deps chromium
 
       - name: Test
         run: pytest -q
+
+      - name: End-to-end suite (excluded from the default run)
+        run: pytest -o addopts="" -m e2e -q
 
   build-and-publish-testpypi:
     name: build + TestPyPI
