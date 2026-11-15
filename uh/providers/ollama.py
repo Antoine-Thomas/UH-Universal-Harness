@@ -116,15 +116,18 @@ class OllamaProvider(Provider):
         # model it actually served (an alias may resolve to another tag).
         self._record_meta(model=data.get("model"), usage=data)
 
-        return {
+        payload = {
             "role": "assistant",
             "content": message.get("content") or "",
             "tool_calls": _tool_calls_from(message),
-            # Ollama says why it stopped: "length" is our own cap, and an answer
-            # cut there looks complete to the browser. The loop turns this into a
-            # notice instead of letting the user believe the reply ended.
-            "truncated": data.get("done_reason") == "length",
         }
+        # Ollama says why it stopped: "length" is our own cap, and an answer cut
+        # there looks complete to the browser. The key is only present when it is
+        # true - a flag on every payload would ride into the store and the next
+        # request for no reason.
+        if data.get("done_reason") == "length":
+            payload["truncated"] = True
+        return payload
 
     def _chat_streaming(self, payload: dict, on_token: Callable[[str], None]) -> dict:
         parts: List[str] = []
@@ -161,12 +164,10 @@ class OllamaProvider(Provider):
 
         # The final NDJSON event carries prompt_eval_count / eval_count.
         self._record_meta(model=final.get("model"), usage=final)
-        return {
-            "role": "assistant",
-            "content": "".join(parts),
-            "tool_calls": tool_calls,
-            "truncated": final.get("done_reason") == "length",
-        }
+        streamed = {"role": "assistant", "content": "".join(parts), "tool_calls": tool_calls}
+        if final.get("done_reason") == "length":
+            streamed["truncated"] = True
+        return streamed
 
     def _http_error(self, status: int, body: str) -> ProviderError:
         """Turn Ollama's "this model cannot call tools" 400 into an instruction.

@@ -229,13 +229,16 @@ class OmniRouterProvider(Provider):
             raise ProviderError(f"{self.label} response has no 'choices' entry")
         message = choices[0].get("message") or {}
         self._record_meta(model=data.get("model"), usage=data.get("usage"))
-        return {
+        payload = {
             "role": "assistant",
             "content": message.get("content") or "",
             "tool_calls": _normalise_tool_calls(message.get("tool_calls")),
-            # OpenAI-compatible providers say "length" when max_tokens cut it.
-            "truncated": choices[0].get("finish_reason") == "length",
         }
+        # OpenAI-compatible providers say "length" when max_tokens cut it. Only
+        # when true: a flag on every payload would reach the store and come back.
+        if choices[0].get("finish_reason") == "length":
+            payload["truncated"] = True
+        return payload
 
     def _chat_streaming(self, payload: dict, on_token: Callable[[str], None]) -> dict:
         parts: List[str] = []
@@ -294,12 +297,14 @@ class OmniRouterProvider(Provider):
             raise self._error(exc) from exc
 
         self._record_meta(model=served_model, usage=usage)
-        return {
+        streamed = {
             "role": "assistant",
             "content": "".join(parts),
             "tool_calls": [fragments[index] for index in sorted(fragments)],
-            "truncated": stop_reason == "length",
         }
+        if stop_reason == "length":
+            streamed["truncated"] = True
+        return streamed
 
     def _payload(self, response: httpx.Response) -> dict:
         if response.status_code == 401:
