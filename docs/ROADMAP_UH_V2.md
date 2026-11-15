@@ -874,6 +874,41 @@ Measured before touching code again; the causes are not what the symptoms sugges
       by weight), class badges, provider name on API lines, size on local lines,
       tool-support badge kept; the toggle now reduces to the current model.
 
+## P20 - 1.7.x stabilisation: the lifecycle, not the transcript (opened 2026-11-15)
+
+Every symptom of the P18 round came back one level lower: the token, the cookie, the
+port and the end of a stream. What follows are invariants, each with the test that
+holds it. A fix that is not one of these five is not part of this round.
+
+1. **A message is never lost before it is accepted.** The field is emptied only on
+   the server's `open` frame; a message sent during a turn is refused with a visible
+   sentence and keeps its text; a silent stream ends after 45 s (`UH_STALL_MS`) with
+   a bubble, the draft restored, and the composer free.
+   Tests: `tests/e2e/test_ux_invariants.py::test_e1_*`, `tests/test_ui_lifecycle.py`.
+2. **No UI code erases the document.** A 401, a failed boot or a network error lands
+   in `#app-banner`; `document.body.textContent` is forbidden and a source test
+   refuses it. Tests: `test_e2_*` (fails with "#input count 0" before), `test_no_ui_code_erases_the_document`.
+3. **One token per home, one cookie per port.** `$UH_HOME/web-token` (0600) survives
+   a restart, `--rotate-token` replaces it on purpose, and the cookie is
+   `uh_token_<port>` so two instances never overwrite each other's slot.
+   Tests: `test_e3_*`, `test_the_token_outlives_a_restart_and_the_cookie_is_per_port`.
+4. **One instance per port.** `/healthz` (unauthenticated, `{app, version}`) lets a
+   second `uh web` recognise the first, say where it is, and exit 0; the silent move
+   to the next port is opt-in (`--port-fallback`). Tests: `test_e5_*`,
+   `test_one_instance_per_port`.
+5. **Every stream ends.** `ping` every 15 s, `TURN_CAP_S` 10 min, a `done` frame even
+   when the client leaves; on the server side the worker always emits `__end__`.
+   Tests: `test_a_chat_stream_always_has_a_life_sign_and_an_end`, `test_e1_*`.
+
+The e2e suite is excluded from the default run (`-m "not e2e"`) because it needs a
+Chromium and ~20 s per case; it is the one that catches "the product breaks while the
+unit tests stay green", so it must be run before a tag:
+`pytest -o addopts="" -m e2e`.
+
+UHB: a launched child is recorded in `$UH_HOME/uhb.pid`, and "Quitter UH" stops a
+recorded UHB even when another process started it - the command line is checked
+before the kill. Test: `test_an_orphan_uhb_can_be_stopped_by_its_pid_file`.
+
 ## P19 - hermes-webui mechanisms (deferred, decided 2026-11-15)
 
 Not before 1.7.0 is stable. Four mechanisms from `nesquena/hermes-webui` are worth
