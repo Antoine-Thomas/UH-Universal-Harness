@@ -2121,6 +2121,8 @@ async function loadMemory() {
   const search = memorySection("Search");
   const form = el("form", "memory-search");
   const input = el("input", "memory-search-input");
+  input.id = "memory-search";
+  input.name = "memory-search";
   input.placeholder = "search the wiki, MEMORY.md and the sessions";
   input.setAttribute("aria-label", "Search memory");
   const go = el("button", null, "Search");
@@ -2264,6 +2266,8 @@ async function loadMemory() {
   // Blocks are read through UH, never straight from the kernel: the CSP is
   // 'self' and the token stays on the server side.
   const pathInput = el("input", "memory-path-input");
+  pathInput.id = "memory-path";
+  pathInput.name = "memory-path";
   pathInput.value = "veille";
   pathInput.placeholder = "path (hpath filter)";
   pathInput.setAttribute("aria-label", "SiYuan path filter");
@@ -5196,6 +5200,10 @@ async function loadLocalPanel() {
 // --------------------------------------------------------------------------- //
 // cloud connections
 // --------------------------------------------------------------------------- //
+// Cloud template fields are re-created on every template switch, so their ids
+// come from a counter: two boxes for two servers must not share an id.
+let cloudFieldSeq = 0;
+
 async function mountCloud(section) {
   let catalog = null;
   try {
@@ -5218,6 +5226,7 @@ async function mountCloud(section) {
 
   const select = el("select", "model-select");
   select.id = "cloud-template";
+  select.name = "cloud-template";
   templates.forEach((template) => {
     const option = el("option", null, template.label);
     option.value = template.id;
@@ -5226,6 +5235,9 @@ async function mountCloud(section) {
   box.appendChild(select);
 
   const name = el("input", "cloud-input");
+  name.id = "cloud-server-name";
+  name.name = "cloud-server-name";
+  name.setAttribute("aria-label", "nom du serveur");
   name.placeholder = "nom du serveur (ex: s3-docs)";
   name.value = "cloud";
   box.appendChild(name);
@@ -5240,6 +5252,8 @@ async function mountCloud(section) {
       const row = el("label", "cloud-field");
       row.appendChild(el("span", "cloud-label", field.label + (field.required ? "" : " (optionnel)")));
       const input = el("input", "cloud-input");
+      input.id = `cloud-${field.key}-${++cloudFieldSeq}`;
+      input.name = field.key;
       input.type = field.secret ? "password" : "text";
       input.placeholder = field.placeholder || "";
       input.autocomplete = "off";

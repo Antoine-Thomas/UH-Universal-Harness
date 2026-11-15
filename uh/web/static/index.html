@@ -28,7 +28,7 @@
         <span class="brand">UH</span>
         <button id="new-session" class="icon-button" title="New session" aria-label="New session">+</button>
       </div>
-      <input id="search" class="search" type="search" placeholder="Search messages…" autocomplete="off">
+      <input id="search" name="search" class="search" type="search" placeholder="Search messages…" autocomplete="off">
       <div class="folder-bar">
         <button id="new-folder" class="ghost-button" title="Name a folder, then file sessions into it">+ Folder</button>
         <span id="folder-hint" class="panel-hint"></span>
@@ -50,7 +50,7 @@
         <button id="menu-toggle" class="icon-button" title="Sessions" aria-label="Sessions">☰</button>
         <button id="sidebar-toggle" class="icon-button" title="Hide the sessions column" aria-label="Hide sessions">«</button>
         <div class="title" id="session-title">No session</div>
-        <select id="model-select" class="model-select" aria-label="Model"></select>
+        <select id="model-select" name="model" class="model-select" aria-label="Model"></select>
         <button id="model-advanced" class="ghost model-advanced" title="Voir tous les modèles installés">Avancé</button>
         <span id="model-note" class="model-note" role="status" hidden></span>
         <div class="gauge" title="Context estimate (characters / 4)">
@@ -87,9 +87,9 @@
         <button type="button" id="attach" class="icon-button" title="Attach files" aria-label="Attach files">📎</button>
         <button type="button" id="skill-open" class="skill-open" title="Attacher un skill à ce tour" aria-label="Skill">⚑</button>
         <button type="button" id="llm-open" class="skill-open" title="Réglages de la conversation" aria-label="Réglages de la conversation">🎚</button>
-        <input id="files" class="visually-hidden" type="file" multiple
+        <input id="files" name="files" class="visually-hidden" type="file" multiple
                accept=".txt,.md,.markdown,.csv,.json,.yaml,.yml,.toml,.log,.py,.js,.ts,.html,.css,.sh,.ps1,.pdf,.png,.jpg,.jpeg,.webp,.gif,.mp4,.mov,.webm,.mkv">
-        <textarea id="input" rows="1" placeholder="Ask UH…  (Ctrl/Cmd-K for commands · drop a file here)" autocomplete="off"></textarea>
+        <textarea id="input" name="message" rows="1" placeholder="Ask UH…  (Ctrl/Cmd-K for commands · drop a file here)" autocomplete="off"></textarea>
         <button type="submit" id="send">Send</button>
       </form>
     </main>
@@ -153,7 +153,7 @@
   </div>
 
   <div id="palette" class="palette" hidden>
-    <input id="palette-input" placeholder="Command…" autocomplete="off">
+    <input id="palette-input" name="command" placeholder="Command…" autocomplete="off" aria-label="Command">
     <ul id="palette-list"></ul>
   </div>
 

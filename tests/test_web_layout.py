@@ -423,3 +423,29 @@ def test_the_reconciliation_never_removes_a_message() -> None:
     assert 'textContent = ""' not in body
     assert "stored.length < boxes.length" in body, "a short store must be detected"
     assert "dataset.messageId" in body, "the ids are what the store is read for"
+
+
+@KEEP
+def test_every_form_field_can_be_autofilled() -> None:
+    """A field with neither id nor name is what the browser flags as unlabelled.
+
+    The configuration panel builds its inputs in JS, so the check covers the
+    markup and the `el("input"|"select"|"textarea", ...)` calls alike - and names
+    the offending line, because "somewhere in 5 000 lines" is not actionable.
+    """
+    offenders: list[str] = []
+
+    html = INDEX.read_text(encoding="utf-8")
+    for match in re.finditer(r"<(input|select|textarea)\b([^>]*)>", html, re.S):
+        attrs = match.group(2)
+        if "id=" not in attrs and "name=" not in attrs:
+            offenders.append(f"index.html:{html[: match.start()].count(chr(10)) + 1}")
+
+    script = APP.read_text(encoding="utf-8")
+    for match in re.finditer(r'el\("(input|select|textarea)"', script):
+        # The element's own setup follows the call: that is where an id lands.
+        setup = script[match.end() :][:400]
+        if ".id =" not in setup and ".name =" not in setup:
+            offenders.append(f"app.js:{script[: match.start()].count(chr(10)) + 1}")
+
+    assert not offenders, "form fields without an id or a name: " + ", ".join(offenders)
