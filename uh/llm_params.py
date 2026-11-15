@@ -44,7 +44,7 @@ SPEC: Dict[str, Dict[str, Any]] = {
         "min": 16,
         "max": 32000,
         "step": 16,
-        "default": 2048,
+        "default": 4096,
         "label": "Tokens max",
         "hint": "la réponse, pas le contexte",
     },

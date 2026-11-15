@@ -233,6 +233,8 @@ class OmniRouterProvider(Provider):
             "role": "assistant",
             "content": message.get("content") or "",
             "tool_calls": _normalise_tool_calls(message.get("tool_calls")),
+            # OpenAI-compatible providers say "length" when max_tokens cut it.
+            "truncated": choices[0].get("finish_reason") == "length",
         }
 
     def _chat_streaming(self, payload: dict, on_token: Callable[[str], None]) -> dict:
@@ -240,6 +242,7 @@ class OmniRouterProvider(Provider):
         fragments: dict = {}
         served_model: Optional[str] = None
         usage: object = None
+        stop_reason = ""
         try:
             with httpx.stream(
                 "POST",
@@ -279,6 +282,8 @@ class OmniRouterProvider(Provider):
                             detail = detail.get("message") or detail
                         raise ProviderError(f"OmniRouter error: {detail}")
                     for choice in event.get("choices") or []:
+                        if choice.get("finish_reason"):
+                            stop_reason = str(choice["finish_reason"])
                         delta = choice.get("delta") or {}
                         content = delta.get("content")
                         if content:
@@ -293,6 +298,7 @@ class OmniRouterProvider(Provider):
             "role": "assistant",
             "content": "".join(parts),
             "tool_calls": [fragments[index] for index in sorted(fragments)],
+            "truncated": stop_reason == "length",
         }
 
     def _payload(self, response: httpx.Response) -> dict:

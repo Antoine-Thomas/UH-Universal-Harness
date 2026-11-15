@@ -120,6 +120,10 @@ class OllamaProvider(Provider):
             "role": "assistant",
             "content": message.get("content") or "",
             "tool_calls": _tool_calls_from(message),
+            # Ollama says why it stopped: "length" is our own cap, and an answer
+            # cut there looks complete to the browser. The loop turns this into a
+            # notice instead of letting the user believe the reply ended.
+            "truncated": data.get("done_reason") == "length",
         }
 
     def _chat_streaming(self, payload: dict, on_token: Callable[[str], None]) -> dict:
@@ -157,7 +161,12 @@ class OllamaProvider(Provider):
 
         # The final NDJSON event carries prompt_eval_count / eval_count.
         self._record_meta(model=final.get("model"), usage=final)
-        return {"role": "assistant", "content": "".join(parts), "tool_calls": tool_calls}
+        return {
+            "role": "assistant",
+            "content": "".join(parts),
+            "tool_calls": tool_calls,
+            "truncated": final.get("done_reason") == "length",
+        }
 
     def _http_error(self, status: int, body: str) -> ProviderError:
         """Turn Ollama's "this model cannot call tools" 400 into an instruction.

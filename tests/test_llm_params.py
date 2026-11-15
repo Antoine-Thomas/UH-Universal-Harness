@@ -118,3 +118,13 @@ def test_public_payload_carries_the_spec_and_the_defaults() -> None:
     assert "temperature" in payload["spec"]
     assert payload["defaults"]["enabled"] is False
     assert "web_search" not in payload["provider_keys"]
+
+
+def test_the_answer_cap_leaves_room_for_a_real_reply() -> None:
+    """2048 tokens cut a long answer mid-sentence, and the cut looked complete.
+
+    The default is the cap for the *answer*; the conversation budget is 24 000
+    tokens and is not affected by this number.
+    """
+    assert llm_params.SPEC["max_tokens"]["default"] == 4096
+    assert llm_params.SPEC["max_tokens"]["max"] >= 8192, "the panel must still allow more"

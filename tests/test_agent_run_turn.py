@@ -232,3 +232,33 @@ def test_a_code_explanation_with_no_runnable_tool_is_left_alone(tmp_path: Path) 
     )
 
     assert len(provider.calls) == 1
+
+
+def test_a_truncated_answer_says_so_and_keeps_the_history_clean(tmp_path: Path) -> None:
+    """A reply cut by max_tokens must not look finished, nor leak its flag.
+
+    ``truncated`` is a fact about the call: it drives one notice, then leaves the
+    transcript - the next provider payload gets the three keys every backend
+    accepts, nothing more.
+    """
+    class Cutting:
+        def __init__(self) -> None:
+            self.calls: list[list[dict]] = []
+
+        def chat(self, messages, tools, *, on_token=None):
+            self.calls.append([dict(m) for m in messages])
+            return {"role": "assistant", "content": "un début de", "truncated": True}
+
+    provider = Cutting()
+    notices: list[str] = []
+
+    history = run_turn(
+        [{"role": "user", "content": "raconte"}],
+        provider,
+        {"file": FileToolset(workspace=tmp_path)},
+        on_notice=notices.append,
+    )
+
+    assert len(notices) == 1 and "tronquée" in notices[0]
+    assert "truncated" not in history[-1], "the flag must not reach the store"
+    assert last_assistant_message(history)["content"] == "un début de"

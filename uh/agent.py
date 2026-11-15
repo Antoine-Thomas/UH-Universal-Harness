@@ -152,6 +152,12 @@ _NUDGE = (
     "yourself: call `{tool}` now with the code as its argument. Never hand code "
     "to the user to copy and paste when a tool can do the work."
 )
+#: The provider stopped because max_tokens ran out. The answer is real but
+#: unfinished, and a transcript that does not say so reads as a broken model.
+TRUNCATED_NOTICE = (
+    "réponse tronquée par « Tokens max » avant la fin : relance, ou monte "
+    "« Tokens max » dans le panneau 🎚 de la conversation"
+)
 
 
 def _runnable_tools(index: Dict[str, "Toolset"]) -> List[str]:
@@ -294,6 +300,15 @@ def run_turn(
     for _iteration in range(1, total_iterations + 1):  # the count is only for the error
         outgoing = context.prepare(history) if context is not None else history
         response = _chat(provider, outgoing, definitions, on_token)
+        # ``truncated`` is a fact about the call, not part of the message: it is
+        # popped here so the history - and the next provider payload - stays the
+        # three keys every backend accepts.
+        truncated = bool(response.get("truncated")) if isinstance(response, dict) else False
+        if isinstance(response, dict):
+            response.pop("truncated", None)
+            inner_message = response.get("message")
+            if isinstance(inner_message, dict):
+                inner_message.pop("truncated", None)
         message = _as_assistant_message(response)
         message.setdefault("role", "assistant")
         if message.get("content") is None:
@@ -315,6 +330,8 @@ def run_turn(
                     f"the model answered with code instead of calling `{runnable[0]}` "
                     "after a retry; the snippet was left in the transcript"
                 )
+            if truncated and on_notice is not None:
+                on_notice(TRUNCATED_NOTICE)
             return history
 
         for call in calls:
