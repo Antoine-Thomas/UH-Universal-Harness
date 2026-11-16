@@ -959,3 +959,30 @@ mattering commercially.
 - **Sandbox for the self-repair server**: it must never be able to read
   `keys.toml` / `mcp-secrets.toml` in the same breath as it reads the source.
 - **Hugging Face model catalogue** fetched from the router instead of five constants.
+
+## P4 - Target: one product, packaged (opened 2026-11-16)
+
+The end state is **not** two repositories on GitHub. It is one product the operator
+can hand to someone: one window, one backend inside it, one downloadable installer.
+Nothing in P4 is coded before the two current consoles are proven to work together,
+because a fusion ships whatever defects the pair still has.
+
+- **P4-1 Fusion of UH and UHB.** Today's split (Control Plane `uh/`, backend `uhb/`,
+  HTTP between them) stays until the pair passes the same tests as one product:
+  OmniRoute and the cloud providers usable from both, MCP tools fluid in the chat,
+  stream cuts recovered (P1-9), images from a tool and from an API displayed (P1-10),
+  and a startup that does not depend on two consoles being launched by hand. The
+  measure is a single command that starts everything and a single test run that
+  covers both halves.
+- **P4-2 Repository `UHD-Universal-Harness-Desktop`.** The name is decided. It
+  receives the fused product when P4-1 is green; GitHub stops being the delivery
+  surface and becomes the source.
+- **P4-3 Packaging.** A compressed, downloadable, installable artefact on Windows,
+  macOS and Linux (one installer per OS). What that costs is already documented in
+  the Tauri note above: signing, three installers, an update channel. The licence and
+  the weights used by the media features must be settled before publishing anything
+  that embeds them.
+
+Ordering constraint, restated because it is the whole point of P4-1: **first make the
+two consoles performant together, then fuse.** A fusion before that only moves the
+bugs into one binary.
