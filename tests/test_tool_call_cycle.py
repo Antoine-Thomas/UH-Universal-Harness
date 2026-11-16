@@ -188,3 +188,79 @@ def test_the_answer_keeps_its_id_when_the_session_is_replayed(tmp_path: Path) ->
     assert tool_row["tool_call_id"] == "call_x"
     assert tool_row["name"] == "read_file"
     assert stored[1]["tool_calls"][0]["id"] == "call_x", "the pair survives together"
+
+
+def test_describe_tools_then_a_forbidden_call_answers_on_the_right_ids(tmp_path: Path) -> None:
+    """The integration that matters: consult the catalogue, then hit the wall.
+
+    1. the model asks `describe_tools` - UHB answers, verbatim, with the reason;
+    2. it calls a tool the mode does not offer - the loop refuses, with the id of
+       that call, and the turn is still usable (no crash, no loop);
+    3. both answers survive a round-trip through SQLite with their ids, so a
+       session resumed later can still tell which answer belongs to which call.
+    """
+    import httpx
+
+    from uh.toolsets.uhb import Uhbtoolset
+
+    catalogue = {
+        "tools": [
+            {
+                "name": "execute_code",
+                "description": "Execute Python code.",
+                "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
+                "category": "code",
+                "compatible_modes": ["dev"],
+                "available": False,
+                "reason": {"code": "not_in_mode", "mode": "chat", "available_in": ["dev"],
+                           "hint": "the current mode does not declare this tool"},
+            }
+        ],
+        "count": 1,
+        "mode": "chat",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET", "describe_tools must never execute anything"
+        return httpx.Response(200, json=catalogue)
+
+    uhb_toolset = Uhbtoolset("http://127.0.0.1:8101", client=httpx.Client(
+        transport=httpx.MockTransport(handler)))
+
+    provider = ScriptedProvider(
+        [
+            assistant(call("describe_tools", "call_desc")),
+            assistant(call("execute_code", "call_exec", code="print(1)")),
+            final("je ne peux pas exécuter ce code dans ce mode"),
+        ]
+    )
+
+    history = run_turn(
+        [{"role": "user", "content": "peux-tu tracer un graphe ?"}],
+        provider,
+        {"file": FileToolset(workspace=tmp_path), "uhb": uhb_toolset},
+        on_notice=lambda _text: None,
+    )
+
+    tools = tool_messages(history)
+    assert [message["tool_call_id"] for message in tools] == ["call_desc", "call_exec"]
+
+    consulted = json.loads(tools[0]["content"])
+    assert consulted["tools"][0]["available"] is False
+    assert consulted["tools"][0]["reason"]["code"] == "not_in_mode"
+
+    refused = json.loads(tools[1]["content"])
+    assert refused["type"] == "forbidden"
+    assert refused["tool"] == "execute_code"
+    assert history[-1]["content"].startswith("je ne peux pas")
+
+    store = Store(tmp_path / "uh.db")
+    try:
+        session_id = store.create_session(model="stub:1b", provider="stub")
+        store.append_messages(session_id, history[1:])
+        stored = store.get_messages(session_id)
+    finally:
+        store.close()
+
+    stored_ids = [row.get("tool_call_id") for row in stored if row["role"] == "tool"]
+    assert stored_ids == ["call_desc", "call_exec"], "the correlation survives a reload"

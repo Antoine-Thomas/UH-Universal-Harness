@@ -1391,3 +1391,54 @@ def test_quitting_uh_needs_a_confirmation_and_a_free_turn(
             app.state.active.clear()
 
     run(scenario())
+
+
+def test_the_tools_catalog_endpoint_reports_a_state_when_uhb_is_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """UHB absent is a state, not an empty catalogue: [] would read "no tools"."""
+    from uh.toolsets import uhb as uhb_module
+
+    monkeypatch.setattr(uhb_module, "resolve_url", lambda: None)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            return (await http.get("/api/tools/catalog", headers=AUTH)).json()
+
+    payload = run(scenario())
+    assert payload["available"] is False
+    assert payload["reason"]["code"] == "uhb_disabled"
+    assert payload["tools"] == []
+
+
+def test_the_tools_catalog_endpoint_passes_uhbs_answer_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uh.toolsets import uhb as uhb_module
+
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(uhb_module, "resolve_url", lambda: "http://127.0.0.1:8101")
+
+    def fake_describe(self, name="", mode=""):
+        sent.append((name, mode))
+        entry = {"name": "execute_code", "available": True, "reason": None,
+                 "parameters": {"type": "object"}, "compatible_modes": ["dev"]}
+        if name:
+            return {"tool": entry, "count": 1, "mode": "dev"}
+        return {"tools": [entry], "count": 1, "mode": "dev"}
+
+    monkeypatch.setattr(uhb_module.Uhbtoolset, "describe_tools", fake_describe)
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            return (
+                (await http.get("/api/tools/catalog?mode=dev", headers=AUTH)).json(),
+                (await http.get("/api/tools/catalog/execute_code", headers=AUTH)).json(),
+            )
+
+    listing, detail = run(scenario())
+    assert listing["available"] is True and listing["tools"][0]["name"] == "execute_code"
+    assert detail["tool"]["available"] is True
+    assert sent == [("", "dev"), ("execute_code", "")]

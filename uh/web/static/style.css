@@ -1334,3 +1334,38 @@ select:focus-visible {
 }
 .help-row:last-of-type { border-bottom: 0; }
 .help-where { color: var(--muted); font-size: 11.5px; }
+
+/* ------------------------------------------------------------------ outils --
+   The panel shows UHB's catalogue verbatim. Colours carry the one distinction
+   that matters - allowed or refused in the current mode - and the reason is
+   text from UHB, never a sentence this file invents. */
+.tools-list { display: flex; flex-direction: column; gap: 8px; }
+.catalog-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg-soft);
+}
+.catalog-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.catalog-name { font-family: var(--mono); font-weight: 600; }
+.catalog-tag {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--fg-dim);
+}
+.catalog-state { margin-left: auto; font-size: 11px; font-weight: 600; }
+.catalog-state.ok { color: #1f9d55; }
+.catalog-state.bad { color: #c0392b; }
+.catalog-desc { margin: 6px 0 4px; font-size: 12px; line-height: 1.45; }
+.catalog-meta { font-size: 11px; color: var(--fg-dim); }
+.catalog-reason { margin-top: 4px; font-size: 11px; color: #c0392b; }
+.catalog-schema summary { cursor: pointer; font-size: 11px; color: var(--fg-dim); }
+.catalog-schema pre {
+  margin: 4px 0 0;
+  font-size: 11px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

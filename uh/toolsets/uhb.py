@@ -106,6 +106,33 @@ TOOLS: List[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "describe_tools",
+            "description": (
+                "Look up what UHB can actually do: the tools it knows, with their "
+                "description and JSON Schema of parameters, the modes that declare "
+                "them, and whether the current mode allows each one (with the reason "
+                "when it does not). Consultation only: this does not run anything, "
+                "and an `available: true` here is information, not a permission - "
+                "the call itself is checked again by UHB."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "One tool to detail. Omit to list every tool.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "Mode to answer for. Defaults to the mode UHB serves.",
+                    },
+                },
+            },
+        },
+    },
 ]
 
 #: The fields the model needs from a mode. ``system_prompt`` is dropped on
@@ -372,6 +399,10 @@ class Uhbtoolset:
                 str(arguments.get("mode") or ""),
                 str(arguments.get("complexity") or ""),
             )
+        if name == "describe_tools":
+            return self.describe_tools(
+                str(arguments.get("name") or ""), str(arguments.get("mode") or "")
+            )
         return {"error": f"unknown tool: {name}"}
 
     def _get(self, path: str) -> Dict[str, Any]:
@@ -426,6 +457,19 @@ class Uhbtoolset:
         plan = compact_decision(payload)
         self.last_route = plan
         return plan
+
+    def describe_tools(self, name: str = "", mode: str = "") -> dict:
+        """What UHB can do, and whether this mode allows it. Never executes anything.
+
+        The catalogue is UHB's: this method asks for it and passes it through
+        untouched. A copy in `uh/` would be a second source of truth, and the two
+        would drift the first time a schema changed.
+        """
+        path = f"/tools/{name.strip()}" if name.strip() else "/tools"
+        wanted = mode.strip()
+        if wanted:
+            path = f"{path}?mode={wanted}"
+        return self._get(path)
 
 
 __all__ = [

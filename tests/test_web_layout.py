@@ -550,3 +550,22 @@ def test_the_transcript_reconciliation_ignores_system_bubbles() -> None:
     assert '!== "system"' in body, "stored system rows are excluded on both sides"
     assert "const stored = data.messages || [];" not in body, \
         "that is the version that counted the interface's own notices"
+
+
+@KEEP
+def test_the_tools_panel_shows_uhbs_catalogue_and_keeps_no_copy_of_it() -> None:
+    """One catalogue, in UHB. A list of tool names here would be a second truth."""
+    page = INDEX.read_text(encoding="utf-8")
+    assert 'id="tab-tools"' in page and 'id="tools-view"' in page
+    assert 'id="tools-list"' in page and 'aria-busy' in page
+
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("function catalogCard(entry) {", 1)[1].split(
+        "\nfunction showPanelTab(", 1)[0]
+    # The catalogue is data: no name of a real tool appears in this file.
+    for name in ("execute_code", "read_file", "write_file", "search_files"):
+        assert name not in script, f"{name} is hardcoded in the interface"
+    assert "/api/tools/catalog" in body, "the panel reads UHB, it does not embed"
+    assert "state.toolsPromise" in body, "one in-flight request per click, as for providers"
+    assert "innerHTML" not in body, "artefacts and schemas are rendered as text, never as markup"
+    assert "innerText" in body or "textContent" in body

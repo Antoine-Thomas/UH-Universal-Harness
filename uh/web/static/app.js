@@ -2887,6 +2887,77 @@ async function loadDecision() {
   }
 }
 
+// ------------------------------------------------------------------- tools --
+// The catalogue lives in UHB and is shown here verbatim. No list of tool names
+// exists in this file: one copy in Python, one in JavaScript, and the two drift
+// the first time a schema changes. `available` is information - the panel says
+// "not allowed in this mode", it never grants anything.
+function catalogCard(entry) {
+  const card = el("div", "catalog-card");
+  const head = el("div", "catalog-head");
+  head.appendChild(el("span", "catalog-name", entry.name || "?"));
+  if (entry.category) head.appendChild(el("span", "catalog-tag", entry.category));
+  const allowed = entry.available === true;
+  head.appendChild(
+    el("span", allowed ? "catalog-state ok" : "catalog-state bad", allowed ? "disponible" : "refusé")
+  );
+  card.appendChild(head);
+  if (entry.description) card.appendChild(el("p", "catalog-desc", entry.description));
+  const modes = Array.isArray(entry.compatible_modes) ? entry.compatible_modes : [];
+  if (modes.length) card.appendChild(el("div", "catalog-meta", `modes : ${modes.join(", ")}`));
+  if (!allowed) {
+    // The reason is a code plus a hint from UHB, never a sentence this file
+    // invents: the panel translates the code, it does not guess.
+    const reason = entry.reason || {};
+    const text = [reason.code, reason.hint].filter(Boolean).join(" — ");
+    if (text) card.appendChild(el("div", "catalog-reason", text));
+  }
+  if (entry.parameters && Object.keys(entry.parameters).length) {
+    const details = el("details", "catalog-schema");
+    details.appendChild(el("summary", "", "paramètres (JSON Schema)"));
+    details.appendChild(el("pre", "", JSON.stringify(entry.parameters, null, 2)));
+    card.appendChild(details);
+  }
+  return card;
+}
+
+function renderToolCatalog(payload) {
+  const list = $("tools-list");
+  list.textContent = "";
+  const hint = $("tools-hint");
+  if (payload.available === false) {
+    // UHB absent is a state, not an empty catalogue: an empty list would read as
+    // "this build has no tools", which is false and alarming.
+    const reason = payload.reason || {};
+    hint.textContent = `catalogue indisponible : ${reason.hint || reason.code || "UHB ne répond pas"}`;
+    return;
+  }
+  const tools = Array.isArray(payload.tools) ? payload.tools : [];
+  hint.textContent = tools.length
+    ? `${tools.length} outil(s) · mode ${payload.mode || "courant"} · information, pas une autorisation`
+    : "aucun outil déclaré par UHB";
+  for (const entry of tools) list.appendChild(catalogCard(entry));
+}
+
+function loadToolCatalog() {
+  if (state.toolsPromise) return state.toolsPromise;
+  const list = $("tools-list");
+  if (list) list.setAttribute("aria-busy", "true");
+  const run = (async () => {
+    try {
+      renderToolCatalog(await api("/api/tools/catalog"));
+    } finally {
+      if (list) list.setAttribute("aria-busy", "false");
+    }
+  })();
+  state.toolsPromise = run;
+  const settle = () => {
+    if (state.toolsPromise === run) state.toolsPromise = null;
+  };
+  run.then(settle, settle);
+  return run;
+}
+
 function showPanelTab(name) {
   state.activeTab = name;
   for (const [tab, view] of [
@@ -2899,6 +2970,7 @@ function showPanelTab(name) {
     ["telemetry", "telemetry-view"],
     ["conn", "conn-view"],
     ["data", "data-view"],
+    ["tools", "tools-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -2922,6 +2994,9 @@ function showPanelTab(name) {
   if (name === "uhb") {
     loadMemoryGraph().catch(() => {});
     loadUhb().catch(() => {});
+  }
+  if (name === "tools") {
+    loadToolCatalog().catch(() => {});
   }
   if (name === "memory") loadMemory().catch(() => {});
   if (name === "decision") loadDecision().catch(() => {});
@@ -3070,6 +3145,7 @@ function wireProviders() {
   $("help-open").addEventListener("click", openHelpModal);
   $("quit-uh").addEventListener("click", quitUh);
   $("tab-data").addEventListener("click", () => showPanelTab("data"));
+  $("tab-tools").addEventListener("click", () => showPanelTab("tools"));
   // One button in the topbar, next to the Dreams one: the data panel is a place,
   // not a tab you have to know about.
   $("data-open").addEventListener("click", () => {

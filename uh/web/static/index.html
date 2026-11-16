@@ -123,8 +123,13 @@
         <button id="tab-decision" class="panel-tab" role="tab" aria-selected="false" aria-controls="decision-view">Decision</button>
         <button id="tab-telemetry" class="panel-tab" role="tab" aria-selected="false" aria-controls="telemetry-view">Telemetry</button>
         <button id="tab-data" class="panel-tab" role="tab" aria-selected="false" aria-controls="data-view">Data</button>
+        <button id="tab-tools" class="panel-tab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
       </nav>
       <div class="rightbar-scroll">
+        <div id="tools-view" class="panel-view" role="tabpanel" aria-labelledby="tab-tools" hidden>
+          <div class="panel-hint" id="tools-hint">catalogue lu depuis UHB — information, pas une autorisation</div>
+          <div id="tools-list" class="tools-list" aria-busy="false"></div>
+        </div>
         <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">
           <div id="keys-priority" class="keys-priority"></div>
           <div id="router-settings" class="router-settings"></div>
