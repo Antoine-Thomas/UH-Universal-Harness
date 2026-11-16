@@ -262,3 +262,54 @@ def test_describe_tools_then_a_forbidden_call_answers_on_the_right_ids(tmp_path:
 
     stored_ids = [row.get("tool_call_id") for row in stored if row["role"] == "tool"]
     assert stored_ids == ["call_desc", "call_exec"], "the correlation survives a reload"
+
+
+def test_one_allowed_execution_and_one_forbidden_tool_in_the_same_message(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """P0-4's acceptance: a message with two calls, one allowed and one not.
+
+    The allowed one runs (UHB answered 200), the forbidden one gets a refusal tied
+    to its own id, the turn keeps a usable answer, and the loop does not spin.
+    """
+    import httpx
+
+    from uh.toolsets.uhb import Uhbtoolset
+
+    monkeypatch.setenv("UH_UHB_EXECUTE", "1")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"tools": [
+                {"name": "execute_code", "description": "Run Python.",
+                 "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
+                 "execution_type": "subprocess"},
+            ]})
+        return httpx.Response(200, json={"ok": True, "stdout": "4\n", "exit_code": 0,
+                                         "duration_s": 0.1, "images": []})
+
+    uhb_toolset = Uhbtoolset("http://127.0.0.1:8101",
+                             client=httpx.Client(transport=httpx.MockTransport(handler)),
+                             discover=True)
+
+    provider = ScriptedProvider(
+        [
+            assistant(call("execute_code", "call_run", code="print(2+2)"),
+                      call("desktop_click", "call_click", ref="x:0")),
+            final("voici 4"),
+        ]
+    )
+
+    history = run_turn(
+        [{"role": "user", "content": "calcule 2+2 puis clique"}],
+        provider,
+        {"file": FileToolset(workspace=tmp_path), "uhb": uhb_toolset},
+        on_notice=lambda _text: None,
+    )
+
+    tools = tool_messages(history)
+    assert [message["tool_call_id"] for message in tools] == ["call_run", "call_click"]
+    assert json.loads(tools[0]["content"])["stdout"] == "4\n"
+    refusal = json.loads(tools[1]["content"])
+    assert refusal["type"] == "forbidden" and refusal["tool"] == "desktop_click"
+    assert history[-1]["content"] == "voici 4"

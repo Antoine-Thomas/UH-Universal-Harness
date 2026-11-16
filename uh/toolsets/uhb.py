@@ -47,6 +47,10 @@ import httpx
 ENV_URL = "UH_UHB_URL"
 DEFAULT_URL = "http://127.0.0.1:8101"
 TIMEOUT = 1.0  # the probe: a control plane answers fast or does not exist
+#: The switch that exposes `execute_code` to the chat, and the tool it names.
+EXECUTE_ENV = "UH_UHB_EXECUTE"
+EXECUTE_TOOL = "execute_code"
+
 CALL_TIMEOUT = 5.0  # a route decision reads the catalog, but stays local
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
@@ -431,12 +435,17 @@ class Uhbtoolset:
         if not isinstance(entries, list):
             return
         known = {spec["function"]["name"] for spec in self.tools}
+        #: `execute_code` runs a subprocess, so it is not offered on the generic
+        #: route — and it is only offered at all when the operator said so. Two
+        #: conditions, both required: the switch, and a catalogue that publishes it.
+        execute_allowed = os.environ.get(EXECUTE_ENV, "").strip() == "1"
         for entry in entries:
             name = str((entry or {}).get("name") or "")
             parameters = (entry or {}).get("parameters")
             if not name or name in known or not isinstance(parameters, dict):
                 continue
-            if (entry or {}).get("execution_type") != "in_process":
+            in_process = (entry or {}).get("execution_type") == "in_process"
+            if not in_process and not (name == EXECUTE_TOOL and execute_allowed):
                 continue
             self.tools.append(
                 {
@@ -451,10 +460,16 @@ class Uhbtoolset:
             self.remote.add(name)
 
     def _call_remote(self, name: str, arguments: dict) -> dict:
-        """POST an argument object to UHB's generic tool route."""
+        """POST an argument object to UHB.
+
+        `execute_code` has its own route and a body shape that is not a parameter
+        object; everything else goes to the generic one. The transport differs,
+        the authority does not: UHB checks the mode in both cases.
+        """
+        path = "/tools/execute" if name == EXECUTE_TOOL else f"/tools/{name}"
         try:
             with _client(self.timeout, self.client) as http:
-                response = http.post(f"{self.url}/tools/{name}", json=arguments or {})
+                response = http.post(f"{self.url}{path}", json=arguments or {})
         except Exception:  # noqa: BLE001 - transport failure is a tool result
             return _unreachable()
         if response.status_code >= 400:
