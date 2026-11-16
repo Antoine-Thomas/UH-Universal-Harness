@@ -508,3 +508,29 @@ def test_the_model_choice_is_remembered_by_the_browser_too() -> None:
     assert "storedModelChoice()" in script, "and the boot must read it back"
     assert "state.modelRestored" in script, "one restore attempt, never a loop"
     assert 'result.persisted === false' in script, "a refused config write is shown"
+
+
+@KEEP
+def test_the_providers_panel_is_loaded_once_and_stays_isolated() -> None:
+    """Three entry points, one request, and a neighbour that cannot empty the list.
+
+    Measured in a real browser: `?panel=keys` asked `/api/providers` twice (the
+    URL opener then the tab), and a 500 on `/api/router/settings` wiped a list
+    that had already rendered. The loader is now coalesced and the router
+    settings load beside it, not inside it.
+    """
+    script = APP.read_text(encoding="utf-8")
+    loader = script.split("function loadProviders() {", 1)[1].split("\n// Remote access", 1)[0]
+
+    assert "if (state.providersPromise) return state.providersPromise" in loader, \
+        "one in-flight promise, shared by every entry point"
+    assert "state.providersPromise = run" in loader
+    assert 'setAttribute("aria-busy"' in loader, "a loading state the interface can observe"
+    assert "loadRouterSettings().catch(" in loader, \
+        "the router settings must not be able to fail the provider list"
+    assert "renderRouterSettings(await api(" not in loader, \
+        "that ordering is the wipe: settings inside the list's chain"
+    settings = script.split("async function loadRouterSettings() {", 1)[1].split(
+        "\n}\n", 1)[0]
+    assert "try {" in settings and "catch (error)" in settings, \
+        "the settings load owns its failure, in its own box"

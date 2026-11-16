@@ -13,6 +13,10 @@ const state = {
   attachments: [],
   activeTab: "keys",
   keyEntryAllowed: false,
+  //: In-flight providers request, shared by the ⚙ button, the keys tab and
+  //: `?panel=keys`: the three entry points used to render the same list three
+  //: times, last answer winning.
+  providersPromise: null,
   presets: null,
   skill: null,
   llm: { enabled: false, values: {} },
@@ -1426,7 +1430,14 @@ function wirePalette() {
 // ---------------------------------------------------------------- providers --
 // Read-only in 7a.1: what exists, how many keys, and whether the router would
 // use it. No key value ever crosses this boundary.
-async function loadProviders() {
+//
+// Three entry points call in here - the ⚙ button, the "keys" tab from
+// `showPanelTab()`, and `openPanelFromUrl()` - and two of them fire
+// back-to-back, so the loader is idempotent: one shared promise while a request
+// is in flight, and the loading state is observable (`aria-busy`) instead of
+// implied by a text hint. A *new* call after a settled load does refetch,
+// because every mutation below (add/delete a key, change a provider) awaits it.
+async function fetchProviders() {
   const data = await api("/api/providers");
   state.keyEntryAllowed = Boolean(data.key_entry_allowed);
   // The banner depends on the answer, so it is set after it, not when opening.
@@ -1442,15 +1453,53 @@ async function loadProviders() {
   }
   renderProviders(data.providers || []);
   renderKeysPanel(data.keys);
-  renderRouterSettings(await api("/api/router/settings"));
-  // A collapsed panel keeps `display:flex` but its grid column is 0 wide: the rows
-  // are in the DOM and clipped, which reads as "the list never loaded" until the
-  // user detaches the panel and gives it a real width. Re-assert it once, after
-  // the render, whatever the entry point was.
-  const panel = $("providers-panel");
-  if (panel && panel.clientWidth === 0) {
-    $("layout").classList.remove("right-collapsed");
+}
+
+// The router settings are a *neighbouring* panel, not a prerequisite: a 500 here
+// leaves the provider list on screen and says so in its own box. It used to be
+// awaited inside the same chain, so its failure wiped a list that had already
+// rendered - the "empty first click" that had no HTTP error behind it.
+async function loadRouterSettings() {
+  const box = $("router-settings");
+  if (!box) return;
+  try {
+    renderRouterSettings(await api("/api/router/settings"));
+  } catch (error) {
+    box.textContent = "";
+    box.appendChild(
+      el("div", "panel-hint", `réglages du routeur indisponibles : ${error.message}`)
+    );
   }
+}
+
+function loadProviders() {
+  // Coalesced: a second call while the first is in flight joins it. The promise
+  // is cleared on settle, never on success alone, so a failed load is retryable.
+  if (state.providersPromise) return state.providersPromise;
+  const panel = $("providers-panel");
+  if (panel) panel.setAttribute("aria-busy", "true");
+  const run = (async () => {
+    try {
+      await fetchProviders();
+      // A collapsed panel keeps `display:flex` but its grid column is 0 wide: the
+      // rows are in the DOM and clipped, which reads as "the list never loaded"
+      // until the panel gets a real width. Re-assert it after the render, whatever
+      // the entry point was.
+      if (panel && panel.clientWidth === 0) {
+        $("layout").classList.remove("right-collapsed");
+      }
+    } finally {
+      if (panel) panel.setAttribute("aria-busy", "false");
+    }
+  })();
+  state.providersPromise = run;
+  const settle = () => {
+    if (state.providersPromise === run) state.providersPromise = null;
+  };
+  run.then(settle, settle);
+  // Independent, parallel, and it cannot fail the list.
+  loadRouterSettings().catch(() => {});
+  return run;
 }
 
 // Remote access is a privacy switch: the warning and the consent box only appear
@@ -2884,8 +2933,9 @@ function openProviders() {
   $("layout").classList.remove("right-collapsed");
   $("providers-hint").textContent = "loading…";
   loadProviders().catch((error) => {
-    $("providers-list").textContent = "";
-    $("providers-list").appendChild(el("div", "panel-hint", `error: ${error.message}`));
+    // Keep whatever is on screen: an emptied list plus "error" reads as "you have
+    // no providers", which is a different - and false - statement.
+    $("providers-hint").textContent = `erreur de chargement : ${error.message}`;
   });
 }
 
