@@ -18,7 +18,7 @@ from typing import Callable, Iterator, List, Optional
 
 import httpx
 
-from . import Provider, ProviderError, request_messages
+from . import Provider, ProviderError, request_messages, retry_transport
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 #: A local 8B model reading a few thousand characters can take minutes on a
@@ -88,8 +88,27 @@ class OllamaProvider(Provider):
             payload["options"] = options
 
         if on_token is None:
-            return self._chat_blocking(payload)
-        return self._chat_streaming(payload, on_token)
+            return retry_transport(
+                lambda: self._chat_blocking(payload),
+                label="Ollama",
+                attempts=self.retry_attempts,
+                backoff=self.retry_backoff,
+                sleep=self.retry_sleep,
+            )
+        emitted = {"any": False}
+
+        def counted(delta: str) -> None:
+            emitted["any"] = True
+            on_token(delta)
+
+        return retry_transport(
+            lambda: self._chat_streaming(payload, counted),
+            label="Ollama",
+            emitted=lambda: emitted["any"],
+            attempts=self.retry_attempts,
+            backoff=self.retry_backoff,
+            sleep=self.retry_sleep,
+        )
 
     def _chat_blocking(self, payload: dict) -> dict:
         try:
@@ -189,9 +208,11 @@ class OllamaProvider(Provider):
         return ProviderError(f"Ollama HTTP {status}: {text[:300]}", status=status)
 
     def _unreachable(self, exc: Exception) -> ProviderError:
+        """A network failure, classified: the chain may retry it or move on."""
         return ProviderError(
             f"cannot reach Ollama at {self.base_url} ({type(exc).__name__}: {exc}); "
-            "start it with `ollama serve`"
+            "start it with `ollama serve`",
+            kind="timeout" if isinstance(exc, httpx.TimeoutException) else "transport",
         )
 
 

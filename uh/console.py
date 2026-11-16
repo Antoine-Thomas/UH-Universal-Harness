@@ -44,6 +44,12 @@ INTERRUPT_NOTE = "[interrompu] tour annulé (Ctrl+C)"
 INTERRUPT_EXIT = 130
 
 
+#: Appended to an answer the provider cut mid-stream. In the text rather than in a
+#: column on purpose: no schema migration, the reload shows it, and the next turn
+#: replays it - so the model knows its previous answer was interrupted.
+PARTIAL_MARK = "_[réponse interrompue]_"
+
+
 class TurnCancelled(Exception):
     """Raised inside the token callback when ``request_stop`` was called."""
 
@@ -312,6 +318,11 @@ class ChatSession:
         self.provider_kind = provider_kind
         self.chain = chain
         self.provider: Provider = chain[0][1] if len(chain) == 1 else _ChainProvider(chain)
+        if isinstance(self.provider, _ChainProvider):
+            # The fallback sentence belongs in the transcript: the browser has no
+            # stderr, and an answer that changed voice without a word is a lie by
+            # omission.
+            self.provider.on_notice = self._notice
         self.model = model
         self.toolsets = toolsets
         self.workspace = workspace
@@ -433,6 +444,7 @@ class ChatSession:
                 # The provider failed (HTTP, timeout, budget): the turn leaves the
                 # live history, but what was said is still recorded below - a
                 # failed turn must not erase the conversation.
+                self._keep_partial(chunks)
                 produced = list(self.history[before:])
                 del self.history[before:]
                 return code
@@ -455,6 +467,7 @@ class ChatSession:
                 except KeyboardInterrupt:
                     return self._interrupted(before, chunks)
                 if code != 0:
+                    self._keep_partial(chunks)
                     produced = list(self.history[before:])
                     del self.history[before:]
                     return code
@@ -488,6 +501,19 @@ class ChatSession:
                     self._persist(produced)
                 except StoreError as exc:
                     self.console.error(f"uh chat: cannot record session: {exc}")
+
+    def _keep_partial(self, chunks: list[str]) -> None:
+        """Record what the model said before the stream died, and mark it.
+
+        Without this the words on screen existed nowhere: a reload lost them, and
+        the next turn had no idea an answer had been started.
+        """
+        partial = "".join(chunks).strip()
+        if not partial:
+            return
+        self.history.append(
+            {"role": "assistant", "content": f"{partial}\n\n{PARTIAL_MARK}"}
+        )
 
     def _route_snapshot(self) -> Optional[dict]:
         """The UHB plan on the toolset before a turn (identity, not equality).
@@ -627,6 +653,16 @@ class ChatSession:
             return 1
         except ProviderError as exc:
             self.console.error(f"uh chat: provider error: {exc}")
+            # A provider that dies mid-stream used to produce NO frame at all: the
+            # browser kept the words it had already received and then rendered
+            # them as a finished answer. Say it died, and say whether the words on
+            # screen are real.
+            self._emit(
+                "error",
+                message=str(exc),
+                source="provider",
+                partial=bool("".join(chunks).strip()),
+            )
             return 1
 
         for message in updated[before:]:
@@ -833,6 +869,18 @@ class _ChainProvider(Provider):
     def __init__(self, chain: list[tuple[str, Provider]]) -> None:
         super().__init__()
         self.chain = chain
+        #: Set by the session. A fallback that only reaches stderr is invisible in
+        #: the browser: the turn silently answers from another model, and the user
+        #: has no way to know why the answer changed voice.
+        self.on_notice: Optional[Callable[[str], None]] = None
+
+    def _trace(self, line: str, notice: str = "") -> None:
+        print(line, file=sys.stderr)
+        if notice and self.on_notice is not None:
+            try:
+                self.on_notice(notice)
+            except Exception:  # noqa: BLE001 - a notice never breaks a turn
+                pass
 
     def set_params(self, params: Optional[dict]) -> None:
         """Apply the session's parameters to every provider in the chain."""
@@ -882,13 +930,21 @@ class _ChainProvider(Provider):
                     # Half an answer is already on screen: replaying it on the
                     # next provider would duplicate the text. Report, never replay.
                     raise
+                if exc.auth_error:
+                    # A refused credential (401/402/403) is not a network incident.
+                    # Falling back here would hide a bad key and answer - and bill -
+                    # from another account without telling anyone. The other 4xx
+                    # (400 "model does not support tools", 404 unknown model) do
+                    # describe that provider, so the chain continues.
+                    raise
                 first = first or exc
                 errors.append(f"{kind}: {exc}")
                 if position + 1 < len(self.chain):
-                    print(
-                        f"fallback: {kind} -> {self.chain[position + 1][0]} "
-                        f"(reason: {exc.reason})",
-                        file=sys.stderr,
+                    following = self.chain[position + 1][0]
+                    self._trace(
+                        f"fallback: {kind} -> {following} (reason: {exc.reason})",
+                        f"Bascule : {kind} n'a pas répondu ({exc.reason}), "
+                        f"nouvelle tentative avec {following}.",
                     )
                 continue
             # The turn's metrics come from whoever actually answered.

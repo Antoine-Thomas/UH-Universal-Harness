@@ -1305,6 +1305,20 @@ async function sendMessage(text) {
             const label = data.source === "command" ? "Commande" : "Erreur du modèle";
             const bubble = appendMessage("assistant", `${label} : ${failed}`);
             bubble.classList.add("failed");
+            if (data.partial) {
+              // The provider died after the model had already spoken: the words
+              // on screen are real, and the answer was cut. Continuing is a
+              // click, not a retyped question - and the stored partial answer is
+              // what the model reads on the next turn.
+              const again = el("button", "notice-action continuation", "Continuer");
+              again.type = "button";
+              again.addEventListener("click", () => {
+                again.disabled = true;
+                again.textContent = "Reprise…";
+                sendMessage("Continue la réponse interrompue, sans la répéter.");
+              });
+              bubble.appendChild(again);
+            }
           });
         } else if (event === "done") {
           guardedStep("done", () => {

@@ -31,7 +31,7 @@ from typing import Callable, List, Optional
 
 import httpx
 
-from . import Provider, ProviderError, request_messages
+from . import Provider, ProviderError, request_messages, retry_transport
 
 DEFAULT_OMNIROUTER_PORT = 20128
 DEFAULT_MODEL = "auto/best-free"
@@ -161,8 +161,10 @@ class OmniRouterProvider(Provider):
         return headers
 
     def _error(self, exc: Exception) -> ProviderError:
+        """A network failure, classified: retryable, never a client error."""
         return ProviderError(
-            f"cannot reach {self.label} at {self.base_url} ({type(exc).__name__}: {exc})"
+            f"cannot reach {self.label} at {self.base_url} ({type(exc).__name__}: {exc})",
+            kind="timeout" if isinstance(exc, httpx.TimeoutException) else "transport",
         )
 
     # -- chat -------------------------------------------------------------- #
@@ -183,8 +185,27 @@ class OmniRouterProvider(Provider):
         payload.update(openai_params(getattr(self, "request_params", {}) or {}, self.model))
 
         if on_token is None:
-            return self._chat_blocking(payload)
-        return self._stream_with_usage(payload, on_token)
+            return retry_transport(
+                lambda: self._chat_blocking(payload),
+                label=self.label,
+                attempts=self.retry_attempts,
+                backoff=self.retry_backoff,
+                sleep=self.retry_sleep,
+            )
+        seen = {"any": False}
+
+        def counted(delta: str) -> None:
+            seen["any"] = True
+            on_token(delta)
+
+        return retry_transport(
+            lambda: self._stream_with_usage(payload, counted),
+            label=self.label,
+            emitted=lambda: seen["any"],
+            attempts=self.retry_attempts,
+            backoff=self.retry_backoff,
+            sleep=self.retry_sleep,
+        )
 
     def _stream_with_usage(
         self, payload: dict, on_token: Callable[[str], None]
