@@ -1442,3 +1442,53 @@ def test_the_tools_catalog_endpoint_passes_uhbs_answer_through(
     assert listing["available"] is True and listing["tools"][0]["name"] == "execute_code"
     assert detail["tool"]["available"] is True
     assert sent == [("", "dev"), ("execute_code", "")]
+
+
+def test_the_turn_journal_records_the_tool_but_never_its_payload(tmp_path: Path, monkeypatch) -> None:
+    """UH's journal must not become the place a snippet or a secret leaks.
+
+    UH does not execute anything, but it does log the turn: the tool name, its
+    duration and a status. The payload — here a distinctive argument — must not
+    appear. Asserted on the file itself, not on the code that writes it.
+    """
+    from uh import turnlog
+
+    # The journal keeps a module-level logger for the process: in a full run its
+    # handler already points at an earlier test's home. Reset it so this test reads
+    # the file it is actually writing to (measured: passes alone, failed in the suite).
+    stale = getattr(turnlog, "_HANDLER", None)
+    if stale is not None:
+        stale.close()
+    monkeypatch.setattr(turnlog, "_LOGGER", None, raising=False)
+    monkeypatch.setattr(turnlog, "_HANDLER", None, raising=False)
+
+    marker = "SECRET-PAYLOAD-MARKER"
+
+    class Provider:
+        def __init__(self) -> None:
+            self.replies = [
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "call_x", "function": {"name": "read_file",
+                                                  "arguments": {"path": f"{marker}.txt"}}},
+                ]},
+                {"role": "assistant", "content": "je ne l'ai pas lu"},
+            ]
+
+        def chat(self, messages, tools):
+            return self.replies.pop(0)
+
+    app = make_app(tmp_path, monkeypatch, provider=Provider())
+
+    async def scenario():
+        async with client(app) as http:
+            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
+            await http.post(f"/api/sessions/{session_id}/chat", json={"message": "lis"}, headers=AUTH)
+
+    run(scenario())
+
+    handler = getattr(turnlog, "_HANDLER", None)
+    if handler is not None:
+        handler.flush()
+    journal = turnlog.log_path().read_text(encoding="utf-8")
+    assert "tool=read_file" in journal, "the tool that ran is the thing worth recording"
+    assert marker not in journal, "the payload stayed out of the journal"
