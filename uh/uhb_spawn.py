@@ -45,6 +45,14 @@ MODE = "dev"
 LOG_NAME = "uhb.log"
 START_TIMEOUT = 5.0
 STOP_TIMEOUT = 5.0
+#: How long the graceful route gets to accept, and how long the port gets to close.
+SHUTDOWN_ASK_TIMEOUT = 3.0
+SHUTDOWN_CLOSE_TIMEOUT = 5.0
+#: UHB's own token, same three names it resolves in `uhb/entrypoints/shutdown.py`:
+#: the environment wins, then an explicit path, then the file it writes on first
+#: use. UH reads it; it never prints it, never logs it, never puts it in argv.
+SHUTDOWN_TOKEN_ENV = "UHB_SHUTDOWN_TOKEN"
+SHUTDOWN_TOKEN_FILE_ENV = "UHB_SHUTDOWN_TOKEN_FILE"
 _MARKER = Path("uhb") / "entrypoints" / "server.py"
 
 #: ``CREATE_NO_WINDOW``: no console for the child (Windows only, 0 elsewhere).
@@ -607,10 +615,25 @@ def _spawn(command: List[str], checkout: Path, log: Path) -> subprocess.Popen:
 
 
 def stop_running(timeout: float = STOP_TIMEOUT) -> bool:
-    """Stop the UHB this process started, then any recorded one. True if one went."""
+    """Stop the UHB this process started: ask it first, kill it only as a fallback.
+
+    UHB owns the stopping policy (`POST /shutdown`: token, `confirm`, targets,
+    verification), so UH must not keep a second one. The route is asked for
+    `stop: ["self"]` — the same perimeter as before, nothing wider: a quit must
+    not start tearing down the operator's containers or local services. The wide
+    stop (`docker` + `local`) stays an explicit action of the interface.
+
+    The fallback matters: an UHB older than the route, a token that was rotated,
+    a caller from another user — all of them answer 401/404 or refuse to connect,
+    and the process tree is still terminated exactly as it used to be.
+    """
     global _RUNNING
     child, _RUNNING = _RUNNING, None
     stopped = False
+    if request_shutdown():
+        # 202 means "accepted", not "gone": wait for the port, or the next `uh web`
+        # finds it answering and refuses to start its own.
+        stopped = _wait_closed(SHUTDOWN_CLOSE_TIMEOUT)
     if child is not None:
         child.stop(timeout)
         stopped = True
@@ -621,9 +644,68 @@ def stop_running(timeout: float = STOP_TIMEOUT) -> bool:
     return stopped
 
 
+def shutdown_token() -> str:
+    """The operator's UHB token, or "" when there is none. Never logged, never raised."""
+    from_env = os.environ.get(SHUTDOWN_TOKEN_ENV, "").strip()
+    if from_env:
+        return from_env
+    configured = os.environ.get(SHUTDOWN_TOKEN_FILE_ENV, "").strip()
+    path = Path(configured).expanduser() if configured else Path.home() / ".uhb" / "shutdown-token"
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def request_shutdown(
+    url_value: Optional[str] = None,
+    *,
+    timeout: float = SHUTDOWN_ASK_TIMEOUT,
+    client: Optional["httpx.Client"] = None,
+) -> bool:
+    """Ask UHB to stop itself. True only when it answered 202.
+
+    No token, no request: the route answers 401 and logging that attempt would be
+    noise. A refused or unreachable route is a False, never an exception — the
+    caller falls back to the process tree.
+    """
+    import httpx
+
+    base = (url_value or url() or "").rstrip("/")
+    token = shutdown_token()
+    if not base or not token:
+        return False
+    headers = {"content-type": "application/json", "X-UHB-Token": token}
+    body = {"confirm": True, "stop": ["self"]}
+    try:
+        if client is not None:
+            response = client.post(f"{base}/shutdown", json=body, headers=headers)
+        else:
+            with httpx.Client(timeout=timeout) as http:
+                response = http.post(f"{base}/shutdown", json=body, headers=headers)
+    except httpx.HTTPError:
+        return False
+    return response.status_code == 202
+
+
+def _wait_closed(timeout: float = SHUTDOWN_CLOSE_TIMEOUT) -> bool:
+    """True once nothing answers on UHB's port any more."""
+    target = url()
+    if not target:
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not port_open(target):
+            return True
+        time.sleep(0.15)
+    return not port_open(target)
+
+
 __all__ = [
     "DEFAULT_URL",
     "ENV_PATH",
+    "SHUTDOWN_ASK_TIMEOUT",
+    "SHUTDOWN_CLOSE_TIMEOUT",
     "SpawnError",
     "Spawned",
     "build_command",
@@ -631,7 +713,9 @@ __all__ = [
     "ensure",
     "find_checkout",
     "port_open",
+    "request_shutdown",
     "running",
+    "shutdown_token",
     "status_ok",
     "stop_running",
     "url",
