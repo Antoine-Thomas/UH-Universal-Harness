@@ -106,6 +106,33 @@ TOOLS: List[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "describe_tools",
+            "description": (
+                "Look up what UHB can actually do: the tools it knows, with their "
+                "description and JSON Schema of parameters, the modes that declare "
+                "them, and whether the current mode allows each one (with the reason "
+                "when it does not). Consultation only: this does not run anything, "
+                "and an `available: true` here is information, not a permission - "
+                "the call itself is checked again by UHB."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "One tool to detail. Omit to list every tool.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "Mode to answer for. Defaults to the mode UHB serves.",
+                    },
+                },
+            },
+        },
+    },
 ]
 
 #: The fields the model needs from a mode. ``system_prompt`` is dropped on
@@ -277,13 +304,21 @@ def _invalid() -> dict:
 
 
 def _failure(response: httpx.Response) -> dict:
-    """Map a status code to the action the model should take."""
+    """Map a status code to the action the model should take.
+
+    UHB is the authority: a 403 means the mode does not allow this, and the payload
+    says ``type: forbidden`` in the same shape ``uh/agent.py`` uses when it refuses
+    a tool it was never offered. The model reads one vocabulary, not two.
+    """
     detail = _message(_json(response))
-    return {
+    forbidden = response.status_code == 403
+    payload: dict = {
         "error": detail or f"uhb HTTP {response.status_code}",
         "kind": KINDS.get(response.status_code, "http"),
         "status": response.status_code,
     }
+    payload["type"] = "forbidden" if forbidden else "tool_error"
+    return payload
 
 
 # --------------------------------------------------------------------------- #
@@ -332,10 +367,18 @@ class Uhbtoolset:
         url: str,
         timeout: float = CALL_TIMEOUT,
         client: Optional[httpx.Client] = None,
+        discover: bool = False,
     ) -> None:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self.client = client
+        #: Tools UHB catalogues that this file does not hardcode. Their names and
+        #: schemas come from `GET /tools` at construction: a list here would be a
+        #: second registry, and the two would drift the first time one changed.
+        self.tools = list(TOOLS)
+        self.remote: set[str] = set()
+        if discover:
+            self._discover()
         #: The last plan UHB returned in this session. The Decision view reads it
         #: to report what the model actually asked, instead of guessing.
         self.last_route: Optional[dict] = None
@@ -349,7 +392,9 @@ class Uhbtoolset:
         check = probe_fn or probe
         if not check(url):
             return None
-        return cls(url)
+        # Production builds the catalogue into the toolset; tests construct directly,
+        # so they are not forced into an extra request they did not script.
+        return cls(url, discover=True)
 
     # -- tools -------------------------------------------------------------- #
     def call(self, name: str, args: Optional[dict] = None) -> dict:
@@ -364,7 +409,58 @@ class Uhbtoolset:
                 str(arguments.get("mode") or ""),
                 str(arguments.get("complexity") or ""),
             )
-        return {"error": f"unknown tool: {name}"}
+        if name == "describe_tools":
+            return self.describe_tools(
+                str(arguments.get("name") or ""), str(arguments.get("mode") or "")
+            )
+        if name in self.remote:
+            # UHB decides: this only transports the call and its answer.
+            return self._call_remote(name, arguments)
+        return {"error": f"unknown tool: {name}", "type": "forbidden", "tool": name}
+
+    # -- catalogue-driven tools --------------------------------------------- #
+    def _discover(self) -> None:
+        """Add the tools UHB catalogs that this file does not name.
+
+        A tool already declared here (the three read-only ones, `describe_tools`)
+        keeps its hand-written spec: its description mentions behaviour this client
+        knows better than a generic string. Everything else is taken verbatim.
+        """
+        payload = self._get("/tools")
+        entries = payload.get("tools") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            return
+        known = {spec["function"]["name"] for spec in self.tools}
+        for entry in entries:
+            name = str((entry or {}).get("name") or "")
+            parameters = (entry or {}).get("parameters")
+            if not name or name in known or not isinstance(parameters, dict):
+                continue
+            if (entry or {}).get("execution_type") != "in_process":
+                continue
+            self.tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": str(entry.get("description") or "")[:1000],
+                        "parameters": parameters,
+                    },
+                }
+            )
+            self.remote.add(name)
+
+    def _call_remote(self, name: str, arguments: dict) -> dict:
+        """POST an argument object to UHB's generic tool route."""
+        try:
+            with _client(self.timeout, self.client) as http:
+                response = http.post(f"{self.url}/tools/{name}", json=arguments or {})
+        except Exception:  # noqa: BLE001 - transport failure is a tool result
+            return _unreachable()
+        if response.status_code >= 400:
+            return _failure(response)
+        payload = _json(response)
+        return payload if isinstance(payload, dict) else _invalid()
 
     def _get(self, path: str) -> Dict[str, Any]:
         """GET ``path``: UHB's payload, or a tool-error dict carrying ``error``."""
@@ -418,6 +514,19 @@ class Uhbtoolset:
         plan = compact_decision(payload)
         self.last_route = plan
         return plan
+
+    def describe_tools(self, name: str = "", mode: str = "") -> dict:
+        """What UHB can do, and whether this mode allows it. Never executes anything.
+
+        The catalogue is UHB's: this method asks for it and passes it through
+        untouched. A copy in `uh/` would be a second source of truth, and the two
+        would drift the first time a schema changed.
+        """
+        path = f"/tools/{name.strip()}" if name.strip() else "/tools"
+        wanted = mode.strip()
+        if wanted:
+            path = f"{path}?mode={wanted}"
+        return self._get(path)
 
 
 __all__ = [

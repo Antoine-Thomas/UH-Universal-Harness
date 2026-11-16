@@ -13,6 +13,10 @@ const state = {
   attachments: [],
   activeTab: "keys",
   keyEntryAllowed: false,
+  //: In-flight providers request, shared by the ⚙ button, the keys tab and
+  //: `?panel=keys`: the three entry points used to render the same list three
+  //: times, last answer winning.
+  providersPromise: null,
   presets: null,
   skill: null,
   llm: { enabled: false, values: {} },
@@ -1039,8 +1043,15 @@ function guardedStep(label, step) {
 // ever removed here.
 async function reconcileTranscript() {
   const data = await api(`/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=200`);
-  const boxes = [...$("messages").querySelectorAll(".msg")];
-  const stored = data.messages || [];
+  // Two kinds of bubble are the interface's own voice, never the conversation:
+  // `system` (notices from a turn that ended badly, "stopped") and `failed`
+  // (the "Erreur du modèle : …" bubble, which is drawn client-side). Neither is
+  // ever stored, so counting them made the DOM look "ahead" of the store and
+  // raised the false warning this function exists to prevent.
+  const boxes = [...$("messages").querySelectorAll(".msg")].filter(
+    (box) => !box.classList.contains("system") && !box.classList.contains("failed")
+  );
+  const stored = (data.messages || []).filter((m) => (m.role || "assistant") !== "system");
   updateGauge(stored);
   if (stored.length < boxes.length) {
     console.warn(
@@ -1426,7 +1437,14 @@ function wirePalette() {
 // ---------------------------------------------------------------- providers --
 // Read-only in 7a.1: what exists, how many keys, and whether the router would
 // use it. No key value ever crosses this boundary.
-async function loadProviders() {
+//
+// Three entry points call in here - the ⚙ button, the "keys" tab from
+// `showPanelTab()`, and `openPanelFromUrl()` - and two of them fire
+// back-to-back, so the loader is idempotent: one shared promise while a request
+// is in flight, and the loading state is observable (`aria-busy`) instead of
+// implied by a text hint. A *new* call after a settled load does refetch,
+// because every mutation below (add/delete a key, change a provider) awaits it.
+async function fetchProviders() {
   const data = await api("/api/providers");
   state.keyEntryAllowed = Boolean(data.key_entry_allowed);
   // The banner depends on the answer, so it is set after it, not when opening.
@@ -1442,15 +1460,53 @@ async function loadProviders() {
   }
   renderProviders(data.providers || []);
   renderKeysPanel(data.keys);
-  renderRouterSettings(await api("/api/router/settings"));
-  // A collapsed panel keeps `display:flex` but its grid column is 0 wide: the rows
-  // are in the DOM and clipped, which reads as "the list never loaded" until the
-  // user detaches the panel and gives it a real width. Re-assert it once, after
-  // the render, whatever the entry point was.
-  const panel = $("providers-panel");
-  if (panel && panel.clientWidth === 0) {
-    $("layout").classList.remove("right-collapsed");
+}
+
+// The router settings are a *neighbouring* panel, not a prerequisite: a 500 here
+// leaves the provider list on screen and says so in its own box. It used to be
+// awaited inside the same chain, so its failure wiped a list that had already
+// rendered - the "empty first click" that had no HTTP error behind it.
+async function loadRouterSettings() {
+  const box = $("router-settings");
+  if (!box) return;
+  try {
+    renderRouterSettings(await api("/api/router/settings"));
+  } catch (error) {
+    box.textContent = "";
+    box.appendChild(
+      el("div", "panel-hint", `réglages du routeur indisponibles : ${error.message}`)
+    );
   }
+}
+
+function loadProviders() {
+  // Coalesced: a second call while the first is in flight joins it. The promise
+  // is cleared on settle, never on success alone, so a failed load is retryable.
+  if (state.providersPromise) return state.providersPromise;
+  const panel = $("providers-panel");
+  if (panel) panel.setAttribute("aria-busy", "true");
+  const run = (async () => {
+    try {
+      await fetchProviders();
+      // A collapsed panel keeps `display:flex` but its grid column is 0 wide: the
+      // rows are in the DOM and clipped, which reads as "the list never loaded"
+      // until the panel gets a real width. Re-assert it after the render, whatever
+      // the entry point was.
+      if (panel && panel.clientWidth === 0) {
+        $("layout").classList.remove("right-collapsed");
+      }
+    } finally {
+      if (panel) panel.setAttribute("aria-busy", "false");
+    }
+  })();
+  state.providersPromise = run;
+  const settle = () => {
+    if (state.providersPromise === run) state.providersPromise = null;
+  };
+  run.then(settle, settle);
+  // Independent, parallel, and it cannot fail the list.
+  loadRouterSettings().catch(() => {});
+  return run;
 }
 
 // Remote access is a privacy switch: the warning and the consent box only appear
@@ -2831,6 +2887,77 @@ async function loadDecision() {
   }
 }
 
+// ------------------------------------------------------------------- tools --
+// The catalogue lives in UHB and is shown here verbatim. No list of tool names
+// exists in this file: one copy in Python, one in JavaScript, and the two drift
+// the first time a schema changes. `available` is information - the panel says
+// "not allowed in this mode", it never grants anything.
+function catalogCard(entry) {
+  const card = el("div", "catalog-card");
+  const head = el("div", "catalog-head");
+  head.appendChild(el("span", "catalog-name", entry.name || "?"));
+  if (entry.category) head.appendChild(el("span", "catalog-tag", entry.category));
+  const allowed = entry.available === true;
+  head.appendChild(
+    el("span", allowed ? "catalog-state ok" : "catalog-state bad", allowed ? "disponible" : "refusé")
+  );
+  card.appendChild(head);
+  if (entry.description) card.appendChild(el("p", "catalog-desc", entry.description));
+  const modes = Array.isArray(entry.compatible_modes) ? entry.compatible_modes : [];
+  if (modes.length) card.appendChild(el("div", "catalog-meta", `modes : ${modes.join(", ")}`));
+  if (!allowed) {
+    // The reason is a code plus a hint from UHB, never a sentence this file
+    // invents: the panel translates the code, it does not guess.
+    const reason = entry.reason || {};
+    const text = [reason.code, reason.hint].filter(Boolean).join(" — ");
+    if (text) card.appendChild(el("div", "catalog-reason", text));
+  }
+  if (entry.parameters && Object.keys(entry.parameters).length) {
+    const details = el("details", "catalog-schema");
+    details.appendChild(el("summary", "", "paramètres (JSON Schema)"));
+    details.appendChild(el("pre", "", JSON.stringify(entry.parameters, null, 2)));
+    card.appendChild(details);
+  }
+  return card;
+}
+
+function renderToolCatalog(payload) {
+  const list = $("tools-list");
+  list.textContent = "";
+  const hint = $("tools-hint");
+  if (payload.available === false) {
+    // UHB absent is a state, not an empty catalogue: an empty list would read as
+    // "this build has no tools", which is false and alarming.
+    const reason = payload.reason || {};
+    hint.textContent = `catalogue indisponible : ${reason.hint || reason.code || "UHB ne répond pas"}`;
+    return;
+  }
+  const tools = Array.isArray(payload.tools) ? payload.tools : [];
+  hint.textContent = tools.length
+    ? `${tools.length} outil(s) · mode ${payload.mode || "courant"} · information, pas une autorisation`
+    : "aucun outil déclaré par UHB";
+  for (const entry of tools) list.appendChild(catalogCard(entry));
+}
+
+function loadToolCatalog() {
+  if (state.toolsPromise) return state.toolsPromise;
+  const list = $("tools-list");
+  if (list) list.setAttribute("aria-busy", "true");
+  const run = (async () => {
+    try {
+      renderToolCatalog(await api("/api/tools/catalog"));
+    } finally {
+      if (list) list.setAttribute("aria-busy", "false");
+    }
+  })();
+  state.toolsPromise = run;
+  const settle = () => {
+    if (state.toolsPromise === run) state.toolsPromise = null;
+  };
+  run.then(settle, settle);
+  return run;
+}
+
 function showPanelTab(name) {
   state.activeTab = name;
   for (const [tab, view] of [
@@ -2843,6 +2970,7 @@ function showPanelTab(name) {
     ["telemetry", "telemetry-view"],
     ["conn", "conn-view"],
     ["data", "data-view"],
+    ["tools", "tools-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -2867,6 +2995,9 @@ function showPanelTab(name) {
     loadMemoryGraph().catch(() => {});
     loadUhb().catch(() => {});
   }
+  if (name === "tools") {
+    loadToolCatalog().catch(() => {});
+  }
   if (name === "memory") loadMemory().catch(() => {});
   if (name === "decision") loadDecision().catch(() => {});
   if (name === "telemetry") {
@@ -2884,8 +3015,9 @@ function openProviders() {
   $("layout").classList.remove("right-collapsed");
   $("providers-hint").textContent = "loading…";
   loadProviders().catch((error) => {
-    $("providers-list").textContent = "";
-    $("providers-list").appendChild(el("div", "panel-hint", `error: ${error.message}`));
+    // Keep whatever is on screen: an emptied list plus "error" reads as "you have
+    // no providers", which is a different - and false - statement.
+    $("providers-hint").textContent = `erreur de chargement : ${error.message}`;
   });
 }
 
@@ -3013,6 +3145,7 @@ function wireProviders() {
   $("help-open").addEventListener("click", openHelpModal);
   $("quit-uh").addEventListener("click", quitUh);
   $("tab-data").addEventListener("click", () => showPanelTab("data"));
+  $("tab-tools").addEventListener("click", () => showPanelTab("tools"));
   // One button in the topbar, next to the Dreams one: the data panel is a place,
   // not a tab you have to know about.
   $("data-open").addEventListener("click", () => {

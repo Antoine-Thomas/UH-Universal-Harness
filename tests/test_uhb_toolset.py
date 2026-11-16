@@ -8,6 +8,7 @@ running UHB, and no test can accidentally contact one (``conftest`` sets
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -130,7 +131,22 @@ def test_an_http_error_is_reported_with_its_code() -> None:
         "error": "uhb HTTP 503",
         "kind": "http",
         "status": 503,
+        "type": "tool_error",
     }
+
+
+def test_a_403_is_a_forbidden_refusal_carrying_uhbs_reason() -> None:
+    """UHB is the authority: its 403 reaches the model in the same vocabulary the
+    loop uses when it refuses a tool it was never offered."""
+    payload = {"error": {"message": "mode 'chat' does not allow execute_code",
+                         "type": "forbidden"}}
+    toolset = uhb_mod.Uhbtoolset(URL, client=answer(payload, status=403))
+
+    result = toolset.call("uhb_status", {})
+
+    assert result["type"] == "forbidden"
+    assert result["status"] == 403
+    assert "execute_code" in result["error"], "the reason comes from UHB, not from a guess"
 
 
 def test_invalid_json_is_reported() -> None:
@@ -153,7 +169,42 @@ def test_a_json_list_is_not_a_status_payload() -> None:
 
 
 def test_an_unknown_tool_is_reported() -> None:
-    assert uhb_mod.Uhbtoolset(URL).call("nope", {}) == {"error": "unknown tool: nope"}
+    result = uhb_mod.Uhbtoolset(URL).call("nope", {})
+    assert result["error"] == "unknown tool: nope"
+    assert result["type"] == "forbidden", "one vocabulary with the agent loop"
+
+
+def test_the_catalogue_adds_the_tools_this_file_does_not_name() -> None:
+    """UH transports what UHB catalogs: no second list of tool names here."""
+    catalogue = {
+        "tools": [
+            {"name": "desktop_open_url", "description": "Open a URL.",
+             "parameters": {"type": "object", "properties": {"url": {"type": "string"}},
+                            "required": ["url"]},
+             "execution_type": "in_process"},
+            {"name": "execute_code", "description": "Run code.",
+             "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
+             "execution_type": "subprocess"},
+        ]
+    }
+    posted: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=catalogue)
+        posted.append((str(request.url), json.loads(request.content or b"{}")))
+        return httpx.Response(200, json={"ok": True, "url": "https://x", "request_id": "r1"})
+
+    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler), discover=True)
+
+    names = [spec["function"]["name"] for spec in toolset.tools]
+    assert "desktop_open_url" in names
+    assert "execute_code" not in names, "a subprocess tool is not offered to the chat"
+
+    result = toolset.call("desktop_open_url", {"url": "https://x"})
+    assert result["ok"] is True
+    assert posted and posted[0][0].endswith("/tools/desktop_open_url")
+    assert posted[0][1] == {"url": "https://x"}
 
 
 # --------------------------------------------------------------------------- #
@@ -259,8 +310,8 @@ def test_toolset_is_built_when_uhb_answers(
 
     assert "uhb" in toolsets
     names = [spec["function"]["name"] for spec in toolsets["uhb"].tools]
-    assert names == ["uhb_status", "uhb_modes", "uhb_route"]
-    assert "uhb: uhb_status, uhb_modes, uhb_route" in describe_toolsets(toolsets)
+    assert names == ["uhb_status", "uhb_modes", "uhb_route", "describe_tools"]
+    assert "uhb: uhb_status, uhb_modes, uhb_route, describe_tools" in describe_toolsets(toolsets)
 
 
 def test_the_tool_result_reaches_the_agent_loop_as_a_tool_message() -> None:
@@ -301,3 +352,70 @@ def test_the_tool_result_reaches_the_agent_loop_as_a_tool_message() -> None:
     assert tool_messages, "the tool result never reached the history"
     assert "ollama" in tool_messages[0]["content"]
     assert "must-not-leak" not in tool_messages[0]["content"]
+
+
+# --------------------------------------------------------------------------- #
+# describe_tools: consultation, jamais une permission
+# --------------------------------------------------------------------------- #
+CATALOG = {
+    "tools": [
+        {
+            "name": "execute_code",
+            "description": "Execute Python code in the authorized workspace.",
+            "parameters": {"type": "object", "properties": {"code": {"type": "string"}},
+                           "required": ["code"]},
+            "category": "code",
+            "execution_type": "subprocess",
+            "version": "1",
+            "enabled": True,
+            "required_permissions": [],
+            "compatible_modes": ["dev"],
+            "available": False,
+            "reason": {"code": "not_in_mode", "mode": "chat", "available_in": ["dev"],
+                       "hint": "the current mode does not declare this tool"},
+        }
+    ],
+    "count": 1,
+    "mode": "chat",
+    "request_id": "abc123",
+}
+
+
+def test_describe_tools_passes_uhbs_catalogue_through_untouched() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=CATALOG)
+
+    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler))
+
+    assert toolset.call("describe_tools", {}) == CATALOG
+    assert seen[0].method == "GET", "consultation: this tool must never POST"
+    assert str(seen[0].url).endswith("/tools")
+
+
+def test_describe_tools_details_one_name_and_forwards_the_mode() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"tool": CATALOG["tools"][0], "count": 1, "mode": "dev"})
+
+    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler))
+    toolset.call("describe_tools", {"name": "execute_code", "mode": "dev"})
+
+    url = str(seen[0].url)
+    assert url.endswith("/tools/execute_code?mode=dev")
+
+
+def test_an_unknown_tool_from_uhb_stays_a_structured_tool_error() -> None:
+    payload = {"error": {"message": "unknown tool 'nope'; known: execute_code",
+                         "type": "not_found", "hint": "GET /tools lists every name"}}
+    toolset = uhb_mod.Uhbtoolset(URL, client=answer(payload, status=404))
+
+    result = toolset.call("describe_tools", {"name": "nope"})
+
+    assert result["status"] == 404
+    assert result["type"] == "tool_error"
+    assert "known: execute_code" in result["error"]

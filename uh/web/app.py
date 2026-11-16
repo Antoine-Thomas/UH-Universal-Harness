@@ -1520,6 +1520,41 @@ def create_app(
         except uh_skills.SkillError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/tools/catalog", dependencies=[Depends(require_token)])
+    async def tools_catalog(mode: str = "", name: str = "") -> dict:
+        """The tool catalogue, read from UHB and passed through untouched.
+
+        No copy lives here: UH asks UHB, and if UHB is down the panel gets a
+        structured *state* - ``{"available": false, "reason": ...}`` - not a 500 and
+        not an empty list, which would read as "there are no tools".
+        """
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        if url is None:
+            return {
+                "available": False,
+                "reason": {"code": "uhb_disabled", "hint": "UH_UHB_URL is empty or not loopback"},
+                "tools": [],
+            }
+        payload = await asyncio.to_thread(
+            lambda: Uhbtoolset(url, timeout=2.0).describe_tools(name, mode)
+        )
+        if "error" in payload:
+            return {
+                "available": False,
+                "reason": {
+                    "code": "uhb_unreachable",
+                    "hint": str(payload.get("error") or "UHB did not answer"),
+                },
+                "tools": [],
+            }
+        return {"available": True, **payload}
+
+    @app.get("/api/tools/catalog/{name}", dependencies=[Depends(require_token)])
+    async def tools_catalog_one(name: str, mode: str = "") -> dict:
+        return await tools_catalog(mode=mode, name=name)
+
     @app.get("/api/tools/status", dependencies=[Depends(require_token)])
     async def tools_status() -> dict:
         """What is connected, as far as this process can actually tell.

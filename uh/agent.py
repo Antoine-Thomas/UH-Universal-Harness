@@ -11,8 +11,11 @@ tool calls use the Ollama ``/api/chat`` shape::
      "tool_calls": [{"function": {"name": "read_file",
                                   "arguments": {"path": "a.txt"}}}]}
 
-Tool results come back as ``{"role": "tool", "name": <tool>, "content": <json>}``
-so the format stays portable to the providers of Jalon 2.
+Tool results come back as ``{"role": "tool", "name": <tool>, "content": <json>,
+"tool_call_id": <id>}``: the id is what ties an answer to the call that asked for
+it, and without it two parallel calls are indistinguishable - the second result
+lands where the first was expected. Providers that omit ids get them assigned
+here, so the pair in the history is always consistent.
 
 Streaming (Jalon 2) is opt-in: ``on_token`` is a ``Callable[[str], None]``
 receiving text deltas. A provider that does not declare ``on_token`` (and has
@@ -37,6 +40,7 @@ import inspect
 import json
 import re
 import sys
+import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -125,13 +129,37 @@ def _coerce_arguments(raw: Any) -> dict:
     return {}
 
 
-def _split_call(call: Any) -> tuple[str, dict]:
+def _ensure_call_ids(message: dict) -> None:
+    """Give every tool call an id, in place, so its answer can name it.
+
+    Ollama's shape has no ``id``; OpenAI's requires one on both sides. Assigning
+    it once here - before the calls are executed - keeps the pair consistent even
+    for a provider that sends neither, instead of storing an answer that cannot
+    be matched to its question when the session is replayed.
+    """
+    calls = message.get("tool_calls")
+    if not isinstance(calls, list):
+        return
+    for call in calls:
+        if isinstance(call, dict) and not call.get("id"):
+            call["id"] = f"call_{uuid.uuid4().hex[:12]}"
+
+
+#: How many times a model may ask for the same forbidden tool before the turn is
+#: stopped. One refusal is information; two is a retry; three is a loop that costs
+#: the user a provider call each time and cannot succeed.
+_REFUSAL_LIMIT = 2
+
+
+def _split_call(call: Any) -> tuple[str, str, dict]:
+    """``(call_id, name, arguments)`` for either tool-call shape a provider sends."""
     if not isinstance(call, dict):
-        return "", {}
+        return "", "", {}
+    call_id = str(call.get("id") or "")
     function = call.get("function")
     if isinstance(function, dict):
-        return str(function.get("name") or ""), _coerce_arguments(function.get("arguments"))
-    return str(call.get("name") or ""), _coerce_arguments(call.get("arguments"))
+        return call_id, str(function.get("name") or ""), _coerce_arguments(function.get("arguments"))
+    return call_id, str(call.get("name") or ""), _coerce_arguments(call.get("arguments"))
 
 
 #: A fenced block in a language the harness can actually run. Wider than the
@@ -181,16 +209,34 @@ def _answers_with_code(content: Any) -> bool:
     return bool(_CODE_FENCE.search(str(content or "")))
 
 
-def _execute(index: Dict[str, "Toolset"], name: str, args: dict) -> dict:
-    """Run one tool, always returning a ``role: tool`` message (never raising)."""
+def _execute(
+    index: Dict[str, "Toolset"], name: str, args: dict, call_id: str = ""
+) -> tuple[dict, bool]:
+    """Run one tool, always returning a ``role: tool`` message and a refusal flag.
+
+    The flag is what lets the loop stop a model that keeps asking for a tool it is
+    not allowed to use: without it, three refusals cost three provider calls and
+    the user pays for a conversation that cannot progress.
+
+    A refusal is structured, not a sentence: ``type: "forbidden"`` for a tool that
+    is not offered in this mode, ``type: "tool_error"`` for a tool that raised.
+    The interface shows both, and neither is retried silently.
+    """
     toolset = index.get(name)
+    refused = False
     if toolset is None:
-        payload: dict = {"error": f"unknown tool '{name}'. Known tools: {sorted(index)}"}
+        refused = True
+        payload: dict = {
+            "error": f"tool '{name}' is not available in this mode. "
+                     f"Available: {sorted(index)}",
+            "type": "forbidden",
+            "tool": name,
+        }
     else:
         try:
             result = toolset.call(name, args)
         except Exception as exc:  # noqa: BLE001 - fail-closed by contract
-            payload = {"error": f"{type(exc).__name__}: {exc}"}
+            payload = {"error": f"{type(exc).__name__}: {exc}", "type": "tool_error", "tool": name}
         else:
             payload = result if isinstance(result, dict) else {"result": result}
 
@@ -198,7 +244,10 @@ def _execute(index: Dict[str, "Toolset"], name: str, args: dict) -> dict:
         content = json.dumps(payload, ensure_ascii=False, default=str)
     except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
         content = json.dumps({"error": f"tool result not serialisable: {exc}"})
-    return {"role": "tool", "name": name, "content": content}
+    message: dict = {"role": "tool", "name": name, "content": content}
+    if call_id:
+        message["tool_call_id"] = call_id
+    return message, refused
 
 
 def last_assistant_message(messages: Iterable[dict]) -> dict | None:
@@ -296,6 +345,8 @@ def run_turn(
     # will not be talked into it on the fourth try, and the user is paying for
     # every extra call.
     nudges_left = 1 if runnable else 0
+    #: Per tool name: how many more refusals the loop tolerates this turn.
+    refusals_left: Dict[str, int] = {}
 
     for _iteration in range(1, total_iterations + 1):  # the count is only for the error
         outgoing = context.prepare(history) if context is not None else history
@@ -313,6 +364,7 @@ def run_turn(
         message.setdefault("role", "assistant")
         if message.get("content") is None:
             message["content"] = ""
+        _ensure_call_ids(message)
         history.append(message)
 
         calls = message.get("tool_calls") or []
@@ -335,8 +387,28 @@ def run_turn(
             return history
 
         for call in calls:
-            name, args = _split_call(call)
-            history.append(_execute(index, name, args))
+            call_id, name, args = _split_call(call)
+            result, refused = _execute(index, name, args, call_id)
+            history.append(result)
+            if not refused:
+                continue
+            refusals_left[name] = refusals_left.get(name, _REFUSAL_LIMIT) - 1
+            if on_notice is not None:
+                on_notice(
+                    f"`{name}` n'est pas autorisé dans ce mode : "
+                    f"l'appel a été refusé (il en reste {max(refusals_left[name], 0)})"
+                )
+            if refusals_left[name] <= 0:
+                # The model keeps asking for the same forbidden tool. Continuing
+                # would burn the iteration budget on a conversation that cannot
+                # progress, so the turn stops here with the refusal in the
+                # transcript - visible, persisted, and honest about the reason.
+                if on_notice is not None:
+                    on_notice(
+                        f"tour arrêté : `{name}` a été demandé {_REFUSAL_LIMIT} fois "
+                        "alors que ce mode ne l'autorise pas"
+                    )
+                return history
 
     raise BudgetExhausted(
         f"no final answer after {total_iterations} provider call(s) "

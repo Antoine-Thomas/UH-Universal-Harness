@@ -211,7 +211,9 @@ def test_probe_rejects_a_uhb_that_only_knows_status() -> None:
 
 
 def test_an_unknown_tool_says_so() -> None:
-    assert uhb_mod.Uhbtoolset(URL).call("uhb_nope", {}) == {"error": "unknown tool: uhb_nope"}
+    result = uhb_mod.Uhbtoolset(URL).call("uhb_nope", {})
+    assert result["error"] == "unknown tool: uhb_nope"
+    assert result["type"] == "forbidden"
 
 
 # --------------------------------------------------------------------------- #

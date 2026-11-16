@@ -508,3 +508,64 @@ def test_the_model_choice_is_remembered_by_the_browser_too() -> None:
     assert "storedModelChoice()" in script, "and the boot must read it back"
     assert "state.modelRestored" in script, "one restore attempt, never a loop"
     assert 'result.persisted === false' in script, "a refused config write is shown"
+
+
+@KEEP
+def test_the_providers_panel_is_loaded_once_and_stays_isolated() -> None:
+    """Three entry points, one request, and a neighbour that cannot empty the list.
+
+    Measured in a real browser: `?panel=keys` asked `/api/providers` twice (the
+    URL opener then the tab), and a 500 on `/api/router/settings` wiped a list
+    that had already rendered. The loader is now coalesced and the router
+    settings load beside it, not inside it.
+    """
+    script = APP.read_text(encoding="utf-8")
+    loader = script.split("function loadProviders() {", 1)[1].split("\n// Remote access", 1)[0]
+
+    assert "if (state.providersPromise) return state.providersPromise" in loader, \
+        "one in-flight promise, shared by every entry point"
+    assert "state.providersPromise = run" in loader
+    assert 'setAttribute("aria-busy"' in loader, "a loading state the interface can observe"
+    assert "loadRouterSettings().catch(" in loader, \
+        "the router settings must not be able to fail the provider list"
+    assert "renderRouterSettings(await api(" not in loader, \
+        "that ordering is the wipe: settings inside the list's chain"
+    settings = script.split("async function loadRouterSettings() {", 1)[1].split(
+        "\n}\n", 1)[0]
+    assert "try {" in settings and "catch (error)" in settings, \
+        "the settings load owns its failure, in its own box"
+
+
+@KEEP
+def test_the_transcript_reconciliation_ignores_system_bubbles() -> None:
+    """Notices are shown in the transcript but never stored, so counting them made
+    the DOM look ahead of the store: any turn ending with a notice produced a
+    false "Le transcript enregistré contient moins de messages que l'écran"."""
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("async function reconcileTranscript() {", 1)[1].split(
+        "\nasync function ", 1)[0]
+
+    assert 'classList.contains("system")' in body, "system bubbles are not messages"
+    assert 'classList.contains("failed")' in body, "the client-drawn error bubble is not one either"
+    assert '!== "system"' in body, "stored system rows are excluded on both sides"
+    assert "const stored = data.messages || [];" not in body, \
+        "that is the version that counted the interface's own notices"
+
+
+@KEEP
+def test_the_tools_panel_shows_uhbs_catalogue_and_keeps_no_copy_of_it() -> None:
+    """One catalogue, in UHB. A list of tool names here would be a second truth."""
+    page = INDEX.read_text(encoding="utf-8")
+    assert 'id="tab-tools"' in page and 'id="tools-view"' in page
+    assert 'id="tools-list"' in page and 'aria-busy' in page
+
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("function catalogCard(entry) {", 1)[1].split(
+        "\nfunction showPanelTab(", 1)[0]
+    # The catalogue is data: no name of a real tool appears in this file.
+    for name in ("execute_code", "read_file", "write_file", "search_files"):
+        assert name not in script, f"{name} is hardcoded in the interface"
+    assert "/api/tools/catalog" in body, "the panel reads UHB, it does not embed"
+    assert "state.toolsPromise" in body, "one in-flight request per click, as for providers"
+    assert "innerHTML" not in body, "artefacts and schemas are rendered as text, never as markup"
+    assert "innerText" in body or "textContent" in body

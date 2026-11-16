@@ -246,3 +246,52 @@ def test_delete_one_message_keeps_the_rest_and_cleans_the_index(tmp_path: Path) 
         assert store.search("gardee"), "and keep the neighbours"
         assert store.delete_message(session, doomed) is False, "second delete: already gone"
         assert store.delete_message("autre-session", first) is False, "scoped by session"
+
+
+def test_a_database_from_before_the_tool_call_id_column_is_upgraded_in_place(tmp_path: Path) -> None:
+    """A session recorded by 0.1.x must open in 0.2 without losing a message.
+
+    `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so the column has
+    to be added explicitly. This is the difference between an upgrade and a wipe.
+    """
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript(
+        """
+        CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+        INSERT INTO schema_version(version) VALUES (1);
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',
+            provider TEXT NOT NULL DEFAULT '', metadata TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            role TEXT NOT NULL, content TEXT NOT NULL DEFAULT '',
+            tool_name TEXT, tool_calls TEXT, created_at TEXT NOT NULL
+        );
+        INSERT INTO sessions(id, created_at, updated_at, title)
+            VALUES ('s1', '2026-01-01T00:00:00', '2026-01-01T00:00:00', 'ancienne');
+        INSERT INTO messages(session_id, role, content, created_at)
+            VALUES ('s1', 'user', 'question posée avant la migration', '2026-01-01T00:00:00');
+        """
+    )
+    legacy.commit()
+    legacy.close()
+
+    store = Store(path)
+    try:
+        messages = store.get_messages("s1")
+        store.append_message(
+            "s1", {"role": "tool", "name": "read_file", "content": "{}", "tool_call_id": "call_new"}
+        )
+        after = store.get_messages("s1")
+    finally:
+        store.close()
+
+    assert messages[0]["content"] == "question posée avant la migration"
+    assert "tool_call_id" not in messages[0], "an old row has no id, and is not given a fake one"
+    assert after[-1]["tool_call_id"] == "call_new", "the new column is usable after the upgrade"

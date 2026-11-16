@@ -91,6 +91,8 @@ come back", which nothing else in the product could.
 | POST | `/api/backup/import` | raw body: the zip | restores after snapshotting the current home, returns `{restored, skipped, safety, files, was, restart_required}`; `400` when the archive holds no UH data or a member escapes the home, `413` above 256 MB |
 | GET | `/api/skills` | — | `{skills: [{name, title, description, origin, native, path, bytes, modified}], user, native, user_dir, native_dir, native_available}` |
 | POST | `/api/skills` | `{title, description, instructions, name?}` | writes `$UH_HOME/skills/<name>.md`, returns `{name, path, bytes, title, description}`; `400` for a missing title/instructions, a name that could escape the folder, or an existing file |
+| GET | `/api/tools/catalog` | `?mode=` | `{available: true, tools: [{name, description, parameters, category, execution_type, version, enabled, required_permissions, tags, compatible_modes, available, reason}], count, mode, catalog_version, request_id}` — the catalogue read from UHB, passed through untouched. When UHB is disabled or unreachable: `{available: false, reason: {code, hint}, tools: []}`, never a `500` and never an empty list without a reason |
+| GET | `/api/tools/catalog/{name}` | `?mode=` | `{available: true, tool: {…}, count: 1, mode, request_id}` — one tool. `404` from UHB is relayed as `{available: false, reason}` like the listing |
 | GET | `/api/tools/status` | — | `{toolsets: {name: [tools]}, ollama, uhb: {connected, reason}, mcp: {supported: true, configured, servers: [{name, command, connected, state, protocol, server, version, tools, reason?}], http: [{name, url, connected, state, label, tools, reason, advice}], http_reason?, problems?}, terminal, workspace}` · `state` is `connected`, `idle` (configured, not started) or `failed`; an HTTP server is never reported connected without a live client |
 | GET | `/api/setup` | — | `{needed, provider, model, ollama: {running, installed, models}, cloud: [names], huggingface_models: [ids]}` — `needed` is true only when no local model answers **and** no provider key is stored |
 | POST | `/api/setup` | `{choice: ollama\|huggingface\|cloud, provider?, key?, model?}` | `{saved, provider, model}` — writes `default_provider` / `default_model` through the config writer and the key through the provider panel · `400` unknown choice or provider, a cloud choice without a key, or a local model that is not installed · `409` `config.toml` not writable (the message names the cause) |
@@ -181,6 +183,7 @@ gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 local-panel  local-view  tab-local  setup-banner
 data-open  data-panel  data-view  tab-data
+tools-hint  tools-list  tools-view  tab-tools
 conn-badge  conn-view  tab-conn
 memory-graph  skill-badge  skill-open
 llm-badge  llm-open  llm-panel
