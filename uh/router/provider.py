@@ -138,6 +138,9 @@ class RouterProvider(Provider):
             raise ProviderError(f"router: every provider is cooling down ({cooling})")
 
         failures: list[str] = []
+        #: The kinds of failure seen, so the outer chain can tell "the network is
+        #: down everywhere" (retryable) from "everyone refused this request".
+        kinds: set[str] = set()
         for name, key_state in candidates:
             spec = self.catalog.get(name)
             if spec is None:
@@ -178,6 +181,7 @@ class RouterProvider(Provider):
                         f"router: {name} broke mid-stream after already answering: {exc}"
                     ) from exc
                 failures.append(f"{name}/{model}: {exc.kind}")
+                kinds.add(str(exc.kind or "error"))
                 continue
 
             self.pool.record_success(name, key_state)
@@ -191,11 +195,15 @@ class RouterProvider(Provider):
             }
             return message
 
+        # Everything that failed failed at the transport level: the outer chain is
+        # allowed to retry, or to move to the next provider.
+        transport_only = bool(kinds) and kinds <= {"transport", "timeout"}
         raise ProviderError(
             "router: no free provider answered ("
             + "; ".join(failures[:4])
             + (f"; +{len(failures) - 4} more" if len(failures) > 4 else "")
-            + ")"
+            + ")",
+            kind="transport" if transport_only else "",
         )
 
     # -- status ------------------------------------------------------------ #

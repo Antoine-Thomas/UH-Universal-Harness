@@ -164,18 +164,24 @@ def test_429_on_cloudflare_falls_back_to_deepseek(
     assert failing.calls == 1 and answering.calls == 1
 
 
-def test_401_is_reported_as_an_auth_failure(
+def test_401_stops_the_chain_instead_of_answering_from_another_account(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
+    """A bad key is not a network incident.
+
+    It used to fall back to deepseek and answer: the turn looked fine, the key
+    was silently broken, and the answer (and the bill) came from another account.
+    """
     failing = FailingProvider(401, "bad key")
     answering = StubProvider(answer="ok from deepseek")
     session = session_with([("cloudflare", failing), ("deepseek", answering)], tmp_path)
 
-    assert session.run_text("bonjour") == 0
+    assert session.run_text("bonjour") == 1
     err = capsys.readouterr().err
-    assert "fallback: cloudflare -> deepseek (reason: 401 auth)" in err
+    assert "401" in err and "bad key" in err
+    assert answering.calls == 0, "no silent switch to another provider"
 
 
 def test_every_provider_failing_raises_with_the_attempts(tmp_path: Path) -> None:

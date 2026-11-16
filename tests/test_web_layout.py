@@ -586,6 +586,21 @@ def test_a_command_failure_is_not_labelled_a_model_failure() -> None:
 
 
 @KEEP
+def test_a_cut_answer_offers_to_continue() -> None:
+    """A provider that dies mid-stream used to leave words on screen with no frame.
+
+    They looked like a finished answer, and a reload lost them. The frame now
+    says `partial: true` and the bubble carries one button.
+    """
+    script = APP.read_text(encoding="utf-8")
+    body = script.split('} else if (event === "error") {', 1)[1].split("} else if", 1)[0]
+
+    assert "data.partial" in body, "the browser is told whether the words are real"
+    assert 'el("button"' in body and "Continuer" in body
+    assert "sendMessage(" in body, "continuing is a message, not hidden magic"
+
+
+@KEEP
 def test_the_tools_panel_shows_uhbs_catalogue_and_keeps_no_copy_of_it() -> None:
     """One catalogue, in UHB. A list of tool names here would be a second truth."""
     page = INDEX.read_text(encoding="utf-8")

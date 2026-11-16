@@ -17,8 +17,9 @@ so adding a provider means adding one module and one registry entry.
 from __future__ import annotations
 
 import json
+import time
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, TypeVar
 
 
 class ProviderError(RuntimeError):
@@ -32,13 +33,47 @@ class ProviderError(RuntimeError):
     instead of the raw message, which can quote the request body.
     """
 
-    def __init__(self, message: str, *, status: Optional[int] = None, hint: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: Optional[int] = None,
+        hint: str = "",
+        kind: str = "",
+    ) -> None:
         super().__init__(message)
         self.status = status
         # One clean clause, safe to print: never a payload excerpt. It rides on
         # the classified ``reason`` line so a fallback explains itself without
         # quoting the request.
         self.hint = hint
+        #: ``transport`` | ``timeout`` | ``""``. Set by the provider that saw the
+        #: failure: the chain needs it to tell "the network blinked" (a retry, or
+        #: another provider, may work) from "this request is wrong" (nothing will).
+        self.kind = kind
+
+    @property
+    def retryable(self) -> bool:
+        """The SAME request may succeed a second later."""
+        if self.kind in ("transport", "timeout"):
+            return True
+        if self.status is None:
+            return False
+        return self.status == 429 or self.status >= 500
+
+    @property
+    def auth_error(self) -> bool:
+        """Credentials or billing: the account itself cannot answer this request.
+
+        Measured reason to stop there rather than fall back: a 401 on the first
+        provider used to be answered silently by the second, so a rotated key
+        looked like "the local model is dumb today" and the bill moved without a
+        word. The other 4xx are NOT in this set on purpose:
+        ``400 model does not support tools`` or ``404 unknown model`` describe
+        that provider, not the request - the chain is there to answer anyway
+        (local model without tool support -> cloud), which is the product.
+        """
+        return self.status in (401, 402, 403)
 
     @property
     def reason(self) -> str:
@@ -48,7 +83,57 @@ class ProviderError(RuntimeError):
 
             base = f"{self.status} {classify_status(self.status).replace('_', ' ')}"
             return f"{base}: {self.hint}" if self.hint else base
+        if self.kind in ("transport", "timeout"):
+            return self.kind
         return type(self).__name__
+
+
+#: One provider call is retried this many times on a transport failure, and no
+#: more: three attempts cost at most 1.5 s, and a fourth delays the fallback the
+#: user is waiting for.
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_S = 0.5
+
+T = TypeVar("T")
+
+
+def retry_transport(
+    send: Callable[[], T],
+    *,
+    label: str,
+    emitted: Optional[Callable[[], bool]] = None,
+    attempts: int = RETRY_ATTEMPTS,
+    backoff: float = RETRY_BACKOFF_S,
+    sleep: Optional[Callable[[float], None]] = None,
+    on_retry: Optional[Callable[[int, ProviderError], None]] = None,
+) -> T:
+    """Run ``send`` again when the failure was the network, never when it was the request.
+
+    ``emitted`` answers "has a token already reached the caller?". A stream that
+    died after the first words must NOT be replayed: the user would read the same
+    sentence twice. That case belongs to the turn (partial answer + "Continuer"),
+    not to a silent retry.
+    """
+    wait = sleep or time.sleep
+    total = max(1, int(attempts))
+    for attempt in range(1, total + 1):
+        try:
+            return send()
+        except ProviderError as exc:
+            if not exc.retryable:
+                raise
+            if emitted is not None and emitted():
+                raise
+            if attempt == total:
+                raise
+            if on_retry is not None:
+                try:
+                    on_retry(attempt, exc)
+                except Exception:  # noqa: BLE001 - a trace never breaks a retry
+                    pass
+            wait(backoff * (2 ** (attempt - 1)))
+    raise AssertionError("unreachable: the loop returns or raises")
+
 
 
 def request_messages(messages: List[dict]) -> List[dict]:
@@ -147,6 +232,11 @@ class Provider(ABC):
         # its API documents, so an unsupported one is ignored rather than sent and
         # rejected - a settings slider must never be able to break a turn.
         self.request_params: Dict[str, object] = {}
+        #: Transport retry, per instance so a test can set it to one attempt and
+        #: a zero delay without touching the module constants.
+        self.retry_attempts: int = RETRY_ATTEMPTS
+        self.retry_backoff: float = RETRY_BACKOFF_S
+        self.retry_sleep: Callable[[float], None] = time.sleep
 
     def set_params(self, params: Optional[dict]) -> None:
         """Remember the parameters the operator set for this session."""
