@@ -601,6 +601,44 @@ def test_a_cut_answer_offers_to_continue() -> None:
 
 
 @KEEP
+def test_the_decision_view_follows_the_session_that_is_open() -> None:
+    """A tab opened from a deep link loads before any session exists.
+
+    Its loader then ran with no id, and the panel kept "envoyez un message" for
+    ever, even with a session full of recorded turns in front of it.
+    """
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("async function openSession(id) {", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+
+    assert 'state.activeTab === "decision"' in body, "opening a session reloads the view"
+    assert "loadDecision()" in body
+    # And the two silences are told apart, in French.
+    empty = script.split("if (!data.available) {", 1)[1].split("return;", 1)[0]
+    assert "Aucun tour enregistré" in empty
+    assert "Envoyez un message" in empty
+
+
+@KEEP
+def test_the_settings_master_switch_is_a_control_you_can_see() -> None:
+    """It was a 13 px checkbox labelled "Paramètres personnalisés".
+
+    An on/off nobody sees, on a panel that changes what is sent to a provider -
+    the operator reported the button as missing.
+    """
+    script = APP.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+
+    assert 'id="llm-enabled" class="llm-switch"' in script, "a button, not a hidden checkbox"
+    assert 'role="switch"' in script and "aria-checked" in script
+    assert "setLlmSwitch(" in script, "one function owns the three states"
+    assert ".llm-switch.on" in css, "the on state is drawn, not implied"
+    assert ".llm-switch:focus-visible" in css, "keyboard users see where they are"
+    assert 'type="checkbox" id="llm-enabled"' not in script, "the invisible control is gone"
+
+
+@KEEP
 def test_the_tools_panel_shows_uhbs_catalogue_and_keeps_no_copy_of_it() -> None:
     """One catalogue, in UHB. A list of tool names here would be a second truth."""
     page = INDEX.read_text(encoding="utf-8")
