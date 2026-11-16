@@ -16,6 +16,7 @@ so adding a provider means adding one module and one registry entry.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional
 
@@ -51,20 +52,53 @@ class ProviderError(RuntimeError):
 
 
 def request_messages(messages: List[dict]) -> List[dict]:
-    """Copy of ``messages`` with an empty ``tool_calls`` list removed.
+    """Copy of ``messages`` as a provider should see it - never the stored dicts.
 
-    OpenAI tolerates ``"tool_calls": []`` on an assistant message; DeepSeek does
-    not, and rejects the *next* turn with ``400 Invalid 'messages[N].tool_calls':
-    empty array`` because the assistant message is replayed from history. The
-    wire payload is fixed here, once, for every OpenAI-compatible provider; the
-    session keeps its own dicts untouched.
+    Two corrections, both decided here once for every provider:
+
+    * an empty ``tool_calls`` list is removed. OpenAI tolerates
+      ``"tool_calls": []`` on an assistant message; DeepSeek does not, and
+      rejects the *next* turn with ``400 Invalid 'messages[N].tool_calls': empty
+      array`` because the assistant message is replayed from history.
+    * the **image bytes are dropped from a tool result**. The interface needs
+      them (`artifacts[].data_url`, kept in the session so a reload redraws the
+      chart); a text model does not, and it already has the marker
+      ``[image: image/png, N base64 characters, artefact 1]``. Measured cost of
+      forgetting this: one 40 KB chart is ~10 000 tokens of noise on every
+      following turn, paid to the API for a picture nothing can read.
     """
     cleaned: List[dict] = []
     for message in messages:
         if isinstance(message, dict) and "tool_calls" in message and not message["tool_calls"]:
             message = {key: value for key, value in message.items() if key != "tool_calls"}
+        if isinstance(message, dict) and message.get("role") == "tool":
+            content = _without_image_bytes(message.get("content"))
+            if content is not message.get("content"):
+                message = {**message, "content": content}
         cleaned.append(message)
     return cleaned
+
+
+def _without_image_bytes(content: object) -> object:
+    """A tool payload minus its ``artifacts``, or the value untouched.
+
+    Only a JSON object that actually carries ``artifacts`` is rewritten: a plain
+    text result, a malformed payload and any other shape go through unchanged,
+    so nothing that used to work can start failing here.
+    """
+    if not isinstance(content, str) or '"artifacts"' not in content:
+        return content
+    try:
+        payload = json.loads(content)
+    except (TypeError, ValueError):
+        return content
+    if not isinstance(payload, dict) or "artifacts" not in payload:
+        return content
+    stripped = {key: value for key, value in payload.items() if key != "artifacts"}
+    try:
+        return json.dumps(stripped, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return content
 
 
 USAGE_KEYS = ("prompt", "completion", "total")

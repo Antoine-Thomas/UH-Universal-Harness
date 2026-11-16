@@ -57,6 +57,77 @@ def test_a_missing_tool_calls_key_is_left_alone() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# the image bytes never reach a provider
+# --------------------------------------------------------------------------- #
+IMAGE_TOOL_MESSAGE = {
+    "role": "tool",
+    "name": "mcp__chart__render",
+    "tool_call_id": "call_1",
+    "content": json.dumps(
+        {
+            "server": "chart",
+            "tool": "render",
+            "text": "[image: image/png, 68 base64 characters, artefact 1]",
+            "artifacts": [
+                {
+                    "mime": "image/png",
+                    "bytes": 68,
+                    "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+                }
+            ],
+        }
+    ),
+}
+
+
+def test_the_image_bytes_are_dropped_from_a_tool_result() -> None:
+    """The interface needs the data URL; a text model pays for it in tokens."""
+    sent = request_messages([IMAGE_TOOL_MESSAGE])[0]
+    payload = json.loads(sent["content"])
+
+    assert "artifacts" not in payload
+    assert payload["text"].startswith("[image: image/png")
+    assert "data:image/png;base64," not in sent["content"], "no bytes, only the marker"
+
+
+def test_the_stored_message_keeps_its_artifacts() -> None:
+    request_messages([IMAGE_TOOL_MESSAGE])
+    assert "data_url" in IMAGE_TOOL_MESSAGE["content"], "the session keeps the bytes"
+
+
+def test_a_plain_tool_result_is_left_untouched() -> None:
+    message = {"role": "tool", "content": "stdout: 42"}
+    assert request_messages([message])[0]["content"] == "stdout: 42"
+
+
+def test_a_malformed_tool_payload_is_left_untouched() -> None:
+    broken = '{"text": "artifacts" unbalanced'
+    assert request_messages([{"role": "tool", "content": broken}])[0]["content"] == broken
+
+
+def test_the_bytes_are_absent_from_a_real_provider_body() -> None:
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    spec = ProviderSpec(name="fake", base_url=URL, verified="verified")
+    chat_completion(
+        spec,
+        "key",
+        "model-x",
+        [*HISTORY, IMAGE_TOOL_MESSAGE],
+        [],
+        transport=httpx.MockTransport(handler),
+    )
+
+    sent = json.dumps(bodies[0]["messages"])
+    assert "data:image/png;base64," not in sent
+    assert "[image: image/png" in sent
+
+
+# --------------------------------------------------------------------------- #
 # every payload builder
 # --------------------------------------------------------------------------- #
 def _ollama_response() -> SimpleNamespace:
