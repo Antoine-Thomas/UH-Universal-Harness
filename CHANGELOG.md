@@ -13,6 +13,49 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.7.4] — 2026-11-16
+
+**Le réseau, le routeur, et deux contrôles qu'on ne voyait pas.** Cette version livre
+P1-9 et P1-10 (déjà sur `main`, jamais publiés) plus OmniRoute et deux défauts d'interface
+constatés sur une instance réelle.
+
+### Fixed
+
+- **Une coupure de transport coûte une tentative, plus un tour.** Chaque provider réessaie
+  3 fois (0,5 s puis 1 s) une erreur de transport ou un timeout, **jamais après un token
+  déjà émis** ; une réponse coupée est conservée, marquée `_[réponse interrompue]_`,
+  persistée, et la bulle offre « Continuer ». La chaîne s'arrête net sur 401/402/403
+  (une clé morte ne doit pas être masquée par une réponse venue d'un autre compte) et
+  continue de basculer sur 400/404 (modèle sans support d'outils), avec une `notice` qui
+  nomme la bascule. Mesure : 20 tours, une tentative sur deux forcée en coupure →
+  **0 tour perdu, 40 appels, 20 réponses, aucun doublon**.
+- **OmniRoute refonctionne depuis UH.** `resolve_api_key()` ne lisait jamais le store d'UH :
+  une clé saisie dans le panneau Fournisseurs était ignorée, et UH retombait sur
+  `~/.omniroute/.env`, dont la clé répond 401 sur `/v1/models`. L'ordre est désormais
+  env → **store UH** → dotenv, et les 401/403 expliquent où la clé se règle. Mesuré sur le
+  gateway réel : `eco` → `200`, `list_remote_models()` → 1 619 identifiants.
+- **L'onglet Décision n'est plus vide.** Ouvert par deep link, il chargeait avant qu'une
+  session existe et ne se rafraîchissait jamais : il suit maintenant la session ouverte,
+  et distingue en français « aucune session » de « aucun tour enregistré ».
+- **L'interrupteur on/off est visible.** La case de 13 px « Paramètres personnalisés »
+  devient un bouton `role="switch"` à contraste AA, avec `aria-checked` et un libellé
+  qui dit « activés » / « désactivés ».
+
+### Added
+
+- **Images renvoyées par une API.** Blocs `image_url` / `image` / `input_image` / base64 et
+  images markdown deviennent des artefacts, dans le même canal que les images d'outils :
+  téléchargement **côté serveur**, http(s) seulement, aucune adresse locale littérale,
+  redirection refusée, plafond 2 Mio, MIME aux magic bytes, `svg` exclu. Un refus produit
+  une ligne lisible. Les octets vivent avec la réponse (`messages.artifacts`, colonne
+  tardive, migration en place) et ne partent jamais vers un provider.
+
+### Notes
+
+- La vision long terme du produit (fusion UH+UHB, dépôt `UHD-Universal-Harness-Desktop`,
+  packaging multi-OS) est inscrite dans `docs/ROADMAP_UH_V2.md`, section **P4**.
+- `1.7.2` était une montée de version de CI (Playwright) sans entrée de changelog.
+
 ## [1.7.3] — 2026-11-16
 
 **Ce que la fenêtre disait, et ce qu'elle faisait.** Trois défauts constatés sur une
