@@ -21,8 +21,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from uh.agent import run_turn
 from uh.store import Store
 from uh.toolsets.file import FileToolset

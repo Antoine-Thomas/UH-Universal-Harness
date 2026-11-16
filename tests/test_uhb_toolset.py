@@ -8,9 +8,8 @@ running UHB, and no test can accidentally contact one (``conftest`` sets
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import json
+from pathlib import Path
 
 import httpx
 import pytest
