@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
+
 import httpx
 import pytest
 
@@ -168,7 +170,42 @@ def test_a_json_list_is_not_a_status_payload() -> None:
 
 
 def test_an_unknown_tool_is_reported() -> None:
-    assert uhb_mod.Uhbtoolset(URL).call("nope", {}) == {"error": "unknown tool: nope"}
+    result = uhb_mod.Uhbtoolset(URL).call("nope", {})
+    assert result["error"] == "unknown tool: nope"
+    assert result["type"] == "forbidden", "one vocabulary with the agent loop"
+
+
+def test_the_catalogue_adds_the_tools_this_file_does_not_name() -> None:
+    """UH transports what UHB catalogs: no second list of tool names here."""
+    catalogue = {
+        "tools": [
+            {"name": "desktop_open_url", "description": "Open a URL.",
+             "parameters": {"type": "object", "properties": {"url": {"type": "string"}},
+                            "required": ["url"]},
+             "execution_type": "in_process"},
+            {"name": "execute_code", "description": "Run code.",
+             "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
+             "execution_type": "subprocess"},
+        ]
+    }
+    posted: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=catalogue)
+        posted.append((str(request.url), json.loads(request.content or b"{}")))
+        return httpx.Response(200, json={"ok": True, "url": "https://x", "request_id": "r1"})
+
+    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler), discover=True)
+
+    names = [spec["function"]["name"] for spec in toolset.tools]
+    assert "desktop_open_url" in names
+    assert "execute_code" not in names, "a subprocess tool is not offered to the chat"
+
+    result = toolset.call("desktop_open_url", {"url": "https://x"})
+    assert result["ok"] is True
+    assert posted and posted[0][0].endswith("/tools/desktop_open_url")
+    assert posted[0][1] == {"url": "https://x"}
 
 
 # --------------------------------------------------------------------------- #
