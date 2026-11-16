@@ -1031,6 +1031,10 @@ async function openSession(id) {
   };
   renderLlmSummary();
   if ($("llm-panel")) loadLlmPanel().catch(() => {});
+  // A tab opened from a deep link loads before any session exists: its loader
+  // then ran with no id and the panel kept the "send a message" hint for ever.
+  // Opening a session is what it was waiting for.
+  if (state.activeTab === "decision") loadDecision().catch(() => {});
   await loadSessions();
   $("sidebar").classList.remove("open");
 }
@@ -2799,7 +2803,16 @@ function renderDecision(data, reload) {
   box.textContent = "";
 
   if (!data.available) {
-    box.appendChild(el("p", "panel-hint", data.reason || "nothing recorded yet"));
+    // Two different silences: no session at all, or a session whose turns were
+    // never recorded. The route's reason is English and internal; say the thing
+    // the person can act on, and keep the raw reason as a tooltip.
+    const reason = String(data.reason || "");
+    const text = /no turn recorded/i.test(reason)
+      ? "Aucun tour enregistré pour cette session : cette vue se remplit après la première réponse du modèle."
+      : "Cette vue montre comment UH choisit le modèle, ce qu'il essaie en premier et ce qu'il consomme. Envoyez un message, puis revenez ici.";
+    const hint = el("p", "panel-hint", text);
+    if (reason) hint.title = reason;
+    box.appendChild(hint);
     return;
   }
 
@@ -4439,8 +4452,7 @@ function renderLlmRows() {
     rows.appendChild(row);
   });
 
-  const master = box.querySelector("#llm-enabled");
-  if (master) master.checked = Boolean(state.llm.enabled);
+  setLlmSwitch(Boolean(state.llm.enabled));
   // The honest line: what this provider will apply, and what it will drop.
   const support = box.querySelector("#llm-support");
   support.textContent = "";
@@ -4460,6 +4472,21 @@ function renderLlmRows() {
       "Rien n'est envoyé tant que « Paramètres personnalisés » est décoché : le tour garde les valeurs par défaut du modèle."
     )
   );
+}
+
+// The master switch of the conversation settings. It used to be a bare 13 px
+// checkbox labelled "Paramètres personnalisés": an on/off control nobody sees,
+// on a panel that changes what gets sent to the provider.
+function setLlmSwitch(enabled) {
+  const master = $("llm-enabled");
+  if (!master) return;
+  const on = Boolean(enabled);
+  master.setAttribute("aria-checked", String(on));
+  master.classList.toggle("on", on);
+  const label = master.querySelector(".llm-switch-label");
+  if (label) {
+    label.textContent = `Paramètres personnalisés : ${on ? "activés" : "désactivés"}`;
+  }
 }
 
 async function loadLlmPanel() {
@@ -4495,10 +4522,10 @@ function openLlmPanel() {
         <span>Réglages de la conversation</span>
         <button id="llm-close" class="ghost" title="Fermer">×</button>
       </header>
-      <label class="llm-master">
-        <input type="checkbox" id="llm-enabled">
-        <span>Paramètres personnalisés</span>
-      </label>
+      <button type="button" id="llm-enabled" class="llm-switch" role="switch" aria-checked="false">
+        <span class="llm-switch-knob" aria-hidden="true"></span>
+        <span class="llm-switch-label">Paramètres personnalisés : désactivés</span>
+      </button>
       <div id="llm-rows" class="llm-rows"></div>
       <div id="llm-support" class="llm-support"></div>
       <div class="llm-actions">
@@ -4507,8 +4534,10 @@ function openLlmPanel() {
     `;
     document.body.appendChild(panel);
     panel.querySelector("#llm-close").addEventListener("click", () => panel.remove());
-    panel.querySelector("#llm-enabled").addEventListener("change", (event) => {
-      state.llm.enabled = event.target.checked;
+    panel.querySelector("#llm-enabled").addEventListener("click", () => {
+      state.llm.enabled = !state.llm.enabled;
+      setLlmSwitch(state.llm.enabled);
+      renderLlmRows();
       renderLlmSummary();
       saveLlmSettings();
     });
