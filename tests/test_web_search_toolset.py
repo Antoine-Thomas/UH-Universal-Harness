@@ -30,7 +30,12 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise httpx.HTTPStatusError("boom", request=None, response=None)
+            request = httpx.Request("GET", "https://html.duckduckgo.com/html/")
+            raise httpx.HTTPStatusError(
+                f"HTTP {self.status_code}",
+                request=request,
+                response=httpx.Response(self.status_code, request=request),
+            )
 
 
 def fake_get(*args, **kwargs) -> FakeResponse:
@@ -81,13 +86,72 @@ def test_call_network_error_never_raises(monkeypatch: pytest.MonkeyPatch) -> Non
         raise httpx.ConnectError("dns failed")
 
     monkeypatch.setattr(httpx, "get", broken)
-    out = WebSearchToolset().call("web_search", {"query": "test"})
-    assert out["error"].startswith("search failed: ConnectError")
+    out = WebSearchToolset(backoff=0.0).call("web_search", {"query": "test"})
+    assert out["error"].startswith("search failed after 3 attempt(s): ConnectError")
+    assert out["type"] == "tool_error"
+
+
+def test_a_dropped_connection_is_retried_and_can_succeed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`ConnectError: [WinError 10054]` is the normal failure of this endpoint.
+
+    It killed the whole `/web` command on the first try, which the browser then
+    displayed as "the model failed". One retry is what turns it into an answer.
+    """
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("[WinError 10054] the peer closed the connection")
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx, "get", flaky)
+    out = WebSearchToolset(backoff=0.0).call("web_search", {"query": "test"})
+    assert calls["n"] == 2, "the second attempt is what made this answer exist"
+    assert out["count"] == 2
+
+
+def test_a_persistent_drop_counts_its_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"n": 0}
+
+    def broken(*args, **kwargs):
+        calls["n"] += 1
+        raise httpx.ConnectError("10054")
+
+    monkeypatch.setattr(httpx, "get", broken)
+    out = WebSearchToolset(attempts=3, backoff=0.0).call("web_search", {"query": "x"})
+    assert calls["n"] == 3
+    assert out["attempts"] == 3, "the message has to say it was tried, not just that it failed"
+
+
+def test_a_client_error_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """403 and 404 are answers. Paying the same refusal three times is worse."""
+    calls = {"n": 0}
+
+    def refused(*args, **kwargs):
+        calls["n"] += 1
+        return FakeResponse(status=403)
+
+    monkeypatch.setattr(httpx, "get", refused)
+    out = WebSearchToolset(attempts=3, backoff=0.0).call("web_search", {"query": "x"})
+    assert calls["n"] == 1
+    assert out["attempts"] == 1
+    assert "HTTPStatusError" in out["error"]
 
 
 def test_call_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResponse(status=503))
-    assert "error" in WebSearchToolset().call("web_search", {"query": "test"})
+    calls = {"n": 0}
+
+    def throttled(*args, **kwargs):
+        calls["n"] += 1
+        return FakeResponse(status=503)
+
+    monkeypatch.setattr(httpx, "get", throttled)
+    out = WebSearchToolset(backoff=0.0).call("web_search", {"query": "test"})
+    assert "error" in out
+    assert calls["n"] == 3, "a 503 is a hiccup: the same request may work a second later"
 
 
 def test_call_empty_page_reports_throttle(monkeypatch: pytest.MonkeyPatch) -> None:

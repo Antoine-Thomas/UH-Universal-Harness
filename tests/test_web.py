@@ -1007,6 +1007,35 @@ def test_a_slash_command_in_the_web_chat_runs_the_registry(
     run(scenario())
 
 
+def test_a_failing_slash_command_says_it_is_a_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A command that fails must not be reported as a model failure.
+
+    The measured case: `/web` died on a dropped DuckDuckGo connection in 174 ms
+    and the bubble read "Erreur du modèle" - the model had not been called.
+    """
+    provider = ScriptedProvider()
+    app = make_app(tmp_path, monkeypatch, provider=provider)
+
+    async def scenario():
+        async with client(app) as http:
+            created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
+            session_id = created["session"]["id"]
+            reply = await http.post(
+                f"/api/sessions/{session_id}/chat",
+                json={"message": "/key remove"},
+                headers=AUTH,
+            )
+            assert reply.status_code == 200
+            errors = [data for event, data in parse_frames(reply.text) if event == "error"]
+            assert errors, "the failure is reported, not swallowed"
+            assert errors[0].get("source") == "command", "the frame says who failed"
+            assert provider.calls == 0
+
+    run(scenario())
+
+
 def _wiki_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "wiki"
     (root / "concepts").mkdir(parents=True)

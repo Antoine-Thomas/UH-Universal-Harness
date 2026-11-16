@@ -17,15 +17,24 @@ Design notes
 
 from __future__ import annotations
 
+import time
 import urllib.parse
 from html.parser import HTMLParser
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import httpx
 
 DDG_ENDPOINT = "https://html.duckduckgo.com/html/"
 MAX_RESULTS = 5
 TIMEOUT = 10.0
+#: A dropped connection is the normal failure of this endpoint: DuckDuckGo (or a
+#: local middlebox) closes the socket under a request it has not answered yet.
+#: Seen in the field as ``ConnectError: [WinError 10054]`` on every ``/web``
+#: command, which used to surface as a red "the model failed" bubble after 100 ms
+#: - the model had not been called at all. One retry costs 0.4 s and turns a
+#: transient close into an answer.
+ATTEMPTS = 3
+BACKOFF_S = 0.4
 # A plain httpx UA gets an empty 202 (bot wall); a browser UA gets results.
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -110,13 +119,63 @@ def parse_results(html: str) -> List[Dict[str, str]]:
     return [r for r in parser.results if r["url"].startswith(("http://", "https://"))]
 
 
+class _SearchFailed(Exception):
+    """Every attempt failed, or the endpoint answered with something final."""
+
+    def __init__(self, cause: BaseException, attempts: int) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.attempts = attempts
+
+
 class WebSearchToolset:
     name = "web_search"
     tools = TOOLS
 
-    def __init__(self, *, endpoint: str = DDG_ENDPOINT, timeout: float = TIMEOUT) -> None:
+    def __init__(
+        self,
+        *,
+        endpoint: str = DDG_ENDPOINT,
+        timeout: float = TIMEOUT,
+        attempts: int = ATTEMPTS,
+        backoff: float = BACKOFF_S,
+        sleep: Any = None,
+    ) -> None:
         self.endpoint = endpoint
         self.timeout = timeout
+        self.attempts = max(1, int(attempts))
+        self.backoff = max(0.0, float(backoff))
+        self._sleep = sleep or time.sleep
+
+    def _fetch(self, params: Dict[str, Any]) -> httpx.Response:
+        """GET the endpoint, retrying only what a retry can fix.
+
+        A transport error (connect, read, protocol, timeout) and a 5xx/429 are
+        hiccups: the same request may work a second later. Any other status is an
+        ANSWER - retrying a 403 just pays the same refusal twice.
+        """
+        failure: BaseException | None = None
+        for attempt in range(1, self.attempts + 1):
+            if attempt > 1:
+                self._sleep(self.backoff * (2 ** (attempt - 2)))
+            try:
+                response = httpx.get(
+                    self.endpoint,
+                    params=params,
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=self.timeout,
+                    follow_redirects=True,
+                )
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", 0) or 0
+                if status != 429 and status < 500:
+                    raise _SearchFailed(exc, attempt) from exc
+                failure = exc
+            except httpx.TransportError as exc:
+                failure = exc
+        raise _SearchFailed(failure or RuntimeError("no attempt was made"), self.attempts)
 
     def call(self, name: str, args: dict | None = None) -> dict:
         if name != "web_search":
@@ -130,16 +189,19 @@ class WebSearchToolset:
         except (TypeError, ValueError):
             return {"error": "max_results must be an integer between 1 and 5"}
         try:
-            response = httpx.get(
-                self.endpoint,
-                params={"q": query},
-                headers={"User-Agent": USER_AGENT},
-                timeout=self.timeout,
-                follow_redirects=True,
-            )
-            response.raise_for_status()
-        except Exception as exc:  # noqa: BLE001 - any network failure is a tool error
-            return {"error": f"search failed: {type(exc).__name__}: {exc}"}
+            response = self._fetch({"q": query})
+        except _SearchFailed as exc:
+            # The attempts count is part of the message: "it failed" and "it
+            # failed three times over a second" call for different reactions.
+            return {
+                "error": (
+                    f"search failed after {exc.attempts} attempt(s): "
+                    f"{type(exc.cause).__name__}: {exc.cause}"
+                ),
+                "type": "tool_error",
+                "tool": "web_search",
+                "attempts": exc.attempts,
+            }
         results = parse_results(response.text)
         if not results:
             return {

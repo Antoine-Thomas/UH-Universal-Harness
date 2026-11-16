@@ -553,6 +553,39 @@ def test_the_transcript_reconciliation_ignores_system_bubbles() -> None:
 
 
 @KEEP
+def test_the_transcript_notice_carries_a_button_not_an_instruction() -> None:
+    """Telling someone to reload, with no control to do it, is not an interface.
+
+    The notice is now one sentence plus one button that reloads the session in
+    place, and it says what happened when the click succeeded.
+    """
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("async function reconcileTranscript() {", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+    short = body.split("stored.length < boxes.length", 1)[1]
+
+    assert 'el("button"' in short, "the notice offers a control, not an instruction"
+    assert "notice-action" in short, "the button carries its own visible class"
+    assert "openSession(state.sessionId)" in short, "the button reloads the session it names"
+    assert "Recharge la session" not in body, "an imperative sentence is not a button"
+
+
+@KEEP
+def test_a_command_failure_is_not_labelled_a_model_failure() -> None:
+    """`/web` died on a dropped connection; the bubble said "the model failed".
+
+    The frame carries `source: "command"` and the browser says so, instead of
+    sending people to check a provider key for a dead search endpoint.
+    """
+    script = APP.read_text(encoding="utf-8")
+    body = script.split('} else if (event === "error") {', 1)[1].split("} else if", 1)[0]
+
+    assert 'data.source === "command"' in body
+    assert "Commande" in body
+
+
+@KEEP
 def test_the_tools_panel_shows_uhbs_catalogue_and_keeps_no_copy_of_it() -> None:
     """One catalogue, in UHB. A list of tool names here would be a second truth."""
     page = INDEX.read_text(encoding="utf-8")
