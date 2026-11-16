@@ -229,12 +229,48 @@ function approvalCard(data) {
   return card;
 }
 
+//: What an `<img>` may be pointed at. `svg` is absent on purpose: it is a document
+//: with scripts, not a bitmap (same list as `uh/mcp.py::ARTIFACT_MIME`).
+const ARTIFACT_MIME = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+function renderArtifacts(card, content) {
+  // The bytes arrive inside the tool payload, so a reloaded session renders them
+  // with no second request. Nothing here builds markup from data: a data URL is
+  // data, and the only sink that cannot execute it is img.src, after a whitelist
+  // check on the prefix - the MIME in the payload is a claim, not a proof.
+  let payload;
+  try {
+    payload = JSON.parse(content || "");
+  } catch (error) {
+    return;
+  }
+  const artifacts = Array.isArray(payload && payload.artifacts) ? payload.artifacts : [];
+  for (const artifact of artifacts) {
+    const mime = String((artifact && artifact.mime) || "");
+    const url = String((artifact && artifact.data_url) || "");
+    if (!ARTIFACT_MIME.includes(mime) || !url.startsWith(`data:${mime};base64,`)) continue;
+    const figure = el("figure", "tool-artifact");
+    const img = el("img", "tool-artifact-img");
+    img.src = url;
+    img.alt = `${mime}, ${Number(artifact.bytes || 0)} octets`;
+    img.loading = "lazy";
+    figure.appendChild(img);
+    card.appendChild(figure);
+  }
+  if (artifacts.some((artifact) => artifact && artifact.omitted)) {
+    card.appendChild(
+      el("div", "tool-artifact-note", "image non conservée : au-delà du plafond de taille")
+    );
+  }
+}
+
 function fillToolCard(card, content) {
   card.querySelector("pre").textContent = content;
   const label = card.querySelector(".state");
   const failed = /"error"\s*:/.test(content || "");
   label.textContent = failed ? "error" : "done";
   card.classList.toggle("error", failed);
+  renderArtifacts(card, content);
 }
 
 function renderHistory(messages) {

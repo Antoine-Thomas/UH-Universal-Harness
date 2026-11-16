@@ -52,6 +52,7 @@ be worse than one that refuses.
 from __future__ import annotations
 
 import atexit
+import base64
 import json
 import os
 import queue
@@ -348,11 +349,58 @@ def _truncate(text: str) -> str:
     return text[:MAX_RESULT_CHARS] + f"\n[truncated by UH: {dropped} more characters]"
 
 
+#: What an interface may show. `svg` is deliberately absent: it is a document
+#: with scripts, not a bitmap, and an `<img>` is not the place to discover that.
+ARTIFACT_MIME: tuple[str, ...] = ("image/png", "image/jpeg", "image/gif", "image/webp")
+#: Decoded bytes per image. A chart is tens of kilobytes; past this the data URL is
+#: not kept and the artefact says so, instead of quietly growing SQLite.
+MAX_ARTIFACT_BYTES = 512_000
+#: Artefacts per tool result. The model reads a marker per image either way; this
+#: bounds what one message can weigh when it is stored and reloaded.
+MAX_ARTIFACTS = 4
+
+
+def _artifacts(content: Any) -> List[Dict[str, Any]]:
+    """The images an interface can render, taken out of the MCP payload.
+
+    Kept apart from the text the model reads: base64 is tens of thousands of tokens
+    that mean nothing to a text model, and an interface needs the bytes, not a
+    summary. Stored inside the tool message, so a reloaded session shows them again
+    without a second request - and bounded, so that staying in SQLite has a price
+    nobody discovers in production.
+    """
+    found: List[Dict[str, Any]] = []
+    if not isinstance(content, list):
+        return found
+    for item in content:
+        if len(found) >= MAX_ARTIFACTS:
+            break
+        if not isinstance(item, dict) or item.get("type") != "image":
+            continue
+        mime = str(item.get("mimeType") or "").split(";")[0].strip().lower()
+        if mime not in ARTIFACT_MIME:
+            continue
+        raw = str(item.get("data") or "")
+        try:
+            binary = base64.b64decode(raw, validate=True)
+        except (ValueError, TypeError):
+            continue
+        artefact: Dict[str, Any] = {"mime": mime, "bytes": len(binary)}
+        if len(binary) > MAX_ARTIFACT_BYTES:
+            # No silent truncation of an image: half a PNG is not a picture.
+            artefact["omitted"] = "too_large"
+        else:
+            artefact["data_url"] = f"data:{mime};base64,{raw}"
+        found.append(artefact)
+    return found
+
+
 def _render(result: Dict[str, Any]) -> Tuple[str, Optional[Any]]:
     """MCP ``content`` -> the text the model reads.
 
     Image and audio blocks are described, never inlined: a base64 PNG is tens of
-    thousands of tokens that mean nothing to a text model.
+    thousands of tokens that mean nothing to a text model. The bytes are not lost -
+    :func:`_artifacts` carries them to the interface, separately.
     """
     parts: List[str] = []
     content = result.get("content")
@@ -365,9 +413,13 @@ def _render(result: Dict[str, Any]) -> Tuple[str, Optional[Any]]:
             if kind == "text":
                 parts.append(str(item.get("text") or ""))
             elif kind in {"image", "audio"}:
+                # The marker is for the model; the bytes travel beside it. Naming the
+                # artefact lets a model say "the first image" instead of inventing.
                 data = item.get("data") or ""
-                parts.append(f"[{kind}: {item.get('mimeType') or 'unknown'}, "
-                             f"{len(str(data))} base64 characters]")
+                mime = str(item.get("mimeType") or "unknown").split(";")[0].strip()
+                index = sum(1 for part in parts if part.startswith("[image")) + 1
+                parts.append(f"[{kind}: {mime}, {len(str(data))} base64 characters, "
+                             f"artefact {index}]")
             elif kind == "resource":
                 resource = item.get("resource") or {}
                 uri = resource.get("uri") if isinstance(resource, dict) else None
@@ -667,6 +719,11 @@ class Client:
             "tool": tool,
             "text": text,
         }
+        images = _artifacts(result.get("content"))
+        if images:
+            # In the payload, therefore in the message content, therefore in SQLite:
+            # a reloaded session shows the chart without asking the server again.
+            payload["artifacts"] = images
         if structured is not None:
             payload["structured"] = structured
         if result.get("isError"):
