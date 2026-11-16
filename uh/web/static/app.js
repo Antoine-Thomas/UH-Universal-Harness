@@ -233,19 +233,14 @@ function approvalCard(data) {
 //: with scripts, not a bitmap (same list as `uh/mcp.py::ARTIFACT_MIME`).
 const ARTIFACT_MIME = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
-function renderArtifacts(card, content) {
-  // The bytes arrive inside the tool payload, so a reloaded session renders them
-  // with no second request. Nothing here builds markup from data: a data URL is
-  // data, and the only sink that cannot execute it is img.src, after a whitelist
-  // check on the prefix - the MIME in the payload is a claim, not a proof.
-  let payload;
-  try {
-    payload = JSON.parse(content || "");
-  } catch (error) {
-    return;
-  }
-  const artifacts = Array.isArray(payload && payload.artifacts) ? payload.artifacts : [];
-  for (const artifact of artifacts) {
+// The bytes arrive with the message (tool payload or answer), so a reloaded
+// session renders them with no second request. Nothing here builds markup from
+// data: a data URL is data, and the only sink that cannot execute it is img.src,
+// after a whitelist check on the prefix - the MIME in the payload is a claim,
+// not a proof. The server refuses remote URLs; the page never fetches one.
+function drawArtifacts(container, artifacts) {
+  const list = Array.isArray(artifacts) ? artifacts : [];
+  for (const artifact of list) {
     const mime = String((artifact && artifact.mime) || "");
     const url = String((artifact && artifact.data_url) || "");
     if (!ARTIFACT_MIME.includes(mime) || !url.startsWith(`data:${mime};base64,`)) continue;
@@ -255,13 +250,26 @@ function renderArtifacts(card, content) {
     img.alt = `${mime}, ${Number(artifact.bytes || 0)} octets`;
     img.loading = "lazy";
     figure.appendChild(img);
-    card.appendChild(figure);
+    if (artifact.note && !String(artifact.note).startsWith("http")) {
+      figure.appendChild(el("figcaption", "tool-artifact-note", String(artifact.note)));
+    }
+    container.appendChild(figure);
   }
-  if (artifacts.some((artifact) => artifact && artifact.omitted)) {
-    card.appendChild(
+  if (list.some((artifact) => artifact && artifact.omitted)) {
+    container.appendChild(
       el("div", "tool-artifact-note", "image non conservée : au-delà du plafond de taille")
     );
   }
+}
+
+function renderArtifacts(card, content) {
+  let payload;
+  try {
+    payload = JSON.parse(content || "");
+  } catch (error) {
+    return;
+  }
+  drawArtifacts(card, payload && payload.artifacts);
 }
 
 function fillToolCard(card, content) {
@@ -288,7 +296,10 @@ function renderHistory(messages) {
       if (card) fillToolCard(card, message.content || "");
       else toolCard(message.name || "tool", null, message.content || "");
     } else {
-      appendMessage(role, message.content || "", message.id);
+      const box = appendMessage(role, message.content || "", message.id);
+      if (Array.isArray(message.artifacts) && message.artifacts.length) {
+        drawArtifacts(box, message.artifacts);
+      }
     }
   }
 }
@@ -1287,6 +1298,13 @@ async function sendMessage(text) {
             } else {
               toolCard(data.name, null, data.content);
             }
+          });
+        } else if (event === "artifacts") {
+          guardedStep("artifacts", () => {
+            // Bytes the server already fetched and bounded: the page draws them
+            // from the message, it never asks a third party for anything.
+            drawArtifacts(assistant, data.images);
+            $("messages").scrollTop = $("messages").scrollHeight;
           });
         } else if (event === "notice") {
           guardedStep("notice", () => {

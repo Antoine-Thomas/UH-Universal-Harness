@@ -628,7 +628,7 @@ def test_tool_artifacts_are_rendered_as_images_and_never_as_markup() -> None:
     skipped, because the payload's MIME is a claim — and `svg` is not in the list.
     """
     script = APP.read_text(encoding="utf-8")
-    body = script.split("function renderArtifacts(card, content) {", 1)[1].split(
+    body = script.split("function drawArtifacts(container, artifacts) {", 1)[1].split(
         "\nfunction fillToolCard(", 1)[0]
 
     assert "innerHTML" not in body, "a data URL is data; innerHTML would make it markup"
@@ -639,3 +639,5 @@ def test_tool_artifacts_are_rendered_as_images_and_never_as_markup() -> None:
     assert "image/svg" not in body, "svg is a document with scripts, not a bitmap"
     # Wired: a replayed session renders its artefacts because fillToolCard runs.
     assert "renderArtifacts(card, content);" in script
+    assert "drawArtifacts(box, message.artifacts)" in script, "a reload draws stored images"
+    assert "drawArtifacts(assistant, data.images)" in script, "a live answer draws them too"
