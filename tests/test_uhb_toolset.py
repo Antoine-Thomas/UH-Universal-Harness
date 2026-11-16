@@ -419,3 +419,66 @@ def test_an_unknown_tool_from_uhb_stays_a_structured_tool_error() -> None:
     assert result["status"] == 404
     assert result["type"] == "tool_error"
     assert "known: execute_code" in result["error"]
+
+
+# --------------------------------------------------------------------------- #
+# P0-4: execute_code, deux conditions et aucun second chemin
+# --------------------------------------------------------------------------- #
+def _catalogue_with_execute() -> dict:
+    return {
+        "tools": [
+            {"name": "execute_code", "description": "Run Python.",
+             "parameters": {"type": "object", "properties": {"code": {"type": "string"}},
+                            "required": ["code"]},
+             "execution_type": "subprocess"},
+        ]
+    }
+
+
+def test_execute_code_is_not_offered_without_the_switch(monkeypatch) -> None:
+    monkeypatch.delenv(uhb_mod.EXECUTE_ENV, raising=False)
+    toolset = uhb_mod.Uhbtoolset(
+        URL, client=client_for(lambda request: httpx.Response(200, json=_catalogue_with_execute())),
+        discover=True,
+    )
+
+    assert "execute_code" not in [spec["function"]["name"] for spec in toolset.tools]
+
+
+def test_execute_code_is_offered_with_the_switch_and_goes_to_its_own_route(monkeypatch) -> None:
+    monkeypatch.setenv(uhb_mod.EXECUTE_ENV, "1")
+    posted: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=_catalogue_with_execute())
+        posted.append((str(request.url), json.loads(request.content or b"{}")))
+        return httpx.Response(200, json={"ok": True, "stdout": "4\n", "exit_code": 0})
+
+    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler), discover=True)
+
+    assert "execute_code" in [spec["function"]["name"] for spec in toolset.tools]
+    result = toolset.call("execute_code", {"code": "print(2+2)"})
+
+    assert result["ok"] is True
+    assert posted[0][0].endswith("/tools/execute"), "its own route, not the generic one"
+    assert posted[0][1] == {"code": "print(2+2)"}
+
+
+def test_a_refusal_from_uhb_keeps_its_type_and_message(monkeypatch) -> None:
+    """UH keeps no whitelist: the 403 comes from the mode, and it is shown as such."""
+    monkeypatch.setenv(uhb_mod.EXECUTE_ENV, "1")
+    refusal = {"error": {"message": "mode 'chat' does not allow execute_code",
+                         "type": "forbidden"}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=_catalogue_with_execute())
+        return httpx.Response(403, json=refusal)
+
+    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler), discover=True)
+    result = toolset.call("execute_code", {"code": "print(1)"})
+
+    assert result["type"] == "forbidden"
+    assert result["status"] == 403
+    assert "does not allow execute_code" in result["error"]
