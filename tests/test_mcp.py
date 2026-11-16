@@ -248,12 +248,18 @@ def test_an_unknown_tool_is_a_tool_result_not_an_exception(make_server) -> None:
 
 
 def test_an_image_is_described_never_inlined(make_server) -> None:
-    """Base64 in the context window is tens of thousands of tokens of noise."""
+    """Base64 in the context window is tens of thousands of tokens of noise.
+
+    The bytes are not lost: they travel in `artifacts`, which is the interface's
+    half of the same result. The text stays a marker.
+    """
     toolset = mcp.Toolset(mcp.client_for(make_server()))
 
     result = toolset.call("mcp__fake__image", {})
 
-    assert result["text"] == "[image: image/png, 1000 base64 characters]"
+    assert result["text"] == "[image: image/png, 1000 base64 characters, artefact 1]"
+    assert result["artifacts"][0]["mime"] == "image/png"
+    assert "data:image/png;base64," in result["artifacts"][0]["data_url"]
 
 
 def test_a_long_result_is_truncated_with_a_marker(make_server) -> None:
