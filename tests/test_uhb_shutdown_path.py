@@ -135,6 +135,16 @@ def test_stop_running_with_the_route_down_and_no_child_is_false(monkeypatch, tok
     assert uhb_spawn.stop_running() is False
 
 
+def test_stop_running_is_idempotent(monkeypatch, token) -> None:
+    """Two quits, no exception: the second finds nothing and says so."""
+    monkeypatch.setattr(uhb_spawn, "_RUNNING", None)
+    monkeypatch.setattr(uhb_spawn, "request_shutdown", lambda *a, **k: False)
+    monkeypatch.setattr(uhb_spawn, "stop_recorded", lambda *a, **k: False)
+
+    assert uhb_spawn.stop_running() is False
+    assert uhb_spawn.stop_running() is False
+
+
 def test_the_token_never_appears_in_what_uh_prints(monkeypatch, token, capsys) -> None:
     """A quit that leaks the token into a journal is worse than a failed quit."""
     monkeypatch.setattr(uhb_spawn, "_RUNNING", None)
@@ -145,4 +155,7 @@ def test_the_token_never_appears_in_what_uh_prints(monkeypatch, token, capsys) -
     uhb_spawn.stop_running()
     captured = capsys.readouterr()
 
-    assert token not in captured.out + captured.err
+    written = captured.out + captured.err
+    assert token not in written
+    # A query string carrying a token is the other way a secret reaches a log.
+    assert "token=" not in written
