@@ -33,7 +33,10 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import TYPE_CHECKING, Callable, List, Optional
+
+if TYPE_CHECKING:  # pragma: no cover - annotations only
+    import httpx
 from urllib.parse import urlsplit
 
 from .config import uh_home
