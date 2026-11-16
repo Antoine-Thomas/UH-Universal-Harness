@@ -7,6 +7,7 @@ client with ``asyncio.run`` so no async pytest plugin is required.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -321,7 +322,11 @@ def test_tool_events_and_terminal_disabled_by_default(
             assert frames["tool_call"]["name"] == "terminal"
             result = frames["tool_result"]
             assert result["name"] == "terminal"
-            assert "unknown tool" in result["content"]
+            # The refusal crosses the SSE stream as a typed payload: the interface
+            # can say *why* the call was refused instead of showing a bare sentence.
+            refusal = json.loads(result["content"])
+            assert refusal["type"] == "forbidden"
+            assert refusal["tool"] == "terminal"
 
     run(scenario())
 

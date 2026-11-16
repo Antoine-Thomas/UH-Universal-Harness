@@ -46,6 +46,7 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     content     TEXT NOT NULL DEFAULT '',
     tool_name   TEXT,
     tool_calls  TEXT,
+    tool_call_id TEXT,
     created_at  TEXT NOT NULL
 )""",
     """CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)""",
@@ -154,6 +155,7 @@ class Store:
             with self.conn:
                 for statement in SCHEMA_STATEMENTS:
                     self.conn.execute(statement)
+                self._ensure_late_columns()
                 row = self.conn.execute("SELECT version FROM schema_version").fetchone()
                 if row is None:
                     self.conn.execute(
@@ -171,6 +173,18 @@ class Store:
                     "the store cannot be created"
                 ) from exc
             raise
+
+    #: Columns added after schema v1. `CREATE TABLE IF NOT EXISTS` leaves an
+    #: existing database untouched, so a store created by an older build keeps its
+    #: old shape — and losing a session to a schema change is what this store
+    #: exists to prevent.
+    _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (("messages", "tool_call_id", "TEXT"),)
+
+    def _ensure_late_columns(self) -> None:
+        for table, column, kind in self._LATE_COLUMNS:
+            present = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            if column not in present:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     @property
     def schema_version(self) -> int:
@@ -357,14 +371,15 @@ class Store:
         with self.conn:
             cursor = self.conn.execute(
                 "INSERT INTO messages "
-                "(session_id, role, content, tool_name, tool_calls, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(session_id, role, content, tool_name, tool_calls, tool_call_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     role,
                     str(content),
                     message.get("name") if role == "tool" else None,
                     payload,
+                    str(message.get("tool_call_id") or "") or None,
                     now,
                 ),
             )
@@ -404,6 +419,8 @@ class Store:
                 data["tool_calls"] = []
         if data.get("tool_name"):
             data["name"] = data["tool_name"]
+        if not data.get("tool_call_id"):
+            data.pop("tool_call_id", None)
         return data
 
     def delete_message(self, session_id: str, message_id: int) -> bool:

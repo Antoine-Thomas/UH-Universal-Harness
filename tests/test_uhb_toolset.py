@@ -130,7 +130,22 @@ def test_an_http_error_is_reported_with_its_code() -> None:
         "error": "uhb HTTP 503",
         "kind": "http",
         "status": 503,
+        "type": "tool_error",
     }
+
+
+def test_a_403_is_a_forbidden_refusal_carrying_uhbs_reason() -> None:
+    """UHB is the authority: its 403 reaches the model in the same vocabulary the
+    loop uses when it refuses a tool it was never offered."""
+    payload = {"error": {"message": "mode 'chat' does not allow execute_code",
+                         "type": "forbidden"}}
+    toolset = uhb_mod.Uhbtoolset(URL, client=answer(payload, status=403))
+
+    result = toolset.call("uhb_status", {})
+
+    assert result["type"] == "forbidden"
+    assert result["status"] == 403
+    assert "execute_code" in result["error"], "the reason comes from UHB, not from a guess"
 
 
 def test_invalid_json_is_reported() -> None:

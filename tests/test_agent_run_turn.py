@@ -110,7 +110,14 @@ def test_unknown_tool_does_not_crash(tmp_path: Path) -> None:
     )
 
     payload = json.loads(history[2]["content"])
-    assert "unknown tool" in payload["error"]
+    assert "not available in this mode" in payload["error"]
+    # The refusal is structured, and the answer names the call it refuses: an
+    # unlabelled tool message cannot be matched to its call on replay.
+    assert payload["type"] == "forbidden"
+    assert payload["tool"] == "nope"
+    call_id = history[1]["tool_calls"][0]["id"]
+    assert call_id, "a provider that sends no id gets one assigned"
+    assert history[2]["tool_call_id"] == call_id
 
 
 def test_sandbox_error_is_reported_not_raised(tmp_path: Path) -> None:

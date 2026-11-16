@@ -277,13 +277,21 @@ def _invalid() -> dict:
 
 
 def _failure(response: httpx.Response) -> dict:
-    """Map a status code to the action the model should take."""
+    """Map a status code to the action the model should take.
+
+    UHB is the authority: a 403 means the mode does not allow this, and the payload
+    says ``type: forbidden`` in the same shape ``uh/agent.py`` uses when it refuses
+    a tool it was never offered. The model reads one vocabulary, not two.
+    """
     detail = _message(_json(response))
-    return {
+    forbidden = response.status_code == 403
+    payload: dict = {
         "error": detail or f"uhb HTTP {response.status_code}",
         "kind": KINDS.get(response.status_code, "http"),
         "status": response.status_code,
     }
+    payload["type"] = "forbidden" if forbidden else "tool_error"
+    return payload
 
 
 # --------------------------------------------------------------------------- #
