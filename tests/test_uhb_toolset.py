@@ -304,14 +304,40 @@ def test_toolset_is_absent_when_uhb_does_not_answer(
 def test_toolset_is_built_when_uhb_answers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """The four built-ins, plus whatever the catalogue published.
+
+    Discovery is what depends on the machine: a live UHB publishes its own
+    catalogue, and its size grows with UHB's roadmap (the desktop tools arrived
+    that way). Scripting it here keeps the test about the mechanism — the
+    catalogue is relayed, not re-declared — instead of about tonight's UHB.
+    """
     monkeypatch.setattr(uhb_mod, "probe", lambda url, timeout=1.0: True)
+
+    def fake_discover(self) -> None:
+        self.remote.add("desktop_windows")
+        self.tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "desktop_windows",
+                    "description": "catalogued by UHB",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        )
+
+    monkeypatch.setattr(uhb_mod.Uhbtoolset, "_discover", fake_discover)
 
     toolsets = build_toolsets(tmp_path)
 
     assert "uhb" in toolsets
-    names = [spec["function"]["name"] for spec in toolsets["uhb"].tools]
-    assert names == ["uhb_status", "uhb_modes", "uhb_route", "describe_tools"]
-    assert "uhb: uhb_status, uhb_modes, uhb_route, describe_tools" in describe_toolsets(toolsets)
+    toolset = toolsets["uhb"]
+    names = [spec["function"]["name"] for spec in toolset.tools]
+    assert {"uhb_status", "uhb_modes", "uhb_route", "describe_tools"} <= set(names)
+    assert "desktop_windows" in names, "what discovery published reaches the model"
+    assert "desktop_windows" in toolset.remote, "and it is called through the generic route"
+    described = describe_toolsets(toolsets)
+    assert "uhb: uhb_status, uhb_modes, uhb_route, describe_tools" in "\n".join(described)
 
 
 def test_the_tool_result_reaches_the_agent_loop_as_a_tool_message() -> None:

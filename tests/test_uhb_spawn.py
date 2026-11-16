@@ -225,10 +225,22 @@ def test_a_child_that_dies_during_startup_is_reported(
     assert "uhb.log" in str(caught.value)
 
 
+def _no_live_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep `stop_running` off the network.
+
+    It asks a real UHB over HTTP before touching the process tree. With a UHB
+    running on the machine (the normal state while `uh web` serves), the test
+    stopped the operator's backend, and the "second call: nothing to stop"
+    assertion saw a second 202 from that server instead of an empty tree.
+    """
+    monkeypatch.setattr(uhb_spawn, "request_shutdown", lambda *a, **k: False)
+
+
 def test_stop_running_kills_the_child_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = checkout(tmp_path)
     monkeypatch.setenv(uhb_spawn.ENV_PATH, str(root))
     monkeypatch.setattr(uhb_spawn, "port_open", lambda *a, **k: False)
+    _no_live_shutdown(monkeypatch)
     proc = FakeProc()
     uhb_spawn.ensure(runner=lambda *a: proc, checker=lambda url, timeout: True)
 
@@ -242,6 +254,7 @@ def test_a_stubborn_child_is_killed(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     root = checkout(tmp_path)
     monkeypatch.setenv(uhb_spawn.ENV_PATH, str(root))
     monkeypatch.setattr(uhb_spawn, "port_open", lambda *a, **k: False)
+    _no_live_shutdown(monkeypatch)
     proc = FakeProc()
     uhb_spawn.ensure(runner=lambda *a: proc, checker=lambda url, timeout: True)
 
@@ -314,6 +327,9 @@ def test_no_uhb_flag_never_touches_uhb(
     monkeypatch.setattr(app_module, "run_server", lambda **kwargs: 0)
     calls: list = []
     monkeypatch.setattr(uhb_spawn, "ensure", lambda: calls.append("ensure") or None)
+    # `cmd_web`'s finally still calls stop_running(), which asks a real UHB over
+    # HTTP: without this, running the suite stops the operator's backend.
+    _no_live_shutdown(monkeypatch)
 
     assert cli.cmd_web(_web_args(no_uhb=True)) == 0
 
@@ -332,6 +348,7 @@ def test_a_failed_spawn_is_a_warning_not_a_crash(
         raise uhb_spawn.SpawnError("no UHB checkout found")
 
     monkeypatch.setattr(uhb_spawn, "ensure", boom)
+    _no_live_shutdown(monkeypatch)
 
     assert cli.cmd_web(_web_args()) == 0, "the UI still starts: UHB is optional"
     assert "UHB not started" in capsys.readouterr().err

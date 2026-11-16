@@ -844,7 +844,11 @@ def create_app(
                     result = uh_commands.dispatch(session_obj, text)
                     body = result.out or result.err or ""
                     if result.err:
-                        emit({"type": "error", "message": result.err})
+                        # A slash command is not the model: prefixing its failure
+                        # with "the model failed" (what the browser did before)
+                        # sent people looking at their provider key while the
+                        # answer was a dead search endpoint.
+                        emit({"type": "error", "message": result.err, "source": "command"})
                     else:
                         emit({"type": "token", "text": body})
                         emit({"type": "answer", "content": body})

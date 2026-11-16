@@ -1059,9 +1059,28 @@ async function reconcileTranscript() {
     );
     const bubble = appendMessage(
       "system",
-      "Le transcript enregistré contient moins de messages que l'écran : rien n'a été effacé. Recharge la session pour le relire depuis le store."
+      "Le transcript enregistré contient moins de messages que l'écran : rien n'a été effacé."
     );
     bubble.classList.add("failed");
+    // A sentence telling the user to reload put the action out of reach: the
+    // notice carried no button, so "Reload the session" was an instruction to
+    // find a control that does not exist. The button IS the sentence now.
+    const reload = el("button", "notice-action", "Recharger la session");
+    reload.type = "button";
+    reload.addEventListener("click", () => {
+      reload.disabled = true;
+      reload.textContent = "Rechargement…";
+      openSession(state.sessionId)
+        .then(() => {
+          reload.textContent = "Session rechargée";
+        })
+        .catch((error) => {
+          reload.disabled = false;
+          reload.textContent = "Réessayer";
+          console.warn("transcript: reload failed", error);
+        });
+    });
+    bubble.appendChild(reload);
     return;
   }
   const claimed = new Set(
@@ -1244,7 +1263,11 @@ async function sendMessage(text) {
         } else if (event === "error") {
           guardedStep("error", () => {
             failed = data.message || "error";
-            const bubble = appendMessage("assistant", `Erreur du modèle : ${failed}`);
+            // A slash command failing is not the model failing: labelling it
+            // "Erreur du modèle" pushed people to check a provider key while the
+            // broken part was a search endpoint.
+            const label = data.source === "command" ? "Commande" : "Erreur du modèle";
+            const bubble = appendMessage("assistant", `${label} : ${failed}`);
             bubble.classList.add("failed");
           });
         } else if (event === "done") {
