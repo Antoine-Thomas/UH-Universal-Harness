@@ -470,6 +470,16 @@ class ChatSession:
             self._emit("answer", content=content)
             self._record_decision(started, route_before, produced)
             return 0
+        except Exception as exc:  # noqa: BLE001 - an unexpected failure is still a turn
+            # A toolset bug, a provider answering something unserialisable, a
+            # KeyError in a renderer: none of these is a ProviderError, and before
+            # this clause they escaped with `produced` still empty - so the
+            # `finally` below persisted nothing and the user's own message
+            # disappeared from the store. Report it, keep what was said, exit 1.
+            produced = list(self.history[before:])
+            self.console.error(f"uh chat: unexpected failure: {type(exc).__name__}: {exc}")
+            self._emit("error", message=f"{type(exc).__name__}: {exc}")
+            return 1
         finally:
             # Recorded even when the turn failed: the user's message and whatever
             # the model managed to say survive an HTTP error, a timeout or a crash.

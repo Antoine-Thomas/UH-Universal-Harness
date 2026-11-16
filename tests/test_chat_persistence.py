@@ -140,3 +140,38 @@ def test_session_plus_no_save_is_refused(
     )
     assert code == 1
     assert "--session needs persistence" in capsys.readouterr().err
+
+
+class CrashingProvider:
+    """Raises something that is *not* a ProviderError, like a real bug would."""
+
+    model = "stub:1b"
+
+    def chat(self, messages, tools, *, on_token=None):
+        raise RuntimeError("boom inside the loop")
+
+
+def test_an_unexpected_failure_still_records_the_turn(
+    home: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Measured: only ProviderError/BudgetExhausted were caught, so any other
+    exception left `produced` empty and the user's message was never stored - the
+    transcript lost the turn while the screen showed an error."""
+    monkeypatch.setattr(cli, "_make_provider", lambda kind, model: CrashingProvider())
+
+    code = cli.main(
+        ["chat", "trace ceci", "--once", "--model", "stub:1b",
+         "--workspace", str(tmp_path), "--no-stream"]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    # The point of this test is the store, not the sentence: the CLI has always
+    # reported the crash, it just used to lose the turn while doing so.
+    with Store(home / "uh.db") as store:
+        sessions = store.list_sessions()
+        assert len(sessions) == 1, "the session must survive the crash"
+        messages = store.get_messages(sessions[0]["id"])
+    assert [m["role"] for m in messages] == ["user"]
+    assert messages[0]["content"] == "trace ceci"
+    assert "unexpected" in captured.err
