@@ -449,7 +449,7 @@ class ChatSession:
                 del self.history[before:]
                 return code
 
-            content = (last_assistant_message(self.history) or {}).get("content") or ""
+            content = self._normalise_answer_images()
             used_tools = any(message.get("role") == "tool" for message in self.history[before:])
 
             if not content and used_tools:
@@ -473,7 +473,7 @@ class ChatSession:
                     return code
                 if len(self.history) > position:
                     del self.history[position]
-                content = (last_assistant_message(self.history) or {}).get("content") or ""
+                content = self._normalise_answer_images()
 
             produced = list(self.history[before:])
             self._print_answer(content, chunks)
@@ -501,6 +501,35 @@ class ChatSession:
                     self._persist(produced)
                 except StoreError as exc:
                     self.console.error(f"uh chat: cannot record session: {exc}")
+
+    def _normalise_answer_images(self) -> str:
+        """Images the provider returned: bytes to the interface, text to the model.
+
+        Runs once per finished turn. A remote URL is fetched HERE, server-side,
+        with the guards in ``uh.images`` (http(s), no literal local address, size
+        cap, MIME from the magic bytes); the browser is never handed a remote URL,
+        and a refusal becomes one readable transcript line.
+        """
+        message = last_assistant_message(self.history)
+        if not message:
+            return ""
+        original = message.get("content")
+        from . import images as uh_images
+
+        try:
+            normalised = uh_images.normalise(original)
+        except Exception as exc:  # noqa: BLE001 - a broken image never breaks a turn
+            self.console.detail(f"images: {type(exc).__name__}: {exc}")
+            return str(original or "")
+        if normalised.artifacts:
+            message["artifacts"] = normalised.payloads()
+            self._emit("artifacts", images=message["artifacts"])
+        note = uh_images.note_for(normalised.refusals)
+        if note:
+            self._notice(note)
+        if isinstance(original, list) or normalised.artifacts or normalised.refusals:
+            message["content"] = normalised.text
+        return normalised.text
 
     def _keep_partial(self, chunks: list[str]) -> None:
         """Record what the model said before the stream died, and mark it.

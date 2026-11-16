@@ -154,9 +154,17 @@ def request_messages(messages: List[dict]) -> List[dict]:
     """
     cleaned: List[dict] = []
     for message in messages:
-        if isinstance(message, dict) and "tool_calls" in message and not message["tool_calls"]:
+        if not isinstance(message, dict):
+            cleaned.append(message)
+            continue
+        if "tool_calls" in message and not message["tool_calls"]:
             message = {key: value for key, value in message.items() if key != "tool_calls"}
-        if isinstance(message, dict) and message.get("role") == "tool":
+        if message.get("artifacts"):
+            # An answer may carry images (data URLs) for the interface. A provider
+            # pays for them in tokens and cannot read them: the text survives, the
+            # bytes stay in the session.
+            message = {key: value for key, value in message.items() if key != "artifacts"}
+        if message.get("role") == "tool":
             content = _without_image_bytes(message.get("content"))
             if content is not message.get("content"):
                 message = {**message, "content": content}

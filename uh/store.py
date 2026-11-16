@@ -178,7 +178,14 @@ class Store:
     #: existing database untouched, so a store created by an older build keeps its
     #: old shape — and losing a session to a schema change is what this store
     #: exists to prevent.
-    _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (("messages", "tool_call_id", "TEXT"),)
+    #: Columns added after the first release, applied in place: losing sessions on a
+    #: schema change is exactly what this store exists to prevent. `artifacts` is a
+    #: list of images a provider returned (data URLs), so a reloaded answer draws
+    #: them again without a second request.
+    _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
+        ("messages", "tool_call_id", "TEXT"),
+        ("messages", "artifacts", "TEXT"),
+    )
 
     def _ensure_late_columns(self) -> None:
         for table, column, kind in self._LATE_COLUMNS:
@@ -367,12 +374,15 @@ class Store:
         payload = (
             json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None
         )
+        artifacts = message.get("artifacts")
+        images = json.dumps(artifacts, ensure_ascii=False) if artifacts else None
         now = _now()
         with self.conn:
             cursor = self.conn.execute(
                 "INSERT INTO messages "
-                "(session_id, role, content, tool_name, tool_calls, tool_call_id, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(session_id, role, content, tool_name, tool_calls, tool_call_id, "
+                "created_at, artifacts) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     role,
@@ -381,6 +391,7 @@ class Store:
                     payload,
                     str(message.get("tool_call_id") or "") or None,
                     now,
+                    images,
                 ),
             )
             message_id = int(cursor.lastrowid or 0)
@@ -421,6 +432,14 @@ class Store:
             data["name"] = data["tool_name"]
         if not data.get("tool_call_id"):
             data.pop("tool_call_id", None)
+        images = data.pop("artifacts", None)
+        if images:
+            try:
+                decoded = json.loads(images)
+            except (TypeError, json.JSONDecodeError):
+                decoded = []
+            if decoded:
+                data["artifacts"] = decoded
         return data
 
     def delete_message(self, session_id: str, message_id: int) -> bool:
