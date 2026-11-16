@@ -534,3 +534,19 @@ def test_the_providers_panel_is_loaded_once_and_stays_isolated() -> None:
         "\n}\n", 1)[0]
     assert "try {" in settings and "catch (error)" in settings, \
         "the settings load owns its failure, in its own box"
+
+
+@KEEP
+def test_the_transcript_reconciliation_ignores_system_bubbles() -> None:
+    """Notices are shown in the transcript but never stored, so counting them made
+    the DOM look ahead of the store: any turn ending with a notice produced a
+    false "Le transcript enregistré contient moins de messages que l'écran"."""
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("async function reconcileTranscript() {", 1)[1].split(
+        "\nasync function ", 1)[0]
+
+    assert 'classList.contains("system")' in body, "system bubbles are not messages"
+    assert 'classList.contains("failed")' in body, "the client-drawn error bubble is not one either"
+    assert '!== "system"' in body, "stored system rows are excluded on both sides"
+    assert "const stored = data.messages || [];" not in body, \
+        "that is the version that counted the interface's own notices"

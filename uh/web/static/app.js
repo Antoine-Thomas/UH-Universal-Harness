@@ -1043,8 +1043,15 @@ function guardedStep(label, step) {
 // ever removed here.
 async function reconcileTranscript() {
   const data = await api(`/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=200`);
-  const boxes = [...$("messages").querySelectorAll(".msg")];
-  const stored = data.messages || [];
+  // Two kinds of bubble are the interface's own voice, never the conversation:
+  // `system` (notices from a turn that ended badly, "stopped") and `failed`
+  // (the "Erreur du modèle : …" bubble, which is drawn client-side). Neither is
+  // ever stored, so counting them made the DOM look "ahead" of the store and
+  // raised the false warning this function exists to prevent.
+  const boxes = [...$("messages").querySelectorAll(".msg")].filter(
+    (box) => !box.classList.contains("system") && !box.classList.contains("failed")
+  );
+  const stored = (data.messages || []).filter((m) => (m.role || "assistant") !== "system");
   updateGauge(stored);
   if (stored.length < boxes.length) {
     console.warn(
