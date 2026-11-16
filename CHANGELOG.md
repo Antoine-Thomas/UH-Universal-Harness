@@ -13,6 +13,50 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.7.3] — 2026-11-16
+
+**Ce que la fenêtre disait, et ce qu'elle faisait.** Trois défauts constatés sur une
+instance réelle, plus un quatrième trouvé en écrivant le test qui devait prouver le
+contraire.
+
+### Fixed
+
+- **Un rouge qui accusait le modèle alors qu'une commande échouait.** `/web` interroge
+  DuckDuckGo en HTML ; la connexion est coupée (`ConnectError: [WinError 10054]`) et le tour
+  mourait en 174 ms, `tools=0`, sans qu'aucun provider soit appelé — mais la bulle disait
+  « Erreur du modèle ». Le toolset réessaie désormais une erreur de transport, un 5xx ou un
+  429 (3 tentatives, 0,4 s puis 0,8 s) et jamais un 4xx ; la trame `error` d'une commande
+  porte `source: "command"`, que l'interface traduit par « Commande : … ».
+- **Un avis qui demandait une action absente de l'écran.** « Recharge la session » était une
+  phrase, pas un contrôle : la réconciliation du transcript porte maintenant un bouton
+  « Recharger la session » (contraste AA, focus visible) qui recharge en place et annonce
+  le résultat. La règle « une capacité visible s'active depuis l'interface » vaut aussi pour
+  un message d'erreur.
+- **Les octets d'une image payés par le modèle.** Le payload `artifacts` (data URL comprise)
+  faisait partie du message `role: tool` envoyé au provider : ~10 000 tokens par image de
+  40 Ko, à chaque tour suivant, pour une image qu'un modèle texte ne lit pas.
+  `request_messages` retire `artifacts` du fil — la session garde les octets, le modèle garde
+  le marqueur `[image: image/png, N base64 characters, artefact 1]`.
+- **La suite de tests arrêtait le backend de l'opérateur.** `stop_running()` interroge un
+  vrai UHB avant l'arbre de processus : lancer la suite là où `uh web` sert son UHB tuait ce
+  UHB. `request_shutdown` est injecté dans les cinq tests qui l'atteignent, et un second test
+  ne compare plus le catalogue d'outils à un littéral de quatre noms.
+
+### Added
+
+- **Images en artefacts (P0-5).** Un résultat d'outil MCP peut porter des images : octets
+  conservés et bornés (512 Ko décodés par image, 4 par retour, `omitted: "too_large"` au-delà),
+  rendues par `img.src` après contrôle du préfixe `data:<mime autorisé>;base64,`, MIME en
+  liste blanche (svg exclu), aucun `innerHTML`. Le `data_url` vit dans le message, donc un
+  rechargement de session redessine l'image sans redemander au serveur.
+- **La chaîne complète est prouvée** : réponse de provider avec tool call → enfant MCP stdio
+  réel → artefact sur le flux SSE → store → relecture de session (`tests/test_image_artifacts_e2e.py`).
+
+### Notes
+
+- `1.7.2` était une montée de version de CI (Playwright) sans entrée de changelog ; elle ne
+  contenait aucun des correctifs ci-dessus.
+
 ## [1.7.1] — 2026-11-15
 
 **The lifecycle, not the transcript.** Every symptom of the 1.7.0 round came back one
