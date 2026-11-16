@@ -94,11 +94,44 @@ def resolve_base_url() -> str | None:
 
 
 def resolve_api_key() -> str | None:
+    """The key, in the order that respects who wrote it.
+
+    1. ``UH_OMNIROUTER_API_KEY`` / ``OMNIROUTE_API_KEY``: an explicit environment.
+    2. **UH's own store** (``uh keys add omnirouter``, or the Providers panel): a key
+       typed INTO this product must beat a file written by another one - and until
+       this line existed, the panel's key was silently ignored, so the provider
+       only ever saw the gateway's dotenv.
+    3. ``~/.omniroute/.env``: the gateway's file, which goes stale. Measured
+       16/11/2026: the key there was rotated, every call answered 401, while the
+       live key sat in another dotenv.
+    """
     for env_var in ("UH_OMNIROUTER_API_KEY", "OMNIROUTE_API_KEY"):
         value = os.environ.get(env_var)
         if value:
             return value
+    try:
+        from .. import keys as uh_keys
+
+        stored = str((uh_keys.get_provider("omnirouter") or {}).get("key") or "").strip()
+        if stored:
+            return stored
+    except Exception:  # noqa: BLE001 - a broken key store must not forbid the rest
+        pass
     return _dotenv().get("OMNIROUTE_API_KEY") or None
+
+
+def auth_hint(status: int) -> str:
+    """Where UH reads this key, in the order it applies.
+
+    Written once: the chat path and the model listing refuse the same way, and a
+    401 that says "check your key" without naming a file is a dead end.
+    """
+    return (
+        f"{status} : clé OmniRoute refusée. UH la lit dans `uh keys add omnirouter` "
+        "(panneau Fournisseurs), sinon dans UH_OMNIROUTER_API_KEY, sinon dans "
+        "~/.omniroute/.env — ce dernier fichier peut porter une clé restreinte ou "
+        "périmée, qui répond 401 sur /v1/models. Colle la clé maître dans le panneau."
+    )
 
 
 def is_configured() -> bool:
@@ -328,11 +361,14 @@ class OmniRouterProvider(Provider):
         return streamed
 
     def _payload(self, response: httpx.Response) -> dict:
-        if response.status_code == 401:
+        if response.status_code in (401, 403):
+            # Two files, two owners, and only one of them is refreshed: say where
+            # the key is read from instead of sending the user to a dead end.
             raise ProviderError(
-                f"{self.label} rejected the API key (HTTP 401): "
-                "check `uh providers list` and re-add it",
-                status=401,
+                f"{self.label} a refusé la clé (HTTP {response.status_code}). "
+                + auth_hint(response.status_code),
+                status=response.status_code,
+                hint="clé OmniRoute refusée",
             )
         if response.status_code != 200:
             raise ProviderError(
@@ -403,6 +439,12 @@ def list_remote_models(
         response = httpx.get(f"{root}/v1/models", headers=headers, timeout=timeout)
     except httpx.HTTPError as exc:
         raise ProviderError(f"cannot reach OmniRouter at {root} ({type(exc).__name__})") from exc
+    if response.status_code in (401, 403):
+        raise ProviderError(
+            f"OmniRouter HTTP {response.status_code} on /v1/models — "
+            + auth_hint(response.status_code),
+            status=response.status_code,
+        )
     if response.status_code != 200:
         raise ProviderError(f"OmniRouter HTTP {response.status_code} on /v1/models")
     try:
