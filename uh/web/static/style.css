@@ -1369,3 +1369,17 @@ select:focus-visible {
   overflow: auto;
   white-space: pre-wrap;
 }
+
+/* ------------------------------------------------------------- artéfacts --
+   An image a tool returned. The bytes travel inside the tool payload; this only
+   decides how they are shown. Capped in width so one chart cannot push the
+   transcript — and never a URL: only data:. */
+.tool-artifact { margin: 6px 0 0; }
+.tool-artifact-img {
+  max-width: 100%;
+  max-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: block;
+}
+.tool-artifact-note { margin-top: 4px; font-size: 11px; color: var(--fg-dim); }

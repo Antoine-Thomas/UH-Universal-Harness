@@ -569,3 +569,25 @@ def test_the_tools_panel_shows_uhbs_catalogue_and_keeps_no_copy_of_it() -> None:
     assert "state.toolsPromise" in body, "one in-flight request per click, as for providers"
     assert "innerHTML" not in body, "artefacts and schemas are rendered as text, never as markup"
     assert "innerText" in body or "textContent" in body
+
+
+@KEEP
+def test_tool_artifacts_are_rendered_as_images_and_never_as_markup() -> None:
+    """The rendering contract of P0-5, checked on the source, not on a screenshot.
+
+    The bytes arrive in the tool payload; the interface may only point an `<img>`
+    at a `data:` URL whose prefix matches an allow-listed MIME. Anything else is
+    skipped, because the payload's MIME is a claim — and `svg` is not in the list.
+    """
+    script = APP.read_text(encoding="utf-8")
+    body = script.split("function renderArtifacts(card, content) {", 1)[1].split(
+        "\nfunction fillToolCard(", 1)[0]
+
+    assert "innerHTML" not in body, "a data URL is data; innerHTML would make it markup"
+    assert 'const img = el("img"' in body and "img.src = url" in body
+    assert "ARTIFACT_MIME.includes(mime)" in body, "the MIME is checked, not trusted"
+    assert "!url.startsWith(`data:${mime};base64,`)" in body, "only data: is accepted"
+    assert '"image/png", "image/jpeg", "image/gif", "image/webp"' in script
+    assert "image/svg" not in body, "svg is a document with scripts, not a bitmap"
+    # Wired: a replayed session renders its artefacts because fillToolCard runs.
+    assert "renderArtifacts(card, content);" in script
