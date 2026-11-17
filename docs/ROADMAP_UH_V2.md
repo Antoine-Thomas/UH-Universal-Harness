@@ -656,6 +656,30 @@ Still open after P13 as written:
   `mcp-secrets.toml` - a server that can rewrite the code must not be able to read
   the credentials in the same breath.
 
+## Delivered 2026-11-17
+
+`uh-harness` **1.7.5** (tag `v1.7.5` → `40f6f34`, on PyPI) and `uhb-harness` **0.2.0**
+(tag `v0.2.0` → `17bd062`). **P0-4 is closed on both sides**:
+
+- **the snippet is not cut any more.** The client budget of `execute_code` is the requested
+  timeout, bounded by the `default` and `maximum` the catalogue publishes in the tool schema,
+  plus a margin — for `execute_code` only. An overrun comes back as a structured `timed_out`,
+  never as "UHB unreachable".
+- **it asks first.** UH shows the code, the mode and the delay on the turn's stream, and sends
+  nothing to `/tools/execute` when the operator refuses or the notifier raises. UHB mints a
+  single-use nonce (120 s, in memory, bound to `execute_code`), consumes it even when the run
+  fails, and ignores a body claiming `approved: true`.
+- **the sandbox's boundary is measured, not claimed.** The environment is scrubbed (no variable
+  whose name carries TOKEN / KEY / SECRET); the operator's files stay readable by absolute path,
+  and a characterisation test asserts exactly that, so no report can pretend otherwise.
+- **the install guide names the real packages.** `mcp` / `mcp-types` (`>=2.12.0`) and
+  `google-genai` (`>=2.12.5,<3`) constrain `pydantic`; `mixpanel` constrains nothing and `gradio`
+  only through its `mcp` extra. `scripts/diagnose_pydantic.py` measures it, read-only.
+- **documentation**: the architecture plate in the README (without a test count — those age), and
+  `docs/VALIDATION_MATRIX.md` as the list of proofs required before the fusion.
+- Merged in this order: UHB #16 → #17, UH #13 → #15, then UH #14 (matrix), #16 (Pydantic) and
+  #18 (plate). Measured on the merged tree: **1513 passed, 2 skipped**, ruff and mypy clean.
+
 ## Delivered 2026-11-14
 
 What actually shipped (tags `v1.6.0` and `v1.6.1`, wheels on PyPI):
@@ -687,9 +711,13 @@ What actually shipped (tags `v1.6.0` and `v1.6.1`, wheels on PyPI):
 
 ## Still open
 
+- **P1-8 (UHB monitoring)** — absent / error / ok, visible in the System panel instead of a
+  silent failure. Then **P4-1** (cross validation of the two components, `docs/VALIDATION_MATRIX.md`).
 - **HTTP/SSE transport** for the MCP client - the blocker for Positron, remote
   servers, and any hosted tool server. Everything else in P14 waits on it.
-- Per-call tool approval (the `allow` list is a model of permission, not a prompt).
+- Per-call approval for the tools **other than** `execute_code`: that one has a gate
+  (nonce, UH #15 / UHB #17); MCP writes and the `desktop_*` tools still rely on the
+  gate of their own toolset.
 - SVG icons per tab, and the full "verre" theme (only its tokens are used today).
 - The first-run screen covers "no provider" but not "no model for the chosen one".
 - `uh skills --compress` merges mechanically; it does not rewrite prose.
@@ -966,6 +994,11 @@ The end state is **not** two repositories on GitHub. It is one product the opera
 hand to someone: one window, one backend inside it, one downloadable installer. Nothing in
 P4 is coded before the pair is proven to work together, because a fusion ships whatever
 defects the couple still has.
+
+**Where the pair stands (2026-11-17)**: the P0 block is closed and published — `uh-harness`
+1.7.5 and `uhb-harness` 0.2.0 carry the transport budget, the approval gate and the measured
+sandbox boundary (see *Delivered 2026-11-17*). The next open step is **P1-8 (UHB monitoring)**,
+then **P4-1** proper.
 
 The list of proofs required before the fusion is **`docs/VALIDATION_MATRIX.md`** (P0/P1/P2
 rows, each with its state and the evidence that is still missing). A fix announced is not a

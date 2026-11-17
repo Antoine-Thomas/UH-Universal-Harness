@@ -9,6 +9,12 @@ P4-2 (the fusion) and the real state of each one, as of 2026-11-17.
 Reading rule: a row only reaches `DONE` with the proof **in the repository** (a test) or
 **a dated capture** — never "it was fixed".
 
+**Published milestones**: `uh-harness` **1.7.5** is on PyPI (tag `v1.7.5` → `40f6f34`,
+`Publish to PyPI` green). `uhb-harness` **0.2.0** is tagged and merged (`v0.2.0` → `17bd062`)
+but **not yet on PyPI**: its `pypi` environment still needs the manual approval. Every row
+marked `DONE` below is in the UH artefact published today; the UHB side is proven by the
+tests in `17bd062` and ships as soon as the approval is clicked.
+
 ---
 
 ## P0 — Open problems (audit)
@@ -20,7 +26,8 @@ Reading rule: a row only reaches `DONE` with the proof **in the repository** (a 
 | P0-C | On/off switch visible and operable | UH | `DONE` (browser proof) | Box measured **310×34 px**, `role="switch"`, `aria-checked` false→true on click, label "… activés", works from the keyboard (captures `2-switch-off.png`, `3-switch-on.png`) |
 | P0-D | "Recherche web": same control, same requirement | UH | `NOT STARTED` | Still a **13 px checkbox** in the same panel (visible on `3-switch-on.png`) — the same visibility defect as the old on/off |
 | P0-E | Version tested = version published | Process | `DONE` | `uh --version` and the machine's `/healthz`: **1.7.2**; the #10/#11 fixes are in **1.7.4**. The last visual test therefore ran the old version |
-| P0-F | `execute_code` client timeout | UH | `DONE` (PR #13, not merged) | One 5 s budget for every remote call cut a snippet allowed 10 s and reported "uhb unreachable"; now `requested + margin`, bounded by the catalogue schema, for `execute_code` only. Both witnesses fail on the previous code (`2 failed` to `5 passed`) |
+| P0-F | `execute_code`: transport budget, approval, and the sandbox's real boundary — one path | UH+UHB | `DONE` (UH #13 + #15, UHB #16 + #17, all merged, in 1.7.5 / 0.2.0) | Four fixes that only make sense together: the client waits `requested + margin` (bounded by the catalogue schema) instead of a flat 5 s; the sandbox's boundary is measured rather than claimed (environment scrubbed, files readable by absolute path); `execute_code` asks the operator before running; UHB refuses without the nonce it minted. Witnesses fail on the previous code (`2 failed` → `5 passed`); the merged tree is **1513 passed, 2 skipped** on `40f6f34` |
+| P0-G | The approval gate itself: who decides, who enforces, and what it is not | UH+UHB | `DONE` (UH #15, UHB #17) | UH asks on the turn's stream while the tool call waits; UHB mints a **single-use** nonce (120 s, in memory, bound to `execute_code`), consumes it even when the run fails, and ignores any body claiming `approved: true`. No approver, a refusal, a raising notifier or a UHB that will not mint all give a typed `forbidden` with **zero** requests to `/tools/execute`. "Always allow" is scoped to `uhb:execute_code` and lives in memory only |
 
 ## P1 — Connections and performance (the heart of the fusion)
 
@@ -56,6 +63,26 @@ Reading rule: a row only reaches `DONE` with the proof **in the repository** (a 
 
 ---
 
+## Limits of the approval gate (read before trusting it)
+
+The gate moves a decision, it does not build a wall. Written down because a report, a demo or
+a comment claims more very easily:
+
+- **It is not isolation.** The snippet still runs as the operator's user: `$UH_HOME/keys.toml`,
+  `$UH_HOME/web-token`, `$UH_HOME/router-token` and `~/.uhb/shutdown-token` stay readable by
+  absolute path — measured by the UHB #16 characterisation test.
+- **It stops the client that skips the interface, not a local hostile process.**
+  `POST /tools/approvals` is protected by loopback and `Origin` only: any process on the
+  machine can mint its own nonce and then execute.
+- **A third-party MCP server's own `execute_code` is not covered.** This gate lives on UHB's
+  route and on UH's `uhb` toolset; a tool with that name arriving through `mcp:<server>` goes
+  through the MCP approval path, another mechanism with its own scope.
+- **`EXECUTE_MARGIN = 15 s` is a design constant, not a measurement.** It covers the kill of
+  the process tree, the artifact scan and the response, and is only used after being bounded
+  by the `maximum` the catalogue publishes.
+- **The nonce proves authorisation, not identity.** UHB cannot tell which human clicked: it
+  knows the nonce it issued was consumed exactly once, and that the server's mode allowed it.
+
 ## Dependencies between the lots
 
 1. **P0-E comes first**: while the tested version is not the published one, every UI
@@ -69,6 +96,13 @@ Reading rule: a row only reaches `DONE` with the proof **in the repository** (a 
 5. **P1-10 (unified start)** is the first concrete step of P4-1: it fuses nothing, it
    removes the visible double console.
 6. **P4-1 cannot be declared** while P1-7 (cloud) is `NOT STARTED`.
+7. **What comes next, in this order**: **P1-8 (UHB monitoring** — absent / error / ok shown in
+   the System panel), then **P4-1 (cross validation of the two components)**. P0-4 closed with
+   1.7.5 / 0.2.0; nothing else in P0 blocks the pair.
+8. **The `execute_code` lot merged in one order** — UHB #16 then #17 (no conflict), then UH #13
+   then #15, which needed three adaptations: keep both the transport budget and the body
+   carrying the nonce, give #13's integration test an approver, serve `/tools/approvals` in
+   #13's fake server. Measured on the merged tree: **1513 passed, 2 skipped**.
 
 ## What is missing to be able to say "proven"
 
