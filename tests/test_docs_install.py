@@ -25,12 +25,29 @@ def test_the_install_guide_names_the_one_door_per_subject() -> None:
 
 
 def test_the_install_guide_carries_the_pip_ceilings() -> None:
-    section = INSTALL.split("## Pip conflicts")[1].split("## ")[0]
+    section = INSTALL.split("## Pip conflicts")[1].split("\n## ")[0]
     assert 'tomlkit<0.15.0' in section
     assert 'importlib-metadata<9.0' in section
     assert 'openai<3.0.0' in section
-    assert 'pydantic<2.12' in section
+    # The range measured on the machine that raised the conflict, not the old
+    # `pydantic<2.12` ceiling: that one contradicted every constraint it named.
+    assert "pydantic>=2.12.5,<3" in section
     assert "warning" in section, "a conflict message is not a broken install"
+
+
+def test_the_guide_names_what_really_constrains_pydantic() -> None:
+    """The attribution is the part that cost time.
+
+    A guide blaming `mixpanel` (which declares nothing) or `gradio` (which constrains
+    pydantic only through an extra) sends the operator after the wrong package, and the
+    conflict survives the fix. Both were measured, so both are pinned here.
+    """
+    section = INSTALL.split("## Pip conflicts")[1].split("\n## ")[0]
+
+    assert "mcp-types" in section and "google-genai" in section
+    assert "mixpanel" in section and "declares no dependency" in section
+    assert "`mcp` extra" in section, "gradio constrains pydantic only through its extra"
+    assert "google-antigravity" in section, "the conflict pydantic will not fix is named"
 
 
 def test_the_readme_points_at_the_guide() -> None:
