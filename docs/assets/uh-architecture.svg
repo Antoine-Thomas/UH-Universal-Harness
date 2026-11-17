@@ -20,7 +20,7 @@
   <rect x="34" y="34" width="1532" height="1182" fill="none" stroke="#9ca3af" stroke-width="0.8"/>
 
   <text x="56" y="76" font-size="26" font-weight="700" fill="#111827">UH / UHB — architecture et cycle d'un tour</text>
-  <text x="56" y="102" font-size="13.5" fill="#4b5563">Planche technique · 16/11/2026 · UH 1.7.3 (main e83b8d3) · UHB main 4b3bf25 · cotes en ms et en tokens</text>
+  <text x="56" y="102" font-size="13.5" fill="#4b5563">Planche technique · rev 17/11/2026 · UH 1.7.5 · UHB en second cerveau · cotes en ms et en tokens</text>
   <line x1="56" y1="114" x2="1544" y2="114" stroke="#9ca3af" stroke-width="1"/>
 
   <!-- ============ zone local ============ -->
@@ -191,12 +191,12 @@
   <text x="72" y="1032" font-size="11.5" fill="#111827">202 d'un /shutdown = accepté, pas parti → sonder le port avant d'annoncer l'arrêt</text>
 
   <rect x="820" y="914" width="724" height="140" fill="#f0fdf4" stroke="#15803d" stroke-width="1.4"/>
-  <text x="836" y="940" font-size="13" font-weight="700" fill="#14532d">Invariants tenus par des tests — comptés le 16/11/2026</text>
-  <text x="836" y="966" font-size="11.5" fill="#111827">1 451 passed · 2 skipped · 9 e2e désélectionnés (navigateur réel)</text>
+  <text x="836" y="940" font-size="13" font-weight="700" fill="#14532d">Invariants tenus par des tests</text>
+  <text x="836" y="966" font-size="11.5" fill="#111827">suite complète verte · e2e désélectionnés (navigateur réel)</text>
   <text x="836" y="988" font-size="11.5" fill="#111827">la suite complète tourne avec un UHB vivant sans l'arrêter</text>
-  <text x="836" y="1010" font-size="11.5" fill="#111827">1.7.3 publiée · PR #5 et #6 fusionnées</text>
+  <text x="836" y="1010" font-size="11.5" fill="#111827">P0-4 clos : approbation de l'opérateur, budget du snippet, bac à sable mesuré</text>
   <text x="836" y="1032" font-size="11.5" fill="#111827">ruff + mypy propres sur les deux branches</text>
 
   <rect x="1120" y="1190" width="424" height="26" fill="#ffffff" stroke="#111827" stroke-width="1.2"/>
-  <text x="1132" y="1208" font-size="10" fill="#374151">UH/UHB — planche 1/1 · révision du 16/11/2026 · UH 1.7.3 · UHB 4b3bf25</text>
+  <text x="1132" y="1208" font-size="10" fill="#374151">UH/UHB — planche 1/1 · UH 1.7.5 · rev 17/11/2026</text>
 </svg>
