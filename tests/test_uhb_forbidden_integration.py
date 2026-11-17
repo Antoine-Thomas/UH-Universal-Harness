@@ -141,3 +141,48 @@ def test_a_real_uhb_runs_nothing_when_the_operator_refuses(tmp_path, monkeypatch
         if child.poll() is None:
             child.kill()
             child.wait(timeout=10)
+
+
+def test_a_real_uhb_is_waited_for_longer_than_a_route_decision(tmp_path, monkeypatch) -> None:
+    """P0-4: a snippet allowed 10 s must not be cut by the client's 5 s.
+
+    Same harness as above, but in `dev` mode with `execute_code` really running: the
+    proof is a child that sleeps 8 s and still comes back with its stdout, then a
+    child that overruns its own timeout and comes back as UHB's structured timeout.
+    """
+    port = free_port()
+    url = f"http://127.0.0.1:{port}"
+    monkeypatch.setenv("UH_UHB_URL", url)
+    monkeypatch.setenv("UH_UHB_EXECUTE", "1")
+
+    child = subprocess.Popen(
+        [sys.executable, "-m", "uhb.entrypoints.cli", "run", "--mode", "dev", "--port", str(port)],
+        cwd=str(UHB), env=dict(os.environ),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        assert wait(lambda: uhb_spawn.port_open(url)), "the dev-mode UHB never came up"
+        toolset = Uhbtoolset(url, timeout=5.0, discover=True, approver=lambda _t, _a: True)
+        assert "execute_code" in [spec["function"]["name"] for spec in toolset.tools]
+
+        slow = toolset.call(
+            "execute_code",
+            {"code": "import time; time.sleep(8); print('done after 8s')", "timeout": 10},
+        )
+        assert slow.get("kind") != "transport", f"cut by the client timeout: {slow}"
+        assert slow["timed_out"] is False
+        assert slow["exit_code"] == 0
+        assert "done after 8s" in slow["stdout"]
+
+        overrun = toolset.call(
+            "execute_code",
+            {"code": "import time; time.sleep(30)", "timeout": 2},
+        )
+        assert overrun.get("kind") != "transport", "a killed child is an answer, not a drop"
+        assert overrun["timed_out"] is True
+        assert overrun["ok"] is False
+        assert any("timed out" in note for note in overrun["notes"])
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
