@@ -13,6 +13,33 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.7.6] — 2026-11-17
+
+**`--provider X` choisit maintenant son propre modèle, et un 401 dit lequel des deux a échoué.**
+`uh chat --provider omnirouter "PING"` héritait du `default_model` global (« deepseek-flash »),
+un id DeepSeek qu'OmniRoute ne connaît que comme nom de fournisseur sans identifiants : il
+répondait `401 provider_not_configured` et UH affichait « clé OmniRoute refusée ». La clé était
+valide — mesuré : `/v1/models` → 200 avec la clé du store et celle de l'environnement.
+
+### Fixed
+
+- **`--provider <kind>` sans `--model` prend le modèle du provider demandé.**
+  Le `default_model` de la configuration décrit la chaîne par défaut, pas un provider choisi
+  explicitement. Résolution : un `--model` explicite gagne toujours ; sinon `omnirouter_model`
+  pour la passerelle, le premier tag local pour Ollama, et le `DEFAULT_MODEL` du provider
+  lui-même pour DeepSeek, Cloudflare et HuggingFace (`_provider_default_model`, `uh/cli.py`).
+- **Un 401/403 de la passerelle nomme la vraie cause.** Le corps est lu (`error.code`) :
+  `provider_not_configured` donne « OmniRoute n'a pas d'identifiants pour le fournisseur amont
+  `<nom>` » et le détail du corps ; les autres codes gardent le message sur les fichiers de clé.
+  Même traitement dans `list_remote_models` (`uh/providers/omnirouter.py`).
+
+### Tests
+
+- `tests/test_requested_provider_model.py` (8 cas) : modèle propre au provider, `--model`
+  explicite prioritaire, Ollama via le premier tag local, et le cas mesuré de bout en bout.
+- `tests/test_auth_failure_message.py` (4 cas) : `provider_not_configured` n'est plus imputé à
+  la clé, `invalid_api_key` continue de pointer les fichiers de clé, corps illisible compris.
+
 ## [1.7.5] — 2026-11-17
 
 **Un snippet n'est plus coupé, et il demande la permission.** Cette version ferme P0-4 :

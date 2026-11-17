@@ -563,6 +563,28 @@ def _deepseek_entry() -> tuple[str, Provider] | None:
         return None
 
 
+def _provider_default_model(kind: str, omnirouter_model: str = "") -> str:
+    """The model a provider owns, when the caller gave no ``--model``.
+
+    An empty string means "the provider's constructor decides": DeepSeek,
+    Cloudflare and HuggingFace each ship a ``DEFAULT_MODEL``. Handing them the
+    global ``default_model`` instead is what broke ``--provider omnirouter``:
+    the gateway received ``deepseek-flash``, a DeepSeek id it only knows as a
+    provider name with no credentials, and answered ``401
+    provider_not_configured`` (measured 2026-11-17).
+    """
+    if kind == "omnirouter":
+        return omnirouter_model or DEFAULT_OMNIROUTER_MODEL
+    if kind == "ollama":
+        # A local tag is not a cloud id: take the first model actually pulled.
+        try:
+            names = [str(item["name"]) for item in list_models()]
+        except ProviderError:
+            return ""
+        return names[0] if names else ""
+    return ""
+
+
 def _build_chain(
     requested: str | None,
     model: str | None,
@@ -576,7 +598,9 @@ def _build_chain(
         ollama (local) -> cloudflare (free) -> deepseek (paid, safety valve)
         -> omnirouter (local gateway) -> router (free providers with keys)
 
-    ``requested`` (CLI ``--provider``) means one provider, no fallback.
+    ``requested`` (CLI ``--provider``) means one provider, no fallback: that
+    provider also owns the model, so ``omnirouter_model`` / the first local tag
+    / the provider's own default apply when ``model`` is empty.
     ``preferred`` (the configured default provider) only MOVES that entry to the
     front; it never disables the fallback - otherwise a default of "ollama" in
     config.toml would silently kill the cloud backups. A provider whose key is
@@ -584,8 +608,9 @@ def _build_chain(
     instead of a 401.
     """
     if requested:
-        provider = _make_provider(requested, model or "")
-        return [(requested, provider)], (model or getattr(provider, "model", "") or "")
+        chosen = model or _provider_default_model(requested, omnirouter_model)
+        provider = _make_provider(requested, chosen)
+        return [(requested, provider)], (chosen or getattr(provider, "model", "") or "")
 
     reasons: list[str] = []
     ollama_entry: tuple[str, Provider] | None = None
@@ -1210,7 +1235,14 @@ def _build_chat_session(
     os.environ["UH_WORKSPACE"] = str(workspace)
 
     if chain is None or model is None:
-        requested_model = args.model or str(cfg.get("default_model") or "") or None
+        if args.provider:
+            # ``--provider X`` hands the model choice to X. The configured
+            # ``default_model`` belongs to the default chain — it is a DeepSeek
+            # id on this machine — and passing it to another provider is what
+            # produced "401 provider_not_configured" from the gateway.
+            requested_model = args.model or None
+        else:
+            requested_model = args.model or str(cfg.get("default_model") or "") or None
         preferred = args.provider or str(cfg.get("default_provider") or "") or None
         try:
             chain, model = _build_chain(
