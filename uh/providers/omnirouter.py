@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -136,6 +137,48 @@ def auth_hint(status: int) -> str:
 
 def is_configured() -> bool:
     return resolve_base_url() is not None
+
+
+def _auth_error_detail(response: httpx.Response) -> tuple[str, str, str]:
+    """``(code, upstream provider, message)`` read from a 401/403 body.
+
+    OmniRoute answers 401 for two unrelated failures, and only the body tells
+    them apart: ``invalid_api_key`` (the gateway's own key) versus
+    ``provider_not_configured`` (the route names an upstream it has no
+    credentials for, e.g. ``No active credentials for provider: deepseek.``).
+    """
+    text = (response.text or "")[:300]
+    try:
+        payload = response.json()
+    except ValueError:
+        return "", "", text
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return "", "", text
+    code = str(error.get("code") or "")
+    message = str(error.get("message") or "")
+    upstream = str(error.get("provider") or "")
+    if not upstream:
+        match = re.search(r"provider:\s*([A-Za-z0-9_.\-]+)", message)
+        upstream = match.group(1) if match else ""
+    return code, upstream, message
+
+
+def upstream_credentials_hint(status: int, upstream: str, detail: str) -> str:
+    """Message for ``provider_not_configured``: the key is fine, the route is not.
+
+    The gateway accepted our key - it is telling us the *model id* points at an
+    upstream provider with no credentials. Sending the reader to the key files
+    here is a false lead (measured 2026-11-17: hours lost on a valid key).
+    """
+    name = upstream or "<inconnu>"
+    return (
+        f"{status} : OmniRoute n'a pas d'identifiants pour le fournisseur amont "
+        f"{name} (provider_not_configured). La clé de la passerelle, elle, a été "
+        f"acceptée : c'est le modèle demandé qui route vers « {name} ». Choisis une "
+        f"route du catalogue (`uh providers list`, p.ex. auto/best-free) ou "
+        f"enregistre une clé {name} dans OmniRoute. Détail: {detail}"
+    )
 
 
 def openai_params(params: dict, model: str) -> dict:
@@ -362,6 +405,16 @@ class OmniRouterProvider(Provider):
 
     def _payload(self, response: httpx.Response) -> dict:
         if response.status_code in (401, 403):
+            # Two failures share the code 401: the gateway's own key, and a route
+            # naming an upstream it has no credentials for. Only the body tells
+            # them apart, and blaming the key in the second case is a false lead.
+            code, upstream, body_detail = _auth_error_detail(response)
+            if code == "provider_not_configured":
+                raise ProviderError(
+                    upstream_credentials_hint(response.status_code, upstream, body_detail),
+                    status=response.status_code,
+                    hint=f"OmniRoute: fournisseur amont {(upstream or '?')} sans identifiants",
+                )
             # Two files, two owners, and only one of them is refreshed: say where
             # the key is read from instead of sending the user to a dead end.
             raise ProviderError(
@@ -440,6 +493,13 @@ def list_remote_models(
     except httpx.HTTPError as exc:
         raise ProviderError(f"cannot reach OmniRouter at {root} ({type(exc).__name__})") from exc
     if response.status_code in (401, 403):
+        code, upstream, body_detail = _auth_error_detail(response)
+        if code == "provider_not_configured":
+            raise ProviderError(
+                f"OmniRouter HTTP {response.status_code} on /v1/models — "
+                + upstream_credentials_hint(response.status_code, upstream, body_detail),
+                status=response.status_code,
+            )
         raise ProviderError(
             f"OmniRouter HTTP {response.status_code} on /v1/models — "
             + auth_hint(response.status_code),
