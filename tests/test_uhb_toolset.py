@@ -478,17 +478,23 @@ def test_execute_code_is_offered_with_the_switch_and_goes_to_its_own_route(monke
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
             return httpx.Response(200, json=_catalogue_with_execute())
+        if request.url.path == "/tools/approvals":
+            return httpx.Response(200, json={"approval_id": "nonce-route",
+                                             "tool": "execute_code", "expires_in": 120})
         posted.append((str(request.url), json.loads(request.content or b"{}")))
         return httpx.Response(200, json={"ok": True, "stdout": "4\n", "exit_code": 0})
 
-    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler), discover=True)
+    toolset = uhb_mod.Uhbtoolset(
+        URL, client=client_for(handler), discover=True, approver=lambda _t, _a: True
+    )
 
     assert "execute_code" in [spec["function"]["name"] for spec in toolset.tools]
     result = toolset.call("execute_code", {"code": "print(2+2)"})
 
     assert result["ok"] is True
     assert posted[0][0].endswith("/tools/execute"), "its own route, not the generic one"
-    assert posted[0][1] == {"code": "print(2+2)"}
+    assert posted[0][1]["code"] == "print(2+2)"
+    assert posted[0][1]["approval_id"] == "nonce-route", "the nonce UHB minted travels with it"
 
 
 def test_a_refusal_from_uhb_keeps_its_type_and_message(monkeypatch) -> None:
@@ -500,9 +506,14 @@ def test_a_refusal_from_uhb_keeps_its_type_and_message(monkeypatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
             return httpx.Response(200, json=_catalogue_with_execute())
+        if request.url.path == "/tools/approvals":
+            return httpx.Response(200, json={"approval_id": "nonce-refused",
+                                             "tool": "execute_code", "expires_in": 120})
         return httpx.Response(403, json=refusal)
 
-    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler), discover=True)
+    toolset = uhb_mod.Uhbtoolset(
+        URL, client=client_for(handler), discover=True, approver=lambda _t, _a: True
+    )
     result = toolset.call("execute_code", {"code": "print(1)"})
 
     assert result["type"] == "forbidden"
