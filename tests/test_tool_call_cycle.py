@@ -285,12 +285,16 @@ def test_one_allowed_execution_and_one_forbidden_tool_in_the_same_message(
                  "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
                  "execution_type": "subprocess"},
             ]})
+        if request.url.path == "/tools/approvals":
+            return httpx.Response(200, json={"approval_id": "nonce-cycle",
+                                             "tool": "execute_code", "expires_in": 120})
         return httpx.Response(200, json={"ok": True, "stdout": "4\n", "exit_code": 0,
                                          "duration_s": 0.1, "images": []})
 
     uhb_toolset = Uhbtoolset("http://127.0.0.1:8101",
                              client=httpx.Client(transport=httpx.MockTransport(handler)),
-                             discover=True)
+                             discover=True,
+                             approver=lambda _tool, _arguments: True)
 
     provider = ScriptedProvider(
         [

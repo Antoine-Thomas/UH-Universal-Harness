@@ -168,8 +168,8 @@ def _session_or_404(app: FastAPI, session_id: str) -> dict:
     return session
 
 
-def _toolsets(app: FastAPI, web_search: bool = True) -> dict:
-    toolsets = build_toolsets(app.state.settings.workspace)
+def _toolsets(app: FastAPI, web_search: bool = True, notify=None) -> dict:
+    toolsets = build_toolsets(app.state.settings.workspace, notify=notify)
     if not app.state.settings.allow_terminal:
         toolsets.pop("terminal", None)
     if not web_search:
@@ -806,7 +806,7 @@ def create_app(
             session_obj = None
             # Built here, not before: an HTTP/SSE toolset needs `emit` to ask its
             # per-call approval on this turn's stream.
-            toolsets = _toolsets(app, web_search=search_on)
+            toolsets = _toolsets(app, web_search=search_on, notify=emit)
             try:
                 from .. import mcp_http as uh_mcp_http
 

@@ -72,7 +72,7 @@ def test_a_chat_mode_uhb_refuses_execute_code_and_the_loop_keeps_the_id(
     try:
         assert wait(lambda: uhb_spawn.port_open(url)), "the chat-mode UHB never came up"
 
-        toolset = Uhbtoolset(url, timeout=5.0, discover=True)
+        toolset = Uhbtoolset(url, timeout=5.0, discover=True, approver=lambda _t, _a: True)
         names = [spec["function"]["name"] for spec in toolset.tools]
         assert "execute_code" in names, "the catalogue publishes it; the mode is what refuses"
 
@@ -102,5 +102,42 @@ def test_a_chat_mode_uhb_refuses_execute_code_and_the_loop_keeps_the_id(
     assert payload["type"] == "forbidden"
     assert payload["status"] == 403, "the 403 is UHB's, not UH's"
     assert "execute_code" in payload["error"]
+    assert "chat" in payload["error"].lower(), (
+        "the refusal names the mode: it is not the approval that stopped this call"
+    )
     assert history[-1]["content"] == "je ne peux pas exécuter de code ici"
     assert provider.calls == 2, "one refusal, then the answer: no loop"
+
+
+def test_a_real_uhb_runs_nothing_when_the_operator_refuses(tmp_path, monkeypatch) -> None:
+    """The interface's refusal must reach the model as a refusal, with no side effect."""
+    port = free_port()
+    url = f"http://127.0.0.1:{port}"
+    monkeypatch.setenv("UH_UHB_URL", url)
+    monkeypatch.setenv("UH_UHB_EXECUTE", "1")
+
+    child = subprocess.Popen(
+        [sys.executable, "-m", "uhb.entrypoints.cli", "run", "--mode", "dev", "--port", str(port)],
+        cwd=str(UHB), env=dict(os.environ),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        assert wait(lambda: uhb_spawn.port_open(url)), "the dev-mode UHB never came up"
+
+        refused = Uhbtoolset(url, timeout=5.0, discover=True, approver=lambda _t, _a: False)
+        result = refused.call(
+            "execute_code", {"code": "open('side-effect.txt','w').write('x')", "timeout": 10}
+        )
+
+        assert result["type"] == "forbidden"
+        assert result["reason"] == "approval_refused"
+        assert "run_dir" not in result, "nothing ran, so nothing reports a run directory"
+
+        approved = Uhbtoolset(url, timeout=5.0, discover=True, approver=lambda _t, _a: True)
+        allowed = approved.call("execute_code", {"code": "print('ran')", "timeout": 10})
+        assert allowed["ok"] is True
+        assert allowed["stdout"].strip() == "ran"
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)

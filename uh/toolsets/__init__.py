@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from .file import FileToolset
 from .memory import MemoryToolset
@@ -36,12 +36,17 @@ __all__ = [
 ]
 
 
-def build_toolsets(workspace: str | os.PathLike[str] | None = None) -> Dict[str, object]:
+def build_toolsets(
+    workspace: str | os.PathLike[str] | None = None,
+    notify: Any = None,
+) -> Dict[str, object]:
     """Build the Jalon 1 toolset set, keyed by toolset name.
 
     ``uhb`` joins only when a UHB control plane answers on its loopback URL
     (1 s probe): a dead or older UHB contributes no tools rather than a tool
     that fails on every call. ``UH_UHB_URL=""`` disables it explicitly.
+    ``notify`` is the turn's stream, threaded down so `execute_code` can ask the
+    operator before it runs: without it the tool is advertised and refuses.
 
     ``mcp:<server>`` joins for every ``[[mcp.servers]]`` entry that completes the
     MCP handshake (see :mod:`uh.mcp`). The processes are cached per entry, so a
@@ -55,7 +60,7 @@ def build_toolsets(workspace: str | os.PathLike[str] | None = None) -> Dict[str,
         "memory": MemoryToolset(),
         "web_search": WebSearchToolset(),
     }
-    uhb = Uhbtoolset.from_environment()
+    uhb = Uhbtoolset.from_environment(notify=notify)
     if uhb is not None:
         toolsets["uhb"] = uhb
     try:
