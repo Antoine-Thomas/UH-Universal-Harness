@@ -13,10 +13,12 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [Unreleased]
+## [1.7.5] — 2026-11-17
 
-Ce qui est sur `main` après le tag `v1.7.4`, donc **pas encore publié sur PyPI**. Aucune
-date et aucune version ne sont annoncées ici : elles appartiennent à la prochaine release.
+**Un snippet n'est plus coupé, et il demande la permission.** Cette version ferme P0-4 :
+le budget transport d'`execute_code`, une approbation explicite de l'opérateur, la frontière
+réelle du bac à sable mesurée, et une page d'installation qui nomme enfin les paquets qui
+contraignent Pydantic.
 
 ### Changed
 
@@ -66,8 +68,8 @@ date et aucune version ne sont annoncées ici : elles appartiennent à la procha
 ### Notes
 
 - Zéro changement de dépendance : aucune borne Pydantic n'est ajoutée aux métadonnées d'UH ni
-  de UHB, et l'interpréteur partagé de la machine reste en `2.11.10` — la montée de version
-  est une décision distincte, non prise ici.
+  de UHB. La plage documentée dans `docs/INSTALL.md` concerne un environnement partagé ; elle
+  n'est pas imposée par le paquet.
 
 ## [1.7.4] — 2026-11-16
 
