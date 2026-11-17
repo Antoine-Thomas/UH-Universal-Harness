@@ -52,6 +52,18 @@ EXECUTE_ENV = "UH_UHB_EXECUTE"
 EXECUTE_TOOL = "execute_code"
 
 CALL_TIMEOUT = 5.0  # a route decision reads the catalog, but stays local
+#: How long the client waits *past* the time a snippet was allowed to run. UHB
+#: starts a child, waits for it, kills the tree on timeout, scans the run
+#: directory for artifacts and only then answers: the answer cannot arrive
+#: before the snippet ends. A client budget equal to the requested timeout cuts
+#: a run that is working exactly as asked.
+EXECUTE_MARGIN = 15.0
+#: Bounds used only when a catalogue does not publish them. UHB publishes
+#: ``timeout.default`` and ``timeout.maximum`` in the tool schema, and those are
+#: preferred: a copy here would drift from the clamp UHB actually applies.
+EXECUTE_DEFAULT_TIMEOUT = 30.0
+EXECUTE_MAX_TIMEOUT = 300.0
+EXECUTE_MIN_TIMEOUT = 1.0
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
 TOOLS: List[dict] = [
@@ -381,6 +393,10 @@ class Uhbtoolset:
         #: second registry, and the two would drift the first time one changed.
         self.tools = list(TOOLS)
         self.remote: set[str] = set()
+        #: Bounds published by UHB for `execute_code.timeout` (``default`` and
+        #: ``maximum``), captured from the catalogue so this file never carries a
+        #: second copy of the clamp. Empty until a catalogue is read.
+        self.execute_limits: Dict[str, float] = {}
         if discover:
             self._discover()
         #: The last plan UHB returned in this session. The Decision view reads it
@@ -458,6 +474,45 @@ class Uhbtoolset:
                 }
             )
             self.remote.add(name)
+            if name == EXECUTE_TOOL:
+                self._read_execute_limits(parameters)
+
+    def _read_execute_limits(self, parameters: dict) -> None:
+        """Keep the `timeout` bounds UHB publishes, so the wait matches its clamp."""
+        spec = (parameters.get("properties") or {}).get("timeout")
+        if not isinstance(spec, dict):
+            return
+        limits: Dict[str, float] = {}
+        for key in ("default", "maximum"):
+            try:
+                limits[key] = float(spec[key])
+            except (KeyError, TypeError, ValueError):
+                continue
+        self.execute_limits = limits
+
+    def execute_timeout(self, arguments: dict) -> float:
+        """Client budget for one `execute_code` call: the snippet's time plus margin.
+
+        UHB answers only after the child is over (killed on timeout, artifacts
+        scanned), so the transport must outwait the snippet. The requested value is
+        bounded by what the catalogue published - not by a constant copied here.
+        """
+        default = self.execute_limits.get("default", EXECUTE_DEFAULT_TIMEOUT)
+        ceiling = self.execute_limits.get("maximum", EXECUTE_MAX_TIMEOUT)
+        raw = arguments.get("timeout")
+        try:
+            requested = float(raw) if raw is not None else default
+        except (TypeError, ValueError):
+            requested = default
+        if requested <= 0:
+            requested = default
+        return min(max(requested, EXECUTE_MIN_TIMEOUT), ceiling) + EXECUTE_MARGIN
+
+    def _call_timeout(self, name: str, arguments: dict) -> float:
+        """Per-call transport timeout: only `execute_code` gets the longer budget."""
+        if name == EXECUTE_TOOL:
+            return self.execute_timeout(arguments)
+        return self.timeout
 
     def _call_remote(self, name: str, arguments: dict) -> dict:
         """POST an argument object to UHB.
@@ -468,7 +523,7 @@ class Uhbtoolset:
         """
         path = "/tools/execute" if name == EXECUTE_TOOL else f"/tools/{name}"
         try:
-            with _client(self.timeout, self.client) as http:
+            with _client(self._call_timeout(name, arguments), self.client) as http:
                 response = http.post(f"{self.url}{path}", json=arguments or {})
         except Exception:  # noqa: BLE001 - transport failure is a tool result
             return _unreachable()
@@ -556,4 +611,8 @@ __all__ = [
     "ENV_URL",
     "TIMEOUT",
     "CALL_TIMEOUT",
+    "EXECUTE_MARGIN",
+    "EXECUTE_DEFAULT_TIMEOUT",
+    "EXECUTE_MAX_TIMEOUT",
+    "EXECUTE_MIN_TIMEOUT",
 ]
