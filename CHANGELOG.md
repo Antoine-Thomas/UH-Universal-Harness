@@ -13,6 +13,62 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [Unreleased]
+
+Ce qui est sur `main` après le tag `v1.7.4`, donc **pas encore publié sur PyPI**. Aucune
+date et aucune version ne sont annoncées ici : elles appartiennent à la prochaine release.
+
+### Changed
+
+- **`docs/INSTALL.md` cesse d'accuser les mauvais paquets.**
+  ([#16](https://github.com/Antoine-Thomas/UH-Universal-Harness/pull/16)) Le plafond conseillé
+  `pydantic<2.12` contredisait les paquets qu'il était censé satisfaire : mesuré sur
+  l'interpréteur partagé qui a déclenché le conflit, les contraintes **actives** viennent de
+  `mcp` et `mcp-types` (`>=2.12.0`) et de `google-genai` (`>=2.12.5,<3`). La plage documentée
+  devient `pydantic>=2.12.5,<3`, présentée comme le **minimum mesuré là-bas** et non comme une
+  exigence d'UH : un venv propre résout `2.14.3` seul, et UH fonctionne de `1.10` à `2.14`
+  parce qu'il n'importe jamais Pydantic. `mixpanel` est disculpé (aucune dépendance à
+  Pydantic), `gradio` ne contraint que par son extra `mcp` (absent d'une installation de
+  base), `litellm` accepte `>=2.11.0,<3`. Le conflit `google-antigravity` ⇄ `mcp<2.0`,
+  indépendant de Pydantic, est documenté séparément — une montée de Pydantic n'y changerait rien.
+
+### Added
+
+- **Une approbation explicite avant toute exécution de code.**
+  ([#15](https://github.com/Antoine-Thomas/UH-Universal-Harness/pull/15), avec
+  [UHB #17](https://github.com/Antoine-Thomas/UH-Universal-Harness-Backend/pull/17)) Le
+  snippet tourne en tant qu'utilisateur de l'opérateur : l'environnement est nettoyé, le
+  système de fichiers ne l'est pas. UH demande donc l'autorisation sur le flux du tour,
+  affiche le code, le mode et le délai, et n'envoie **rien** à `/tools/execute` si l'opérateur
+  refuse. UHB détient la permission : nonce à usage unique (120 s, en mémoire, lié à
+  `execute_code`), consommé même quand l'exécution échoue, et un corps qui prétend
+  `approved: true` est ignoré. « Toujours autoriser » ne vaut que pour la session et pour
+  `execute_code`, jamais pour l'ensemble des outils UHB.
+- **`scripts/diagnose_pydantic.py`, un diagnostic reproductible.**
+  ([#16](https://github.com/Antoine-Thomas/UH-Universal-Harness/pull/16)) Lecture seule, aucune
+  installation dans l'environnement courant : interpréteur, contraintes sur `pydantic` avec
+  leur marqueur évalué (active, ou derrière un extra non installé), intervalle qui les satisfait
+  toutes, versions publiées compatibles, `pip check`, et `--clean` pour éprouver deux venvs
+  jetables. Code de sortie `1` en cas de conflit. Il vit dans le dépôt, pas dans le wheel :
+  les notes d'installation disent comment le récupérer.
+
+### Fixed
+
+- **Un snippet autorisé à courir 10 s n'est plus coupé à 5.**
+  ([#13](https://github.com/Antoine-Thomas/UH-Universal-Harness/pull/13)) UHB ne répond
+  qu'une fois l'enfant terminé — tué au timeout, artefacts scannés. Un budget client égal au
+  délai demandé coupait donc un travail correct et affichait « uhb unreachable ». Le budget
+  devient `timeout demandé` (borné par le `default` et le `maximum` que le catalogue publie
+  dans le schéma de l'outil) plus une marge, **pour `execute_code` uniquement** : les autres
+  outils gardent leurs 5 s, et un timeout dépassé revient comme un résultat `timed_out`
+  structuré, pas comme une exception.
+
+### Notes
+
+- Zéro changement de dépendance : aucune borne Pydantic n'est ajoutée aux métadonnées d'UH ni
+  de UHB, et l'interpréteur partagé de la machine reste en `2.11.10` — la montée de version
+  est une décision distincte, non prise ici.
+
 ## [1.7.4] — 2026-11-16
 
 **Le réseau, le routeur, et deux contrôles qu'on ne voyait pas.** Cette version livre

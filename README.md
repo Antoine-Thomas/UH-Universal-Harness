@@ -212,8 +212,8 @@ commit that adds a test.
 
 [docs/ROADMAP_UH_V2.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/ROADMAP_UH_V2.md)
 is the source of truth for the order of work — phases P0 to P5, each with the
-contract that must be true before the next one starts. Two things worth knowing
-from it:
+contract that must be true before the next one starts. [CHANGELOG.md](CHANGELOG.md) says
+what actually shipped, release by release. Two things worth knowing from the roadmap:
 
 - **UHB integration shipped in 1.1.0** (`uhb_status`, `uhb_modes`, `uhb_route`):
   the second brain is a toolset, gated on `GET /modes` answering, loopback only;
@@ -372,6 +372,14 @@ control plane: it owns the modes (what may be read, written, called) and the
 model policy (which model answers, in which order). While it runs, UH gains
 three read-only tools — `uhb_status`, `uhb_modes`, `uhb_route` — and none of
 them spends a token.
+
+![UH and UHB: the cockpit on the left, the backend and what leaves the machine on the right](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/uh-architecture.png)
+
+*Two components, no third. The cockpit owns the conversation and the rendering; the
+backend owns the policy — modes, permissions, model choice, execution — and everything
+that leaves the machine passes through it. The lower band is one turn, step by step:
+what each step costs, and where it can fail. The vector source is
+[`docs/assets/uh-architecture.svg`](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/uh-architecture.svg).*
 
 ```bash
 # terminal 1 - the control plane, default port 8101

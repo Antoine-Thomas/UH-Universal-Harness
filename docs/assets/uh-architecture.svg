@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1250" viewBox="0 0 1600 1250" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937"/>
+    </marker>
+    <marker id="arrowAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1d4ed8"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"/>
+    </marker>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#eef2f7" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1600" height="1250" fill="#ffffff"/>
+  <rect width="1600" height="1250" fill="url(#grid)"/>
+  <rect x="24" y="24" width="1552" height="1202" fill="none" stroke="#111827" stroke-width="2"/>
+  <rect x="34" y="34" width="1532" height="1182" fill="none" stroke="#9ca3af" stroke-width="0.8"/>
+
+  <text x="56" y="76" font-size="26" font-weight="700" fill="#111827">UH / UHB — architecture et cycle d'un tour</text>
+  <text x="56" y="102" font-size="13.5" fill="#4b5563">Planche technique · 16/11/2026 · UH 1.7.3 (main e83b8d3) · UHB main 4b3bf25 · cotes en ms et en tokens</text>
+  <line x1="56" y1="114" x2="1544" y2="114" stroke="#9ca3af" stroke-width="1"/>
+
+  <!-- ============ zone local ============ -->
+  <rect x="56" y="132" width="944" height="576" fill="#f9fafb" stroke="#6b7280" stroke-width="1.2" stroke-dasharray="7 5"/>
+  <text x="72" y="156" font-size="13" font-weight="700" fill="#374151">POSTE LOCAL — 127.0.0.1 seulement · jeton obligatoire · cookie lié au port</text>
+
+  <rect x="86" y="180" width="300" height="150" fill="#ffffff" stroke="#111827" stroke-width="1.4"/>
+  <text x="102" y="206" font-size="15" font-weight="700" fill="#111827">Navigateur</text>
+  <text x="102" y="230" font-size="11.5" fill="#374151">index.html · app.js · style.css</text>
+  <text x="102" y="250" font-size="11.5" fill="#374151">composer · transcript · tool cards</text>
+  <text x="102" y="270" font-size="11.5" fill="#374151">artefacts : &lt;img src="data:…"&gt;</text>
+  <text x="102" y="296" font-size="11" fill="#6b7280">un bouton visible par action annoncée</text>
+  <text x="102" y="316" font-size="11" fill="#6b7280">401 → bandeau, jamais le document effacé</text>
+
+  <rect x="470" y="180" width="330" height="300" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.6"/>
+  <text x="486" y="206" font-size="15" font-weight="700" fill="#1e3a8a">UH web — FastAPI (:8765)</text>
+  <line x1="486" y1="216" x2="784" y2="216" stroke="#93c5fd" stroke-width="1"/>
+  <text x="486" y="238" font-size="11.5" fill="#1f2937">POST /api/sessions/{id}/chat → SSE</text>
+  <text x="486" y="258" font-size="11.5" fill="#1f2937">run_turn (budget max_iterations)</text>
+  <text x="486" y="278" font-size="11.5" fill="#1f2937">toolset dispatch · refus typé</text>
+  <text x="486" y="298" font-size="11.5" fill="#1f2937">store.append — un message par tour</text>
+  <text x="486" y="318" font-size="11.5" fill="#1f2937">reconcileTranscript() append-only</text>
+  <text x="486" y="346" font-size="11" fill="#374151">frames : open · token · tool_call ·</text>
+  <text x="486" y="364" font-size="11" fill="#374151">tool_result · notice · error(source) · done</text>
+  <text x="486" y="392" font-size="11" fill="#6b7280">/api/system/quit · /api/tools/status</text>
+  <text x="486" y="410" font-size="11" fill="#6b7280">/api/tools/catalog · /api/sessions/…/messages</text>
+
+  <rect x="86" y="380" width="300" height="130" fill="#ffffff" stroke="#111827" stroke-width="1.4"/>
+  <text x="102" y="406" font-size="14" font-weight="700" fill="#111827">SQLite — ~/.uh/uh.db</text>
+  <text x="102" y="430" font-size="11.5" fill="#374151">sessions · messages (FTS5)</text>
+  <text x="102" y="450" font-size="11.5" fill="#374151">tool_call_id · artifacts[].data_url</text>
+  <text x="102" y="474" font-size="11" fill="#6b7280">512 Ko max/image · 4 par retour d'outil</text>
+  <text x="102" y="492" font-size="11" fill="#6b7280">recharger = redessiner sans requête</text>
+
+  <rect x="470" y="546" width="330" height="146" fill="#f0fdf4" stroke="#15803d" stroke-width="1.6"/>
+  <text x="486" y="572" font-size="15" font-weight="700" fill="#14532d">UHB — backend (:8101)</text>
+  <line x1="486" y1="582" x2="784" y2="582" stroke="#86efac" stroke-width="1"/>
+  <text x="486" y="604" font-size="11.5" fill="#1f2937">/status · /modes · /route · /tools/&lt;nom&gt;</text>
+  <text x="486" y="624" font-size="11.5" fill="#1f2937">modes chat/dev/observe/review · deny wins</text>
+  <text x="486" y="644" font-size="11.5" fill="#1f2937">catalogue → outils publiés à UH</text>
+  <text x="486" y="664" font-size="11.5" fill="#1f2937">POST /shutdown {confirm, stop:[…]} → 202</text>
+  <text x="486" y="682" font-size="11" fill="#6b7280">202 = accepté, pas parti → poll borné</text>
+
+  <!-- ============ zone sorties ============ -->
+  <rect x="1024" y="132" width="532" height="576" fill="#f9fafb" stroke="#6b7280" stroke-width="1.2" stroke-dasharray="7 5"/>
+  <text x="1040" y="156" font-size="13" font-weight="700" fill="#374151">SORTIES — réseau et processus tiers</text>
+
+  <rect x="1044" y="180" width="240" height="104" fill="#ffffff" stroke="#111827" stroke-width="1.4"/>
+  <text x="1060" y="204" font-size="13" font-weight="700" fill="#111827">Ollama (local)</text>
+  <text x="1060" y="226" font-size="11" fill="#374151">POST /api/chat (NDJSON)</text>
+  <text x="1060" y="244" font-size="11" fill="#6b7280">défaut qwen3.5:9b</text>
+  <text x="1060" y="262" font-size="11" fill="#6b7280">budget 24 000 / 262 144</text>
+
+  <rect x="1044" y="304" width="240" height="104" fill="#ffffff" stroke="#111827" stroke-width="1.4"/>
+  <text x="1060" y="328" font-size="13" font-weight="700" fill="#111827">API distantes</text>
+  <text x="1060" y="350" font-size="11" fill="#374151">/v1/chat/completions (SSE)</text>
+  <text x="1060" y="368" font-size="11" fill="#6b7280">DeepSeek · Cloudflare · HF · routeur</text>
+  <text x="1060" y="386" font-size="11" fill="#b91c1c">base64 jamais envoyé (corrigé)</text>
+
+  <rect x="1320" y="180" width="212" height="228" fill="#ffffff" stroke="#111827" stroke-width="1.4"/>
+  <text x="1336" y="204" font-size="13" font-weight="700" fill="#111827">Serveurs MCP</text>
+  <text x="1336" y="226" font-size="11" fill="#374151">stdio : enfant npx / python</text>
+  <text x="1336" y="244" font-size="11" fill="#6b7280">JSON-RPC, 1 ligne = 1 message</text>
+  <text x="1336" y="268" font-size="11" fill="#374151">HTTP / SSE : Positron</text>
+  <text x="1336" y="286" font-size="11" fill="#6b7280">Mcp-Session-Id</text>
+  <text x="1336" y="310" font-size="11" fill="#374151">outils → mcp__serveur__outil</text>
+  <text x="1336" y="328" font-size="11" fill="#6b7280">tools/call sous approbation</text>
+  <text x="1336" y="356" font-size="11" fill="#b91c1c">image → artefact d'interface</text>
+  <text x="1336" y="374" font-size="11" fill="#b91c1c">jamais dans le texte du modèle</text>
+
+  <rect x="1044" y="446" width="240" height="104" fill="#ffffff" stroke="#111827" stroke-width="1.4"/>
+  <text x="1060" y="470" font-size="13" font-weight="700" fill="#111827">Second cerveau</text>
+  <text x="1060" y="492" font-size="11" fill="#374151">RAG :8200 · SiYuan :6806</text>
+  <text x="1060" y="510" font-size="11" fill="#374151">MARI :55553 (bridge)</text>
+  <text x="1060" y="528" font-size="11" fill="#6b7280">appelés par UHB, jamais par UH</text>
+
+  <!-- ============ flèches ============ -->
+  <path d="M 386 236 L 462 236" fill="none" stroke="#1d4ed8" stroke-width="2" marker-end="url(#arrowAccent)"/>
+  <path d="M 462 274 L 386 274" fill="none" stroke="#1d4ed8" stroke-width="2" marker-end="url(#arrowAccent)"/>
+  <text x="392" y="228" font-size="10" fill="#1d4ed8">POST chat</text>
+  <text x="392" y="292" font-size="10" fill="#1d4ed8">frames SSE</text>
+
+  <path d="M 470 430 L 394 430" fill="none" stroke="#111827" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M 394 462 L 470 462" fill="none" stroke="#111827" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="398" y="422" font-size="10" fill="#111827">INSERT</text>
+  <text x="398" y="480" font-size="10" fill="#111827">GET messages</text>
+
+  <path d="M 570 486 L 570 538" fill="none" stroke="#15803d" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <path d="M 640 538 L 640 486" fill="none" stroke="#15803d" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text x="582" y="512" font-size="10" fill="#15803d">GET /tools</text>
+  <text x="652" y="512" font-size="10" fill="#15803d">réponse relayée</text>
+
+  <path d="M 800 236 L 1036 226" fill="none" stroke="#111827" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="812" y="222" font-size="10" fill="#111827">/api/chat</text>
+
+  <path d="M 800 300 L 1036 336" fill="none" stroke="#111827" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="812" y="318" font-size="10" fill="#111827">/v1/chat/completions</text>
+
+  <path d="M 800 424 L 1426 424 L 1426 412" fill="none" stroke="#111827" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M 1388 412 L 1388 424 L 810 424" fill="none" stroke="#111827" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="812" y="418" font-size="10" fill="#111827">JSON-RPC tools/list · tools/call</text>
+
+  <path d="M 800 452 L 1036 492" fill="none" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="812" y="470" font-size="10" fill="#6b7280">mémoire / wiki (via UHB)</text>
+
+  <!-- ============ cycle d'un tour ============ -->
+  <text x="56" y="762" font-size="17" font-weight="700" fill="#111827">Cycle d'un tour — ce que chaque étape coûte, et où elle peut échouer</text>
+  <line x1="56" y1="774" x2="1544" y2="774" stroke="#9ca3af" stroke-width="1"/>
+
+  <g font-size="11" fill="#1f2937">
+    <rect x="56" y="794" width="176" height="92" fill="#ffffff" stroke="#111827"/>
+    <text x="68" y="816" font-weight="700">1 · composer</text>
+    <text x="68" y="836">verrou pris avant</text>
+    <text x="68" y="852">le premier await</text>
+    <text x="68" y="872" fill="#6b7280">champ vidé sur « open »</text>
+
+    <rect x="248" y="794" width="176" height="92" fill="#ffffff" stroke="#111827"/>
+    <text x="260" y="816" font-weight="700">2 · provider</text>
+    <text x="260" y="836">Ollama → API → free</text>
+    <text x="260" y="852">fallback tracé</text>
+    <text x="260" y="872" fill="#b91c1c">pas de retry transport</text>
+
+    <rect x="440" y="794" width="176" height="92" fill="#ffffff" stroke="#111827"/>
+    <text x="452" y="816" font-weight="700">3 · tool_call</text>
+    <text x="452" y="836">schéma JSON validé</text>
+    <text x="452" y="852">args inconnus refusés</text>
+    <text x="452" y="872" fill="#6b7280">refus typé</text>
+
+    <rect x="632" y="794" width="176" height="92" fill="#ffffff" stroke="#111827"/>
+    <text x="644" y="816" font-weight="700">4 · exécution</text>
+    <text x="644" y="836">terminal · fichiers</text>
+    <text x="644" y="852">execute_code (UHB)</text>
+    <text x="644" y="872" fill="#15803d">web : retry ≤3 (0,4/0,8 s)</text>
+
+    <rect x="824" y="794" width="196" height="92" fill="#fff7ed" stroke="#b45309"/>
+    <text x="836" y="816" font-weight="700">5 · artefacts</text>
+    <text x="836" y="836">texte → modèle (marqueur)</text>
+    <text x="836" y="852">octets → interface (data:)</text>
+    <text x="836" y="872" fill="#15803d">base64 retiré du fil</text>
+
+    <rect x="1036" y="794" width="196" height="92" fill="#ffffff" stroke="#111827"/>
+    <text x="1048" y="816" font-weight="700">6 · persistance</text>
+    <text x="1048" y="836">store.append par tour</text>
+    <text x="1048" y="852">finally : question incluse</text>
+    <text x="1048" y="872" fill="#6b7280">tour annulé = effacé</text>
+
+    <rect x="1248" y="794" width="196" height="92" fill="#ffffff" stroke="#111827"/>
+    <text x="1260" y="816" font-weight="700">7 · réconciliation</text>
+    <text x="1260" y="836">append-only, jamais redraw</text>
+    <text x="1260" y="852">system/failed non comptés</text>
+    <text x="1260" y="872" fill="#15803d">bouton « Recharger »</text>
+  </g>
+
+  <g stroke="#1d4ed8" stroke-width="2" fill="none">
+    <path d="M 232 840 L 244 840" marker-end="url(#arrowAccent)"/>
+    <path d="M 424 840 L 436 840" marker-end="url(#arrowAccent)"/>
+    <path d="M 616 840 L 628 840" marker-end="url(#arrowAccent)"/>
+    <path d="M 808 840 L 820 840" marker-end="url(#arrowAccent)"/>
+    <path d="M 1020 840 L 1032 840" marker-end="url(#arrowAccent)"/>
+    <path d="M 1232 840 L 1244 840" marker-end="url(#arrowAccent)"/>
+  </g>
+
+  <rect x="56" y="914" width="740" height="140" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="72" y="940" font-size="13" font-weight="700" fill="#7f1d1d">Décision d'échec réseau — mesuré : ConnectError [WinError 10054], tour mort en 174 ms</text>
+  <text x="72" y="966" font-size="11.5" fill="#111827">erreur de transport, 5xx ou 429 → nouvelle tentative (≤ 3) · 4xx → retour immédiat</text>
+  <text x="72" y="988" font-size="11.5" fill="#111827">échec final → source « command » ou « modèle », nommée dans la bulle rouge</text>
+  <text x="72" y="1010" font-size="11.5" fill="#111827">aucune écriture du document · brouillon restauré · jeton jamais journalisé</text>
+  <text x="72" y="1032" font-size="11.5" fill="#111827">202 d'un /shutdown = accepté, pas parti → sonder le port avant d'annoncer l'arrêt</text>
+
+  <rect x="820" y="914" width="724" height="140" fill="#f0fdf4" stroke="#15803d" stroke-width="1.4"/>
+  <text x="836" y="940" font-size="13" font-weight="700" fill="#14532d">Invariants tenus par des tests — comptés le 16/11/2026</text>
+  <text x="836" y="966" font-size="11.5" fill="#111827">1 451 passed · 2 skipped · 9 e2e désélectionnés (navigateur réel)</text>
+  <text x="836" y="988" font-size="11.5" fill="#111827">la suite complète tourne avec un UHB vivant sans l'arrêter</text>
+  <text x="836" y="1010" font-size="11.5" fill="#111827">1.7.3 publiée · PR #5 et #6 fusionnées</text>
+  <text x="836" y="1032" font-size="11.5" fill="#111827">ruff + mypy propres sur les deux branches</text>
+
+  <rect x="1120" y="1190" width="424" height="26" fill="#ffffff" stroke="#111827" stroke-width="1.2"/>
+  <text x="1132" y="1208" font-size="10" fill="#374151">UH/UHB — planche 1/1 · révision du 16/11/2026 · UH 1.7.3 · UHB 4b3bf25</text>
+</svg>
