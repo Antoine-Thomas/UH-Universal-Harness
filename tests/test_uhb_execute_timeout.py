@@ -82,6 +82,11 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         if length:
             self.rfile.read(length)  # drain, the body is not under test
+        if self.path == "/tools/approvals":
+            # The nonce UHB would mint: without one the client may not execute at all.
+            self._answer({"approval_id": "nonce-timeout", "tool": "execute_code",
+                          "expires_in": 120})
+            return
         delay, payload = self.routes.get(self.path, (0.0, {"error": "no route"}))
         time.sleep(delay)
         self._answer(payload)
@@ -111,6 +116,7 @@ def served(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., Uhbtoolset
     try:
         def build(**kwargs: Any) -> Uhbtoolset:
             kwargs.setdefault("timeout", 5.0)
+            kwargs.setdefault("approver", lambda _tool, _arguments: True)
             return Uhbtoolset(url, discover=True, **kwargs)
 
         yield build

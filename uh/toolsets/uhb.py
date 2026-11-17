@@ -39,7 +39,7 @@ from __future__ import annotations
 import ipaddress
 import os
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 from urllib.parse import urlsplit
 
 import httpx
@@ -50,6 +50,9 @@ TIMEOUT = 1.0  # the probe: a control plane answers fast or does not exist
 #: The switch that exposes `execute_code` to the chat, and the tool it names.
 EXECUTE_ENV = "UH_UHB_EXECUTE"
 EXECUTE_TOOL = "execute_code"
+#: The scope an approval is remembered under by the UI gate. Not "uhb": trusting
+#: that name would also authorise the desktop tools, which is another decision.
+APPROVAL_SCOPE = "uhb:execute_code"
 
 CALL_TIMEOUT = 5.0  # a route decision reads the catalog, but stays local
 #: How long the client waits *past* the time a snippet was allowed to run. UHB
@@ -372,6 +375,23 @@ def probe(
     return response.status_code == 200 and isinstance((payload or {}).get("modes"), list)
 
 
+def approver_for(
+    notify: Callable[[Dict[str, Any]], None]
+) -> Callable[[str, Dict[str, Any]], bool]:
+    """An approver bound to the UI gate: the operator answers, the answer decides.
+
+    Imported lazily because `uh/mcp_http` imports this package: a module-level
+    import here would close the cycle.
+    """
+
+    def approve(tool: str, arguments: Dict[str, Any]) -> bool:
+        from ..mcp_http import GATE
+
+        return GATE.ask(APPROVAL_SCOPE, tool, arguments, notify=notify)
+
+    return approve
+
+
 class Uhbtoolset:
     """Three read-only tools: UHB's state, its modes, its plan."""
 
@@ -384,10 +404,15 @@ class Uhbtoolset:
         timeout: float = CALL_TIMEOUT,
         client: Optional[httpx.Client] = None,
         discover: bool = False,
+        approver: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
     ) -> None:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self.client = client
+        #: Asks the operator before a snippet runs. `None` means the interface wired
+        #: nothing, and then `execute_code` is refused rather than run: the design is
+        #: fail-closed, so a missing approval control cannot become "it runs anyway".
+        self.approver = approver
         #: Tools UHB catalogues that this file does not hardcode. Their names and
         #: schemas come from `GET /tools` at construction: a list here would be a
         #: second registry, and the two would drift the first time one changed.
@@ -404,8 +429,14 @@ class Uhbtoolset:
         self.last_route: Optional[dict] = None
 
     @classmethod
-    def from_environment(cls, probe_fn=None) -> Optional["Uhbtoolset"]:
-        """Build the toolset only when UHB answers. ``None`` means "no tools"."""
+    def from_environment(cls, probe_fn=None, notify=None) -> Optional["Uhbtoolset"]:
+        """Build the toolset only when UHB answers. ``None`` means "no tools".
+
+        ``notify`` is the turn's stream: with it, `execute_code` asks the operator
+        before running and UHB checks the approval it is given. Without it, the tool
+        stays advertised but refuses every call — a toolset built for a panel is not
+        a permission to execute.
+        """
         url = resolve_url()
         if url is None:
             return None
@@ -414,9 +445,8 @@ class Uhbtoolset:
             return None
         # Production builds the catalogue into the toolset; tests construct directly,
         # so they are not forced into an extra request they did not script.
-        return cls(url, discover=True)
+        return cls(url, discover=True, approver=approver_for(notify) if notify else None)
 
-    # -- tools -------------------------------------------------------------- #
     def call(self, name: str, args: Optional[dict] = None) -> dict:
         arguments = dict(args or {})
         if name == "uhb_status":
@@ -434,9 +464,67 @@ class Uhbtoolset:
                 str(arguments.get("name") or ""), str(arguments.get("mode") or "")
             )
         if name in self.remote:
+            if name == EXECUTE_TOOL:
+                refusal = self._approval_refusal(arguments)
+                if refusal is not None:
+                    return refusal
             # UHB decides: this only transports the call and its answer.
             return self._call_remote(name, arguments)
         return {"error": f"unknown tool: {name}", "type": "forbidden", "tool": name}
+
+    def _approval_refusal(self, arguments: dict) -> Optional[dict]:
+        """Refuse a snippet the operator did not authorise, in the shared vocabulary.
+
+        The question is asked here, in the turn's thread, so the answer arrives while
+        the tool call is waiting — and UHB still demands its own nonce afterwards.
+        Two checks, two authorities: the interface carries the decision, the backend
+        enforces it.
+        """
+        if self.approver is None:
+            return {
+                "error": ("execute_code needs an approval and this interface wired "
+                          "none: nothing was executed"),
+                "type": "forbidden",
+                "kind": "forbidden",
+                "status": 403,
+                "tool": EXECUTE_TOOL,
+                "reason": "approval_required",
+            }
+        try:
+            allowed = bool(self.approver(EXECUTE_TOOL, arguments))
+        except Exception:  # noqa: BLE001 - a broken notifier is a refusal, not a run
+            allowed = False
+        if allowed:
+            return None
+        return {
+            "error": "execute_code was refused: nothing was executed",
+            "type": "forbidden",
+            "kind": "forbidden",
+            "status": 403,
+            "tool": EXECUTE_TOOL,
+            "reason": "approval_refused",
+        }
+
+    def _mint_approval(self) -> Optional[str]:
+        """Ask UHB for the nonce one run is allowed to carry; `None` on any doubt.
+
+        UHB is the authority here, so a refusal, a timeout or a payload without an id
+        all mean the same thing: nothing runs. Returning an empty string instead
+        would push the decision to the next layer, which is exactly what the nonce
+        exists to prevent.
+        """
+        try:
+            with _client(self.timeout, self.client) as http:
+                response = http.post(
+                    f"{self.url}/tools/approvals", json={"tool": EXECUTE_TOOL}
+                )
+        except Exception:  # noqa: BLE001 - no nonce means no run
+            return None
+        if response.status_code != 200:
+            return None
+        payload = _json(response)
+        nonce = (payload or {}).get("approval_id") if isinstance(payload, dict) else None
+        return str(nonce) if nonce else None
 
     # -- catalogue-driven tools --------------------------------------------- #
     def _discover(self) -> None:
@@ -522,9 +610,26 @@ class Uhbtoolset:
         the authority does not: UHB checks the mode in both cases.
         """
         path = "/tools/execute" if name == EXECUTE_TOOL else f"/tools/{name}"
+        body: Dict[str, Any] = dict(arguments or {})
+        if name == EXECUTE_TOOL:
+            # The operator's answer was carried by `call()`. UHB wants its own proof:
+            # a nonce it mints, single use, and checks itself. Without one, nothing
+            # runs — including here, rather than sending a body that would be refused.
+            nonce = self._mint_approval()
+            if nonce is None:
+                return {
+                    "error": ("execute_code needs an approval nonce and UHB did not "
+                              "issue one: nothing was executed"),
+                    "type": "forbidden",
+                    "kind": "forbidden",
+                    "status": 403,
+                    "tool": EXECUTE_TOOL,
+                    "reason": "approval_required",
+                }
+            body["approval_id"] = nonce
         try:
             with _client(self._call_timeout(name, arguments), self.client) as http:
-                response = http.post(f"{self.url}{path}", json=arguments or {})
+                response = http.post(f"{self.url}{path}", json=body)
         except Exception:  # noqa: BLE001 - transport failure is a tool result
             return _unreachable()
         if response.status_code >= 400:
@@ -601,6 +706,8 @@ class Uhbtoolset:
 
 __all__ = [
     "Uhbtoolset",
+    "approver_for",
+    "APPROVAL_SCOPE",
     "resolve_url",
     "probe",
     "summarize",
