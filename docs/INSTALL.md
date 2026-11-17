@@ -173,19 +173,49 @@ guide or a model sends you to `Données` for a connection, it is wrong. `+ Conne
 un MCP` in Connexions takes a `.json`/YAML file or a command/URL, tests it for five
 seconds, and only then enables "Enregistrer".
 
-## Pip conflicts (gradio, litellm, mixpanel)
+## Pip conflicts (a shared interpreter)
 
-Another project on the same interpreter can pin a dependency differently, and pip
-then prints a wall of "conflicting dependencies". The ceilings that satisfy UH and
-the usual AI stacks:
+Another project on the same interpreter can pin a dependency differently, and pip then
+prints a wall of "conflicting dependencies". UH and UHB declare neither `pydantic` nor any
+version of it: what you are reading is other packages' opinions about each other. Measure
+before believing the message — the diagnostic ships **in the repository** (not in the wheel,
+which only installs `uh*`) and must run on the interpreter that launches `uh`:
 
 ```powershell
-pip install "tomlkit<0.15.0" "importlib-metadata<9.0" "openai<3.0.0" "pydantic<2.12"
+git clone https://github.com/Antoine-Thomas/UH-Universal-Harness
+cd UH-Universal-Harness
+python scripts/diagnose_pydantic.py          # who constrains what, and the range that fits
+python scripts/diagnose_pydantic.py --clean  # plus two throwaway venvs, to prove a clean install
 ```
 
-These are ceilings, not pins: pip still upgrades freely below them. A conflict
-message is a *warning* - `uh doctor` and one real turn are the proof. If it persists,
-a clean environment settles it:
+Measured on 2026-11-17 on a Python 3.10 shared with an AI stack: eleven **active**
+constraints on `pydantic`, of which three explain the conflict. `mcp` and `mcp-types`
+require `>=2.12.0`; `google-genai` requires `>=2.12.5,<3`. Two names often blamed are not on
+that list: `mixpanel` declares no dependency on `pydantic` at all, and `gradio` constrains
+it only through its **`mcp` extra** (`<=2.12.5,>=2.11.10`), which a plain
+`pip install gradio` does not install. `litellm` accepts `>=2.11.0,<3`.
+
+For a shared AI environment, the range that satisfies everything measured is:
+
+```powershell
+pip install "tomlkit<0.15.0" "importlib-metadata<9.0" "openai<3.0.0" "pydantic>=2.12.5,<3"
+```
+
+`2.12.5` is the **minimum measured for that environment**, not a version UH asks for: a
+clean venv resolves `pydantic 2.14.3` by itself, and UH runs from `1.10` to `2.14` because
+it never imports it directly. Do not add a `pydantic` bound to UH's metadata to repair
+somebody else's environment.
+
+### A conflict Pydantic will not fix
+
+`pip check` on a shared machine also reports pairs unrelated to Pydantic: `google-antigravity
+0.1.15` requires `mcp<2.0` while `mcp 2.1.1` is installed. Upgrading `pydantic` leaves that
+line untouched — it needs a decision about `mcp`, not about `pydantic`, and the answer may be
+that another tool resists the downgrade.
+
+These are ceilings, not pins: pip still upgrades freely below them. A conflict message is a
+*warning* — `uh doctor` and one real turn are the proof. If it persists, a clean environment
+settles it:
 
 ```powershell
 python -m venv .venv
