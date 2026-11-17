@@ -960,29 +960,47 @@ mattering commercially.
   `keys.toml` / `mcp-secrets.toml` in the same breath as it reads the source.
 - **Hugging Face model catalogue** fetched from the router instead of five constants.
 
-## P4 - Target: one product, packaged (opened 2026-11-16)
+## P4 - Target: one product, packaged (opened 2026-11-16, restated 2026-11-17)
 
-The end state is **not** two repositories on GitHub. It is one product the operator
-can hand to someone: one window, one backend inside it, one downloadable installer.
-Nothing in P4 is coded before the two current consoles are proven to work together,
-because a fusion ships whatever defects the pair still has.
+The end state is **not** two repositories on GitHub. It is one product the operator can
+hand to someone: one window, one backend inside it, one downloadable installer. Nothing in
+P4 is coded before the pair is proven to work together, because a fusion ships whatever
+defects the couple still has.
 
-- **P4-1 Fusion of UH and UHB.** Today's split (Control Plane `uh/`, backend `uhb/`,
-  HTTP between them) stays until the pair passes the same tests as one product:
-  OmniRoute and the cloud providers usable from both, MCP tools fluid in the chat,
-  stream cuts recovered (P1-9), images from a tool and from an API displayed (P1-10),
-  and a startup that does not depend on two consoles being launched by hand. The
-  measure is a single command that starts everything and a single test run that
-  covers both halves.
-- **P4-2 Repository `UHD-Universal-Harness-Desktop`.** The name is decided. It
-  receives the fused product when P4-1 is green; GitHub stops being the delivery
-  surface and becomes the source.
-- **P4-3 Packaging.** A compressed, downloadable, installable artefact on Windows,
-  macOS and Linux (one installer per OS). What that costs is already documented in
-  the Tauri note above: signing, three installers, an update channel. The licence and
-  the weights used by the media features must be settled before publishing anything
-  that embeds them.
+The list of proofs required before the fusion is **`docs/VALIDATION_MATRIX.md`** (P0/P1/P2
+rows, each with its state and the evidence that is still missing). A fix announced is not a
+validated feature: a row only reaches DONE with a dated capture or a test in the repo.
 
-Ordering constraint, restated because it is the whole point of P4-1: **first make the
-two consoles performant together, then fuse.** A fusion before that only moves the
-bugs into one binary.
+- **P4-1 Complete functional validation of UH and UHB together.** Mandatory criteria, each
+  tested **from both sides** when it crosses the two projects: LLM providers and API keys
+  (add, store, resolve, list models, test connection, real conversation, 401/403/429/500,
+  timeout, cut, recovery); standard chat and long conversations; **OmniRoute** (model
+  visible in the UI, model selected, real turn, errors, and the same path through UHB);
+  **MCP** (discovery, connection, tools listed, calls from the chat, arguments, results,
+  parallel calls, permission refusals, errors, timeouts, disconnect/reconnect - the model
+  must never bypass UHB's permissions); cloud connections and remote storage (real
+  inventory, auth, read, authorised write, expiry, reconnect, network errors); files and
+  images (sent, received, displayed, still there after a reload); execution of UHB tools
+  from the UH chat; permission handling and refusals; interrupted-connection recovery;
+  timeouts and error messages; service start and stop; persistence of conversations and
+  results; a CLI usable without the interface; an interface understandable by a
+  non-developer.
+- **P4-2 Fusion of the product.** Condition: P4-1 entirely validated. Merge UH and UHB into
+  one coherent architecture, remove duplicated responsibilities, remove the unnecessary
+  processes and consoles, unify start and stop, keep existing features and permissions,
+  lose no user data, and keep a clear internal separation between interface and engine even
+  when shipped as one application.
+- **P4-3 Repository `UHD-Universal-Harness-Desktop`.** Created only once P4-2 is validated.
+  It receives the assembled product meant for end users; the current repositories are not
+  moved before that.
+- **P4-4 Packaging and distribution.** Compressed artefact; Windows, macOS and Linux
+  installers; dependencies included; clean install and uninstall; update handling;
+  executable signing where possible; user data preserved across updates; clear install
+  documentation. The product must be downloadable and installable without asking the user
+  to handle two Python repositories or two consoles. Licences and the weights used by the
+  media features must be settled before publishing anything that embeds them.
+
+**Ordering constraint, restated because it is the whole point of P4-1:** first make the two
+consoles work and perform together, then fuse. A fusion before that only moves the bugs into
+one binary. Nothing in P4-2/P4-3/P4-4 starts before `VALIDATION_MATRIX.md` has no OPEN or
+NOT STARTED row left for P0/P1/P2.
