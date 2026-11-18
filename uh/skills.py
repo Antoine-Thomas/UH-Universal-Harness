@@ -333,19 +333,22 @@ def parse_capabilities(text: str) -> List[str]:
 
 
 def strip_capabilities(text: str) -> str:
-    """Le meme fichier, sans la section des capacites.
+    """Le corps sans la section ``## Capacites`` — rien d'autre n'est touche.
 
-    Obligatoire : sans cela, la liste des toolsets atterrirait dans les instructions
-    envoyees au modele, et un Skill decrirait des outils au lieu de decrire un travail.
+    On retire uniquement les lignes entre ce titre et le titre suivant : les autres
+    sections, les titres, les listes et les retours a la ligne restent intacts. Sans
+    cela, la liste des toolsets finirait dans les instructions envoyees au modele.
     """
     lines = (text or "").replace(chr(13) + chr(10), chr(10)).split(chr(10))
     kept: List[str] = []
-    skipping = False
+    inside = False
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("##"):
-            skipping = stripped.lower().startswith("## capacit")
-        if not skipping:
+            inside = stripped.lower().startswith("## capacit")
+            if inside:
+                continue
+        if not inside:
             kept.append(line)
     return chr(10).join(kept)
 
