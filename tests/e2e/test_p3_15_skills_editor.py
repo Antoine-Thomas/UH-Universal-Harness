@@ -15,8 +15,6 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import open_app
-
 pytestmark = pytest.mark.e2e
 
 
@@ -138,7 +136,14 @@ def test_importing_a_markdown_skill_and_refusing_a_bad_file(
         expect(row(page, "savoir-importe").locator(".skill-origin")).to_have_text("perso")
 
         before = page.locator("#skills-manager .skill-row").count()
-        page.set_input_files("#skill-file", str(bad))
+        # On attend la REPONSE du serveur, pas l'apparition d'un element : sans cela
+        # l'assertion peut courir avant que le 400 ne revienne, et elle mesure une
+        # course, pas un comportement.
+        with page.expect_response(
+            lambda r: "/api/skills/import" in r.url and r.status == 400, timeout=20000
+        ) as refused:
+            page.set_input_files("#skill-file", str(bad))
+        assert "file name" in refused.value.text(), refused.value.text()
         expect(page.locator("#skill-error")).to_be_visible(timeout=15000)
         assert page.locator("#skills-manager .skill-row").count() == before, (
             "un fichier refuse ne doit pas alterer la liste"
