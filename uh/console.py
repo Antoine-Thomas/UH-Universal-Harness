@@ -30,6 +30,7 @@ from . import config as uh_config
 from . import decision as uh_decision
 from . import intent as uh_intent
 from . import sandbox
+from . import skill_prefs as uh_skill_prefs
 from . import skills as uh_skills
 from .agent import (
     BudgetExhausted,
@@ -244,9 +245,15 @@ def intent_routing_enabled() -> bool:
 
 
 def _skill_listing() -> list:
-    """The installed skills, or an empty list: a broken folder never fails a turn."""
+    """The **enabled** skills, or an empty list: a broken folder never fails a turn.
+
+    A disabled skill is invisible to the router — it is not proposed, not injected,
+    and contributes nothing to how the turn's toolsets are chosen. Turning a skill
+    off is a preference about context, never a permission: it grants nothing and
+    takes nothing away from UHB.
+    """
     try:
-        return list(uh_skills.list_skills().get("skills") or [])
+        return uh_skill_prefs.enabled_only(uh_skills.list_skills().get("skills") or [])
     except Exception:  # noqa: BLE001 - automatic selection is a convenience
         return []
 

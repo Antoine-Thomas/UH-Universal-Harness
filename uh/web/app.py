@@ -38,6 +38,7 @@ from .. import __version__, attachments, turnlog
 from .. import commands as uh_commands
 from .. import config as uh_config
 from .. import roles as uh_roles
+from .. import skill_prefs as uh_skill_prefs
 from ..console import ChatSession, Console
 from ..providers import Provider, ProviderError
 from ..store import Store, display_id
@@ -1533,9 +1534,44 @@ def create_app(
 
     @app.get("/api/skills", dependencies=[Depends(require_token)])
     async def skills_list() -> dict:
+        """Every installed skill, each marked ``enabled`` — disabled ones included.
+
+        Hiding a disabled skill would make it unreachable from the interface, so the
+        operator could never turn it back on.
+        """
         from .. import skills as uh_skills
 
-        return uh_skills.list_skills()
+        listing = uh_skills.list_skills()
+        listing["skills"] = uh_skill_prefs.for_listing(listing.get("skills") or [])
+        listing["disabled"] = uh_skill_prefs.disabled()
+        return listing
+
+    @app.patch("/api/skills/{name}/enabled", dependencies=[Depends(require_token)])
+    async def skills_set_enabled(name: str, payload: dict) -> dict:
+        """Turn one skill on or off. The name must exist in the catalogue.
+
+        The id is ``origin:name`` computed by the server from the real listing: a
+        client cannot address a file that is not a skill, and no path ever crosses
+        this route.
+        """
+        from .. import skills as uh_skills
+
+        body = payload or {}
+        if "enabled" not in body or not isinstance(body.get("enabled"), bool):
+            raise HTTPException(status_code=400, detail="send {enabled: true|false}")
+        entry = next(
+            (item for item in uh_skills.list_skills().get("skills") or []
+             if str(item.get("name")) == str(name)),
+            None,
+        )
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"unknown skill: {name}")
+        try:
+            return uh_skill_prefs.set_enabled(
+                str(entry["name"]), str(entry.get("origin") or "user"), bool(body["enabled"])
+            )
+        except uh_skill_prefs.SkillPrefsError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post("/api/skills", dependencies=[Depends(require_token)])
     async def skills_create(payload: dict) -> dict:
