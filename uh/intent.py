@@ -274,14 +274,17 @@ def select(
     # Les capacites declarees par la Skill retenue renforcent une selection deja
     # pertinente — elles ne la creent pas. Un nom hors catalogue est ignore : c'est
     # `turn_toolsets` qui intersecte, ici on ne fait que ponderer.
-    if skill and chosen:
+    if skill:
         declared = [str(item) for item in (skill_entry or {}).get("capabilities") or []]
         available = [name for name in declared if name in catalog]
         ignored = [name for name in declared if name not in catalog]
         if available:
             scores = {**scores}
             for name in available:
-                scores[name] = scores.get(name, 0) + 3
+                # La skill a ete retenue sur ses mots : ses capacites proposes
+                # suffisent a faire entrer le toolset, l'intersection avec le catalogue
+                # restant obligatoire (turn_toolsets).
+                scores[name] = max(scores.get(name, 0) + 3, threshold)
             ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
             chosen = [name for name, value in ranked if value >= threshold][:MAX_TOOLSETS]
         if ignored:

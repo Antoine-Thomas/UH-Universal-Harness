@@ -83,6 +83,7 @@ def parse(text: str, fallback_name: str = "") -> Dict[str, str]:
     description, an optional ``## Instructions`` heading. Anything else is
     instructions - a hand-written file is a valid skill.
     """
+    text = strip_capabilities(text or "")
     lines = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     title = ""
     description = ""
@@ -130,7 +131,7 @@ def _entry(path: Path, origin: str) -> Optional[Dict[str, Any]]:
         "name": path.stem,
         "title": parsed["title"],
         "description": parsed["description"],
-        "capabilities": parse_capabilities(parsed.get("text") or ""),
+        "capabilities": parse_capabilities(text),
         "instructions_chars": len(parsed["instructions"]),
         "origin": origin,
         "native": origin == "native",
