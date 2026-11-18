@@ -54,6 +54,10 @@
         <select id="model-select" name="model" class="model-select" aria-label="Model"></select>
         <button id="model-advanced" class="ghost model-advanced" title="Voir tous les modèles installés">Avancé</button>
         <span id="model-note" class="model-note" role="status" hidden></span>
+        <!-- A desynchronised view is a state, not an event: it shows up here, out of
+             the conversation, and never as a card between two messages (P1-12). -->
+        <button id="view-stale" class="ghost view-stale" type="button" hidden
+                title="L'écran et l'enregistrement ne s'accordent pas : rien n'est effacé. Ce bouton recharge l'affichage depuis la base.">Actualiser la vue</button>
         <div class="gauge" title="Context estimate (characters / 4)">
           <div class="gauge-fill" id="gauge-fill"></div>
           <span id="gauge-label">ctx ~0 tok</span>
