@@ -3240,18 +3240,24 @@ function editorFields(data) {
 function openSkillEditor(skill) {
   const form = $("skill-editor");
   if (!form) return Promise.resolve();
-  form.hidden = false;
+  form.hidden = true; // visible seulement une fois les champs remplis
   form.dataset.editing = skill ? String(skill.name) : "";
   $("skill-editor-title").textContent = skill ? `Modifier « ${skill.title || skill.name} »` : "Nouveau Skill";
   skillError("");
   if (!skill) {
     editorFields({ editing: false });
+    form.hidden = false;
     $("skill-name").focus();
     return Promise.resolve();
   }
-  return api(`/api/skills/${encodeURIComponent(skill.name)}`).then((data) =>
-    editorFields({ ...data, editing: true })
-  );
+  // Le formulaire n'apparaît qu'après le GET : sinon une saisie rapide est écrasée
+  // par les valeurs chargées (mesuré : un titre tapé juste après le clic repartait
+  // avec l'ancienne valeur dans le PUT).
+  return api(`/api/skills/${encodeURIComponent(skill.name)}`).then((data) => {
+    editorFields({ ...data, editing: true });
+    form.hidden = false;
+    $("skill-title").focus();
+  });
 }
 
 async function saveSkill(event) {
