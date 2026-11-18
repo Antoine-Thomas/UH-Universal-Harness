@@ -130,6 +130,7 @@ def _entry(path: Path, origin: str) -> Optional[Dict[str, Any]]:
         "name": path.stem,
         "title": parsed["title"],
         "description": parsed["description"],
+        "capabilities": parse_capabilities(parsed.get("text") or ""),
         "instructions_chars": len(parsed["instructions"]),
         "origin": origin,
         "native": origin == "native",
@@ -300,6 +301,53 @@ def duplicate(name: str, *, new_name: Optional[str] = None, home: Optional[Path]
         name=stem,
         home=home,
     )
+
+
+CAPABILITIES_HEADING = "## capacites"
+
+
+def parse_capabilities(text: str) -> List[str]:
+    """Les capacites declarees par un Skill, section ``## Capacités`` (facultative).
+
+    Declaratif seulement : ce sont des identifiants de toolsets, jamais du code, et
+    rien ici n'accorde un droit. Un nom inconnu est rendu tel quel — c'est l'appelant
+    qui l'intersecte avec le catalogue réel, pour qu'aucun outil fantome ne puisse
+    naitre d'une faute de frappe.
+    """
+    lines = (text or "").replace(chr(13) + chr(10), chr(10)).split(chr(10))
+    found: List[str] = []
+    inside = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("##"):
+            inside = stripped.lower().startswith("## capacit")
+            continue
+        if not inside:
+            continue
+        if stripped.startswith(("-", "*")):
+            name = stripped[1:].strip().split()[0] if stripped[1:].strip() else ""
+            name = name.strip("`'\"")
+            if name and name not in found:
+                found.append(name)
+    return found
+
+
+def strip_capabilities(text: str) -> str:
+    """Le meme fichier, sans la section des capacites.
+
+    Obligatoire : sans cela, la liste des toolsets atterrirait dans les instructions
+    envoyees au modele, et un Skill decrirait des outils au lieu de decrire un travail.
+    """
+    lines = (text or "").replace(chr(13) + chr(10), chr(10)).split(chr(10))
+    kept: List[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("##"):
+            skipping = stripped.lower().startswith("## capacit")
+        if not skipping:
+            kept.append(line)
+    return chr(10).join(kept)
 
 
 def prompt_block(name: str, home: Optional[Path] = None) -> Optional[str]:

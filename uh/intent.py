@@ -271,8 +271,25 @@ def select(
                 scores=scores,
             )
 
-    if not chosen and not skill:
-        return Selection(reason="aucune capacite pertinente : reponse conversationnelle", scores=scores)
+    # Les capacites declarees par la Skill retenue renforcent une selection deja
+    # pertinente — elles ne la creent pas. Un nom hors catalogue est ignore : c'est
+    # `turn_toolsets` qui intersecte, ici on ne fait que ponderer.
+    if skill and chosen:
+        declared = [str(item) for item in (skill_entry or {}).get("capabilities") or []]
+        available = [name for name in declared if name in catalog]
+        ignored = [name for name in declared if name not in catalog]
+        if available:
+            scores = {**scores}
+            for name in available:
+                scores[name] = scores.get(name, 0) + 3
+            ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+            chosen = [name for name, value in ranked if value >= threshold][:MAX_TOOLSETS]
+        if ignored:
+            reason_parts_extra = " | capacites ignorees (hors catalogue) : " + ", ".join(ignored)
+        else:
+            reason_parts_extra = ""
+    else:
+        reason_parts_extra = ""
 
     confidence = "high" if (ranked and ranked[0][1] >= 8) or skill else "medium"
     reason_parts = []
@@ -280,6 +297,8 @@ def select(
         reason_parts.append("outils : " + ", ".join(chosen))
     if skill:
         reason_parts.append(f"skill : {skill}")
+    if reason_parts_extra:
+        reason_parts.append(reason_parts_extra)
     return Selection(
         toolsets=tuple(chosen),
         skill=skill,
