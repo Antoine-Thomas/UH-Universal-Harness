@@ -1168,3 +1168,80 @@ validated feature: a row only reaches DONE with a dated capture or a test in the
 consoles work and perform together, then fuse. A fusion before that only moves the bugs into
 one binary. Nothing in P4-2/P4-3/P4-4 starts before `VALIDATION_MATRIX.md` has no OPEN or
 NOT STARTED row left for P0/P1/P2.
+
+## P1-11 → P1-14 — images du chat, rétention, feedback, multimodal (ouvert 2026-11-18)
+
+Déclencheur : T10 (premier tour web avec un vrai modèle, `qwen3:8b`) a produit des images
+dans `~/.uhb/runs` — elles s'affichent, mais l'expérience s'arrête là. Les quatre lots
+ci-dessous sont **inscrits, non codés**. Chaque « état mesuré » a été lu dans le code ou
+constaté sur disque le 18/11, pas supposé.
+
+### P1-11 — les images des outils, dans le chat
+
+État mesuré :
+- `uh/console.py:644-657` collecte les `images` renvoyées par `execute_code` en `artifacts`
+  (`{mime, bytes, data_url, note}`) et émet un événement `artifacts`.
+- `uh/web/static/app.js:241-257` (`drawArtifacts`) rend ces `data_url` dans un `<img>`,
+  filtré par `ARTIFACT_MIME`. L'affichage en direct existe donc déjà.
+- Le contenu du message outil est persisté **avec** son `data_url` (vérifié dans `uh.db`),
+  mais la colonne `artifacts` du store est vide : rien ne garantit qu'un rechargement
+  reconstruise les figures.
+- Le texte de l'assistant cite encore le chemin du fichier.
+
+À faire : reconstruire les figures au rechargement depuis le contenu persisté ; boutons
+`Garder` / `Poubelle` à droite de la figure ; pouce haut / bas sous chaque figure ;
+légende lisible (nom de fichier + stdout utile) au lieu du chemin brut.
+
+Preuve attendue : après F5, les images sont toujours là ; `Garder` les retire de la
+rotation, `Poubelle` les déplace (voir P1-12) ; un vote crée une ligne datée.
+
+### P1-12 — rétention et mémoire morte
+
+État mesuré : 140 runs au 18/11, la baseline T10 en comptait 134. Chaque run contient
+`code.py`, `_uhb_runner.py`, les images, et un cache `.mpl/fontlist-v3.11.0.json` de
+~84 ko **dupliqué par run** — le cache matplotlib est recopié au lieu d'être partagé.
+
+À faire : politique de rétention (âge et volume, par exemple 7 jours ou 2 Go, au premier
+des deux) ; le cache `.mpl` mutualisé hors des runs ; corbeille réversible avec vidage
+explicite ; vérifier qu'aucun processus enfant (python du snippet, ffmpeg) ne survit.
+
+Preuve attendue : poids de `~/.uhb/runs` avant/après, un run ancien disparaît, un fichier
+mis à la corbeille sort du disque, `tasklist` propre.
+
+### P1-13 — boucle de feedback vers le second cerveau
+
+État mesuré : le toolset `uhb` expose `mcp:atelier` (second cerveau) ; n8n est un serveur
+MCP distant à OAuth, non branché. Aucun vote n'existe aujourd'hui dans l'UI.
+
+À faire : `POST /api/artifacts/{id}/rate` (haut/bas + commentaire optionnel), journal local
+`jsonl` (source de vérité, hors ligne), puis envoi best-effort vers le second cerveau —
+un échec réseau ne doit jamais perdre le vote ni bloquer le tour. Un pouce haut propose une
+consolidation de skill ; un pouce bas consigne un échec à ne pas reproduire.
+
+Preuve attendue : un vote écrit une ligne, l'envoi est constaté côté destinataire, et la
+coupure du destinataire laisse la ligne intacte.
+
+### P1-14 — pièces jointes multimodales
+
+État mesuré :
+- `POST /api/sessions/{session_id}/upload` existe (`uh/web/app.py:696`), plafond 20 Mo
+  (`uh/attachments.py:36`).
+- `uh/attachments.py` inline déjà le **PDF** (texte extrait) et le **texte**.
+- Les **images** (png/jpg/webp/gif/bmp) et les **vidéos** (mp4/mov/webm/mkv/avi) sont
+  stockées puis marquées `referenced`, avec la note « the current providers read text only :
+  the file is stored and its path is below, but the model cannot see it ».
+- **Aucun format audio** n'est reconnu (`mp3`, `wav`, `m4a` : rien dans `attachments.py`).
+- Venv UH : `PIL` et `faster_whisper` présents ; `pypdf`, `fitz`, `cv2`, `moviepy` absents ;
+  `ffmpeg`/`ffprobe` disponibles globalement (chocolatey). `matplotlib` vit dans le venv UHB,
+  pas dans celui de UH — c'est UHB qui dessine.
+
+À faire, dans cet ordre de coût croissant :
+1. audio : `faster_whisper` est déjà là (GPU 8 Go, repli cpu/int8 connu) → transcrire en
+   texte avant l'envoi au modèle ;
+2. vidéo : `ffprobe` pour la durée, `ffmpeg` pour 3 à 5 frames, puis le chemin image ;
+3. image : nécessite un modèle **vision** — `qwen3:8b` ne l'est pas ; sans lui, l'image reste
+   `referenced` et la note actuelle est correcte ;
+4. PDF : vérifier le fallback réellement utilisé puisque `pypdf` est absent du venv.
+
+Contrainte : chacune de ces briques ajoute une dépendance lourde (poids whisper, décodage
+vidéo). Faisabilité et coût à mesurer **avant** d'écrire la première ligne.
