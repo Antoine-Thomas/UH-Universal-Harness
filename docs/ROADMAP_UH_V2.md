@@ -726,6 +726,13 @@ What actually shipped (tags `v1.6.0` and `v1.6.1`, wheels on PyPI):
   (`+ Folder`) stay untouched in SQLite: the control refreshes the view, it repairs nothing.
   Proof before closing: a browser capture showing a normal turn raising no red bubble, and a
   forced gap showing the discrete control instead.
+- **P1-13 (graphs are drawn, not described).** A request for a chart, a diagram or a map must end
+  as an image in the bubble — `execute_code` writing a `.png` published through the `artifacts`
+  channel after approval — not as a text tutorial that names a library to install. Two
+  prerequisites belong to the lot because they are what makes the outcome measurable: UHB starts
+  with the `execute_code` tool available, and its Python environment really carries `matplotlib`.
+  Proof before closing: one browser capture of a plain request (*« trace la courbe de … »*)
+  showing the `.png` inside the assistant bubble, still there after a reload.
 - **HTTP/SSE transport** for the MCP client - the blocker for Positron, remote
   servers, and any hosted tool server. Everything else in P14 waits on it.
 - Per-call approval for the tools **other than** `execute_code`: that one has a gate
