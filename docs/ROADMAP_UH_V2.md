@@ -737,6 +737,11 @@ What actually shipped (tags `v1.6.0` and `v1.6.1`, wheels on PyPI):
   with the `execute_code` tool available, and its Python environment really carries `matplotlib`.
   Proof before closing: one browser capture of a plain request (*« trace la courbe de … »*)
   showing the `.png` inside the assistant bubble, still there after a reload.
+  **Progress 2026-11-18** (`feat/p1-13-charts`) : `matplotlib` + `numpy` installés dans le venv
+  UHB (PNG réel de 14 374 o rendu en Agg), instruction de prompt « dessine, ne raconte pas »,
+  images d'outil vers `message["artifacts"]` + un unique événement `artifacts`, et rendu navigateur
+  avec rechargement (`tests/e2e/test_p1_13_charts.py`). Reste la capture d'un tour avec un vrai
+  modèle — voir la ligne P1-13 de `VALIDATION_MATRIX.md`.
 - **HTTP/SSE transport** for the MCP client - the blocker for Positron, remote
   servers, and any hosted tool server. Everything else in P14 waits on it.
 - Per-call approval for the tools **other than** `execute_code`: that one has a gate
