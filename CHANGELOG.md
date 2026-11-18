@@ -13,6 +13,21 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [Unreleased]
+
+### Added
+
+- **P3-14 — caractère & rôle par projet, indépendant des skills.** Sept presets (Architecte
+  logiciel senior, Développeur full-stack, Analyste de données, Rédacteur produit concis,
+  Auditeur sécurité, Domotique / Home Assistant, Vision / vidéo IA) plus un **texte libre**,
+  dans un onglet **Caractère** du panneau de configuration et un sélecteur compact dans
+  l'en-tête de session. Le rôle est stocké avec la session (`sessions.metadata["role"]`), donc
+  il revient à la réouverture, et il est injecté dans le prompt système **avant** le bloc de
+  skill. Preuves : `tests/test_roles.py` (9 cas) et `tests/e2e/test_p3_14_role.py` (3 cas
+  Chromium). L'indépendance est mesurée, pas affirmée : fichiers de skills, `config.toml` (dont
+  les serveurs MCP), toolsets actifs et schémas d'outils sont **identiques octet pour octet**
+  avant et après un changement de rôle.
+
 ## [1.7.7] — 2026-11-18
 
 **Les graphiques se dessinent dans le chat, et l'alerte de transcription a quitté le fil.**

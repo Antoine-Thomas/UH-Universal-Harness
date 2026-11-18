@@ -1020,6 +1020,9 @@ async function openSession(id) {
     }
     select.value = data.model;
   }
+  // The conversation's own character (P3-14): reopening a project restores the
+  // voice it was left in, or no role at all.
+  fillRoleSelect((data.session.metadata || {}).role || null);
   renderHistory(data.messages);
   updateGauge(data.messages);
   // A fresh read is the fix the header control performs: the stale flag it carried
@@ -3117,6 +3120,7 @@ function showPanelTab(name) {
     ["uhb", "uhb-view"],
     ["memory", "memory-view"],
     ["decision", "decision-view"],
+    ["role", "role-view"],
     ["telemetry", "telemetry-view"],
     ["conn", "conn-view"],
     ["data", "data-view"],
@@ -3150,6 +3154,7 @@ function showPanelTab(name) {
   }
   if (name === "memory") loadMemory().catch(() => {});
   if (name === "decision") loadDecision().catch(() => {});
+  if (name === "role") loadRolePanel().catch(() => {});
   if (name === "telemetry") {
     loadTelemetry().catch(() => {});
     startTelemetryPolling();
@@ -3159,6 +3164,130 @@ function showPanelTab(name) {
   if (name === "conn") loadConnections().catch(() => {});
   if (name === "local") loadLocalPanel().catch(() => {});
   if (name === "data") loadData().catch(() => {});
+}
+
+// --- character & role (P3-14) ---------------------------------------------- //
+// A role changes who answers — posture, expertise, tone — and nothing else. It is
+// stored with the session in SQLite, applied server-side in the system prompt, and
+// it never touches a skill, a toolset or an MCP server (tests/test_roles.py proves
+// that byte for byte). The wording stays plain: "caractère", not "persona".
+let ROLE_PRESETS = null;
+let ROLE_CURRENT = null;
+
+async function loadRolePresets() {
+  if (ROLE_PRESETS) return ROLE_PRESETS;
+  const data = await api("/api/roles");
+  ROLE_PRESETS = data.presets || [];
+  return ROLE_PRESETS;
+}
+
+function roleLabel(role) {
+  return (role && role.label) || "Aucun rôle";
+}
+
+function fillRoleSelect(role) {
+  ROLE_CURRENT = role || null;
+  const select = $("role-select");
+  if (!select) return;
+  select.textContent = "";
+  const none = el("option", null, "Aucun rôle");
+  none.value = "";
+  select.appendChild(none);
+  for (const preset of ROLE_PRESETS || []) {
+    const option = el("option", null, preset.label);
+    option.value = preset.id;
+    select.appendChild(option);
+  }
+  if (role && role.id === "custom") {
+    const option = el("option", null, role.label);
+    option.value = "custom";
+    select.appendChild(option);
+  }
+  select.value = role ? String(role.id || "custom") : "";
+  select.title = role
+    ? `Rôle : ${roleLabel(role)} — la posture seule, les outils ne changent pas`
+    : "Caractère / rôle : la posture et le ton de la réponse. Ne change ni les skills ni les outils.";
+}
+
+function roleButton(item) {
+  const button = el("button", "role-option");
+  button.type = "button";
+  button.dataset.role = item.id || "";
+  button.appendChild(el("span", null, item.label));
+  if (item.hint) button.appendChild(el("small", null, item.hint));
+  button.addEventListener("click", () => {
+    if (item.id === "custom") {
+      $("role-custom").hidden = false;
+      $("role-label").focus();
+      return;
+    }
+    chooseRole(item.id).catch((error) => modelNote(error.message, "warn"));
+  });
+  return button;
+}
+
+function paintRoleSelection() {
+  const current = ROLE_CURRENT ? String(ROLE_CURRENT.id || "custom") : "";
+  for (const node of document.querySelectorAll("#role-panel .role-option")) {
+    node.classList.toggle("active", (node.dataset.role || "") === current);
+  }
+  if ($("role-custom")) $("role-custom").hidden = current !== "custom";
+}
+
+async function chooseRole(id) {
+  if (id === "custom") {
+    $("role-custom").hidden = false;
+    $("role-label").focus();
+    return;
+  }
+  const presets = await loadRolePresets();
+  const preset = presets.find((item) => item.id === id);
+  if (id && !preset) {
+    modelNote("ce rôle n'existe pas", "warn");
+    return;
+  }
+  // The preset travels by id: the posture is applied server-side, never sent here.
+  await patchRole(preset ? preset.id : null);
+}
+
+async function patchRole(role) {
+  if (!state.sessionId) await ensureSession();
+  const data = await api(`/api/sessions/${encodeURIComponent(state.sessionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+  fillRoleSelect(data.role || null);
+  paintRoleSelection();
+  modelNote(`Rôle : ${roleLabel(data.role)}`, "ok");
+}
+
+async function loadRolePanel() {
+  await loadRolePresets();
+  const panel = $("role-panel");
+  if (!panel) return;
+  panel.textContent = "";
+  panel.appendChild(roleButton({ id: "", label: "Aucun rôle", hint: "réponse neutre" }));
+  for (const preset of ROLE_PRESETS || []) panel.appendChild(roleButton(preset));
+  panel.appendChild(roleButton({ id: "custom", label: "Texte libre", hint: "votre propre posture" }));
+  paintRoleSelection();
+}
+
+function wireRole() {
+  $("role-select").addEventListener("change", (event) => {
+    chooseRole(String(event.target.value || "")).catch((error) => modelNote(error.message, "warn"));
+  });
+  $("role-custom-save").addEventListener("click", () => {
+    const label = ($("role-label").value || "").trim();
+    const posture = ($("role-posture").value || "").trim();
+    if (!label || !posture) {
+      modelNote("un rôle libre a besoin d'un nom et d'une phrase de posture", "warn");
+      return;
+    }
+    patchRole({ id: "custom", label, posture }).catch((error) => modelNote(error.message, "warn"));
+  });
+  // A header select filled after the first session exists: an empty list would read
+  // as "there are no roles", which is a different - and false - statement.
+  loadRolePresets().then(() => fillRoleSelect(ROLE_CURRENT)).catch(() => {});
 }
 
 function openProviders() {
@@ -3269,7 +3398,7 @@ async function refreshConnBadge() {
 // A link written before the merge must still land somewhere sane.
 const PANEL_ALIASES = { providers: "keys", "clé": "keys", cles: "keys", connexions: "conn" };
 const PANEL_TABS = new Set([
-  "keys", "local", "conn", "models", "uhb", "memory", "decision", "telemetry", "data",
+  "keys", "local", "conn", "models", "uhb", "memory", "decision", "role", "telemetry", "data",
 ]);
 
 function openPanelFromUrl() {
@@ -3290,6 +3419,7 @@ function wireProviders() {
   $("tab-uhb").addEventListener("click", () => showPanelTab("uhb"));
   $("tab-memory").addEventListener("click", () => showPanelTab("memory"));
   $("tab-decision").addEventListener("click", () => showPanelTab("decision"));
+  $("tab-role").addEventListener("click", () => showPanelTab("role"));
   $("tab-telemetry").addEventListener("click", () => showPanelTab("telemetry"));
   $("tab-conn").addEventListener("click", () => showPanelTab("conn"));
   $("help-open").addEventListener("click", openHelpModal);
@@ -4919,6 +5049,7 @@ async function boot() {
   wirePalette();
   wireSearch();
   wireProviders();
+  wireRole();
   wireDock();
   wirePanes();
   wireModelToggle();

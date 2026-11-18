@@ -228,13 +228,17 @@ class Console:
 # --------------------------------------------------------------------------- #
 # session state
 # --------------------------------------------------------------------------- #
-def system_message(workspace: Path, extra_system: str = "") -> dict:
+def system_message(workspace: Path, extra_system: str = "", role: Optional[dict] = None) -> dict:
     """The system prompt, plus whatever the operator attached to this turn.
 
     ``extra_system`` is a skill's instructions, labelled as such by
     :func:`uh.skills.prompt_block`. It rides on the system message instead of
     being stored as a user message: it is context for this turn, not something
     the user said, and the transcript must stay honest about who said what.
+
+    ``role`` is the session's character & role (P3-14): a paragraph about posture,
+    expertise and tone, placed before the skill so the turn's task stays closest to
+    the user message. It grants no tool and disables no skill.
     """
     content = (
         "You are UH, a local agent harness. Use the provided tools to inspect and modify "
@@ -251,7 +255,7 @@ def system_message(workspace: Path, extra_system: str = "") -> dict:
         "files: the map below is authoritative, never guess a path. "
         "When the user asks how to do something in this interface, give the exact path "
         "(tab, then button) and a link the user can click: [Ouvrir Connexions](/?panel=conn), "
-        "or ?panel=keys, local, providers, models, uhb, memory, decision, telemetry, data. "
+        "or ?panel=keys, local, providers, models, uhb, memory, decision, role, telemetry, data. "
         "Never answer a UI question with 'run this command' - a visible capability is used "
         "from the interface. "
         "If the user asks WHERE a button, a tab or a setting is, NEVER tell them to edit a "
@@ -293,6 +297,11 @@ def system_message(workspace: Path, extra_system: str = "") -> dict:
         block = ""
     if block:
         content = f"{content}\n\n{block}"
+    from . import roles as uh_roles
+
+    role_block = uh_roles.prompt_block(role)
+    if role_block:
+        content = f"{content}{role_block}"
     if extra_system.strip():
         content = f"{content}\n\n{extra_system.strip()}"
     return {"role": "system", "content": content}
@@ -319,6 +328,7 @@ class ChatSession:
         console: Optional["Console"] = None,
         extra_system: str = "",
         params: Optional[dict] = None,
+        role: Optional[dict] = None,
     ) -> None:
         self.provider_factory = provider_factory
         self.provider_kind = provider_kind
@@ -357,7 +367,10 @@ class ChatSession:
         # Kept so a workspace move can rebuild the system prompt without dropping
         # the skill the operator attached to this turn.
         self.extra_system = extra_system
-        self.history: list[dict] = [system_message(workspace, extra_system)]
+        # Character & role (P3-14): who answers and in what voice. It rides in the
+        # system prompt only — no skill, toolset or MCP server is touched.
+        self.role = role
+        self.history: list[dict] = [system_message(workspace, extra_system, role)]
         # Chat parameters (temperature, top_p, …) for every call this session makes.
         # A third-party provider without set_params keeps working: it simply uses
         # its own defaults.
@@ -823,7 +836,7 @@ class ChatSession:
         return f"provider set to {kind} (model {self.model or 'default'})"
 
     def clear_history(self) -> str:
-        self.history[:] = [system_message(self.workspace)]
+        self.history[:] = [system_message(self.workspace, role=self.role)]
         return "history cleared (session kept)"
 
     def set_workspace(self, raw: str) -> str:
@@ -857,7 +870,7 @@ class ChatSession:
         # The system prompt names the workspace: refresh it, keeping the rest of
         # the conversation so the user does not lose context by moving.
         if self.history and self.history[0].get("role") == "system":
-            self.history[0] = system_message(resolved, self.extra_system)
+            self.history[0] = system_message(resolved, self.extra_system, self.role)
         roots = sandbox.allowed_paths(resolved)
         lines = [
             f"workspace set to {resolved}",
@@ -868,7 +881,7 @@ class ChatSession:
         return "\n".join(lines)
 
     def new_session(self) -> str:
-        self.history[:] = [system_message(self.workspace)]
+        self.history[:] = [system_message(self.workspace, role=self.role)]
         if self.store is None:
             self.session_id = None
             return "history cleared (not saved: --no-save)"
@@ -893,7 +906,7 @@ class ChatSession:
             return f"'{token}' is ambiguous ({len(matches)} sessions); use a longer id"
         session = matches[0]
         self.session_id = session["id"]
-        self.history[:] = [system_message(self.workspace)] + self._stored_messages(session["id"])
+        self.history[:] = [system_message(self.workspace, role=self.role)] + self._stored_messages(session["id"])
         return f"resumed {display_id(self.session_id)} ({len(self.history) - 1} messages)"
 
     def sessions_text(self) -> str:

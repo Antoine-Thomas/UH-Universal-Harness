@@ -53,6 +53,12 @@
         <div class="title" id="session-title">No session</div>
         <select id="model-select" name="model" class="model-select" aria-label="Model"></select>
         <button id="model-advanced" class="ghost model-advanced" title="Voir tous les modèles installés">Avancé</button>
+        <!-- Character & role (P3-14): the posture of the answer, per conversation.
+             A session-level choice, like the model, so it sits next to it. -->
+        <select id="role-select" class="role-select" aria-label="Caractère et rôle"
+                title="Caractère / rôle : la posture et le ton de la réponse. Ne change ni les skills ni les outils.">
+          <option value="">Aucun rôle</option>
+        </select>
         <span id="model-note" class="model-note" role="status" hidden></span>
         <!-- A desynchronised view is a state, not an event: it shows up here, out of
              the conversation, and never as a card between two messages (P1-12). -->
@@ -125,6 +131,7 @@
         <button id="tab-uhb" class="panel-tab" role="tab" aria-selected="false" aria-controls="uhb-view">Second brain</button>
         <button id="tab-memory" class="panel-tab" role="tab" aria-selected="false" aria-controls="memory-view">Memory</button>
         <button id="tab-decision" class="panel-tab" role="tab" aria-selected="false" aria-controls="decision-view">Decision</button>
+        <button id="tab-role" class="panel-tab" role="tab" aria-selected="false" aria-controls="role-view">Caractère</button>
         <button id="tab-telemetry" class="panel-tab" role="tab" aria-selected="false" aria-controls="telemetry-view">Telemetry</button>
         <button id="tab-data" class="panel-tab" role="tab" aria-selected="false" aria-controls="data-view">Data</button>
         <button id="tab-tools" class="panel-tab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
@@ -154,6 +161,19 @@
         </div>
         <div id="decision-view" class="panel-view" role="tabpanel" aria-labelledby="tab-decision" hidden>
           <div id="decision-panel" class="decision-panel"></div>
+        </div>
+        <div id="role-view" class="panel-view" role="tabpanel" aria-labelledby="tab-role" hidden>
+          <div class="panel-hint">La posture de la réponse pour cette conversation. Les skills, les
+            outils et les serveurs MCP ne changent pas : ce rôle ne fait que choisir la voix.</div>
+          <div id="role-panel" class="role-panel"></div>
+          <div id="role-custom" class="role-custom" hidden>
+            <label for="role-label">Nom du rôle</label>
+            <input id="role-label" type="text" maxlength="60" placeholder="Ex. Architecte de la maison">
+            <label for="role-posture">Ce que l'IA doit être, en une ou deux phrases</label>
+            <textarea id="role-posture" rows="3" maxlength="800"
+                      placeholder="Ex. Réponds comme un architecte du bâtiment : surfaces, orientation, budget, et dis ce qui ne passe pas au permis."></textarea>
+            <button id="role-custom-save" class="ghost-button" type="button">Utiliser ce rôle</button>
+          </div>
         </div>
         <div id="telemetry-view" class="panel-view" role="tabpanel" aria-labelledby="tab-telemetry" hidden>
           <div id="telemetry-panel" class="telemetry-panel"></div>

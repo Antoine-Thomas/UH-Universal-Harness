@@ -1038,6 +1038,13 @@ the fusion or the validation programme. They queue behind P1/P2 and never before
   role switched mid-session and still there after a reload; and a test asserting that the
   active toolsets and the skills list are **byte-identical before and after** a role switch
   (that is what "independent" means, and it is the only way to prove it).
+  **Delivered 2026-11-18** (`feat/p3-14-character-role`) : 7 presets (dont Domotique / Home
+  Assistant et Vision / vidéo IA) + texte libre dans `uh/roles.py`, onglet **Caractère** et
+  sélecteur d'en-tête, persistance dans `sessions.metadata["role"]`, injection dans
+  `system_message()` avant le bloc de skill. Preuves : `tests/test_roles.py` (9 cas, dont
+  l'indépendance octet pour octet des skills, de `config.toml` et des schémas d'outils) et
+  `tests/e2e/test_p3_14_role.py` (3 cas Chromium : choix, rechargement, changement en cours de
+  session, texte libre conservé).
 
 ## P4 - Target: one product, packaged (opened 2026-11-16, restated 2026-11-17)
 
