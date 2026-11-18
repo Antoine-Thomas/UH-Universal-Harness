@@ -13,6 +13,41 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.7.7] — 2026-11-18
+
+**Les graphiques se dessinent dans le chat, et l'alerte de transcription a quitté le fil.**
+Deux lots, chacun avec sa preuve dans le dépôt.
+
+### Added
+
+- **P1-13 — une demande de graphique finit en image, pas en tutoriel** (PR #25). Le prompt oriente
+  une demande de graphique, de diagramme ou de carte vers `execute_code` : le snippet écrit un
+  `.png` (matplotlib, backend Agg — pas d'affichage) et l'image rejoint `message["artifacts"]`, donc
+  la bulle, par le chemin navigateur déjà éprouvé. Preuve : `tests/e2e/test_p1_13_charts.py`
+  (Chromium réel, image redessinée après rechargement).
+- **`_tool_images()`** : UH récolte enfin les images produites par un outil (`execute_code` inline
+  ce que le snippet a écrit). Seul un `data_url` inline est lu — jamais un chemin disque — et le
+  MIME vient des octets (`sniff_mime`), comme pour les images du provider.
+
+### Changed
+
+- **P1-12 — l'alerte de transcription sort du fil de discussion** (PR #23). La fenêtre de lecture
+  suit la longueur du fil (`max(200, bulles + 25)`, plafond 2 000) au lieu d'un `limit=200` fixe qui
+  signalait un écart à chaque tour au-delà de 200 messages ; une relecture de 400 ms précède tout
+  verdict (le worker commit la ligne juste après `done`) ; et un écart réel s'affiche en contrôle
+  discret dans l'en-tête (« Actualiser la vue ») au lieu d'une carte rouge entre deux messages.
+  Aucun message, artefact ni dossier `+ Folder` n'est touché.
+
+### Fixed
+
+- **Le base64 ne repart plus au modèle.** Le message `role: tool` gardait `images[].data_url` : un
+  graphique de 14 Ko représentait des milliers de tokens d'entrée au tour suivant, et s'affichait en
+  clair dans la carte d'outil. Les octets vivent désormais dans les artefacts de la réponse, le
+  message outil ne garde qu'un marqueur.
+- **Plus de graphique en double après une réponse vide.** Le nudge qui relance un modèle muet
+  normalisait deux fois la même fenêtre : les empreintes d'images du tour empêchent la seconde
+  émission (deux images *différentes* restent deux images).
+
 ## [1.7.6] — 2026-11-17
 
 **`--provider X` choisit maintenant son propre modèle, et un 401 dit lequel des deux a échoué.**
