@@ -1019,6 +1019,63 @@ mattering commercially.
 
 ## P3 - Functional evolutions (opened 2026-11-18)
 
+### P3-15 Intelligent orchestration of tools and Skills — IN PROGRESS (worktree)
+
+**Why this exists.** Today a turn is offered *every* tool of *every* toolset
+(`uh/agent.py:100 _tool_definitions` walks the whole catalog, no mode filter, no
+intent filter). The operator's requirement is the opposite: a plain question reaches
+the model with no tools, and a chart request reaches it with the data and execution
+tools — **without the user typing a `/command`**. Commands stay as a manual override,
+never as the way to discover a capability.
+
+**Measured starting point (2026-11-18, `958e13c`).** `build_toolsets()` → `file`,
+`mcp:atelier`, `memory`, `terminal`, `web_search` (+ `uhb` only when
+`UH_UHB_EXECUTE=1`); no intent layer exists, `uh/decision.py` is the decision
+*journal*; a skill is attached manually, one per turn (`uh/web/app.py:765`).
+
+**Contract of the lot**
+ (a) *Intent* → capability families from the request, its keywords, the recent turns
+ and the real catalog — never a fixed keyword table alone;
+ (b) *Skills* → proposed from what they say they do (name + title weigh more than the
+ description), **at most one**, and *no skill* when nothing is convincing — a wrong
+ skill injects a wrong protocol;
+ (c) *Catalog* → `request.tools` built from the selection only, capped (3 toolsets);
+ no toolset or skill name can be returned unless it exists in the catalog (the
+ `mcp__positron__execute_code` class of failure becomes impossible);
+ (d) *Execution* stays UHB's: the model's decision is never an authorisation;
+ (e) *UX* → one plain-French line ("Analyse des données et génération du
+ graphique…"), no internal tool names;
+ (f) *Adding a skill never breaks UH*: a malformed skill file is skipped, one skill
+ cannot shadow a tool or a security rule;
+ (g) ambiguous short request → **ask**, never pick arbitrarily.
+
+**Already prepared in the worktree** (`feat/intent-orchestration`, not pushed): the
+router `uh/intent.py` and `tests/test_intent.py` (**12 passed**), with a real-catalog
+smoke test that caught two defects the unit doubles had hidden — the real catalog
+holds Toolset *objects* (`'FileToolset' object is not iterable`), and naive lexical
+skill matching proposed `blender-physics-mantaflow-sim` for "recherche les dernières
+informations" (shared word: "rendu"). Both fixed; thresholds now measured.
+
+**Not done yet, and not claimed:** wiring into `ChatSession.run_text` (the pass-through
+point is `uh/console.py:761`, where `self.toolsets` is handed to `run_turn`) behind a
+flag, the UHB-side permission test (T7), the multi-provider test (T10) and the
+"skill invalid → UH still boots" test (T6). No push, no PR, no merge.
+
+### Status sync of the work already on `main` (verified 2026-11-18, `958e13c`)
+
+| Item | State | Evidence |
+|---|---|---|
+| `execute_code` chain (snippet → artefacts → bubble) | done, verified | `tests/e2e/test_p1_13_charts.py` (2 Chromium cases), PR #25 |
+| operator approval (nonce, single use) | done, verified | `uh/toolsets/uhb.py:612-625`, refusal tested |
+| UHB independent validation of the mode | done, by design | `/tools/execute` re-checks the mode; UH cannot grant it |
+| image handling (bytes to UI, text to model) | done, verified | `request_messages` (providers/__init__.py:139-170), `tests/test_tool_images.py` (10) |
+| conversation resilience (transcript notice) | done, verified | P1-12, PR #23, `tests/test_transcript_notice.py` (7) + e2e |
+| character & role per project | done, verified | P3-14, PR #27, `tests/test_roles.py` (9) + 3 e2e |
+| tool-call serialisation per provider | **implemented but not validated** | audit 2026-11-18: `type` missing, `arguments` shape depends on stream mode → DeepSeek 422 / Ollama 400 reproduced |
+| intent orchestration (this lot) | in progress (worktree) | 12 unit tests, wiring pending |
+
+
+
 Lots that change what the product *is* for its operator, without touching the transport,
 the fusion or the validation programme. They queue behind P1/P2 and never before P4-1.
 
