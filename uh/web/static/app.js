@@ -3110,6 +3110,7 @@ function skillRow(skill) {
   row.dataset.origin = String(skill.origin || "user");
   const box = el("input");
   box.type = "checkbox";
+  box.name = "skill-enabled";  // pas d'id : plusieurs lignes partagent ce champ
   box.className = "skill-toggle";
   box.checked = Boolean(skill.enabled);
   box.disabled = SKILL_STATE.busy;

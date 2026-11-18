@@ -82,6 +82,8 @@ class Selection:
     """What a turn is offered, and why. ``ask`` set means: ask before acting."""
 
     toolsets: Tuple[str, ...] = ()
+    #: Toolsets qu'une famille d'action reconnue exige et que le catalogue n'offre pas.
+    unavailable: tuple[str, ...] = ()
     skill: Optional[str] = None
     confidence: str = "none"  # "high" | "medium" | "none"
     reason: str = ""
@@ -300,6 +302,10 @@ def select(
         reason_parts.append("outils : " + ", ".join(chosen))
     if skill:
         reason_parts.append(f"skill : {skill}")
+    missing: list = []
+    action_words = tuple(CHART_WORDS) + ("code", "python", "calcul", "calcule", "execute")
+    if _hits(text, action_words) and "uhb" not in catalog:
+        missing.append("uhb")
     if reason_parts_extra:
         reason_parts.append(reason_parts_extra)
     return Selection(
@@ -307,6 +313,7 @@ def select(
         skill=skill,
         confidence=confidence,
         reason=" | ".join(reason_parts),
+        unavailable=tuple(missing),
         scores=scores,
     )
 

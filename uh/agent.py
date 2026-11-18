@@ -141,8 +141,13 @@ def _ensure_call_ids(message: dict) -> None:
     if not isinstance(calls, list):
         return
     for call in calls:
-        if isinstance(call, dict) and not call.get("id"):
+        if not isinstance(call, dict):
+            continue
+        if not call.get("id"):
             call["id"] = f"call_{uuid.uuid4().hex[:12]}"
+        if not call.get("type"):
+            # OpenAI/DeepSeek l'exigent a la relecture ; Ollama ne l'envoie pas.
+            call["type"] = "function"
 
 
 #: How many times a model may ask for the same forbidden tool before the turn is

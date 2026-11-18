@@ -34,6 +34,7 @@ from . import skill_prefs as uh_skill_prefs
 from . import skills as uh_skills
 from .agent import (
     BudgetExhausted,
+    _coerce_arguments,
     last_assistant_message,
     provider_supports_streaming,
     run_turn,
@@ -844,6 +845,30 @@ class ChatSession:
             line += f"  total session {self.total_usage['total']} tok"
         return line
 
+    def _notice_unavailable_capability(self, messages: list[dict]) -> None:
+        """Dire qu'une capacite a ete reconnue mais qu'aucun outil ne peut la servir.
+
+        Trois conditions, et aucune n'est << le contenu est vide >> : le routeur a
+        reconnu une famille d'action, le catalogue ne portait pas le toolset
+        correspondant, et le tour s'est termine sans appel d'outil ni texte. Une
+        reponse vide ordinaire ne declenche donc rien.
+        """
+        missing = list((self.last_intent or {}).get("unavailable") or [])
+        if not missing:
+            return
+        last = None
+        for message in messages:
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                last = message
+        if not isinstance(last, dict):
+            return
+        if last.get("tool_calls") or str(last.get("content") or "").strip():
+            return
+        self._notice(
+            "cette demande necessite l'execution de code, qui n'est pas activee "
+            "dans ce mode : aucun graphique ne peut etre produit."
+        )
+
     def _run_into(
         self, chunks: list[str], on_token, extra: list[dict] | None = None
     ) -> int:
@@ -862,6 +887,7 @@ class ChatSession:
                 context=self.context,
                 on_notice=self._notice,
             )
+            self._notice_unavailable_capability(updated)
         except BudgetExhausted as exc:
             self.console.error(f"uh chat: {exc}")
             return 1
@@ -885,7 +911,7 @@ class ChatSession:
             if message.get("role") == "assistant" and message.get("tool_calls"):
                 for call in message["tool_calls"]:
                     function = call.get("function") or {}
-                    self._emit("tool_call", name=function.get("name", ""), args=function.get("arguments"))
+                    self._emit("tool_call", name=function.get("name", ""), args=_coerce_arguments(function.get("arguments")))
             if message.get("role") == "tool":
                 self.console.errout(_tool_activity(message))
                 self._emit(

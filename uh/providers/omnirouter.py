@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -452,12 +453,16 @@ def _normalise_tool_calls(raw) -> List[dict]:
             continue
         function = call.get("function") or {}
         arguments = function.get("arguments")
-        if isinstance(arguments, str):
-            try:
-                arguments = json.loads(arguments) if arguments.strip() else {}
-            except json.JSONDecodeError:
-                arguments = {}
-        calls.append({"function": {"name": function.get("name", ""), "arguments": arguments or {}}})
+        if not isinstance(arguments, str):
+            # Le message assistant rejoue une CHAINE JSON : un dict est refuse par
+            # OpenAI/DeepSeek (422). Les arguments invalides sont conserves tels
+            # quels, jamais remplaces par {} : la validation decide plus loin.
+            arguments = json.dumps(arguments if arguments is not None else {}, ensure_ascii=False)
+        calls.append({
+            "id": call.get("id") or f"call_{uuid.uuid4().hex[:12]}",
+            "type": call.get("type") or "function",
+            "function": {"name": function.get("name", ""), "arguments": arguments},
+        })
     return calls
 
 
@@ -467,7 +472,11 @@ def _merge_tool_call_fragments(fragments: dict, raw) -> None:
         if not isinstance(call, dict):
             continue
         index = call.get("index", position)
-        slot = fragments.setdefault(index, {"function": {"name": "", "arguments": ""}})
+        slot = fragments.setdefault(index, {
+            "id": call.get("id") or f"call_{uuid.uuid4().hex[:12]}",
+            "type": call.get("type") or "function",
+            "function": {"name": "", "arguments": ""},
+        })
         function = call.get("function") or {}
         if function.get("name"):
             slot["function"]["name"] += str(function["name"])

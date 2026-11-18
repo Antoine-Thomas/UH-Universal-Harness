@@ -140,6 +140,11 @@ class OllamaProvider(Provider):
             "content": message.get("content") or "",
             "tool_calls": _tool_calls_from(message),
         }
+        # Un modele qui raisonne (qwen3) renvoie sa reflexion dans `thinking` :
+        # elle est conservee A PART, jamais melangee au contenu utilisateur, et
+        # un tour sans contenu n'est jamais transforme en succes.
+        if message.get("thinking"):
+            payload["reasoning"] = str(message["thinking"])
         # Ollama says why it stopped: "length" is our own cap, and an answer cut
         # there looks complete to the browser. The key is only present when it is
         # true - a flag on every payload would ride into the store and the next
@@ -151,6 +156,7 @@ class OllamaProvider(Provider):
     def _chat_streaming(self, payload: dict, on_token: Callable[[str], None]) -> dict:
         parts: List[str] = []
         tool_calls: List[dict] = []
+        reasoning_parts: List[str] = []
         final: dict = {}
         try:
             with httpx.stream(
@@ -172,6 +178,8 @@ class OllamaProvider(Provider):
                         if delta:
                             parts.append(delta)
                             on_token(delta)
+                        if message.get("thinking"):
+                            reasoning_parts.append(str(message["thinking"]))
                         calls = _tool_calls_from(message)
                         if calls:  # Ollama sends the complete list in the final chunk
                             tool_calls = calls
@@ -184,6 +192,8 @@ class OllamaProvider(Provider):
         # The final NDJSON event carries prompt_eval_count / eval_count.
         self._record_meta(model=final.get("model"), usage=final)
         streamed: dict = {"role": "assistant", "content": "".join(parts), "tool_calls": tool_calls}
+        if reasoning_parts:
+            streamed["reasoning"] = "".join(reasoning_parts)
         if final.get("done_reason") == "length":
             streamed["truncated"] = True
         return streamed
