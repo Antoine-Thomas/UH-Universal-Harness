@@ -139,6 +139,16 @@
       <div class="rightbar-scroll">
         <div id="tools-view" class="panel-view" role="tabpanel" aria-labelledby="tab-tools" hidden>
           <div class="panel-hint" id="tools-hint">catalogue lu depuis UHB — information, pas une autorisation</div>
+          <!-- Gestion des Skills (P3-15) : une case cochée rend un Skill disponible
+               comme contexte du tour. Elle n'accorde aucune permission d'exécution. -->
+          <div class="skills-head">
+            <strong>Skills</strong>
+            <span id="skills-hint" class="skills-hint">chargement…</span>
+            <button id="skills-refresh" class="ghost" type="button">Actualiser</button>
+            <button id="skills-enable-all" class="ghost" type="button">Tout activer</button>
+            <button id="skills-disable-all" class="ghost" type="button">Tout désactiver</button>
+          </div>
+          <div id="skills-manager" class="skills-manager" aria-busy="false"></div>
           <div id="tools-list" class="tools-list" aria-busy="false"></div>
         </div>
         <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">

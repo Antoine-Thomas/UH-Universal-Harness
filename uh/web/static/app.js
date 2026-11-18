@@ -3092,6 +3092,115 @@ function renderToolCatalog(payload) {
   for (const entry of tools) list.appendChild(catalogCard(entry));
 }
 
+// --- gestion des Skills (P3-15) -------------------------------------------- //
+// Une liste unique, deux sections : Skills fournis avec UH, et Skills de
+// l'utilisateur. La case à cocher ne donne AUCUNE permission : elle décide si le
+// Skill peut servir de contexte et être proposé par le routeur. L'exécution des
+// outils reste autorisée ou refusée par UHB, indépendamment.
+let SKILL_STATE = { skills: [], busy: false };
+
+function skillsHint(message) {
+  const hint = $("skills-hint");
+  if (hint) hint.textContent = message || "";
+}
+
+function skillRow(skill) {
+  const row = el("label", "skill-row");
+  row.dataset.skill = String(skill.name || "");
+  row.dataset.origin = String(skill.origin || "user");
+  const box = el("input");
+  box.type = "checkbox";
+  box.className = "skill-toggle";
+  box.checked = Boolean(skill.enabled);
+  box.disabled = SKILL_STATE.busy;
+  box.addEventListener("change", () => {
+    setSkillEnabled(skill, box.checked).catch((error) => {
+      box.checked = !box.checked; // l'état affiché ne ment jamais sur le serveur
+      skillsHint(error.message || "modification refusée");
+    });
+  });
+  row.appendChild(box);
+  const text = el("span", "skill-text");
+  text.appendChild(el("span", "skill-name", String(skill.title || skill.name || "sans nom")));
+  if (skill.description) text.appendChild(el("span", "skill-desc", String(skill.description)));
+  row.appendChild(text);
+  row.appendChild(el("span", "skill-origin", skill.origin === "native" ? "fourni" : "perso"));
+  if (!skill.enabled) row.classList.add("off");
+  return row;
+}
+
+function skillSection(title, entries) {
+  const box = el("div", "skill-section");
+  box.appendChild(el("div", "skill-section-title", title));
+  for (const skill of entries) box.appendChild(skillRow(skill));
+  return box;
+}
+
+function renderSkills(data) {
+  SKILL_STATE.skills = Array.isArray(data.skills) ? data.skills : [];
+  const panel = $("skills-manager");
+  if (!panel) return;
+  panel.textContent = "";
+  const natives = SKILL_STATE.skills.filter((s) => s.origin === "native");
+  const mine = SKILL_STATE.skills.filter((s) => s.origin !== "native");
+  if (!SKILL_STATE.skills.length) {
+    panel.appendChild(el("div", "skill-empty", "aucun Skill installé"));
+  }
+  if (mine.length) panel.appendChild(skillSection(`Mes Skills (${mine.length})`, mine));
+  if (natives.length) panel.appendChild(skillSection(`Fournis avec UH (${natives.length})`, natives));
+  const off = SKILL_STATE.skills.filter((s) => !s.enabled).length;
+  skillsHint(`${SKILL_STATE.skills.length} Skills · ${off} désactivé${off > 1 ? "s" : ""}`);
+}
+
+async function loadSkillsManager() {
+  const panel = $("skills-manager");
+  if (panel) panel.setAttribute("aria-busy", "true");
+  try {
+    renderSkills(await api("/api/skills"));
+  } catch (error) {
+    skillsHint(`liste indisponible : ${error.message}`);
+  } finally {
+    if (panel) panel.setAttribute("aria-busy", "false");
+  }
+}
+
+async function setSkillEnabled(skill, enabled) {
+  SKILL_STATE.busy = true;
+  try {
+    const data = await api(`/api/skills/${encodeURIComponent(skill.name)}/enabled`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
+    skill.enabled = Boolean(data.enabled);
+    renderSkills({ skills: SKILL_STATE.skills });
+  } finally {
+    SKILL_STATE.busy = false;
+  }
+}
+
+async function setAllSkills(enabled) {
+  SKILL_STATE.busy = true;
+  skillsHint(enabled ? "activation…" : "désactivation…");
+  try {
+    for (const skill of SKILL_STATE.skills) {
+      if (Boolean(skill.enabled) === enabled) continue;
+      await setSkillEnabled(skill, enabled);
+    }
+  } finally {
+    SKILL_STATE.busy = false;
+    renderSkills({ skills: SKILL_STATE.skills });
+  }
+}
+
+function wireSkillsManager() {
+  const refresh = $("skills-refresh");
+  if (refresh) refresh.addEventListener("click", () => loadSkillsManager().catch(() => {}));
+  const enableAll = $("skills-enable-all");
+  if (enableAll) enableAll.addEventListener("click", () => setAllSkills(true).catch(() => {}));
+  const disableAll = $("skills-disable-all");
+  if (disableAll) disableAll.addEventListener("click", () => setAllSkills(false).catch(() => {}));
+}
+
 function loadToolCatalog() {
   if (state.toolsPromise) return state.toolsPromise;
   const list = $("tools-list");
@@ -3151,6 +3260,7 @@ function showPanelTab(name) {
   }
   if (name === "tools") {
     loadToolCatalog().catch(() => {});
+    loadSkillsManager().catch(() => {});
   }
   if (name === "memory") loadMemory().catch(() => {});
   if (name === "decision") loadDecision().catch(() => {});
@@ -3398,7 +3508,7 @@ async function refreshConnBadge() {
 // A link written before the merge must still land somewhere sane.
 const PANEL_ALIASES = { providers: "keys", "clé": "keys", cles: "keys", connexions: "conn" };
 const PANEL_TABS = new Set([
-  "keys", "local", "conn", "models", "uhb", "memory", "decision", "role", "telemetry", "data",
+  "keys", "local", "conn", "models", "uhb", "memory", "decision", "role", "telemetry", "data", "tools",
 ]);
 
 function openPanelFromUrl() {
@@ -5050,6 +5160,7 @@ async function boot() {
   wireSearch();
   wireProviders();
   wireRole();
+  wireSkillsManager();
   wireDock();
   wirePanes();
   wireModelToggle();
