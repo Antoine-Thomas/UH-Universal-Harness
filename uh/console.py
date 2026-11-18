@@ -17,6 +17,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -420,6 +421,10 @@ class ChatSession:
         started = time.perf_counter()
         route_before = self._route_snapshot()
         before = len(self.history)
+        # A turn owns its images: the fingerprints reset here, so a retry inside
+        # this turn cannot redraw what it already drew, and the next turn starts
+        # clean (Codex review on PR #25).
+        self._artifact_keys: set[str] = set()
         self.history.append({"role": "user", "content": text})
         chunks: list[str] = []
         usage_before = self._usage_snapshot()
@@ -531,7 +536,17 @@ class ChatSession:
         except Exception as exc:  # noqa: BLE001 - a broken image never breaks a turn
             self.console.detail(f"images: {type(exc).__name__}: {exc}")
             return str(original or "")
-        artifacts = normalised.payloads() + self._tool_images(since)
+        artifacts: List[Dict[str, Any]] = []
+        # One image, one drawing: the empty-answer retry below runs this
+        # normalisation a second time over the same window, and re-emitting would
+        # draw the same chart twice (Codex review on PR #25).
+        seen = self.__dict__.setdefault("_artifact_keys", set())
+        for payload in normalised.payloads() + self._tool_images(since):
+            key = self._artifact_key(payload)
+            if key in seen:
+                continue
+            seen.add(key)
+            artifacts.append(payload)
         if artifacts:
             message["artifacts"] = artifacts
             self._emit("artifacts", images=artifacts)
@@ -541,6 +556,10 @@ class ChatSession:
         if isinstance(original, list) or normalised.artifacts or normalised.refusals:
             message["content"] = normalised.text
         return normalised.text
+
+    def _artifact_key(self, payload: Dict[str, Any]) -> str:
+        """Stable fingerprint of one image payload: identical bytes draw once."""
+        return hashlib.sha1(str(payload.get("data_url", "")).encode("utf-8")).hexdigest()
 
     def _tool_images(self, since: int | None) -> List[Dict[str, Any]]:
         """Images a tool produced during this turn — the second source of artifacts.
@@ -565,6 +584,7 @@ class ChatSession:
             except (TypeError, ValueError):
                 continue
             images = result.get("images") if isinstance(result, dict) else None
+            harvested = 0
             for image in images or []:
                 if not isinstance(image, dict):
                     continue
@@ -576,6 +596,17 @@ class ChatSession:
                 if not mime:
                     continue
                 payloads.append(uh_images.Artifact(mime=mime, data=data).as_payload())
+                harvested += 1
+            if harvested and isinstance(result, dict):
+                # The base64 leaves the tool message: it is replayed to the model on
+                # the next turn and printed in the tool card, and a 14 KB chart is
+                # thousands of useless input tokens. The bytes live in the message
+                # artifacts, nowhere else (Codex review on PR #25).
+                for image in images or []:
+                    if isinstance(image, dict) and image.get("data_url"):
+                        image.pop("data_url", None)
+                        image["attached"] = "image jointe a la reponse (base64 retire du contexte)"
+                message["content"] = json.dumps(result, ensure_ascii=False)
         return payloads
 
     def _keep_partial(self, chunks: list[str]) -> None:

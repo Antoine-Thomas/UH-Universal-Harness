@@ -137,3 +137,80 @@ def test_the_finished_turn_attaches_the_tool_images_and_emits_them_once() -> Non
     emitted = [event for event in events if event.get("type") == "artifacts"]
     assert len(emitted) == 1, "un seul evenement, sinon l'image est dessinee deux fois"
     assert emitted[0]["images"] == artifacts
+
+
+def test_the_base64_leaves_the_tool_message() -> None:
+    """Codex review on PR #25: a 14 KB chart is thousands of tokens, twice over.
+
+    The bytes belong to ``message["artifacts"]``. What stays in the ``role: tool``
+    message is what the model may read on the next turn: no data URL, and a marker
+    that says the image was attached.
+    """
+    session = session_with(
+        [
+            tool_message(
+                "execute_code",
+                {
+                    "ok": True,
+                    "stdout": "figure ecrite",
+                    "images": [{"mime": "image/png", "bytes": len(PNG), "data_url": PNG_URL}],
+                },
+            )
+        ]
+    )
+
+    payloads = session._tool_images(0)
+
+    assert len(payloads) == 1, "les octets sont bien recoltes"
+    stored = json.loads(session.history[0]["content"])
+    image = stored["images"][0]
+    assert "data_url" not in image, "le base64 ne doit jamais rester dans le message outil"
+    assert "base64 retire" in image["attached"]
+    assert stored["stdout"] == "figure ecrite", "le reste du resultat est intact"
+    assert stored["ok"] is True
+
+
+def test_a_retry_in_the_same_turn_does_not_draw_the_chart_twice() -> None:
+    """Codex review on PR #25: the empty-answer nudge normalises the same window twice."""
+    events: list[dict] = []
+    session = ChatSession.__new__(ChatSession)
+    session.history = [
+        {"role": "user", "content": "trace la courbe"},
+        tool_message("execute_code", {"images": [{"mime": "image/png", "data_url": PNG_URL}]}),
+        {"role": "assistant", "content": ""},
+    ]
+    session.events = events.append
+    session.console = _QuietConsole()
+    session._artifact_keys = set()
+
+    session._normalise_answer_images(0)
+    # The nudge produced a second assistant message, and the turn normalises again.
+    session.history.append({"role": "assistant", "content": "Voici la courbe."})
+    session._normalise_answer_images(0)
+
+    emitted = [event for event in events if event.get("type") == "artifacts"]
+    assert len(emitted) == 1, "un deuxieme evenement dessinerait le meme graphique en double"
+    assert len(emitted[0]["images"]) == 1
+    assert not session.history[-1].get("artifacts"), "la seconde bulle n'herite pas d'un doublon"
+
+
+def test_two_different_charts_in_one_turn_are_both_kept() -> None:
+    """Deduplication is by bytes, not by count: two different images stay two."""
+    other = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    other_url = "data:image/png;base64," + base64.b64encode(other).decode()
+    events: list[dict] = []
+    session = ChatSession.__new__(ChatSession)
+    session.history = [
+        tool_message("execute_code", {"images": [{"mime": "image/png", "data_url": PNG_URL}]}),
+        tool_message("execute_code", {"images": [{"mime": "image/png", "data_url": other_url}]}),
+        {"role": "assistant", "content": "Deux courbes."},
+    ]
+    session.events = events.append
+    session.console = _QuietConsole()
+
+    session._normalise_answer_images(0)
+
+    assert len(session.history[-1]["artifacts"]) == 2
+    assert len([e for e in events if e.get("type") == "artifacts"]) == 1
