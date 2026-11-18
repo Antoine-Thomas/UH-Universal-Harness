@@ -216,7 +216,7 @@ def create(
         title=clean_title, description=clean_description, instructions=clean_instructions
     )
     try:
-        path.write_text(text, encoding="utf-8")
+        path.write_bytes(text.replace(chr(13) + chr(10), chr(10)).encode("utf-8"))
     except OSError as exc:
         raise SkillError(f"cannot write {path}: {exc}") from exc
     return {
@@ -226,6 +226,80 @@ def create(
         "title": clean_title,
         "description": clean_description,
     }
+
+
+def update(
+    *,
+    name: str,
+    title: str,
+    description: str,
+    instructions: str,
+    home: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Rewrite one **user** skill file. A native skill can never be reached here.
+
+    The path is ``user_dir()/<name>.md`` and the name is validated against ``NAME``:
+    a caller cannot address a file that is not a user skill, so "modify a skill
+    shipped with UH" is not a permission question — it is not addressable at all.
+    """
+    stem = (name or "").strip().lower()
+    if not NAME.match(stem):
+        raise SkillError("the name becomes a file name: lowercase letters, digits, - and _ only")
+    clean_title = (title or "").strip()[:MAX_TITLE]
+    clean_description = (description or "").strip()[:MAX_DESCRIPTION]
+    clean_instructions = (instructions or "").strip()[:MAX_INSTRUCTIONS]
+    if not clean_title:
+        raise SkillError("a skill needs a title")
+    if not clean_instructions:
+        raise SkillError("a skill needs instructions: a title alone teaches nothing")
+    folder = user_dir(home)
+    path = folder / f"{stem}.md"
+    if not path.is_file():
+        raise SkillError(f"{stem} is not a user skill: it cannot be modified")
+    text = TEMPLATE.format(
+        title=clean_title, description=clean_description, instructions=clean_instructions
+    )
+    try:
+        path.write_bytes(text.replace(chr(13) + chr(10), chr(10)).encode("utf-8"))
+    except OSError as exc:
+        raise SkillError(f"cannot write {path}: {exc}") from exc
+    return {
+        "name": stem,
+        "path": str(path),
+        "bytes": path.stat().st_size,
+        "title": clean_title,
+        "description": clean_description,
+    }
+
+
+def delete(name: str, home: Optional[Path] = None) -> Dict[str, Any]:
+    """Remove one **user** skill file. Native files are outside this folder by design."""
+    stem = (name or "").strip().lower()
+    if not NAME.match(stem):
+        raise SkillError("the name becomes a file name: lowercase letters, digits, - and _ only")
+    path = user_dir(home) / f"{stem}.md"
+    if not path.is_file():
+        raise SkillError(f"{stem} is not a user skill: it cannot be deleted")
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise SkillError(f"cannot delete {path}: {exc}") from exc
+    return {"name": stem, "deleted": True}
+
+
+def duplicate(name: str, *, new_name: Optional[str] = None, home: Optional[Path] = None) -> Dict[str, Any]:
+    """Copy a user skill under a new name. The copy is independent from then on."""
+    source = read_skill(name, home) or {}
+    if not source or str(source.get("origin")) != "user":
+        raise SkillError(f"{name} is not a user skill: it cannot be duplicated")
+    stem = (new_name or f"{str(name).strip().lower()}-copie").strip().lower()
+    return create(
+        title=str(source.get("title") or name),
+        description=str(source.get("description") or ""),
+        instructions=str(source.get("instructions") or ""),
+        name=stem,
+        home=home,
+    )
 
 
 def prompt_block(name: str, home: Optional[Path] = None) -> Optional[str]:

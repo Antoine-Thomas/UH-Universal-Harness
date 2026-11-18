@@ -1546,6 +1546,113 @@ def create_app(
         listing["disabled"] = uh_skill_prefs.disabled()
         return listing
 
+    @app.get("/api/skills/{name}", dependencies=[Depends(require_token)])
+    async def skills_read(name: str) -> dict:
+        """One skill's full text, for the editor. A native skill is readable, not writable."""
+        from .. import skills as uh_skills
+
+        entry = next(
+            (item for item in uh_skills.list_skills().get("skills") or []
+             if str(item.get("name")) == str(name)),
+            None,
+        )
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"unknown skill: {name}")
+        full = uh_skills.read_skill(str(entry["name"])) or {}
+        return {
+            "name": entry["name"],
+            "title": entry.get("title") or "",
+            "description": entry.get("description") or "",
+            "instructions": full.get("instructions") or "",
+            "origin": entry.get("origin") or "user",
+            "editable": str(entry.get("origin")) != "native",
+        }
+
+    @app.put("/api/skills/{name}", dependencies=[Depends(require_token)])
+    async def skills_update(name: str, payload: dict) -> dict:
+        """Rewrite a user skill. Native skills are refused (403), not silently ignored."""
+        from .. import skills as uh_skills
+
+        entry = next(
+            (item for item in uh_skills.list_skills().get("skills") or []
+             if str(item.get("name")) == str(name)),
+            None,
+        )
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"unknown skill: {name}")
+        if str(entry.get("origin")) == "native":
+            raise HTTPException(status_code=403, detail="a native skill is never modified")
+        body = payload or {}
+        try:
+            return uh_skills.update(
+                name=str(entry["name"]),
+                title=str(body.get("title") or ""),
+                description=str(body.get("description") or ""),
+                instructions=str(body.get("instructions") or ""),
+            )
+        except uh_skills.SkillError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/skills/{name}/duplicate", dependencies=[Depends(require_token)])
+    async def skills_duplicate(name: str, payload: dict | None = None) -> dict:
+        from .. import skills as uh_skills
+
+        body = payload or {}
+        try:
+            return uh_skills.duplicate(
+                str(name), new_name=(str(body["name"]) if body.get("name") else None)
+            )
+        except uh_skills.SkillError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.delete("/api/skills/{name}", dependencies=[Depends(require_token)])
+    async def skills_delete(name: str) -> dict:
+        """Delete a user skill. A native skill has no file here, so it cannot be deleted."""
+        from .. import skills as uh_skills
+
+        entry = next(
+            (item for item in uh_skills.list_skills().get("skills") or []
+             if str(item.get("name")) == str(name)),
+            None,
+        )
+        if entry is not None and str(entry.get("origin")) == "native":
+            raise HTTPException(status_code=403, detail="a native skill is never deleted")
+        try:
+            return uh_skills.delete(str(name))
+        except uh_skills.SkillError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/skills/import", dependencies=[Depends(require_token)])
+    async def skills_import(payload: dict) -> dict:
+        """Import a Markdown skill: the CLIENT sends content, never a path.
+
+        Validation is the same one creation uses (name, title, instructions, bounds),
+        plus a duplicate check. Nothing is executed: the file is text, and the skill
+        only becomes part of a prompt when a turn selects it.
+        """
+        from .. import skills as uh_skills
+
+        body = payload or {}
+        filename = str(body.get("filename") or "").strip()
+        content = str(body.get("content") or "")
+        if not filename or not content.strip():
+            raise HTTPException(status_code=400, detail="send {filename, content}")
+        stem = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        if stem.lower().endswith(".md"):
+            stem = stem[:-3]
+        if (uh_skills.user_dir() / f"{stem.lower()}.md").exists():
+            raise HTTPException(status_code=409, detail=f"{stem} already exists")
+        try:
+            parsed = uh_skills.parse(content)
+            return uh_skills.create(
+                name=stem,
+                title=str(parsed.get("title") or ""),
+                description=str(parsed.get("description") or ""),
+                instructions=str(parsed.get("instructions") or ""),
+            )
+        except uh_skills.SkillError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.patch("/api/skills/{name}/enabled", dependencies=[Depends(require_token)])
     async def skills_set_enabled(name: str, payload: dict) -> dict:
         """Turn one skill on or off. The name must exist in the catalogue.
