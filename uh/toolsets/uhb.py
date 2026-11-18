@@ -651,6 +651,13 @@ class Uhbtoolset:
         path = "/tools/execute" if name == EXECUTE_TOOL else f"/tools/{name}"
         body: Dict[str, Any] = dict(arguments or {})
         if name == EXECUTE_TOOL:
+            # The transcript draws a figure from a data URL, never from a path, and
+            # UH refuses to read a file the tool merely named (tests/test_tool_images:
+            # "a path without a data url is not read"). UHB inlines only on request,
+            # so the request is made here: this is a transport detail of the chat,
+            # not a choice left to the model. Above UHB's 1.5 MB inline limit the
+            # image stays a path — UHB says so in its notes.
+            body["include_base64"] = True
             # The operator's answer was carried by `call()`. UHB wants its own proof:
             # a nonce it mints, single use, and checks itself. Without one, nothing
             # runs — including here, rather than sending a body that would be refused.

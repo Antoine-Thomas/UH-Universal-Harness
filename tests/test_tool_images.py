@@ -214,3 +214,93 @@ def test_two_different_charts_in_one_turn_are_both_kept() -> None:
 
     assert len(session.history[-1]["artifacts"]) == 2
     assert len([e for e in events if e.get("type") == "artifacts"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# The request side: UHB inlines only when asked (measured 2026-11-18 on a real
+# T10 turn — the model never passes `include_base64`, so every image came back
+# as `data_url: null` and the transcript could only show a path).
+# --------------------------------------------------------------------------- #
+def test_execute_code_asks_uhb_to_inline_the_images(monkeypatch) -> None:
+    """The chat renders data URLs, so the client asks for them — once, always."""
+    import httpx
+
+    from uh.toolsets.uhb import Uhbtoolset
+
+    monkeypatch.setenv("UH_UHB_EXECUTE", "1")  # a subprocess tool is published only on the switch
+
+    posted: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "tools": [
+                        {
+                            "name": "execute_code",
+                            "description": "run python",
+                            "parameters": {"type": "object", "properties": {}},
+                            "execution_type": "subprocess",
+                        }
+                    ]
+                },
+            )
+        if request.url.path == "/tools/approvals":
+            return httpx.Response(200, json={"approval_id": "nonce", "tool": "execute_code"})
+        posted.append(json.loads(request.content or b"{}"))
+        return httpx.Response(200, json={"ok": True, "images": []})
+
+    toolset = Uhbtoolset(
+        "http://127.0.0.1:8101",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        discover=True,
+        approver=lambda _tool, _arguments: True,
+    )
+
+    toolset.call("execute_code", {"code": "print(1)"})
+
+    assert posted and posted[0]["include_base64"] is True
+    assert posted[0]["code"] == "print(1)"
+
+
+def test_a_model_cannot_turn_the_inlining_off(monkeypatch) -> None:
+    """`include_base64: false` breaks the transcript, so it is not the model's call."""
+    import httpx
+
+    from uh.toolsets.uhb import Uhbtoolset
+
+    monkeypatch.setenv("UH_UHB_EXECUTE", "1")  # a subprocess tool is published only on the switch
+
+    posted: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "tools": [
+                        {
+                            "name": "execute_code",
+                            "description": "run python",
+                            "parameters": {"type": "object", "properties": {}},
+                            "execution_type": "subprocess",
+                        }
+                    ]
+                },
+            )
+        if request.url.path == "/tools/approvals":
+            return httpx.Response(200, json={"approval_id": "nonce", "tool": "execute_code"})
+        posted.append(json.loads(request.content or b"{}"))
+        return httpx.Response(200, json={"ok": True, "images": []})
+
+    toolset = Uhbtoolset(
+        "http://127.0.0.1:8101",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        discover=True,
+        approver=lambda _tool, _arguments: True,
+    )
+
+    toolset.call("execute_code", {"code": "print(1)", "include_base64": False})
+
+    assert posted and posted[0]["include_base64"] is True
