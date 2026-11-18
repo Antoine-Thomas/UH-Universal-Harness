@@ -3199,9 +3199,12 @@ async function setSkillEnabled(skill, enabled) {
       body: JSON.stringify({ enabled }),
     });
     skill.enabled = Boolean(data.enabled);
-    renderSkills({ skills: SKILL_STATE.skills });
   } finally {
+    // Le drapeau doit redescendre AVANT le rendu : rendu pendant busy=true, toutes
+    // les cases restent désactivées et l'interface devient inutilisable (mesuré :
+    // « element is not enabled » sur la case suivante).
     SKILL_STATE.busy = false;
+    renderSkills({ skills: SKILL_STATE.skills });
   }
 }
 
