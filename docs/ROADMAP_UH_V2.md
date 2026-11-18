@@ -713,6 +713,19 @@ What actually shipped (tags `v1.6.0` and `v1.6.1`, wheels on PyPI):
 
 - **P1-8 (UHB monitoring)** — absent / error / ok, visible in the System panel instead of a
   silent failure. Then **P4-1** (cross validation of the two components, `docs/VALIDATION_MATRIX.md`).
+- **P1-12 (transcript notice) — it must never read as data loss.** `reconcileTranscript`
+  (`uh/web/static/app.js:1095`) runs right after the turn's `done` (:1379), while the store can
+  still be one row behind the worker that writes it, and then prints a red `failed` bubble in the
+  middle of the thread — *« Le transcript enregistré contient moins de messages que l'écran :
+  rien n'a été effacé. »* — plus a **Recharger la session** button. Measured on this tree:
+  `system`/`failed` bubbles are already excluded from the count, so the remaining trigger is the
+  writer lag (and any bubble the store does not hold yet). Required: (a) re-read once before
+  deciding, and never notice a single-row lag or a locally echoed command; (b) when a real gap
+  remains, move it **out of the conversation** — header/status control (*« Actualiser la vue »*)
+  with plain French wording and no internal jargon; (c) messages, artifacts and folders
+  (`+ Folder`) stay untouched in SQLite: the control refreshes the view, it repairs nothing.
+  Proof before closing: a browser capture showing a normal turn raising no red bubble, and a
+  forced gap showing the discrete control instead.
 - **HTTP/SSE transport** for the MCP client - the blocker for Positron, remote
   servers, and any hosted tool server. Everything else in P14 waits on it.
 - Per-call approval for the tools **other than** `execute_code`: that one has a gate
