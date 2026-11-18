@@ -700,7 +700,21 @@ class ChatSession:
                 mime = uh_images.sniff_mime(data)
                 if not mime:
                     continue
-                payloads.append(uh_images.Artifact(mime=mime, data=data).as_payload())
+                payload = uh_images.Artifact(mime=mime, data=data).as_payload()
+                # Provenance, server-side only: "Poubelle" must delete a real file,
+                # and the page must never receive a filesystem path to fetch. It is
+                # not sent to the model either - the tool message itself is what the
+                # model re-reads, and this key lives in the message's artifacts.
+                source = {
+                    key: image.get(key)
+                    for key in ("path", "relative")
+                    if isinstance(image.get(key), str) and image.get(key)
+                }
+                if isinstance(result.get("run_dir"), str) and result["run_dir"]:
+                    source["run_dir"] = result["run_dir"]
+                if source:
+                    payload["source"] = source
+                payloads.append(payload)
                 harvested += 1
             if harvested and isinstance(result, dict):
                 # The base64 leaves the tool message: it is replayed to the model on

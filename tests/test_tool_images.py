@@ -304,3 +304,37 @@ def test_a_model_cannot_turn_the_inlining_off(monkeypatch) -> None:
     toolset.call("execute_code", {"code": "print(1)", "include_base64": False})
 
     assert posted and posted[0]["include_base64"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Provenance: the figure keeps the file it came from, server-side only, so the
+# Keep / Trash / vote buttons have something real to act on (P1-11).
+# --------------------------------------------------------------------------- #
+def test_the_artifact_keeps_the_provenance_of_its_file() -> None:
+    session = session_with(
+        [
+            tool_message(
+                "execute_code",
+                {
+                    "run_dir": r"C:\Users\searc\.uhb\runs\run-20260101-120000-abcdef",
+                    "images": [
+                        {
+                            "mime": "image/png",
+                            "data_url": PNG_URL,
+                            "path": r"C:\Users\searc\.uhb\runs\run-1\chart.png",
+                            "relative": "chart.png",
+                        }
+                    ],
+                },
+            )
+        ]
+    )
+
+    payloads = session._tool_images(0)
+
+    assert payloads and payloads[0]["source"]["relative"] == "chart.png"
+    assert payloads[0]["source"]["path"].endswith("chart.png")
+    assert payloads[0]["source"]["run_dir"].endswith("run-20260101-120000-abcdef")
+    assert "source" not in json.loads(session.history[0]["content"]), (
+        "the path stays in the message's artifacts, never in what the model re-reads"
+    )

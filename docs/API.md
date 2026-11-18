@@ -62,6 +62,9 @@ come back", which nothing else in the product could.
 | POST | `/api/sessions/{session_id}/upload?name=<file>` | raw bytes as the body (no multipart) | `{attachment: {name, path, size, kind, status, note}}` · `400` empty/refused · `413` over 20 MB |
 | DELETE | `/api/sessions/{session_id}/messages/{message_id}` | — | `{deleted, session_id, remaining}` · `404` (unknown session or message) |
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
+| POST | `/api/artifacts/action` | `{source: {path \| run_dir+relative}, action: keep\|trash\|rate, vote?: up\|down, comment?, session_id?, message_id?, index?}` | `{action, kept\|trashed\|rated, …}` · `400` refusé : fichier hors du dossier `runs`, disparu, ou action inconnue. Le fichier est résolu côté serveur et doit vivre sous `~/.uhb/runs` (`uh/artifacts.py`) : le corps de la requête ne peut viser aucun autre fichier |
+| GET | `/api/artifacts/trash` | — | `{files, root}` — ce que la corbeille contient avant de la vider |
+| POST | `/api/artifacts/trash/empty` | — | `{action: empty_trash, removed}` — ne touche jamais un dossier de run |
 | POST | `/api/sessions/{session_id}/chat` | `{message, attachments?: [path], skill?: name}` | **SSE stream** (below) · `400` empty message, refused attachment, or unknown skill · `404` · `503` provider unreachable. `skill` names a markdown file from `$UH_HOME/skills` or the shipped `uh/skills`; its instructions ride on the system message for that turn only |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
 | GET | `/api/sessions/{session_id}/decision` | — | `{available, turn: {duration_ms, average_ms, turns}, prompt: {complexity, mode, reason, source, note}, model: {provider, model, served, substituted, chosen}, chain, usage, context: {budget, summarised_exchanges, kept_exchanges, summary}, uhb_consulted, tool_calls, turns}` · `404` unknown session |

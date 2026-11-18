@@ -689,6 +689,53 @@ def create_app(
             )
         return {"deleted": message_id, "session_id": session["id"], "remaining": remaining}
 
+    @app.post("/api/artifacts/action", dependencies=[Depends(require_token)])
+    async def artifact_action(payload: dict) -> dict:
+        """Keep, trash or rate one image, from its provenance.
+
+        The page already holds the provenance (it arrives with the artifact), so
+        the same call works for a live turn and for a reloaded one. What it may
+        touch is decided here, not there: ``uh/artifacts.py`` refuses any path that
+        does not resolve inside UHB's runs root, so a forged body can neither read
+        nor delete another file. Refusals are a 400 with the sentence the page shows.
+        """
+        from .. import artifacts as uh_artifacts
+
+        source = payload.get("source")
+        provenance = source if isinstance(source, dict) else {}
+        action = str(payload.get("action") or "").strip().lower()
+        try:
+            if action == "keep":
+                return uh_artifacts.keep(provenance)
+            if action == "trash":
+                return uh_artifacts.trash(provenance)
+            if action == "rate":
+                return uh_artifacts.rate(
+                    provenance,
+                    str(payload.get("vote") or ""),
+                    session_id=str(payload.get("session_id") or ""),
+                    message_id=payload.get("message_id"),
+                    index=int(payload.get("index") or 0),
+                    comment=str(payload.get("comment") or ""),
+                )
+        except uh_artifacts.ArtifactActionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="action must be keep, trash or rate")
+
+    @app.get("/api/artifacts/trash", dependencies=[Depends(require_token)])
+    async def artifact_trash() -> dict:
+        """How much waits in the trash, before the operator empties it."""
+        from .. import artifacts as uh_artifacts
+
+        return {"files": uh_artifacts.trash_count(), "root": str(uh_artifacts.runs_root())}
+
+    @app.post("/api/artifacts/trash/empty", dependencies=[Depends(require_token)])
+    async def artifact_trash_empty() -> dict:
+        """Empty the trash. Only the trash: a run directory is never swept here."""
+        from .. import artifacts as uh_artifacts
+
+        return uh_artifacts.empty_trash()
+
     # -- attachments ------------------------------------------------------- #
     # Raw-body upload, not multipart: FastAPI needs ``python-multipart`` for form
     # uploads, which is not in the ``[web]`` extra. A Blob posted as the body with

@@ -238,7 +238,7 @@ const ARTIFACT_MIME = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 // data: a data URL is data, and the only sink that cannot execute it is img.src,
 // after a whitelist check on the prefix - the MIME in the payload is a claim,
 // not a proof. The server refuses remote URLs; the page never fetches one.
-function drawArtifacts(container, artifacts) {
+function drawArtifacts(container, artifacts, context) {
   const list = Array.isArray(artifacts) ? artifacts : [];
   for (const artifact of list) {
     const mime = String((artifact && artifact.mime) || "");
@@ -253,6 +253,7 @@ function drawArtifacts(container, artifacts) {
     if (artifact.note && !String(artifact.note).startsWith("http")) {
       figure.appendChild(el("figcaption", "tool-artifact-note", String(artifact.note)));
     }
+    artifactToolbar(figure, artifact, context);
     container.appendChild(figure);
   }
   if (list.some((artifact) => artifact && artifact.omitted)) {
@@ -260,6 +261,54 @@ function drawArtifacts(container, artifacts) {
       el("div", "tool-artifact-note", "image non conservée : au-delà du plafond de taille")
     );
   }
+}
+
+// The four things a figure accepts. The page sends the artifact's own provenance;
+// the SERVER decides what may be touched (uh/artifacts.py: the file must resolve
+// inside UHB's runs root). A refusal is shown verbatim, never swallowed.
+async function artifactAction(button, figure, body, done) {
+  button.disabled = true;
+  const note = el("span", "tool-artifact-note", "…");
+  figure.appendChild(note);
+  try {
+    const response = await fetch("/api/artifacts/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = {};
+    }
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    note.textContent = done;
+  } catch (error) {
+    note.textContent = `refusé : ${error.message}`;
+    button.disabled = false;
+  }
+}
+
+function artifactToolbar(figure, artifact, context) {
+  const source = artifact && artifact.source;
+  // No provenance, no button: an image whose file is unknown gets no action that
+  // would promise to delete something.
+  if (!source || (!source.path && !source.relative)) return;
+  const bar = el("div", "tool-artifact-actions");
+  const add = (label, title, extra, done) => {
+    const node = el("button", "tool-artifact-btn", label);
+    node.type = "button";
+    node.title = title;
+    const base = { source, session_id: (context && context.sessionId) || "" };
+    node.addEventListener("click", () => artifactAction(node, figure, { ...base, ...extra }, done));
+    bar.appendChild(node);
+  };
+  add("Garder", "garder cette image", { action: "keep" }, "gardée");
+  add("Poubelle", "déplacer vers la corbeille du dossier runs", { action: "trash" }, "dans la corbeille");
+  add("👍", "image réussie : signal au second cerveau", { action: "rate", vote: "up" }, "noté 👍");
+  add("👎", "image ratée", { action: "rate", vote: "down" }, "noté 👎");
+  figure.appendChild(bar);
 }
 
 function renderArtifacts(card, content) {

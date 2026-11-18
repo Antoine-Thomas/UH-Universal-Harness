@@ -681,8 +681,9 @@ def test_tool_artifacts_are_rendered_as_images_and_never_as_markup() -> None:
     skipped, because the payload's MIME is a claim — and `svg` is not in the list.
     """
     script = APP.read_text(encoding="utf-8")
-    body = script.split("function drawArtifacts(container, artifacts) {", 1)[1].split(
-        "\nfunction fillToolCard(", 1)[0]
+    body = script.split("function drawArtifacts(container, artifacts, context) {", 1)[1].split(
+        "\nfunction fillToolCard(", 1
+    )[0]
 
     assert "innerHTML" not in body, "a data URL is data; innerHTML would make it markup"
     assert 'const img = el("img"' in body and "img.src = url" in body
