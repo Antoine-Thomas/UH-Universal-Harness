@@ -45,8 +45,35 @@ COMMANDS: list[tuple[str, list[str]]] = [
 ]
 
 
+def _child_env() -> dict[str, str]:
+    """The environment the three commands run in.
+
+    Three things are removed or forced, all measured on 2026-11-18:
+
+    * ``UH_HOME`` — a shell that exported it for a demo would otherwise leak into
+      the suite, and some tests spawn ``python -m uh`` which inherits it.
+    * every ``GIT_*`` variable — the hook runs with ``GIT_DIR`` and
+      ``GIT_INDEX_FILE`` set, and ``tests/test_fixes.py`` builds throwaway
+      repositories. With those inherited, 7 of its tests fail, and worse, one of
+      them commits *into this repository*: a run with the leaked ``GIT_DIR``
+      produced a commit that deleted the whole tree.
+    * the caller's ``PYTHONPATH`` — ``_tool`` prefers ``.venv/Scripts/pytest.exe``,
+      which does not put the cwd first: from a worktree it imported the *installed*
+      uh-harness (another clone, another branch) and reported ``cannot import name
+      'intent'``. Inheriting a host PYTHONPATH is no better: measured, 19 collection
+      errors when it contributed another fastapi/pydantic.
+
+    So: this repository, the project venv's dependencies, nothing else.
+    """
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key != "UH_HOME" and not key.startswith("GIT_") and key != "PYTHONPATH"
+    } | {"PYTHONPATH": str(ROOT)}
+
+
 def main() -> int:
-    env = {key: value for key, value in os.environ.items() if key != "UH_HOME"}
+    env = _child_env()
     for name, command in COMMANDS:
         print(f"[push-gate] {name} …", flush=True)
         result = subprocess.run(command, cwd=str(ROOT), env=env)
