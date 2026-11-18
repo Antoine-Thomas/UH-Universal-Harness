@@ -3338,7 +3338,19 @@ function wireSkillsManager() {
   const form = $("skill-editor");
   if (form) form.addEventListener("submit", (event) => { saveSkill(event).catch(() => {}); });
   const file = $("skill-file");
-  if (file) file.addEventListener("change", () => { importSkill(file.files && file.files[0]).catch(() => {}); file.value = ""; });
+  if (file) {
+    // Le champ n'est vidé qu'APRÈS la lecture : le vider avant laissait un File
+    // dont `text()` échouait par intermittence, et l'erreur serveur n'était
+    // jamais affichée (mesuré : 400 reçu, #skill-error resté vide).
+    file.addEventListener("change", async () => {
+      const chosen = file.files && file.files[0];
+      try {
+        await importSkill(chosen);
+      } finally {
+        file.value = "";
+      }
+    });
+  }
 }
 
 function loadToolCatalog() {
