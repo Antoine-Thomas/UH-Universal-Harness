@@ -54,6 +54,12 @@ tests in `17bd062` and ships as soon as the approval is clicked.
 | P2-1 | The interface says what is connected / disabled / why something failed / what to do | UH | `TO VERIFY` | Progress: named errors (`source: command` vs model), action buttons, token warnings. **Missing**: a screen-by-screen inventory and the remaining English text (Decision) |
 | P2-2 | CLI: help, actionable errors, exit codes, diagnostics, docs matching the interface | UH | `TO VERIFY` | `uh doctor`, non-zero exit codes, `--version` consistent with `/healthz`. **Missing**: a message audit (some are English inside a French UI) |
 
+## P3 — Functional evolutions
+
+| ID | Criterion | Side | State | Proof / what is missing |
+|---|---|---|---|---|
+| P3-14 | Character & role per project: a **« Caractère / Rôle »** tab sets the assistant's posture, tone and business speciality (presets or free text), **independent from the skills**, persisted per session in SQLite | UH | `NOT STARTED` | Nothing exists: no role surface in the configuration panel, no role column in `sessions`/`messages`, no section in the prompt assembly. **Missing**: the tab, the storage + reload, the prompt wiring, and the independence proof (active toolsets and skills list byte-identical before/after a role switch) plus a browser capture of a role switched mid-session and kept after a reload |
+
 ## P4 — Final product
 
 | ID | Criterion | State | Condition |
