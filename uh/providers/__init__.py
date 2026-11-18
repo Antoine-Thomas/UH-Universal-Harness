@@ -17,7 +17,9 @@ so adding a provider means adding one module and one registry entry.
 from __future__ import annotations
 
 import json
+import re
 import time
+import uuid
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional, TypeVar
 
@@ -136,15 +138,34 @@ def retry_transport(
 
 
 
-def request_messages(messages: List[dict]) -> List[dict]:
+def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
     """Copy of ``messages`` as a provider should see it - never the stored dicts.
 
-    Two corrections, both decided here once for every provider:
+    The messages are stored in whatever shape the provider that produced them
+    used, and replayed to whichever provider answers next. Those shapes differ:
+    Ollama returns ``{id, function: {index, name, arguments: <object>}}``, OpenAI
+    and DeepSeek demand ``{id, type: "function", function: {name, arguments:
+    "<json string>"}}``. Measured on 2026-11-18, switching model inside one
+    session sent the first shape to DeepSeek (``422 missing field 'type'``) and
+    the second to Ollama (``400 Value looks like object, but can't find closing
+    '}'``): the whole conversation became unusable from one bad message onwards.
 
+    So this is the boundary, and it decides once for every provider:
+
+    * ``wire="openai"``: every tool call gets an ``id``, ``type: "function"``, and
+      ``arguments`` as a JSON **string**; ``index`` is dropped (it belongs to
+      streaming deltas, not to a replayed message). An argument string that is
+      not valid JSON is *repaired*, then replaced by ``{}`` - never sent as is,
+      because the provider rejects the entire request over one bad call.
+    * ``wire="ollama"``: the same call is rebuilt with ``arguments`` as an
+      **object**, and without ``type``/``index``.
     * an empty ``tool_calls`` list is removed. OpenAI tolerates
       ``"tool_calls": []`` on an assistant message; DeepSeek does not, and
       rejects the *next* turn with ``400 Invalid 'messages[N].tool_calls': empty
       array`` because the assistant message is replayed from history.
+    * a ``tool`` message without ``tool_call_id`` inherits the id of the call it
+      answers: without it OpenAI refuses the request, and the model cannot pair
+      result and call.
     * the **image bytes are dropped from a tool result**. The interface needs
       them (`artifacts[].data_url`, kept in the session so a reload redraws the
       chart); a text model does not, and it already has the marker
@@ -153,10 +174,13 @@ def request_messages(messages: List[dict]) -> List[dict]:
       following turn, paid to the API for a picture nothing can read.
     """
     cleaned: List[dict] = []
+    last_calls: List[str] = []
     for message in messages:
         if not isinstance(message, dict):
             cleaned.append(message)
             continue
+        if message.get("role") == "assistant":
+            last_calls = [call["id"] for call in _wire_tool_calls(message.get("tool_calls"), wire)]
         if "tool_calls" in message and not message["tool_calls"]:
             message = {key: value for key, value in message.items() if key != "tool_calls"}
         if message.get("artifacts"):
@@ -168,8 +192,103 @@ def request_messages(messages: List[dict]) -> List[dict]:
             content = _without_image_bytes(message.get("content"))
             if content is not message.get("content"):
                 message = {**message, "content": content}
+            if not str(message.get("tool_call_id") or "").strip() and last_calls:
+                message = {**message, "tool_call_id": last_calls.pop(0)}
+        if message.get("tool_calls"):
+            calls = _wire_tool_calls(message["tool_calls"], wire)
+            message = {**message, "tool_calls": calls}
         cleaned.append(message)
     return cleaned
+
+
+def _arguments_object(value: object) -> dict:
+    """Tool arguments as an object: parsed when a string, ``{}`` when hopeless."""
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    parsed = _parse_arguments(value)
+    return parsed if parsed is not None else {}
+
+
+def _arguments_text(value: object) -> str:
+    """Tool arguments as the JSON string OpenAI-compatible APIs demand.
+
+    A dict is serialised. A string is validated, and repaired if it is merely
+    malformed - a truncated chart snippet is a classic from a small local model.
+    What cannot be repaired becomes ``{}``: an empty call the tool will reject
+    with a readable error beats a whole turn refused with a 400 that names none.
+    """
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    if not isinstance(value, str) or not value.strip():
+        return "{}"
+    if _parse_arguments(value) is not None:
+        return value
+    repaired = _repair_arguments(value)
+    return repaired if repaired is not None else "{}"
+
+
+def _parse_arguments(text: str) -> Optional[Dict[str, object]]:
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _repair_arguments(text: str) -> str | None:
+    """Best effort on the two defects small models produce: never raises.
+
+    A trailing comma before a closing brace, and a truncated object (braces or
+    quotes left open). Both are closed here rather than dropped; anything else
+    returns ``None`` and the caller falls back to ``{}``.
+    """
+    candidate = text.strip()
+    if not candidate.startswith("{"):
+        return None
+    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+    opens = candidate.count("{") - candidate.count("}")
+    if opens > 0:
+        # A truncated object almost always stops inside a string: close the quote
+        # when the number of quotes is odd, then the braces it left open.
+        if candidate.count('"') % 2:
+            candidate += '"'
+        candidate += "}" * opens
+    elif opens < 0:
+        return None
+    parsed = _parse_arguments(candidate)
+    return candidate if parsed is not None else None
+
+
+def _wire_tool_calls(raw: object, wire: str) -> List[dict]:
+    """One tool_call list in the shape ``wire`` expects - ids kept, indexes gone."""
+    calls: List[dict] = []
+    entries = raw if isinstance(raw, list) else []
+    for call in entries:
+        if not isinstance(call, dict):
+            continue
+        raw_function = call.get("function")
+        function: Dict[str, object] = raw_function if isinstance(raw_function, dict) else {}
+        name = str(function.get("name") or call.get("name") or "")
+        arguments = function.get("arguments", call.get("arguments"))
+        call_id = str(call.get("id") or f"call_{uuid.uuid4().hex[:12]}")
+        if wire == "ollama":
+            calls.append(
+                {
+                    "id": call_id,
+                    "function": {"name": name, "arguments": _arguments_object(arguments)},
+                }
+            )
+        else:
+            calls.append(
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": _arguments_text(arguments)},
+                }
+            )
+    return calls
 
 
 def _without_image_bytes(content: object) -> object:

@@ -44,10 +44,23 @@ def test_the_original_messages_are_not_mutated() -> None:
 
 
 def test_a_real_tool_call_is_preserved() -> None:
+    """Content preserved, shape rebuilt: what the provider received today was not.
+
+    This case used to assert the stored call went out untouched. It did, and that
+    is exactly what broke a session on 2026-11-18: a call without ``type`` and
+    with ``arguments`` as an object is refused by DeepSeek (``422 missing field
+    'type'``) and by Ollama (``400 Value looks like object``). The name and the
+    arguments survive; the wire shape is now the boundary's job.
+    """
     call = {"function": {"name": "read_file", "arguments": {"path": "a"}}}
     message = {"role": "assistant", "content": "", "tool_calls": [call]}
 
-    assert request_messages([message])[0]["tool_calls"] == [call]
+    sent = request_messages([message])[0]["tool_calls"][0]
+
+    assert sent["type"] == "function"
+    assert sent["id"], "OpenAI requires an id on every call"
+    assert sent["function"]["name"] == "read_file"
+    assert json.loads(sent["function"]["arguments"]) == {"path": "a"}
 
 
 def test_a_missing_tool_calls_key_is_left_alone() -> None:
