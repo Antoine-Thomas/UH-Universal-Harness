@@ -171,8 +171,11 @@
             <textarea id="skill-instructions" rows="6" maxlength="20000"
                       placeholder="La procédure que l'IA doit suivre."></textarea>
             <button id="skill-save" class="ghost-button" type="submit">Enregistrer</button>
-            <div id="skill-error" class="skill-error" role="status" hidden></div>
           </form>
+          <!-- Le message d'erreur vit HORS du formulaire : dans le formulaire, il
+               disparaissait dès que l'éditeur était fermé (import de fichier), et
+               l'utilisateur ne voyait jamais le refus du serveur. -->
+          <div id="skill-error" class="skill-error" role="status" hidden></div>
           <div id="tools-list" class="tools-list" aria-busy="false"></div>
         </div>
         <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">
