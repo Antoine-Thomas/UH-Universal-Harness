@@ -3348,9 +3348,11 @@ function wireSkillsManager() {
       if (!input || input.id !== "skill-file") return;
       const chosen = input.files && input.files[0];
       if (!chosen) return;
-      importSkill(chosen)
-        .catch((error) => skillError(error.message || "import refusé"))
-        .finally(() => { input.value = ""; });
+      // Le champ est vidé TOUT DE SUITE, après capture du File (la référence reste
+      // lisible) : sinon une sélection suivante, faite avant la fin de la lecture,
+      // laisse la même valeur et Chromium n'émet aucun nouvel événement change.
+      input.value = "";
+      importSkill(chosen).catch((error) => skillError(error.message || "import refusé"));
     }, true);
   }
 }
