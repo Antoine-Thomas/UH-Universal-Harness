@@ -24,7 +24,10 @@ Fail-closed by construction:
   point: an old UHB would otherwise advertise tools that answer 404;
 * a UHB that dies mid-session yields ``{"error": "uhb unreachable", "kind":
   "transport"}``: a tool result the model can read, never an exception inside
-  ``run_turn``.
+  ``run_turn``;
+* every ``execute_code`` and every ``desktop_*`` call asks the operator first,
+  under its own ``uhb:<tool>`` scope; with no stream wired the answer is a
+  refusal, never a run. The read-only questions ask nothing - they spend nothing.
 
 Errors carry a ``kind`` so the model can act differently: ``invalid_request``
 (400 - fix the call), ``unroutable`` (409 - no model can serve this mode and
@@ -50,9 +53,41 @@ TIMEOUT = 1.0  # the probe: a control plane answers fast or does not exist
 #: The switch that exposes `execute_code` to the chat, and the tool it names.
 EXECUTE_ENV = "UH_UHB_EXECUTE"
 EXECUTE_TOOL = "execute_code"
-#: The scope an approval is remembered under by the UI gate. Not "uhb": trusting
-#: that name would also authorise the desktop tools, which is another decision.
-APPROVAL_SCOPE = "uhb:execute_code"
+#: Every tool UHB publishes under this prefix acts on the operator's machine -
+#: clicks, keystrokes, screenshots, URLs. Visible in the catalogue, so UHB can
+#: add a member without an edit here: the gate is the prefix, not a list.
+DESKTOP_PREFIX = "desktop_"
+
+
+def approval_scope(name: str) -> str:
+    """The gate scope of one tool: ``uhb:<tool>``.
+
+    One scope per tool, never the bare ``uhb``: the UI remembers "always allow"
+    per scope, and a shared scope would make one answer authorise every tool.
+    """
+    return f"uhb:{name}"
+
+
+def is_gated(name: str) -> bool:
+    """True when a call must carry the operator's approval before it is sent.
+
+    Two families ask first: ``execute_code`` (it runs a snippet as the operator's
+    user) and every ``desktop_*`` tool (it acts through the OS: a click, a URL, a
+    keystroke). Screenshots and window titles are gated too - they leak e-mail
+    subjects and file names. The read-only questions (``uhb_status``,
+    ``uhb_modes``, ``uhb_route``, ``describe_tools``) spend nothing and ask
+    nothing.
+
+    A prefix rather than an enumeration, and that is the security property: a
+    tool UHB catalogues tomorrow as ``desktop_<something>`` is gated by this
+    function without anyone remembering to add it here.
+    """
+    return name == EXECUTE_TOOL or name.startswith(DESKTOP_PREFIX)
+
+
+#: The scope an approval is remembered under by the UI gate. Kept as a module
+#: constant for the callers that name it; it is `approval_scope(EXECUTE_TOOL)`.
+APPROVAL_SCOPE = approval_scope(EXECUTE_TOOL)
 
 CALL_TIMEOUT = 5.0  # a route decision reads the catalog, but stays local
 #: How long the client waits *past* the time a snippet was allowed to run. UHB
@@ -387,7 +422,7 @@ def approver_for(
     def approve(tool: str, arguments: Dict[str, Any]) -> bool:
         from ..mcp_http import GATE
 
-        return GATE.ask(APPROVAL_SCOPE, tool, arguments, notify=notify)
+        return GATE.ask(approval_scope(tool), tool, arguments, notify=notify)
 
     return approve
 
@@ -464,44 +499,48 @@ class Uhbtoolset:
                 str(arguments.get("name") or ""), str(arguments.get("mode") or "")
             )
         if name in self.remote:
-            if name == EXECUTE_TOOL:
-                refusal = self._approval_refusal(arguments)
+            if is_gated(name):
+                refusal = self._approval_refusal(name, arguments)
                 if refusal is not None:
                     return refusal
             # UHB decides: this only transports the call and its answer.
             return self._call_remote(name, arguments)
         return {"error": f"unknown tool: {name}", "type": "forbidden", "tool": name}
 
-    def _approval_refusal(self, arguments: dict) -> Optional[dict]:
-        """Refuse a snippet the operator did not authorise, in the shared vocabulary.
+    def _approval_refusal(self, name: str, arguments: dict) -> Optional[dict]:
+        """Refuse a call the operator did not authorise, in the shared vocabulary.
 
         The question is asked here, in the turn's thread, so the answer arrives while
-        the tool call is waiting — and UHB still demands its own nonce afterwards.
-        Two checks, two authorities: the interface carries the decision, the backend
-        enforces it.
+        the tool call is waiting — and UHB still demands its own nonce afterwards for
+        `execute_code`. Two checks, two authorities: the interface carries the
+        decision, the backend enforces it.
+
+        ``name`` is the tool actually asked for, and it is what the refusal reports:
+        a refusal that names `execute_code` while the call was `desktop_click`
+        would misdirect the operator's next answer.
         """
         if self.approver is None:
             return {
-                "error": ("execute_code needs an approval and this interface wired "
-                          "none: nothing was executed"),
+                "error": (f"{name} needs an approval and this interface wired "
+                          "none: nothing was run"),
                 "type": "forbidden",
                 "kind": "forbidden",
                 "status": 403,
-                "tool": EXECUTE_TOOL,
+                "tool": name,
                 "reason": "approval_required",
             }
         try:
-            allowed = bool(self.approver(EXECUTE_TOOL, arguments))
+            allowed = bool(self.approver(name, arguments))
         except Exception:  # noqa: BLE001 - a broken notifier is a refusal, not a run
             allowed = False
         if allowed:
             return None
         return {
-            "error": "execute_code was refused: nothing was executed",
+            "error": f"{name} was refused: nothing was run",
             "type": "forbidden",
             "kind": "forbidden",
             "status": 403,
-            "tool": EXECUTE_TOOL,
+            "tool": name,
             "reason": "approval_refused",
         }
 
@@ -707,7 +746,10 @@ class Uhbtoolset:
 __all__ = [
     "Uhbtoolset",
     "approver_for",
+    "approval_scope",
+    "is_gated",
     "APPROVAL_SCOPE",
+    "DESKTOP_PREFIX",
     "resolve_url",
     "probe",
     "summarize",

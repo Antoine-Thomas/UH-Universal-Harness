@@ -195,7 +195,13 @@ def test_the_catalogue_adds_the_tools_this_file_does_not_name() -> None:
         posted.append((str(request.url), json.loads(request.content or b"{}")))
         return httpx.Response(200, json={"ok": True, "url": "https://x", "request_id": "r1"})
 
-    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler), discover=True)
+    asked: list[str] = []
+
+    def allow(tool: str, _arguments: dict) -> bool:
+        asked.append(tool)
+        return True
+
+    toolset = uhb_mod.Uhbtoolset(URL, client=client_for(handler), discover=True, approver=allow)
 
     names = [spec["function"]["name"] for spec in toolset.tools]
     assert "desktop_open_url" in names
@@ -203,6 +209,7 @@ def test_the_catalogue_adds_the_tools_this_file_does_not_name() -> None:
 
     result = toolset.call("desktop_open_url", {"url": "https://x"})
     assert result["ok"] is True
+    assert asked == ["desktop_open_url"], "a desktop_* tool asks before it acts (P3-15)"
     assert posted and posted[0][0].endswith("/tools/desktop_open_url")
     assert posted[0][1] == {"url": "https://x"}
 
