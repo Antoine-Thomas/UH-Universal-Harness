@@ -13,7 +13,7 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [Unreleased]
+## [1.8.0] — 2026-11-18
 
 ### Added
 
@@ -28,7 +28,7 @@ Conventions worth knowing:
   les serveurs MCP), toolsets actifs et schémas d'outils sont **identiques octet pour octet**
   avant et après un changement de rôle.
 
-## [1.7.7] — 2026-11-18
+## [1.7.7] — 2026-11-18 *(PyPI)*
 
 **Les graphiques se dessinent dans le chat, et l'alerte de transcription a quitté le fil.**
 Deux lots, chacun avec sa preuve dans le dépôt.
