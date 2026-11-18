@@ -128,8 +128,9 @@ def test_importing_a_markdown_skill_and_refusing_a_bad_file(
         "# Savoir importe\n\n> Importe par le test.\n\n## Instructions\n\nFais ceci.\n",
         encoding="utf-8",
     )
-    bad = tmp_path / "sans-titre.md"
-    bad.write_text("pas un skill\n", encoding="utf-8")
+    # Refus attendu : un nom qui ne peut pas devenir un identifiant de Skill.
+    bad = tmp_path / "Mauvais Nom.md"
+    bad.write_text(chr(10).join(["# Mauvais", "", "> d", "", "## Instructions", "", "Fais ceci.", ""]), encoding="utf-8")
     try:
         page.locator("#skill-file").set_input_files(str(good))
         expect(row(page, "savoir-importe")).to_be_visible(timeout=20000)
