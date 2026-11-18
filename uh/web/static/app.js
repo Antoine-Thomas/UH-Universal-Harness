@@ -3125,6 +3125,33 @@ function skillRow(skill) {
   if (skill.description) text.appendChild(el("span", "skill-desc", String(skill.description)));
   row.appendChild(text);
   row.appendChild(el("span", "skill-origin", skill.origin === "native" ? "fourni" : "perso"));
+  const actions = el("span", "skill-actions-row");
+  const edit = el("button", "ghost skill-action", skill.origin === "native" ? "" : "Modifier");
+  if (skill.origin !== "native") {
+    edit.type = "button";
+    edit.addEventListener("click", (event) => {
+      event.preventDefault();
+      openSkillEditor(skill).catch((error) => skillError(error.message));
+    });
+    actions.appendChild(edit);
+  }
+  const dup = el("button", "ghost skill-action", "Dupliquer");
+  dup.type = "button";
+  dup.addEventListener("click", (event) => {
+    event.preventDefault();
+    duplicateSkill(skill).catch((error) => skillError(error.message));
+  });
+  actions.appendChild(dup);
+  if (skill.origin !== "native") {
+    const del = el("button", "ghost skill-action danger", "Supprimer");
+    del.type = "button";
+    del.addEventListener("click", (event) => {
+      event.preventDefault();
+      deleteSkill(skill).catch((error) => skillError(error.message));
+    });
+    actions.appendChild(del);
+  }
+  row.appendChild(actions);
   if (!skill.enabled) row.classList.add("off");
   return row;
 }
@@ -3192,6 +3219,102 @@ async function setAllSkills(enabled) {
   }
 }
 
+function skillError(message) {
+  const box = $("skill-error");
+  if (!box) return;
+  box.hidden = !message;
+  box.textContent = message || "";
+}
+
+function editorFields(data) {
+  $("skill-name").value = String(data.name || "");
+  $("skill-name").readOnly = Boolean(data.editing);
+  $("skill-title").value = String(data.title || "");
+  $("skill-description").value = String(data.description || "");
+  $("skill-instructions").value = String(data.instructions || "");
+}
+
+function openSkillEditor(skill) {
+  const form = $("skill-editor");
+  if (!form) return Promise.resolve();
+  form.hidden = false;
+  form.dataset.editing = skill ? String(skill.name) : "";
+  $("skill-editor-title").textContent = skill ? `Modifier « ${skill.title || skill.name} »` : "Nouveau Skill";
+  skillError("");
+  if (!skill) {
+    editorFields({ editing: false });
+    $("skill-name").focus();
+    return Promise.resolve();
+  }
+  return api(`/api/skills/${encodeURIComponent(skill.name)}`).then((data) =>
+    editorFields({ ...data, editing: true })
+  );
+}
+
+async function saveSkill(event) {
+  event.preventDefault();
+  const button = $("skill-save");
+  if (button.disabled) return; // pas de double soumission
+  const editing = $("skill-editor").dataset.editing || "";
+  const body = {
+    title: $("skill-title").value.trim(),
+    description: $("skill-description").value.trim(),
+    instructions: $("skill-instructions").value.trim(),
+  };
+  const name = $("skill-name").value.trim();
+  button.disabled = true;
+  skillError("");
+  try {
+    if (editing) {
+      await api(`/api/skills/${encodeURIComponent(editing)}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    } else {
+      await api("/api/skills", { method: "POST", body: JSON.stringify({ ...body, name }) });
+    }
+    $("skill-editor").hidden = true;
+    await loadSkillsManager();
+  } catch (error) {
+    skillError(error.message || "enregistrement refusé");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function duplicateSkill(skill) {
+  await api(`/api/skills/${encodeURIComponent(skill.name)}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  await loadSkillsManager();
+}
+
+async function deleteSkill(skill) {
+  const label = skill.title || skill.name;
+  if (!window.confirm(`Supprimer définitivement le Skill « ${label} » ?`)) return;
+  await api(`/api/skills/${encodeURIComponent(skill.name)}`, { method: "DELETE" });
+  await loadSkillsManager();
+}
+
+async function importSkill(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith(".md")) {
+    skillError("seuls les fichiers .md sont acceptés");
+    return;
+  }
+  const content = await file.text();
+  try {
+    await api("/api/skills/import", {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name, content }),
+    });
+    await loadSkillsManager();
+  } catch (error) {
+    skillError(error.message || "import refusé");
+  }
+}
+
 function wireSkillsManager() {
   const refresh = $("skills-refresh");
   if (refresh) refresh.addEventListener("click", () => loadSkillsManager().catch(() => {}));
@@ -3199,6 +3322,14 @@ function wireSkillsManager() {
   if (enableAll) enableAll.addEventListener("click", () => setAllSkills(true).catch(() => {}));
   const disableAll = $("skills-disable-all");
   if (disableAll) disableAll.addEventListener("click", () => setAllSkills(false).catch(() => {}));
+  const create = $("skill-new");
+  if (create) create.addEventListener("click", () => openSkillEditor(null).catch(() => {}));
+  const cancel = $("skill-cancel");
+  if (cancel) cancel.addEventListener("click", () => { $("skill-editor").hidden = true; skillError(""); });
+  const form = $("skill-editor");
+  if (form) form.addEventListener("submit", (event) => { saveSkill(event).catch(() => {}); });
+  const file = $("skill-file");
+  if (file) file.addEventListener("change", () => { importSkill(file.files && file.files[0]).catch(() => {}); file.value = ""; });
 }
 
 function loadToolCatalog() {

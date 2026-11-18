@@ -149,6 +149,30 @@
             <button id="skills-disable-all" class="ghost" type="button">Tout désactiver</button>
           </div>
           <div id="skills-manager" class="skills-manager" aria-busy="false"></div>
+          <!-- Editeur et import (Lot 3) : le serveur reste seul juge du nom, du
+               contenu et des droits ; le navigateur n'envoie que du texte. -->
+          <div class="skills-actions">
+            <button id="skill-new" class="ghost" type="button">Écrire un Skill</button>
+            <label class="ghost skill-import" for="skill-file">Importer un .md</label>
+            <input id="skill-file" type="file" accept=".md,text/markdown" hidden>
+          </div>
+          <form id="skill-editor" class="skill-editor" hidden>
+            <div class="skill-editor-head">
+              <strong id="skill-editor-title">Nouveau Skill</strong>
+              <button id="skill-cancel" class="ghost" type="button">Annuler</button>
+            </div>
+            <label for="skill-name">Nom (minuscules, chiffres, tirets)</label>
+            <input id="skill-name" type="text" maxlength="64" placeholder="mon-skill" autocomplete="off">
+            <label for="skill-title">Titre</label>
+            <input id="skill-title" type="text" maxlength="120" placeholder="Ce que ce Skill sait faire">
+            <label for="skill-description">Description courte</label>
+            <input id="skill-description" type="text" maxlength="240" placeholder="Quand l'utiliser, en une phrase">
+            <label for="skill-instructions">Instructions</label>
+            <textarea id="skill-instructions" rows="6" maxlength="20000"
+                      placeholder="La procédure que l'IA doit suivre."></textarea>
+            <button id="skill-save" class="ghost-button" type="submit">Enregistrer</button>
+            <div id="skill-error" class="skill-error" role="status" hidden></div>
+          </form>
           <div id="tools-list" class="tools-list" aria-busy="false"></div>
         </div>
         <div id="keys-view" class="panel-view" role="tabpanel" aria-labelledby="tab-keys">
