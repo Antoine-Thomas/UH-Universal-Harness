@@ -37,6 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__, attachments, turnlog
 from .. import commands as uh_commands
 from .. import config as uh_config
+from .. import roles as uh_roles
 from ..console import ChatSession, Console
 from ..providers import Provider, ProviderError
 from ..store import Store, display_id
@@ -556,9 +557,15 @@ def create_app(
         """
         session = _session_or_404(app, session_id)
         body = payload or {}
-        if "title" not in body and "folder" not in body and "settings" not in body:
+        if (
+            "title" not in body
+            and "folder" not in body
+            and "settings" not in body
+            and "role" not in body
+        ):
             raise HTTPException(
-                status_code=400, detail="nothing to update: send title, folder or settings"
+                status_code=400,
+                detail="nothing to update: send title, folder, settings or role",
             )
         with _store(app) as store:
             if "title" in body:
@@ -566,16 +573,28 @@ def create_app(
                 store.rename_session(session["id"], title)
             if "folder" in body:
                 store.set_folder(session["id"], str(body.get("folder") or ""))
-            if "settings" in body:
-                # Stored on the session, not in the browser: a setting that
-                # changes an answer belongs with the conversation it changed.
-                blob = body.get("settings") or {}
-                values = blob.get("values") if isinstance(blob, dict) else None
-                metadata = dict(session.get("metadata") or {})
-                metadata["settings"] = {
-                    "enabled": bool((blob or {}).get("enabled")),
-                    "values": values if isinstance(values, dict) else {},
-                }
+            if "settings" in body or "role" in body:
+                # Re-read after the folder write: `set_folder` does its own
+                # read-modify-write, and a stale copy here would drop it.
+                current = store.get_session(session["id"]) or session
+                metadata = dict(current.get("metadata") or {})
+                if "settings" in body:
+                    # Stored on the session, not in the browser: a setting that
+                    # changes an answer belongs with the conversation it changed.
+                    blob = body.get("settings") or {}
+                    values = blob.get("values") if isinstance(blob, dict) else None
+                    metadata["settings"] = {
+                        "enabled": bool((blob or {}).get("enabled")),
+                        "values": values if isinstance(values, dict) else {},
+                    }
+                if "role" in body:
+                    # Character & role (P3-14): the posture, and nothing else. An
+                    # unknown preset is refused by `normalise`, never silently kept.
+                    role = uh_roles.normalise(body.get("role"))
+                    if role is None:
+                        metadata.pop("role", None)
+                    else:
+                        metadata["role"] = role
                 store.set_session_metadata(session["id"], metadata)
             updated = store.get_session(session["id"])
         if updated is None:  # deleted concurrently: report it, do not invent a row
@@ -586,6 +605,7 @@ def create_app(
             "id": updated["id"],
             "title": updated["title"],
             "folder": (updated.get("metadata") or {}).get("folder") or "",
+            "role": (updated.get("metadata") or {}).get("role"),
             "session": {**updated, "short_id": display_id(updated["id"])},
         }
 
@@ -593,6 +613,13 @@ def create_app(
     # A folder is a value in session metadata, so these two routes are bulk
     # updates of one key. The list route exists because a folder with no session
     # in it does not exist at all: the sidebar cannot invent one.
+    # Character & role (P3-14): the presets the interface renders. The posture text
+    # is not sent to the client — it is applied server-side when the role is chosen,
+    # so a browser cannot rewrite the system prompt.
+    @app.get("/api/roles", dependencies=[Depends(require_token)])
+    async def list_roles() -> dict:
+        return {"presets": uh_roles.presets_payload(), "none": uh_roles.NONE_LABEL}
+
     @app.get("/api/folders", dependencies=[Depends(require_token)])
     async def list_folders() -> dict:
         with _store(app) as store:
@@ -831,6 +858,7 @@ def create_app(
                     max_iterations=max(1, int(app.state.cfg.get("max_iterations") or 8)),
                     session_id=session["id"],
                     announce=False,
+                    role=(session.get("metadata") or {}).get("role"),
                     console=Console(stream=io.StringIO(), err=io.StringIO()),
                     extra_system=skill_block,
                     params=chat_params,

@@ -54,7 +54,8 @@ come back", which nothing else in the product could.
 | GET | `/api/sessions` | `?limit=` | `{sessions: [{…, short_id}]}` |
 | POST | `/api/sessions` | `{title?}` | `{session: {…, short_id}}` |
 | DELETE | `/api/sessions/{session_id}` | — | `{deleted, id, files_removed}` — messages cascade, uploads are removed from disk · `404` |
-| PATCH | `/api/sessions/{session_id}` | `{title}` and/or `{folder}` | `{id, title, folder, session}` · `400` empty body · `404` |
+| PATCH | `/api/sessions/{session_id}` | `{title}` and/or `{folder}` and/or `{settings}` and/or `{role}` | `{id, title, folder, role, session}` · `400` empty body · `404`. `role` is a preset id (the posture is resolved server-side) or `{id: "custom", label, posture}`, bounded to 60 / 800 characters; `null` clears it |
+| GET | `/api/roles` | — | `{presets: [{id, label}], none}` — labels only: the posture text never reaches the browser |
 | GET | `/api/folders` | — | `{folders: [{name, count}]}` — folders are metadata values, so a folder with no session does not exist |
 | PATCH | `/api/folders/{name}` | `{name}` | `{name, previous, moved}` · `400` empty/unchanged/contains `/` · `404` unknown folder |
 | DELETE | `/api/folders/{name}` | — | `{deleted, unfiled}` — the sessions are kept, unfiled · `404` |
@@ -181,6 +182,8 @@ app-banner
 attach  attachments  command-chips  composer  files  folder-hint
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
+role-custom  role-custom-save  role-label  role-panel  role-posture  role-select  role-view
+tab-role
 local-panel  local-view  tab-local  setup-banner
 data-open  data-panel  data-view  tab-data
 tools-hint  tools-list  tools-view  tab-tools
