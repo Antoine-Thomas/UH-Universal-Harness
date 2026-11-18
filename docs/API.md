@@ -229,6 +229,21 @@ the **same** token, `Host`/`Origin` checks and CSP as the bundled interface (no
 `unsafe-inline`, so the page must load its script from `/static/…`). A missing
 `index.html` is a startup error, not a silent fallback.
 
+### Skills - cycle de vie (P3-15)
+
+| Methode | Route | Role |
+| --- | --- | --- |
+| GET | `/api/skills/{name}` | cycle de vie d un Skill |
+| PUT | `/api/skills/{name}` | cycle de vie d un Skill |
+| DELETE | `/api/skills/{name}` | cycle de vie d un Skill |
+| POST | `/api/skills/{name}/duplicate` | cycle de vie d un Skill |
+| POST | `/api/skills/import` | cycle de vie d un Skill |
+| PATCH | `/api/skills/{name}/enabled` | cycle de vie d un Skill |
+| GET | `/api/skills` | cycle de vie d un Skill |
+| POST | `/api/skills` | cycle de vie d un Skill |
+
+Elements d interface : `skills-manager`, `skills-hint`, `skills-refresh`, `skills-enable-all`, `skills-disable-all`, `skill-new`, `skill-file`, `skill-editor`, `skill-editor-title`, `skill-name`, `skill-title`, `skill-description`, `skill-instructions`, `skill-save`, `skill-cancel`, `skill-error`
+
 ## Router API (`uh router serve`)
 
 A **second, separate** application: another port (8780), another token
