@@ -17,13 +17,14 @@ Design constraints:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import config as uh_config
 from . import decision as uh_decision
@@ -240,6 +241,11 @@ def system_message(workspace: Path, extra_system: str = "") -> dict:
         f"files inside the workspace {workspace}, to run shell commands, and to keep notes "
         "in long-term memory. Prefer the file tools over the shell for file edits. "
         "Answer without calling a tool once the task is done. "
+        "When the user asks for a chart, a plot, a diagram or a map, draw it: call "
+        "execute_code and have it save a .png (matplotlib, Agg backend - there is no "
+        "display), then say one line about what it shows. Never answer such a request "
+        "with a tutorial about which library to install: the image is displayed in the "
+        "conversation, next to your answer. "
         "You can also reach external tools through the configured MCP servers - including "
         "cloud storage such as AWS S3 - and you know where this harness keeps its own "
         "files: the map below is authoritative, never guess a path. "
@@ -415,6 +421,10 @@ class ChatSession:
         started = time.perf_counter()
         route_before = self._route_snapshot()
         before = len(self.history)
+        # A turn owns its images: the fingerprints reset here, so a retry inside
+        # this turn cannot redraw what it already drew, and the next turn starts
+        # clean (Codex review on PR #25).
+        self._artifact_keys: set[str] = set()
         self.history.append({"role": "user", "content": text})
         chunks: list[str] = []
         usage_before = self._usage_snapshot()
@@ -449,7 +459,7 @@ class ChatSession:
                 del self.history[before:]
                 return code
 
-            content = self._normalise_answer_images()
+            content = self._normalise_answer_images(before)
             used_tools = any(message.get("role") == "tool" for message in self.history[before:])
 
             if not content and used_tools:
@@ -473,7 +483,7 @@ class ChatSession:
                     return code
                 if len(self.history) > position:
                     del self.history[position]
-                content = self._normalise_answer_images()
+                content = self._normalise_answer_images(before)
 
             produced = list(self.history[before:])
             self._print_answer(content, chunks)
@@ -502,13 +512,18 @@ class ChatSession:
                 except StoreError as exc:
                     self.console.error(f"uh chat: cannot record session: {exc}")
 
-    def _normalise_answer_images(self) -> str:
+    def _normalise_answer_images(self, since: int | None = None) -> str:
         """Images the provider returned: bytes to the interface, text to the model.
 
         Runs once per finished turn. A remote URL is fetched HERE, server-side,
         with the guards in ``uh.images`` (http(s), no literal local address, size
         cap, MIME from the magic bytes); the browser is never handed a remote URL,
         and a refusal becomes one readable transcript line.
+
+        ``since`` is the history index the turn started at: the images a *tool*
+        produced during the turn (``execute_code`` inlining what its snippet wrote)
+        join the provider's own blocks, so a chart the model drew is displayed in
+        the conversation like any other image.
         """
         message = last_assistant_message(self.history)
         if not message:
@@ -521,15 +536,78 @@ class ChatSession:
         except Exception as exc:  # noqa: BLE001 - a broken image never breaks a turn
             self.console.detail(f"images: {type(exc).__name__}: {exc}")
             return str(original or "")
-        if normalised.artifacts:
-            message["artifacts"] = normalised.payloads()
-            self._emit("artifacts", images=message["artifacts"])
+        artifacts: List[Dict[str, Any]] = []
+        # One image, one drawing: the empty-answer retry below runs this
+        # normalisation a second time over the same window, and re-emitting would
+        # draw the same chart twice (Codex review on PR #25).
+        seen = self.__dict__.setdefault("_artifact_keys", set())
+        for payload in normalised.payloads() + self._tool_images(since):
+            key = self._artifact_key(payload)
+            if key in seen:
+                continue
+            seen.add(key)
+            artifacts.append(payload)
+        if artifacts:
+            message["artifacts"] = artifacts
+            self._emit("artifacts", images=artifacts)
         note = uh_images.note_for(normalised.refusals)
         if note:
             self._notice(note)
         if isinstance(original, list) or normalised.artifacts or normalised.refusals:
             message["content"] = normalised.text
         return normalised.text
+
+    def _artifact_key(self, payload: Dict[str, Any]) -> str:
+        """Stable fingerprint of one image payload: identical bytes draw once."""
+        return hashlib.sha1(str(payload.get("data_url", "")).encode("utf-8")).hexdigest()
+
+    def _tool_images(self, since: int | None) -> List[Dict[str, Any]]:
+        """Images a tool produced during this turn — the second source of artifacts.
+
+        ``execute_code`` answers with ``images: [{mime, bytes, data_url, …}]`` once
+        the snippet wrote files (UHB inlines them; the catalogue carries the switch).
+        Only an **inlined data URL** is used: the browser is never handed a
+        filesystem path, and nothing is fetched from the network. The MIME comes
+        from the bytes, never from the field the tool declared — the same rule the
+        provider images follow.
+        """
+        if since is None:
+            return []
+        from . import images as uh_images
+
+        payloads: List[Dict[str, Any]] = []
+        for message in self.history[since:]:
+            if message.get("role") != "tool" or message.get("name") != "execute_code":
+                continue
+            try:
+                result = json.loads(message.get("content") or "{}")
+            except (TypeError, ValueError):
+                continue
+            images = result.get("images") if isinstance(result, dict) else None
+            harvested = 0
+            for image in images or []:
+                if not isinstance(image, dict):
+                    continue
+                decoded = uh_images.decode_data_url(str(image.get("data_url") or ""))
+                if not decoded:
+                    continue
+                data, _declared = decoded
+                mime = uh_images.sniff_mime(data)
+                if not mime:
+                    continue
+                payloads.append(uh_images.Artifact(mime=mime, data=data).as_payload())
+                harvested += 1
+            if harvested and isinstance(result, dict):
+                # The base64 leaves the tool message: it is replayed to the model on
+                # the next turn and printed in the tool card, and a 14 KB chart is
+                # thousands of useless input tokens. The bytes live in the message
+                # artifacts, nowhere else (Codex review on PR #25).
+                for image in images or []:
+                    if isinstance(image, dict) and image.get("data_url"):
+                        image.pop("data_url", None)
+                        image["attached"] = "image jointe a la reponse (base64 retire du contexte)"
+                message["content"] = json.dumps(result, ensure_ascii=False)
+        return payloads
 
     def _keep_partial(self, chunks: list[str]) -> None:
         """Record what the model said before the stream died, and mark it.
