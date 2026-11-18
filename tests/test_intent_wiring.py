@@ -12,8 +12,6 @@ Ce que ces tests protegent, dans l'ordre des responsabilites :
 
 from __future__ import annotations
 
-import pytest
-
 from uh import intent
 from uh import skills as uh_skills
 from uh.console import ChatSession, intent_routing_enabled
@@ -46,8 +44,19 @@ def test_t13_without_the_flag_everything_is_offered(monkeypatch) -> None:
     assert offered == CATALOG, "sans drapeau, le catalogue doit passer inchange"
 
 
-def test_t13_flag_values(monkeypatch) -> None:
-    for value, expected in (("1", True), ("true", True), ("0", False), ("", False), ("non", False)):
+def test_t13_only_the_exact_value_one_turns_it_on(monkeypatch) -> None:
+    """A stray inherited value must not switch the feature on by itself."""
+    for value, expected in (
+        ("1", True),
+        (" 1 ", True),
+        ("0", False),
+        ("", False),
+        ("true", False),
+        ("yes", False),
+        ("on", False),
+        ("1x", False),
+        ("01", False),
+    ):
         monkeypatch.setenv("UH_INTENT_ROUTING", value)
         assert intent_routing_enabled() is expected, value
 
@@ -187,3 +196,60 @@ def test_real_skills_are_usable_and_selection_stays_inside_the_catalog(monkeypat
         offered = intent.turn_toolsets(CATALOG, selection, enabled=True)
         assert set(offered) <= set(CATALOG), (phrase, offered)
         assert len(offered) <= 3
+
+
+# --------------------------------------------------------------------------- #
+# le skill selectionne doit etre dans le contexte, pas seulement au journal
+# --------------------------------------------------------------------------- #
+def _session_for_skill(tmp_path):
+    session = ChatSession.__new__(ChatSession)
+    session.history = [{"role": "system", "content": "PROMPT DE BASE"}]
+    session.toolsets = dict(CATALOG)
+    session.workspace = tmp_path
+    session.role = None
+    session.extra_system = ""
+    session.events = None
+    session.console = type("Console", (), {"detail": lambda *a: None, "errout": lambda *a: None})()
+    return session
+
+
+def test_the_selected_skill_reaches_the_context_of_the_turn(monkeypatch, tmp_path) -> None:
+    """The mechanism, deterministically: a proposed skill changes the prompt sent.
+
+    The router's own scoring is covered by the router tests; mixing both here made
+    the test fail for a reason that belonged to neither.
+    """
+    monkeypatch.setenv("UH_INTENT_ROUTING", "1")
+    monkeypatch.setattr(uh_skills, "prompt_block", lambda name, **kw: "## Active skill: " + str(name) + " / CORPS")
+    session = _session_for_skill(tmp_path)
+    session.last_intent = {"skill": "data-science-visualization"}
+    base = [{"role": "system", "content": "PROMPT DE BASE"}, {"role": "user", "content": "fais un graphique"}]
+
+    overlay = session._intent_skill(base)
+
+    assert "CORPS" in overlay[0]["content"], "le skill doit etre dans le prompt envoye"
+    assert "You are UH" in overlay[0]["content"], "le prompt UH est reconstruit, pas remplace par le skill seul"
+    assert base[0]["content"] == "PROMPT DE BASE", "l'historique stocke n'est pas modifie"
+    assert overlay is not base, "une copie, jamais l'historique"
+    assert session.last_intent.get("skill_injected") is True
+
+
+def test_an_operator_chosen_skill_is_never_overruled(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("UH_INTENT_ROUTING", "1")
+    session = _session_for_skill(tmp_path)
+    session.extra_system = "SKILL CHOISI PAR L OPERATEUR"
+    base = [{"role": "system", "content": "PROMPT DE BASE"}, {"role": "user", "content": "fais un graphique"}]
+    session._intent_toolsets(base)
+
+    overlay = session._intent_skill(base)
+
+    assert overlay[0]["content"] == "PROMPT DE BASE", "aucune substitution"
+
+
+def test_flag_off_never_injects_a_skill(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("UH_INTENT_ROUTING", raising=False)
+    session = _session_for_skill(tmp_path)
+    base = [{"role": "system", "content": "PROMPT DE BASE"}, {"role": "user", "content": "fais un graphique"}]
+    session.last_intent = {"skill": "data-science-visualization"}
+
+    assert session._intent_skill(base) == base

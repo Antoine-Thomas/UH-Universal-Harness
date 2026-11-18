@@ -238,7 +238,9 @@ def intent_routing_enabled() -> bool:
     the two mechanisms can be compared on the same machine and reverted in a
     keystroke, not so that behaviour changes under the operator's fingers.
     """
-    return (os.environ.get("UH_INTENT_ROUTING") or "").strip().lower() in ("1", "true", "yes", "on")
+    # Exactly "1". `true`, `yes`, `on` or any inherited value must NOT switch it on:
+    # a flag that turns itself on from a stray environment is not a flag.
+    return (os.environ.get("UH_INTENT_ROUTING") or "").strip() == "1"
 
 
 def _skill_listing() -> list:
@@ -425,6 +427,32 @@ class ChatSession:
         downgrade."""
         self.console.errout(f"! {text}")
         self._emit("notice", message=text)
+
+    def _intent_skill(self, base: list[dict]) -> list[dict]:
+        """Attach the router's skill to *this* call only — never to the stored history.
+
+        ``base`` is already a copy (``_run_into`` builds it with ``list(self.history)``),
+        so replacing element 0 adds the skill's instructions to the turn without the
+        transcript claiming the model was given them earlier. An operator-attached
+        skill always wins: the router fills a gap, it does not overrule a choice.
+        """
+        skill = str((self.last_intent or {}).get("skill") or "")
+        if not skill or not intent_routing_enabled() or self.extra_system.strip():
+            return base
+        try:
+            block = uh_skills.prompt_block(skill) or ""
+        except Exception as exc:  # noqa: BLE001 - a skill never breaks a turn
+            self.console.detail(f"intent: skill {skill} ignored: {type(exc).__name__}: {exc}")
+            return base
+        if not block:
+            return base
+        overlay = list(base)
+        if overlay and isinstance(overlay[0], dict) and overlay[0].get("role") == "system":
+            overlay[0] = system_message(self.workspace, block, self.role)
+        else:
+            overlay.insert(0, system_message(self.workspace, block, self.role))
+        self.last_intent = {**(self.last_intent or {}), "skill_injected": True}
+        return overlay
 
     def _intent_toolsets(self, base: list[dict]) -> dict:
         """The toolsets this turn is offered — the router's choice, or all of them.
@@ -816,6 +844,7 @@ class ChatSession:
         before = len(self.history)
         base = list(self.history) + list(extra or [])
         toolsets = self._intent_toolsets(base)
+        base = self._intent_skill(base)
         try:
             updated = run_turn(
                 base,
