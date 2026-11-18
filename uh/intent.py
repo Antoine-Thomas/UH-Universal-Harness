@@ -293,16 +293,41 @@ def filter_toolsets(
     toolsets: Mapping[str, Any],
     selection: Selection,
 ) -> Dict[str, Any]:
-    """The catalog restricted to the selection; the original when nothing matched.
-
-    A selection that matched nothing must not leave the model with *no* tool while
-    the operator still expects work to happen: in that case the caller decides (the
-    conversational path is the default, see :func:`select`).
-    """
+    """The catalog restricted to the selection (empty selection → empty catalog)."""
     if not selection.toolsets:
-        return dict(toolsets)
-    kept = {name: toolset for name, toolset in toolsets.items() if name in selection.toolsets}
-    return kept or dict(toolsets)
+        return {}
+    return {name: toolset for name, toolset in toolsets.items() if name in selection.toolsets}
+
+
+def turn_toolsets(
+    toolsets: Mapping[str, Any],
+    selection: Optional[Selection],
+    *,
+    enabled: bool,
+) -> Dict[str, Any]:
+    """What this turn actually offers — the one place the policy is decided.
+
+    * flag off (or no selection, or the router raised) → **unchanged catalogue**:
+      the historical behaviour, byte for byte, because a router that fails must
+      never take a capability away from the model;
+    * flag on and the router named toolsets → only those, intersected with what
+      really exists (a name outside the catalogue cannot widen anything);
+    * flag on and the router named nothing → **no tool at all**: a plain question
+      should not arrive with a toolbox.
+    """
+    catalog = dict(toolsets)
+    if not enabled or selection is None:
+        return catalog
+    if selection.ask:
+        # Ambiguity is surfaced as a question; the turn keeps the historical
+        # catalogue rather than guessing on the operator's behalf.
+        return catalog
+    if selection.toolsets:
+        kept = filter_toolsets(catalog, selection)
+        return kept or catalog
+    if selection.confidence == "none" and selection.reason.startswith("conversation"):
+        return {}
+    return catalog
 
 
 def describe(selection: Selection) -> str:

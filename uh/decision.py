@@ -57,6 +57,7 @@ def build_entry(
     payload_tokens: int = 0,
     route: Optional[dict] = None,
     tool_calls: int = 0,
+    intent: Optional[dict] = None,
     at: Optional[str] = None,
 ) -> Dict[str, Any]:
     """One compact record of a turn. Everything here was measured."""
@@ -95,6 +96,9 @@ def build_entry(
         "mode": mode,
         "reason": reason,
         "chain": chain,
+        # P3-15: what the router proposed for this turn — capability names only,
+        # never an argument, a message body or a secret. Absent when the flag is off.
+        **({"intent": intent} if intent else {}),
         "chosen": (route or {}).get("chosen") if route else None,
         "tool_calls": int(tool_calls),
         # When, not just what: the telemetry panel buckets tokens per day, and a

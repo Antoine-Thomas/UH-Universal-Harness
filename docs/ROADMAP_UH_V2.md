@@ -1056,10 +1056,26 @@ holds Toolset *objects* (`'FileToolset' object is not iterable`), and naive lexi
 skill matching proposed `blender-physics-mantaflow-sim` for "recherche les dernières
 informations" (shared word: "rendu"). Both fixed; thresholds now measured.
 
-**Not done yet, and not claimed:** wiring into `ChatSession.run_text` (the pass-through
-point is `uh/console.py:761`, where `self.toolsets` is handed to `run_turn`) behind a
-flag, the UHB-side permission test (T7), the multi-provider test (T10) and the
-"skill invalid → UH still boots" test (T6). No push, no PR, no merge.
+**Wired behind `UH_INTENT_ROUTING=1` (off by default).** The pass-through is
+`ChatSession._intent_toolsets()` on `uh/console.py` — the single place where
+`self.toolsets` reaches `run_turn`. Off, the catalogue is passed **unchanged**; on, the
+turn is offered the selection only (capped at 3), an empty selection for small talk
+means **no tool at all**, and a router exception falls back to the unchanged
+catalogue, never a wider one. The decision journal gains an `intent` block
+(capabilities and reason only — no argument, no message body, no secret). Proposing
+is not executing: the toolset object is handed over untouched, UHB keeps the
+authority, and no code path here calls a tool.
+
+**State ladder (kept explicit on purpose):** routeur préparé ✔ · routeur câblé ✔
+(sous drapeau) · drapeau **désactivé** dans l'installation de l'opérateur ✘ (volontaire) ·
+validation complète ✘ (pas de tour réel multi-fournisseurs) · déploiement effectif ✘.
+
+**Tests:** `tests/test_intent.py` (12) + `tests/test_intent_wiring.py` (12), suite
+complète **1574 passed / 2 skipped** drapeau **désactivé** (`test_line_endings`
+a attrapé mes fichiers en CRLF, corrigés en LF). `ruff` et `mypy uh` propres (70
+fichiers). **Reste à prouver** : un tour réel avec un vrai fournisseur (T10 bout en
+bout) et un refus UHB constaté sur un outil sélectionné mais non autorisé (T7 réel).
+No push, no PR, no merge.
 
 ### Status sync of the work already on `main` (verified 2026-11-18, `958e13c`)
 

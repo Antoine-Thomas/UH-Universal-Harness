@@ -28,7 +28,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import config as uh_config
 from . import decision as uh_decision
+from . import intent as uh_intent
 from . import sandbox
+from . import skills as uh_skills
 from .agent import (
     BudgetExhausted,
     last_assistant_message,
@@ -228,6 +230,25 @@ class Console:
 # --------------------------------------------------------------------------- #
 # session state
 # --------------------------------------------------------------------------- #
+
+def intent_routing_enabled() -> bool:
+    """``UH_INTENT_ROUTING=1`` turns on automatic capability selection (off by default).
+
+    Off, a turn is offered the whole catalogue exactly as before: the flag exists so
+    the two mechanisms can be compared on the same machine and reverted in a
+    keystroke, not so that behaviour changes under the operator's fingers.
+    """
+    return (os.environ.get("UH_INTENT_ROUTING") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _skill_listing() -> list:
+    """The installed skills, or an empty list: a broken folder never fails a turn."""
+    try:
+        return list(uh_skills.list_skills().get("skills") or [])
+    except Exception:  # noqa: BLE001 - automatic selection is a convenience
+        return []
+
+
 def system_message(workspace: Path, extra_system: str = "", role: Optional[dict] = None) -> dict:
     """The system prompt, plus whatever the operator attached to this turn.
 
@@ -346,6 +367,8 @@ class ChatSession:
         self.stream = stream
         self.store = store
         self.max_iterations = max_iterations
+        # Last automatic selection, for the decision journal (None when the flag is off).
+        self.last_intent: Optional[dict] = None
         self.session_id = session_id
         self.announce = announce
         self.console = console or Console()
@@ -402,6 +425,39 @@ class ChatSession:
         downgrade."""
         self.console.errout(f"! {text}")
         self._emit("notice", message=text)
+
+    def _intent_toolsets(self, base: list[dict]) -> dict:
+        """The toolsets this turn is offered — the router's choice, or all of them.
+
+        Three responsibilities stay separate: the router says what is *relevant*,
+        the model decides whether to call, UHB decides whether it may run. A router
+        that raises falls back to the unchanged catalogue (never to a wider one), and
+        nothing here executes anything.
+        """
+        self.last_intent = None
+        if not intent_routing_enabled():
+            return self.toolsets
+        text = ""
+        for message in reversed(base):
+            if isinstance(message, dict) and message.get("role") == "user":
+                text = str(message.get("content") or "")
+                break
+        try:
+            selection = uh_intent.select(
+                text,
+                self.toolsets,
+                skills=_skill_listing(),
+                history=[m for m in base[-6:] if isinstance(m, dict)],
+            )
+        except Exception as exc:  # noqa: BLE001 - selection must never break a turn
+            self.console.detail(f"intent: {type(exc).__name__}: {exc}")
+            return self.toolsets
+        chosen = uh_intent.turn_toolsets(self.toolsets, selection, enabled=True)
+        self.last_intent = selection.payload()
+        line = uh_intent.describe(selection)
+        if line and chosen != self.toolsets:
+            self._notice(line)
+        return chosen
 
     # -- persistence helpers ----------------------------------------------- #
     def _stored_messages(self, session_id: str) -> list[dict]:
@@ -674,6 +730,7 @@ class ChatSession:
             payload_tokens=int(context_state.get("payload_tokens") or 0),
             route=route,
             tool_calls=tool_calls,
+            intent=getattr(self, "last_intent", None),
         )
         try:
             uh_decision.record(self.store, self.session_id, entry)
@@ -758,11 +815,12 @@ class ChatSession:
         """One ``run_turn`` pass over the current history (+ optional nudge)."""
         before = len(self.history)
         base = list(self.history) + list(extra or [])
+        toolsets = self._intent_toolsets(base)
         try:
             updated = run_turn(
                 base,
                 self.provider,
-                self.toolsets,
+                toolsets,
                 max_iterations=self.max_iterations,
                 on_token=on_token if self.stream else None,
                 context=self.context,
