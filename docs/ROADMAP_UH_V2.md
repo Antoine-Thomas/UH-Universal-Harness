@@ -1012,6 +1012,28 @@ mattering commercially.
   `keys.toml` / `mcp-secrets.toml` in the same breath as it reads the source.
 - **Hugging Face model catalogue** fetched from the router instead of five constants.
 
+## P3 - Functional evolutions (opened 2026-11-18)
+
+Lots that change what the product *is* for its operator, without touching the transport,
+the fusion or the validation programme. They queue behind P1/P2 and never before P4-1.
+
+- **P3-14 Character & role per project, independent from the skills.** The operator wants
+  the assistant to answer as a senior software architect on one project and as a concise
+  product writer on another, without touching a single skill or toolset.
+  (a) A dedicated **« Caractère / Rôle »** tab in the `uh web` configuration panel, where the
+  character, tone and business speciality are chosen from presets or written by hand
+  (senior architect, full-stack developer, data analyst, concise writer…).
+  (b) **Total independence from the skills**: the role steers posture, expertise and tone. It
+  never enables, disables or edits a skill, a toolset or an MCP server — skills keep saying
+  *how* a task is executed, the role says *who* answers and in what voice.
+  (c) **Per project / per session switching**: the role changes on the fly from the tab or the
+  session header, is stored with the session in SQLite (`~/.uh/uh.db`) and reloaded cleanly
+  when the session is reopened.
+  Proof before closing: a browser capture of the tab, of a session opened with a role, of the
+  role switched mid-session and still there after a reload; and a test asserting that the
+  active toolsets and the skills list are **byte-identical before and after** a role switch
+  (that is what "independent" means, and it is the only way to prove it).
+
 ## P4 - Target: one product, packaged (opened 2026-11-16, restated 2026-11-17)
 
 The end state is **not** two repositories on GitHub. It is one product the operator can
