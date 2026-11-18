@@ -198,7 +198,7 @@ remote-banner  search-results  send  session-list  session-title  sidebar
 sidebar-toggle
 splash  splitter-left  splitter-right  status-provider  stop  tab-keys  tab-models
 tab-conn  tab-decision  tab-memory  tab-uhb  terminal-warning  theme-toggle  uhb-panel
-uhb-view  version-warning
+uhb-view  version-warning  view-stale
 ```
 
 `splash` is the only element that exists before the script runs: the UH mark,

@@ -1022,6 +1022,9 @@ async function openSession(id) {
   }
   renderHistory(data.messages);
   updateGauge(data.messages);
+  // A fresh read is the fix the header control performs: the stale flag it carried
+  // belongs to the previous render, not to this one (P1-12).
+  viewStale(false);
   // The conversation's own settings, stored with it: opening a session restores
   // the temperature it was written at, not the last one used in another tab.
   const stored = (data.session.metadata || {}).settings;
@@ -1089,51 +1092,94 @@ function guardedStep(label, step) {
 // The store is written by the turn's worker thread, so right after `done` it can
 // still be one message behind the DOM. Rebuilding the thread from it - what the
 // finally block used to do after every turn - is exactly how an answer the user
-// had just read disappeared. Reconcile instead: adopt the ids the store does
-// know about, and say so when it holds fewer rows than the screen. Nothing is
-// ever removed here.
-async function reconcileTranscript() {
-  const data = await api(`/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=200`);
-  // Two kinds of bubble are the interface's own voice, never the conversation:
-  // `system` (notices from a turn that ended badly, "stopped") and `failed`
-  // (the "Erreur du modèle : …" bubble, which is drawn client-side). Neither is
-  // ever stored, so counting them made the DOM look "ahead" of the store and
-  // raised the false warning this function exists to prevent.
-  const boxes = [...$("messages").querySelectorAll(".msg")].filter(
+// had just read disappeared. Reconcile instead: adopt the ids the store does know
+// about, and flag a desynchronised view in the HEADER when the two still
+// disagree. Nothing is ever removed here, and nothing is drawn in the thread.
+//: The API answers the LAST `limit` rows (`store.get_messages` orders by id DESC
+//: and reverses), so the window must be at least as large as the thread on
+//: screen. A fixed 200-row window compared against a 250-bubble conversation
+//: reported a gap on every turn of a long session (Codex review on PR #22).
+const RECONCILE_MIN_WINDOW = 200;
+//: Room for the bubbles a turn adds while it runs, so the window still covers them.
+const RECONCILE_WINDOW_MARGIN = 25;
+//: Past this, a single read costs more than the check is worth; the comparison is
+//: skipped rather than made between two windows of different sizes.
+const RECONCILE_MAX_WINDOW = 2000;
+//: The worker commits the turn's row just after `done`: re-read once before
+//: believing a gap, instead of surfacing a write that had not landed yet.
+const RECONCILE_RETRY_MS = 400;
+
+//: Bubbles that belong to the conversation. `system` (notices from a turn that
+//: ended badly, "stopped") and `failed` (the model-error bubble, drawn
+//: client-side) are the interface's own voice and are never stored; counting them
+//: made the DOM look "ahead" of the store and raised the false warning this
+//: function exists to prevent.
+function threadBubbles() {
+  return [...$("messages").querySelectorAll(".msg")].filter(
     (box) => !box.classList.contains("system") && !box.classList.contains("failed")
   );
-  const stored = (data.messages || []).filter((m) => (m.role || "assistant") !== "system");
-  updateGauge(stored);
+}
+
+async function storedMessages(count) {
+  const data = await api(
+    `/api/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=${count}`
+  );
+  return (data.messages || []).filter((m) => (m.role || "assistant") !== "system");
+}
+
+// The control lives in the header, out of the conversation: a red card between
+// two messages read as data loss, and the button asked the user to reload
+// something they had not been told was out of date.
+function viewStale(stale) {
+  const button = $("view-stale");
+  if (button) button.hidden = !stale;
+}
+
+function wireViewStale() {
+  const button = $("view-stale");
+  if (!button) return;
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    button.textContent = "Actualisation…";
+    openSession(state.sessionId)
+      .then(() => {
+        button.textContent = "Actualiser la vue";
+        viewStale(false);
+      })
+      .catch((error) => {
+        button.textContent = "Réessayer";
+        console.warn("transcript: refresh failed", error);
+      })
+      .finally(() => {
+        button.disabled = false;
+      });
+  });
+}
+
+async function reconcileTranscript() {
+  const boxes = threadBubbles();
+  const wanted = Math.max(
+    RECONCILE_MIN_WINDOW,
+    Math.min(boxes.length + RECONCILE_WINDOW_MARGIN, RECONCILE_MAX_WINDOW)
+  );
+  let stored = await storedMessages(wanted);
   if (stored.length < boxes.length) {
+    // One more read after the writer's usual delay: a single missing row is a
+    // race with the worker, not a loss, and must never surface as an alert.
+    await new Promise((resolve) => setTimeout(resolve, RECONCILE_RETRY_MS));
+    stored = await storedMessages(wanted);
+  }
+  updateGauge(stored);
+  // Only comparable when the window really covers the thread: a capped window
+  // would make any long conversation look desynchronised again.
+  const comparable = boxes.length + RECONCILE_WINDOW_MARGIN <= RECONCILE_MAX_WINDOW;
+  const desynced = comparable && stored.length < boxes.length;
+  if (desynced) {
     console.warn(
       `transcript: the store returned ${stored.length} message(s) for ${boxes.length} on screen; keeping the DOM`
     );
-    const bubble = appendMessage(
-      "system",
-      "Le transcript enregistré contient moins de messages que l'écran : rien n'a été effacé."
-    );
-    bubble.classList.add("failed");
-    // A sentence telling the user to reload put the action out of reach: the
-    // notice carried no button, so "Reload the session" was an instruction to
-    // find a control that does not exist. The button IS the sentence now.
-    const reload = el("button", "notice-action", "Recharger la session");
-    reload.type = "button";
-    reload.addEventListener("click", () => {
-      reload.disabled = true;
-      reload.textContent = "Rechargement…";
-      openSession(state.sessionId)
-        .then(() => {
-          reload.textContent = "Session rechargée";
-        })
-        .catch((error) => {
-          reload.disabled = false;
-          reload.textContent = "Réessayer";
-          console.warn("transcript: reload failed", error);
-        });
-    });
-    bubble.appendChild(reload);
-    return;
   }
+  viewStale(desynced);
   const claimed = new Set(
     boxes.map((box) => box.dataset.messageId).filter((id) => id !== undefined)
   );
@@ -4869,6 +4915,7 @@ async function boot() {
   wireAttachments();
   wireChips();
   wireComposer();
+  wireViewStale();
   wirePalette();
   wireSearch();
   wireProviders();

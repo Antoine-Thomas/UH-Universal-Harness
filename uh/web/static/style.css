@@ -265,6 +265,18 @@ body {
 .model-note.ok { color: var(--accent); border-color: var(--accent); }
 .model-note.warn { color: var(--highlight); border-color: var(--highlight); }
 .model-note[hidden] { display: none; }
+/* A desynchronised view is a state, not an event: a discreet control in the header,
+   next to the model note, never a card between two messages (P1-12). Plain French,
+   because "transcript" is our word, not the user's. */
+.view-stale {
+  padding: 4px 8px; font-size: 11px; font-family: inherit; white-space: nowrap;
+  border: 1px solid var(--highlight); color: var(--highlight);
+  background: transparent; border-radius: 6px; cursor: pointer;
+}
+.view-stale:hover:not(:disabled) { filter: brightness(1.12); }
+.view-stale:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.view-stale:disabled { opacity: .7; cursor: default; }
+.view-stale[hidden] { display: none; }
 /* One model in the header by default; the full list is this button away. An icon,
    not a word: the header is a single row and every pixel is taken. */
 .model-advanced {

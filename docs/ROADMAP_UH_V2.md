@@ -726,6 +726,10 @@ What actually shipped (tags `v1.6.0` and `v1.6.1`, wheels on PyPI):
   (`+ Folder`) stay untouched in SQLite: the control refreshes the view, it repairs nothing.
   Proof before closing: a browser capture showing a normal turn raising no red bubble, and a
   forced gap showing the discrete control instead.
+  **Delivered 2026-11-18** (`fix/p1-12-transcript-notice`) : fenêtre de lecture qui suit le fil,
+  relecture unique avant de conclure, contrôle `#view-stale` dans l'en-tête ; preuves
+  `tests/e2e/test_p1_12_transcript_notice.py` (Chromium réel, session de 250 messages) et
+  `tests/test_transcript_notice.py`.
 - **P1-13 (graphs are drawn, not described).** A request for a chart, a diagram or a map must end
   as an image in the bubble — `execute_code` writing a `.png` published through the `artifacts`
   channel after approval — not as a text tutorial that names a library to install. Two

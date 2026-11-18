@@ -540,35 +540,50 @@ def test_the_providers_panel_is_loaded_once_and_stays_isolated() -> None:
 def test_the_transcript_reconciliation_ignores_system_bubbles() -> None:
     """Notices are shown in the transcript but never stored, so counting them made
     the DOM look ahead of the store: any turn ending with a notice produced a
-    false "Le transcript enregistré contient moins de messages que l'écran"."""
-    script = APP.read_text(encoding="utf-8")
-    body = script.split("async function reconcileTranscript() {", 1)[1].split(
-        "\nasync function ", 1)[0]
+    false "Le transcript enregistré contient moins de messages que l'écran".
 
-    assert 'classList.contains("system")' in body, "system bubbles are not messages"
-    assert 'classList.contains("failed")' in body, "the client-drawn error bubble is not one either"
-    assert '!== "system"' in body, "stored system rows are excluded on both sides"
-    assert "const stored = data.messages || [];" not in body, \
+    Since P1-12 the two sides are built by ``threadBubbles()`` and
+    ``storedMessages()`` — the filter has to hold in both, and the reconcile body
+    must keep using them.
+    """
+    script = APP.read_text(encoding="utf-8")
+    bubbles = script.split("function threadBubbles() {", 1)[1].split("\n}\n", 1)[0]
+    stored = script.split("async function storedMessages(count) {", 1)[1].split("\n}\n", 1)[0]
+    body = script.split("async function reconcileTranscript() {", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+
+    assert 'classList.contains("system")' in bubbles, "system bubbles are not messages"
+    assert 'classList.contains("failed")' in bubbles, "the client-drawn error bubble is not one either"
+    assert '!== "system"' in stored, "stored system rows are excluded on both sides"
+    assert "threadBubbles()" in body, "the count comes from the filtered bubbles"
+    assert "storedMessages(wanted)" in body, "the store side comes from the filtered read"
+    assert "const stored = data.messages || [];" not in script, \
         "that is the version that counted the interface's own notices"
 
 
 @KEEP
-def test_the_transcript_notice_carries_a_button_not_an_instruction() -> None:
-    """Telling someone to reload, with no control to do it, is not an interface.
+def test_the_transcript_notice_lives_in_the_header_not_in_the_thread() -> None:
+    """P1-12: a red card between two messages read as data loss.
 
-    The notice is now one sentence plus one button that reloads the session in
-    place, and it says what happened when the click succeeded.
+    A desynchronised view is a state: it shows up as a discreet control in the
+    header ("Actualiser la vue"), which refreshes the view and nothing else — it
+    never draws a bubble in the conversation, and it never touches the store.
     """
     script = APP.read_text(encoding="utf-8")
     body = script.split("async function reconcileTranscript() {", 1)[1].split(
         "\nasync function ", 1
     )[0]
-    short = body.split("stored.length < boxes.length", 1)[1]
+    markup = INDEX.read_text(encoding="utf-8")
+    style = CSS.read_text(encoding="utf-8")
 
-    assert 'el("button"' in short, "the notice offers a control, not an instruction"
-    assert "notice-action" in short, "the button carries its own visible class"
-    assert "openSession(state.sessionId)" in short, "the button reloads the session it names"
-    assert "Recharge la session" not in body, "an imperative sentence is not a button"
+    assert "appendMessage(" not in body, "rien ne doit être dessiné dans le fil"
+    assert "notice-action" not in body, "l'encart rouge a quitté la conversation"
+    assert "viewStale(desynced);" in body, "l'état périmé passe par le contrôle d'en-tête"
+    assert 'id="view-stale"' in markup and "Actualiser la vue" in markup
+    assert ".view-stale[hidden]" in style, "un contrôle caché doit vraiment disparaître"
+    assert "openSession(state.sessionId)" in script.split("function wireViewStale()", 1)[1], \
+        "le bouton recharge la session qu'il nomme"
 
 
 @KEEP
