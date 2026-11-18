@@ -3337,17 +3337,21 @@ function wireSkillsManager() {
   if (cancel) cancel.addEventListener("click", () => { $("skill-editor").hidden = true; skillError(""); });
   const form = $("skill-editor");
   if (form) form.addEventListener("submit", (event) => { saveSkill(event).catch(() => {}); });
-  const file = $("skill-file");
-  if (file) {
-    // Le File est capturé puis le champ vidé TOUT DE SUITE : la référence reste
-    // lisible après le reset, et l'input est réarmé pour la sélection suivante.
-    // Attendre la fin de la lecture pour vider casse le 2e import d'une même
-    // session (mesuré : aucun POST émis au second choix de fichier).
-    file.addEventListener("change", () => {
-      const chosen = file.files && file.files[0];
-      file.value = "";
-      importSkill(chosen).catch(() => {});
-    });
+  // Délégation sur le document : le champ peut être reconstruit par un rendu, le
+  // listener n'est jamais perdu (mesuré : après un premier import, le second choix
+  // de fichier ne déclenchait plus aucun POST). Le champ est réarmé APRÈS la lecture,
+  // jamais pendant la distribution de l'événement.
+  if (!window.__uhSkillFileWired) {
+    window.__uhSkillFileWired = true;
+    document.addEventListener("change", (event) => {
+      const input = event.target;
+      if (!input || input.id !== "skill-file") return;
+      const chosen = input.files && input.files[0];
+      if (!chosen) return;
+      importSkill(chosen)
+        .catch((error) => skillError(error.message || "import refusé"))
+        .finally(() => { input.value = ""; });
+    }, true);
   }
 }
 

@@ -131,7 +131,7 @@ def test_importing_a_markdown_skill_and_refusing_a_bad_file(
     bad = tmp_path / "sans-titre.md"
     bad.write_text("pas un skill\n", encoding="utf-8")
     try:
-        page.set_input_files("#skill-file", str(good))
+        page.locator("#skill-file").set_input_files(str(good))
         expect(row(page, "savoir-importe")).to_be_visible(timeout=20000)
         expect(row(page, "savoir-importe").locator(".skill-origin")).to_have_text("perso")
 
@@ -142,7 +142,8 @@ def test_importing_a_markdown_skill_and_refusing_a_bad_file(
         with page.expect_response(
             lambda r: "/api/skills/import" in r.url and r.status == 400, timeout=20000
         ) as refused:
-            page.set_input_files("#skill-file", str(bad))
+            # Locator re-resolu : le noeud peut avoir ete reconstruit par un rendu.
+            page.locator("#skill-file").set_input_files(str(bad))
         assert "file name" in refused.value.text(), refused.value.text()
         expect(page.locator("#skill-error")).to_be_visible(timeout=15000)
         assert page.locator("#skills-manager .skill-row").count() == before, (
