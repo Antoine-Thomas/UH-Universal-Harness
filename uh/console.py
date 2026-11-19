@@ -34,6 +34,7 @@ from . import sandbox
 from . import skill_prefs as uh_skill_prefs
 from . import skills as uh_skills
 from .agent import (
+    NUDGE_MARK,
     BudgetExhausted,
     _coerce_arguments,
     last_assistant_message,
@@ -382,6 +383,28 @@ def _stopped_on_refusal(messages: list[dict]) -> bool:
     return isinstance(payload, dict) and payload.get("type") == "forbidden"
 
 
+def _without_nudges(messages: list[dict]) -> tuple[list[dict], int]:
+    """The turn without its retry instructions, and how many there were.
+
+    The nudge of point 3 is protocol, not conversation: the provider needed it, the
+    operator's transcript does not. Dropping it here keeps the thread readable and
+    the count feeds the turn log, so "the model was re-asked" stays measurable
+    after the fact instead of living only in a test.
+    """
+    kept: list[dict] = []
+    dropped = 0
+    for message in messages:
+        if (
+            isinstance(message, dict)
+            and message.get("role") == "system"
+            and NUDGE_MARK in str(message.get("content") or "")
+        ):
+            dropped += 1
+            continue
+        kept.append(message)
+    return kept, dropped
+
+
 class ChatSession:
     """Everything one console conversation needs, with or without a store."""
 
@@ -433,6 +456,9 @@ class ChatSession:
         #: Tool names this turn was actually offered, for the turn log: the
         #: measurement that says the gate is real, not a sentence in a prompt.
         self.last_offered: list[str] = []
+        #: How many times this turn re-asked the model to call a tool instead of
+        #: pasting code (point 3). Logged with the turn, never stored as a message.
+        self.last_nudges: int = 0
         self.session_id = session_id
         self.announce = announce
         self.console = console or Console()
@@ -644,6 +670,7 @@ class ChatSession:
         # here so a previous turn's notice can never be stored twice.
         self._end_notice = ""
         self._ended_on_refusal = False
+        self.last_nudges = 0
         # A turn owns its images: the fingerprints reset here, so a retry inside
         # this turn cannot redraw what it already drew, and the next turn starts
         # clean (Codex review on PR #25).
@@ -1036,6 +1063,10 @@ class ChatSession:
             )
             self._notice_unavailable_capability(updated)
             self._ended_on_refusal = _stopped_on_refusal(updated)
+            # The retry instructions of point 3 leave the transcript here: the
+            # provider needed them, the operator does not. `last_nudges` keeps the
+            # fact measurable (turn log) without a system bubble in the thread.
+            updated, self.last_nudges = _without_nudges(updated)
         except BudgetExhausted as exc:
             self.console.error(f"uh chat: {exc}")
             # The third exit of `run_turn`: no final answer, so the turn owes the

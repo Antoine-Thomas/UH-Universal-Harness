@@ -155,6 +155,12 @@ def _ensure_call_ids(message: dict) -> None:
 #: the user a provider call each time and cannot succeed.
 _REFUSAL_LIMIT = 3
 
+#: How many times a turn re-asks a model that answered with a code block instead of
+#: calling a tool it was offered (point 3). Two, not one: a small local model often
+#: needs the format repeated before it acts, and a third attempt has never been
+#: observed to change the outcome - it only multiplies the bill.
+_NUDGE_LIMIT = 2
+
 
 def _split_call(call: Any) -> tuple[str, str, dict]:
     """``(call_id, name, arguments)`` for either tool-call shape a provider sends."""
@@ -178,12 +184,29 @@ _CODE_FENCE = re.compile(
 #: on the indexed names, because that is what the model is offered - a toolset
 #: named `positron` only counts if it publishes a callable such as `execute_code`.
 _RUNNABLE_HINTS = ("execute", "terminal", "shell", "command", "run", "python", "code")
-#: Injected once, in the language the system prompt is written in. Naming the
-#: tool matters: "call a tool" is advice, "call `terminal`" is an instruction.
+#: Injected when a model answers with a code block instead of calling a tool it was
+#: offered. Naming the tool matters: "call a tool" is advice, "call `execute_code`"
+#: is an instruction - and the last sentence closes the door on handing code back
+#: a third time, which is what a small model does when it is only told "you can".
 _NUDGE = (
-    "You answered with a code block instead of using a tool. You can run this "
-    "yourself: call `{tool}` now with the code as its argument. Never hand code "
-    "to the user to copy and paste when a tool can do the work."
+    "You answered with a code block instead of calling the tool, and the code was "
+    "not executed: the user has to copy it, which is not the job. Call `{tool}` now, "
+    "with that code as its argument, and let the tool run it. Do not paste the code "
+    "again, do not describe what it would print: call `{tool}`."
+)
+#: A stable substring of `_NUDGE`, so a caller can recognise the retry instruction
+#: in a returned history without depending on the whole sentence. Used to keep it
+#: out of the stored transcript (it is protocol, not conversation) and to count it.
+NUDGE_MARK = "instead of calling the tool"
+#: A request that *asks for the code* is not a missed tool call: nudging it would
+#: fight the operator's own instruction, twice, at their expense. Deliberately
+#: narrow - a handful of explicit phrasings, never a semantic guess: a wrong
+#: suppression would silently disable point 3 for the questions it exists for.
+_CODE_REQUEST = re.compile(
+    r"(montre[- ]moi le code|donne[- ]moi le code|[ée]cris[- ]moi le code"
+    r"|sans l'ex[ée]cuter|write the code|show me the code|pseudo[- ]?code"
+    r"|exemple de code|code source)",
+    re.IGNORECASE,
 )
 #: The provider stopped because max_tokens ran out. The answer is real but
 #: unfinished, and a transcript that does not say so reads as a broken model.
@@ -212,6 +235,18 @@ def _runnable_tools(index: Dict[str, "Toolset"]) -> List[str]:
 
 def _answers_with_code(content: Any) -> bool:
     return bool(_CODE_FENCE.search(str(content or "")))
+
+
+def _asks_for_code(messages: List[dict]) -> bool:
+    """True when the operator's own request asks for the code, not for a result.
+
+    Read from the last user message only: an older turn asking for a snippet must
+    not silence the nudge for the current one.
+    """
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            return bool(_CODE_REQUEST.search(str(message.get("content") or "")))
+    return False
 
 
 def _tool_parameters(toolset: "Toolset", name: str) -> Dict[str, Any]:
@@ -449,10 +484,13 @@ def run_turn(
     definitions = _tool_definitions(toolsets)
     total_iterations = int(max_iterations)
     runnable = _runnable_tools(index)
-    # One nudge per turn, not one per iteration: a model that ignores it twice
-    # will not be talked into it on the fourth try, and the user is paying for
-    # every extra call.
-    nudges_left = 1 if runnable else 0
+    #: How many times this turn may re-ask for a tool call (point 3). Two attempts,
+    #: only when a tool that runs something was actually offered: in a read-only
+    #: mode `runnable` is empty, and a code answer is the *correct* answer there -
+    #: the snippet is the deliverable, not a missed call. Same when the operator
+    #: explicitly asked for the code: the nudge would fight their own sentence.
+    wants_code = _asks_for_code(history)
+    nudges_left = 0 if wants_code else (_NUDGE_LIMIT if runnable else 0)
     #: Per (tool, arguments): how many more refusals the loop tolerates this turn.
     refusals_left: Dict[tuple[str, str], int] = {}
 
@@ -495,10 +533,16 @@ def run_turn(
                 nudges_left -= 1
                 history.append({"role": "system", "content": _NUDGE.format(tool=runnable[0])})
                 continue
-            if runnable and _answers_with_code(message.get("content")) and on_notice is not None:
+            if (
+                runnable
+                and not wants_code
+                and _answers_with_code(message.get("content"))
+                and on_notice is not None
+            ):
                 on_notice(
-                    f"the model answered with code instead of calling `{runnable[0]}` "
-                    "after a retry; the snippet was left in the transcript"
+                    f"le modèle a répondu par du code au lieu d'appeler `{runnable[0]}` "
+                    f"après {_NUDGE_LIMIT} relances : le code reste dans le transcript, "
+                    "il n'a pas été exécuté"
                 )
             if truncated and on_notice is not None:
                 on_notice(TRUNCATED_NOTICE)

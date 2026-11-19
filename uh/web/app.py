@@ -970,6 +970,9 @@ def create_app(
                     reason=turn_reason,
                     ms=int((time.perf_counter() - turn_started) * 1000),
                     tools=len(tool_since),
+                    # Point 3: how many times the turn re-asked a model that pasted
+                    # code instead of calling the tool it was offered.
+                    nudges=int(getattr(session_obj, "last_nudges", 0) or 0),
                 )
                 emit({"type": "__end__"})
                 if store is not None:

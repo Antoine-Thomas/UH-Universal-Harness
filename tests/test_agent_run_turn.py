@@ -204,13 +204,20 @@ def test_a_code_block_is_refused_once_and_the_tool_is_called() -> None:
     assert notices == [], "a corrected turn is not a notice"
 
 
-def test_a_second_code_block_ends_the_turn_with_a_notice() -> None:
-    """One retry, never a loop: the user is paying for every extra call."""
+def test_a_model_that_keeps_writing_code_is_bounded_to_two_nudges() -> None:
+    """Two relances, never a loop: the user is paying for every extra call.
+
+    Point 3 raised the budget from one retry to two (`_NUDGE_LIMIT`), because a
+    small local model often needs the format repeated before it acts. The bound is
+    still strict: a third code answer ends the turn with a notice, and the snippet
+    the model insisted on stays in the transcript - unexecuted, and said so.
+    """
     toolset = RunnableToolset()
     provider = ScriptedProvider(
         [
             {"role": "assistant", "content": "```bash\nls\n```"},
             {"role": "assistant", "content": "```bash\nls -la\n```"},
+            {"role": "assistant", "content": "```bash\nls -lha\n```"},
         ]
     )
     notices: list[str] = []
@@ -223,9 +230,11 @@ def test_a_second_code_block_ends_the_turn_with_a_notice() -> None:
     )
 
     assert toolset.calls == []
-    assert len(provider.calls) == 2, "exactly one retry"
+    assert len(provider.calls) == 3, "the first answer plus exactly two relances"
     assert len(notices) == 1 and "execute_code" in notices[0]
+    assert "2 relances" in notices[0], "the notice says how many attempts were made"
     assert last_assistant_message(history)["content"].startswith("```bash"), "the answer still reaches the user"
+    assert sum(1 for call in provider.calls[1:] if call[-1]["role"] == "system") == 2
 
 
 def test_a_code_explanation_with_no_runnable_tool_is_left_alone(tmp_path: Path) -> None:
