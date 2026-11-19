@@ -1265,7 +1265,20 @@ l'image en un clic ; des fichiers sans un mot deviennent une question normale
 `turn_media images=1` au journal, et une réponse qui relit le texte de l'image
 (`qwen3.5:9b`, 35,8 s). Restent ouverts : purge automatique après tour branchée sur
 l'interface (la fonction existe, l'appel n'est pas encore posé), multi-images
-au-delà de 6, et les combos vision d'OmniRouter qui répondent 404 aujourd'hui.
+au-delà de 12 (au-delà, échantillonnage annoncé), et les combos vision d'OmniRouter
+qui répondent 404 aujourd'hui (contournés : les modèles locaux passent en tête).
+
+**P1-14 clos, P1-13 et P1-12 livrés le 19/11 (`a8d0dfe`).** Purge automatique après
+chaque tour (les copies `-sent` disparaissent, sauf celles dont l'original est marqué
+« Garder »), lots jusqu'à 12 images puis échantillonnage annoncé, et **les octets ne
+partent plus vers un modèle mesuré aveugle** (Ollama répondait 400). Mémoire des
+réussites (`uh/memory.py`) : image conservée en **PNG lossless à sa résolution**
+(2 000 × 1 125 → 5,71 Mo, là où la copie envoyée pesait 900 ko), audio en **FLAC
+24 bits / 48 kHz / 2 canaux** vérifié par ffprobe, index SHA-256 lié au message,
+oublier à la vidange de la corbeille. Auto-nettoyage (`uh/maintenance.py`) : purge
+des temporaires et rapport d'orphelins **dans les deux sens**, jamais de suppression
+silencieuse. `moondream:latest` retiré (1,7 Go rendus, il ne produisait que des
+boîtes).
 
 État mesuré :
 - `POST /api/sessions/{session_id}/upload` existe (`uh/web/app.py:696`), plafond 20 Mo
