@@ -373,16 +373,19 @@ def create_app(
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
+        # Every refusal here is 403, not 400: the request is well formed, the
+        # caller is simply not allowed — and the browser turns a 403 into "you
+        # cannot do that from this page", which is the honest sentence (point 4).
         if request.headers.get("host", "") not in allowed_hosts:
-            return JSONResponse({"detail": "host not allowed"}, status_code=400)
+            return JSONResponse({"detail": "host not allowed"}, status_code=403)
         origin = request.headers.get("origin")
         if origin and origin not in allowed_origins:
-            return JSONResponse({"detail": "origin not allowed"}, status_code=400)
+            return JSONResponse({"detail": "origin not allowed"}, status_code=403)
         # ``Sec-Fetch-Site`` is set by the browser itself and cannot be forged by
         # a page: a cross-site request is refused even when it carries no Origin.
         site = (request.headers.get("sec-fetch-site") or "").strip().lower()
         if site == "cross-site":
-            return JSONResponse({"detail": "cross-site request refused"}, status_code=400)
+            return JSONResponse({"detail": "cross-site request refused"}, status_code=403)
         if (
             request.method in UNSAFE_METHODS
             and request.cookies.get(getattr(app.state, "cookie_name", COOKIE_NAME))
@@ -1120,7 +1123,19 @@ def create_app(
         and then to a sentence blaming the model.
         """
         from .. import uhb_spawn
+        from ..providers_admin import is_loopback_bind
         from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        # Switching the mode is what turns code execution on: a UH reachable from
+        # another machine must not offer it, whatever the token says (point 4).
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "changer de mode n'est permis que si UH écoute en loopback : "
+                    "un poste distant ne doit pas pouvoir ouvrir l'exécution de code."
+                ),
+            )
 
         wanted = str((payload or {}).get("mode") or "").strip().lower()
         if wanted not in ("chat", "dev", "review", "observe"):

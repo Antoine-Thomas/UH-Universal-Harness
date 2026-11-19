@@ -250,7 +250,8 @@ def test_a_cookie_post_from_another_origin_is_refused(tmp_path: Path, monkeypatc
         )
 
     refused = run(scenario())
-    assert refused.status_code == 400
+    # 403 since point 4: refused, not malformed.
+    assert refused.status_code == 403
     assert "origin" in refused.text
 
 
@@ -284,7 +285,7 @@ def test_a_cross_site_request_is_refused_even_with_a_bearer(tmp_path: Path, monk
         )
 
     refused = run(scenario())
-    assert refused.status_code == 400
+    assert refused.status_code == 403  # refused, not malformed (point 4)
 
 
 def test_a_bearer_post_without_origin_is_accepted(tmp_path: Path, monkeypatch) -> None:
@@ -312,7 +313,7 @@ def test_another_host_header_is_refused(tmp_path: Path, monkeypatch) -> None:
         return await call(app, "GET", "/api/status", headers={**AUTH, "Host": "evil.example"})
 
     refused = run(scenario())
-    assert refused.status_code == 400
+    assert refused.status_code == 403  # refused, not malformed (point 4)
 
 
 # --------------------------------------------------------------------------- #

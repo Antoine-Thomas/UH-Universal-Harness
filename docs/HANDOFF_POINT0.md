@@ -90,8 +90,40 @@ limitée au dossier du run) passe avant tout le reste.
    demandée.
 3. Code brut au lieu d'un appel d'outil : relance automatique **prouvée jusqu'à
    l'exécution réelle**, avec limite de tentatives.
+   **Livré le 19/11** (`c007a5f`) : `_NUDGE_LIMIT = 2`, la relance nomme
+   `execute_code` et interdit de recoller le code ; elle ne part que si un outil
+   *exécutable* a été offert (donc jamais en `chat`, où la porte du point 2 l'a
+   retiré) et jamais quand l'opérateur demande explicitement le code
+   (« montre-moi le code », « sans l'exécuter », « pseudo-code »). L'instruction est
+   retirée de l'historique avant stockage (`_without_nudges`) et comptée :
+   `turn_end … nudges=N` dans `~/.uh/uh-web.log`. Preuve interface : tour
+   `8ca446ec` avec `nudges=1`, deux appels `execute_code` exécutés, transcript
+   sans ligne `system` ; tour `2ae45c46` `nudges=0` (appel direct), PNG 18 555 o
+   rendu par `~/.uhb/atelier`.
 4. `POST /api/uhb/mode` : garde Origin / Host / CSRF, test qu'aucun outil du modèle
    ne peut l'appeler.
+   **Livré le 19/11** : le middleware répond désormais **403** (et non 400) pour
+   `host not allowed`, `origin not allowed`, `cross-site request refused`, et la
+   route refuse en plus de servir un UH non-loopback (`403 … loopback`). Mesuré sur
+   le serveur réel, mode relu après chaque refus :
+
+       sans jeton                         → 401  mode inchangé
+       jeton + Origin: https://evil…      → 403  « origin not allowed »
+       jeton + Sec-Fetch-Site: cross-site → 403  « cross-site request refused »
+       jeton + Host: evil.example         → 403  « host not allowed »
+       jeton seul (CLI)                   → 200  mode = dev
+       jeton + Origin du cockpit          → 200  mode = dev
+
+   Et le troisième verrou, mesuré depuis un `execute_code` réel (session
+   `20261119-1612-fa7b`, approbation `a5e1e63ea6ba`, run
+   `run-20261119-161216-5d36f4`) : lire le jeton par chemin absolu →
+   **PermissionError** « confinement atelier : lecture d'un fichier protege » ;
+   appeler la route sans jeton → **401** ; avec un jeton deviné → **401** ; avec une
+   origine étrangère → **403** ; mode après ces tentatives : **dev, inchangé**.
+   *Limite assumée, mesurée le même jour* : le hook bloque les **fichiers protégés
+   par nom**, pas toute lecture hors du run — la sonde peut **lister** `~/.uh`
+   (`SYSTEM_MAP.md`, `config.toml`, …) mais pas ouvrir `web-token`, `keys.toml` ni
+   `mcp-secrets.toml`. C'est ce qui suffit ici : sans jeton, la route reste fermée.
 5. Interface : espaces entre les notes de statut ; Corbeille qui **retire l'image du
    fil** avec « Annuler » quelques secondes ; « Utile » / « Pas utile » exclusifs et
    réversibles ; libellé « noté, pas encore utilisé pour s'améliorer » ; en-tête et

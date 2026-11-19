@@ -156,12 +156,13 @@ def test_host_and_origin_are_checked(tmp_path: Path, monkeypatch: pytest.MonkeyP
     async def scenario():
         async with client(app) as http:
             bad_host = await http.get("/api/status", headers={**AUTH, "Host": "evil.example:8765"})
-            assert bad_host.status_code == 400
+            # 403 since point 4: the request is well formed, the caller is not allowed.
+            assert bad_host.status_code == 403
 
             bad_origin = await http.get(
                 "/api/status", headers={**AUTH, "Origin": "http://evil.example:8765"}
             )
-            assert bad_origin.status_code == 400
+            assert bad_origin.status_code == 403
 
             good = await http.get("/api/status", headers={**AUTH, "Origin": BASE})
             assert good.status_code == 200
