@@ -773,7 +773,9 @@ def test_the_mode_is_visible_in_the_header_and_grantable_from_the_refusal() -> N
     assert "function toggleModeFromBadge()" in script
     # Human labels, not the profile keys.
     assert "Discussion : lecture seule" in script
-    assert "Agent : peut exécuter du code et créer des fichiers" in script
+    # No limit is proven yet for code launched by execute_code, so the badge says so.
+    assert "Agent : exécute du code, portée non vérifiée" in script
+    assert "peut exécuter du code et créer des fichiers" not in script, "no unproven promise"
     # The card answers the refusal event, and re-sends the same turn.
     assert 'event === "mode_refused"' in script
     assert "function modeRefusalCard(" in script

@@ -2964,7 +2964,7 @@ function tierDot(tier) {
 // restarts a process it owns; a foreign UHB is reported, never killed.
 const MODE_LABELS = {
   chat: ["Discussion", "lecture seule : lit et cherche, n'exécute rien"],
-  dev: ["Agent", "peut exécuter du code et créer des fichiers"],
+  dev: ["Agent", "exécute du code, portée non vérifiée"],
   review: ["Revue", "lit et commente, n'exécute pas"],
   observe: ["Observation", "observe et rapporte, ne modifie rien"],
 };
@@ -3045,7 +3045,9 @@ async function switchExecutionMode(mode, card) {
 // where the refusal happened, and its button is the only way to grant execution.
 const MODE_BADGE_TEXT = {
   chat: "Discussion : lecture seule",
-  dev: "Agent : peut exécuter du code et créer des fichiers",
+  // Honest until measured: nothing proves yet that code run by the execution tool
+  // stays inside the run directory, so the badge must not promise a limit.
+  dev: "Agent : exécute du code, portée non vérifiée",
   review: "Revue : lit, n'exécute pas",
   observe: "Observation : rapporte seulement",
 };
