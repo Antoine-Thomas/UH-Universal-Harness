@@ -628,12 +628,17 @@ async function loadStatus() {
   const install = status.install || {};
   const badge = $("install-badge");
   if (badge) {
-    const kind = install.editable ? "dépôt" : "paquet installé";
-    badge.textContent = `${kind} · ${status.version}`;
+    const kind = install.origin || (install.editable ? "dépôt" : "paquet installé");
+    // Origine, commit et salissure en clair: c'est ce qui distingue « le correctif est
+    // dans le depot mais ce n'est pas lui qui tourne » de « le correctif n'existe pas ».
+    const sha = install.commit ? ` · ${install.commit}` : "";
+    const dirty = install.dirty ? " · modifié" : "";
+    badge.textContent = `${kind}${sha}${dirty} · ${status.version}`;
     badge.title = install.package
-      ? `${kind} : ${install.package}\npython : ${install.python || "?"}`
+      ? `${kind} : ${install.package}\npython : ${install.python || "?"}\nracine : ${install.root || "?"}`
       : "installation inconnue";
     badge.classList.toggle("warn", Boolean(install.editable) === false);
+    badge.classList.toggle("dirty", Boolean(install.dirty));
   }
   // The interface is read from disk on every request, the routes are fixed at
   // import time: two versions can meet, and that is exactly how a button ends up
@@ -925,12 +930,34 @@ const ACCEPT = {
 };
 
 function plusOpen(open) {
+  // P3-16b : la modale d'attachement. Elle s'ouvre au centre, assombrit le reste, et
+  // se referme d'elle-meme une fois les fichiers joints : le champ de saisie redevient
+  // visible et utilisable, ce que le popover en bas a gauche empechait.
   const menu = $("plus-menu");
   const button = $("attach");
+  const backdrop = $("plus-backdrop");
   if (!menu) return;
   const next = open === undefined ? menu.hidden : Boolean(open);
   menu.hidden = !next;
+  if (backdrop) backdrop.hidden = !next;
+  document.body.classList.toggle("modal-open", next);
   if (button) button.setAttribute("aria-expanded", next ? "true" : "false");
+  if (next) {
+    const first = menu.querySelector(".plus-item") || menu.querySelector("button");
+    if (first) first.focus();
+  }
+}
+
+function plusFilter(name) {
+  for (const tab of document.querySelectorAll(".plus-filter")) {
+    const active = tab.dataset.filter === name;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  }
+  for (const item of document.querySelectorAll(".plus-item[data-kind]")) {
+    const kind = item.dataset.kind || "";
+    item.hidden = !(name === "all" || kind === name);
+  }
 }
 
 // The warning is informative, never a door: it says what will be lost and offers a
@@ -1086,6 +1113,19 @@ function wireAttachments() {
       $("files").click();
     });
   }
+  for (const tab of document.querySelectorAll(".plus-filter")) {
+    tab.addEventListener("click", () => plusFilter(tab.dataset.filter || "all"));
+  }
+  if ($("plus-close")) $("plus-close").addEventListener("click", () => plusOpen(false));
+  if ($("plus-backdrop")) $("plus-backdrop").addEventListener("click", () => plusOpen(false));
+  if ($("plus-import")) {
+    $("plus-import").addEventListener("click", () => {
+      // Toutes les familles : le filtre est un confort, pas une restriction.
+      $("files").setAttribute("accept", Object.values(ACCEPT).join(","));
+      plusOpen(false);
+      $("files").click();
+    });
+  }
   const dictate = $("plus-dictate");
   if (dictate) {
     dictate.addEventListener("click", () => {
@@ -1094,6 +1134,8 @@ function wireAttachments() {
     });
   }
   document.addEventListener("click", (event) => {
+    // La modale est centree : un clic dans le vide autour d'elle la ferme, un clic
+    // dans le bouton + la bascule. Le fond assombri fait le reste.
     const menu = $("plus-menu");
     if (!menu || menu.hidden) return;
     if (!menu.contains(event.target) && event.target !== $("attach")) plusOpen(false);
@@ -1104,6 +1146,7 @@ function wireAttachments() {
   $("files").addEventListener("change", async (event) => {
     const files = [...event.target.files];
     event.target.value = "";  // same file twice must upload twice
+    plusOpen(false);
     await uploadFiles(files);
   });
   const zone = $("messages").parentElement;
@@ -3536,11 +3579,14 @@ function tierDot(tier) {
 // This control lives in the panel the assistant already sends people to
 // ("va dans Décision et passe en dev") and which had no control at all. UH only
 // restarts a process it owns; a foreign UHB is reported, never killed.
+// Un seul vocabulaire, et le nom technique à côté : l'onglet, l'en-tête et UHB
+// doivent dire la même chose. « Atelier » seul laissait le modèle parler de « mode
+// dev » sans que l'opérateur puisse faire le lien.
 const MODE_LABELS = {
-  chat: ["Discussion", "lecture seule : lit et cherche, n'exécute rien"],
-  dev: ["Atelier", "exécute du code, écriture limitée au dossier du run"],
-  review: ["Revue", "lit et commente, n'exécute pas"],
-  observe: ["Observation", "observe et rapporte, ne modifie rien"],
+  chat: ["Discussion (chat)", "lecture seule : lit et cherche, n'exécute rien"],
+  dev: ["Atelier (dev)", "exécute du code, écriture limitée au dossier du run"],
+  review: ["Relecture (review)", "lit et commente, n'exécute pas"],
+  observe: ["Observation (observe)", "observe et rapporte, ne modifie rien"],
 };
 
 async function renderExecutionMode() {
@@ -3618,14 +3664,14 @@ async function switchExecutionMode(mode, card) {
 // in the header on every screen; the card appears in the conversation, exactly
 // where the refusal happened, and its button is the only way to grant execution.
 const MODE_BADGE_TEXT = {
-  chat: "Discussion : lecture seule",
+  chat: "Discussion (chat) : lecture seule",
   // Measured, not hoped: the workshop interpreter carries numpy and matplotlib,
   // the audit hook refuses a write outside the run directory, the credential
   // files and any subprocess - proven by a counter-probe on 19/11 (an attempt on
   // each of the four is refused, a savefig in the run is kept). A win32 call made
   // through ctypes is still outside that hook; the sentence says what is confined.
-  dev: "Atelier : exécute du code (dossier du run uniquement)",
-  review: "Revue : lit, n'exécute pas",
+  dev: "Atelier (dev) : exécute du code (dossier du run uniquement)",
+  review: "Relecture (review) : lit, n'exécute pas",
   observe: "Observation : rapporte seulement",
 };
 
@@ -4241,6 +4287,7 @@ function showPanelTab(name) {
     ["conn", "conn-view"],
     ["data", "data-view"],
     ["tools", "tools-view"],
+    ["projects", "projects-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -4546,6 +4593,14 @@ function wireProviders() {
   $("quit-uh").addEventListener("click", quitUh);
   $("tab-data").addEventListener("click", () => showPanelTab("data"));
   $("tab-tools").addEventListener("click", () => showPanelTab("tools"));
+  $("tab-projects").addEventListener("click", () => {
+    showPanelTab("projects");
+    loadProjects();
+    loadRuns();
+  });
+  $("projects-refresh").addEventListener("click", () => { loadProjects(); loadRuns(); });
+  $("project-add").addEventListener("click", addProject);
+  $("runs-clean").addEventListener("click", cleanRuns);
   // One button in the topbar, next to the Dreams one: the data panel is a place,
   // not a tab you have to know about.
   $("data-open").addEventListener("click", () => {
@@ -7251,4 +7306,224 @@ async function mountCloud(section) {
   box.appendChild(button);
   box.appendChild(status);
   section.appendChild(box);
+}
+
+// -- P3-16b : Projets & Git, et le cycle de vie des runs UHB ----------------- //
+// Ce panneau affiche et pilote ; il ne decide rien. Un run garde est archive par
+// UHB dans ~/.uhb/brain-runs.git, un run non garde est supprime par UHB. Ici on
+// n'ecrit qu'une requete et on montre la reponse.
+
+const PROJECTS = { data: null, runs: null };
+
+function projectBadge(project) {
+  if (!project.ok) return "hors service";
+  const bits = [];
+  bits.push(project.dirty ? `${project.dirty} modifie(s)` : "propre");
+  if (project.ahead) bits.push(`↑${project.ahead}`);
+  if (project.behind) bits.push(`↓${project.behind}`);
+  return bits.join(" · ");
+}
+
+function renderProjects(data) {
+  const list = $("projects-list");
+  if (!list) return;
+  list.textContent = "";
+  const projects = (data && data.projects) || [];
+  $("projects-hint").textContent = data && data.root
+    ? `${projects.length} projet(s) · racine ${data.root}`
+    : `${projects.length} projet(s)`;
+  if (!projects.length) {
+    const empty = el("div", "projects-empty");
+    empty.textContent = "Aucun projet enregistre. Ajoute le chemin d'un depot git ci-dessous.";
+    list.append(empty);
+    return;
+  }
+  for (const project of projects) {
+    const row = el("div", "project-row");
+    row.dataset.path = project.path || "";
+    if (project.current) row.classList.add("current");
+
+    const head = el("div", "project-head");
+    const name = el("strong", "project-name");
+    name.textContent = project.label || project.name || project.path;
+    const branch = el("span", "project-branch");
+    branch.textContent = project.branch || "—";
+    const badge = el("span", "project-badge");
+    badge.textContent = projectBadge(project);
+    if (!project.ok) badge.classList.add("bad");
+    else if (project.dirty) badge.classList.add("dirty");
+    head.append(name, branch, badge);
+
+    const meta = el("div", "project-meta");
+    meta.textContent = project.path + (project.last_commit ? " · " + project.last_commit : "");
+    row.append(head, meta);
+
+    if (!project.current && project.ok) {
+      const button = el("button", "ghost project-switch");
+      button.type = "button";
+      button.textContent = "Basculer ici";
+      button.addEventListener("click", () => switchProject(project.path));
+      row.append(button);
+    }
+    if (!project.ok && project.reason) {
+      const why = el("div", "project-reason");
+      why.textContent = project.reason;
+      row.append(why);
+    }
+    list.append(row);
+  }
+}
+
+async function loadProjects() {
+  const query = state.sessionId ? `?session_id=${encodeURIComponent(state.sessionId)}` : "";
+  try {
+    const data = await api(`/api/projects${query}`);
+    PROJECTS.data = data;
+    renderProjects(data);
+  } catch (error) {
+    $("projects-hint").textContent = "lecture impossible : " + (error.message || error);
+  }
+}
+
+async function switchProject(path) {
+  const project = (PROJECTS.data?.projects || []).find((item) => item.path === path);
+  // On ne deplace pas une session sous les pieds d'un tour en cours sans le dire.
+  if (project && project.dirty) {
+    const ok = window.confirm(
+      `${project.label || project.name} a ${project.dirty} fichier(s) modifie(s).\n` +
+        "Basculer quand meme cette conversation sur ce projet ?"
+    );
+    if (!ok) return;
+  }
+  try {
+    const result = await api("/api/projects/switch", {
+      method: "POST",
+      body: { path, session_id: state.sessionId || "" },
+    });
+    await loadProjects();
+    await loadRuns();
+    say(`projet actif : ${result.workspace}`, "ok");
+  } catch (error) {
+    say("bascule refusee : " + (error.message || error), "warn");
+  }
+}
+
+async function addProject() {
+  const input = $("project-path");
+  const path = (input?.value || "").trim();
+  if (!path) return;
+  try {
+    await api("/api/projects/add", { method: "POST", body: { path } });
+    if (input) input.value = "";
+    await loadProjects();
+    say("projet ajoute", "ok");
+  } catch (error) {
+    say("ajout refuse : " + (error.message || error), "warn");
+  }
+}
+
+function renderRuns(data) {
+  const list = $("runs-list");
+  if (!list) return;
+  list.textContent = "";
+  if (!data || data.ok === false) {
+    const down = el("div", "runs-empty bad");
+    down.textContent = "UHB injoignable : " + ((data && data.reason) || "aucune reponse");
+    list.append(down);
+    $("runs-hint").textContent = "hors ligne";
+    return;
+  }
+  const runs = data.runs || [];
+  const policy = data.policy || {};
+  $("runs-hint").textContent =
+    `${data.count ?? runs.length} run(s) · ${data.bytes ?? 0} o · ` +
+    `TTL ${policy.ttl_days ?? "?"} j / ${policy.max_dirs ?? "?"} dossiers` +
+    (policy.archive_exists ? " · Cerveaux ok" : " · Cerveaux vide");
+  if (!runs.length) {
+    const empty = el("div", "runs-empty");
+    empty.textContent = "Aucun run recent.";
+    list.append(empty);
+    return;
+  }
+  for (const run of runs) {
+    const row = el("div", "run-row");
+    const label = el("span", "run-name");
+    label.textContent = `${run.run} · ${run.bytes} o · ${run.age_days} j` + (run.mode ? ` · ${run.mode}` : "");
+    row.append(label);
+
+    const keep = el("button", "ghost");
+    keep.type = "button";
+    keep.textContent = "Garder";
+    keep.title = "Archiver ce run dans le depot Cerveaux (UHB)";
+    keep.addEventListener("click", () => runAction(run.run, true));
+    row.append(keep);
+
+    const drop = el("button", "ghost run-drop");
+    drop.type = "button";
+    drop.textContent = "Supprimer";
+    drop.addEventListener("click", () => {
+      if (!window.confirm(`Supprimer ${run.run} ? UHB le fera, sans retour.`)) return;
+      runAction(run.run, false);
+    });
+    row.append(drop);
+    list.append(row);
+  }
+}
+
+async function loadRuns() {
+  try {
+    const data = await api("/api/runs");
+    PROJECTS.runs = data;
+    renderRuns(data);
+  } catch (error) {
+    renderRuns({ ok: false, reason: error.message || String(error) });
+  }
+}
+
+async function runAction(runId, keep) {
+  try {
+    const result = await api("/api/runs", {
+      method: "POST",
+      body: { action: "close", run: runId, keep },
+    });
+    if (result.ok === false) say("UHB a refuse : " + (result.reason || "?"), "warn");
+    else say(keep ? `run archive : ${runId}` : `run supprime : ${runId}`, "ok");
+  } catch (error) {
+    say("action impossible : " + (error.message || error), "warn");
+  }
+  await loadRuns();
+}
+
+async function cleanRuns() {
+  // Toujours en deux temps : la liste exacte d'abord, la suppression ensuite.
+  let preview;
+  try {
+    preview = await api("/api/runs", { method: "POST", body: { action: "prune" } });
+  } catch (error) {
+    say("nettoyage impossible : " + (error.message || error), "warn");
+    return;
+  }
+  if (!preview || preview.ok === false) {
+    say("UHB injoignable : " + ((preview && preview.reason) || "?"), "warn");
+    return;
+  }
+  const candidates = [...(preview.expired || []), ...(preview.over_quota || [])];
+  if (!candidates.length) {
+    say("rien a nettoyer", "ok");
+    renderRuns(PROJECTS.runs);
+    return;
+  }
+  const list = candidates.slice(0, 12).join("\n");
+  const more = candidates.length > 12 ? `\n… et ${candidates.length - 12} autre(s)` : "";
+  const ok = window.confirm(
+    `${candidates.length} run(s) seraient supprimes (${preview.freed_bytes} o).\n\n${list}${more}\n\nContinuer ?`
+  );
+  if (!ok) return;
+  try {
+    const done = await api("/api/runs", { method: "POST", body: { action: "prune", apply: true } });
+    say(`nettoyage : ${done.removed ?? 0} supprime(s)`, "ok");
+  } catch (error) {
+    say("nettoyage echoue : " + (error.message || error), "warn");
+  }
+  await loadRuns();
 }

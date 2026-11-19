@@ -222,6 +222,9 @@ def test_status_exposes_the_install_without_leaking_a_path_outside_the_home(
     from uh.web.app import _install_info
 
     info = _install_info()
-    assert set(info) == {"package", "root", "editable", "python"}
+    # Depuis la porte C : le pied de page doit dire sur quel commit tourne le code et
+    # s'il vient du depot ou du paquet installe - c'est ce detail qui a fait tourner
+    # une session entiere sur l'ancien binaire.
+    assert set(info) == {"package", "root", "editable", "python", "commit", "dirty", "origin"}
     assert info["editable"] in (True, False)
     assert info["package"].endswith(("__init__.py", ".py"))

@@ -91,11 +91,21 @@ def test_the_first_launch_is_a_banner_not_a_wall() -> None:
 
 def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     html = (ROOT / "uh" / "web" / "static" / "index.html").read_text(encoding="utf-8")
-    # The three first tabs are the ones a person sees without scrolling.
-    keys = html.index('id="tab-keys"')
-    local = html.index('id="tab-local"')
+    # P3-16b: the tabs are grouped by usage - Projets | Decision | Outils & Connexions |
+    # Cerveau & Memoire | Modeles & Fournisseurs - instead of piling up in arrival order.
+    projects = html.index('id="tab-projects"')
+    decision = html.index('id="tab-decision"')
+    tools = html.index('id="tab-tools"')
     conn = html.index('id="tab-conn"')
-    assert keys < local < conn, "Fournisseurs, IA locale, Connexions, in that order"
+    uhb = html.index('id="tab-uhb"')
+    memory = html.index('id="tab-memory"')
+    telemetry = html.index('id="tab-telemetry"')
+    local = html.index('id="tab-local"')
+    keys = html.index('id="tab-keys"')
+    models = html.index('id="tab-models"')
+    assert projects < decision < tools < conn, "Projets, Decision, Outils, Connexions"
+    assert conn < uhb < memory < telemetry, "Second brain, Memory, Telemetry grouped"
+    assert telemetry < local < keys < models, "IA locale, Fournisseurs, Modeles grouped"
     assert "Fournisseurs</button>" in html
     assert "IA locale</button>" in html
     # One tab for the keys and the gateways: "Providers" was the same subject
