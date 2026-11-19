@@ -100,6 +100,11 @@ def test_the_prompt_asks_for_a_drawn_chart_not_a_tutorial() -> None:
     assert "execute_code and have it save a .png" in CONSOLE
     assert "Agg backend" in CONSOLE, "sans serveur graphique, matplotlib doit etre en Agg"
     assert "Never answer such a request " in CONSOLE, "et jamais un tutoriel a la place"
+    # Measured on a real turn (2026-11-18): asked to save a PNG, qwen3:8b wrote to
+    # Desktop/UH_OUTPUTS. UHB only collects images from the run directory, so the
+    # turn produced no artifact and the user saw a file:// path. The prompt says
+    # where, now.
+    assert "bare file name" in CONSOLE and "no subfolder" in CONSOLE
 
 
 class _QuietConsole:
