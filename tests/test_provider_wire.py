@@ -283,3 +283,23 @@ def test_without_a_tool_list_nothing_is_filtered() -> None:
     assert request_messages(history_db, wire="openai") == request_messages(
         history_db, wire="openai", tools=None
     )
+
+
+def test_a_dropped_call_is_recorded_with_its_reason_and_cleared() -> None:
+    """The operator must be able to see what the boundary removed, not just trust it."""
+    from uh.providers import take_drops  # noqa: PLC0415 - a local import keeps the module surface small
+
+    take_drops()  # whatever a previous test left
+    ghost = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {"id": "c9", "type": "function", "function": {"name": "mcp__positron__execute_code", "arguments": "{}"}}
+        ],
+    }
+    request_messages([ghost], wire="openai", tools=[{"type": "function", "function": {"name": "execute_code"}}])
+
+    assert take_drops() == [
+        {"tool": "mcp__positron__execute_code", "reason": "outil non déclaré dans request.tools"}
+    ]
+    assert take_drops() == [], "the queue is drained, so a turn reports it once"

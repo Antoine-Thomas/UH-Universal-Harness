@@ -206,7 +206,14 @@ def request_messages(
         if message.get("tool_calls"):
             calls = _wire_tool_calls(message["tool_calls"], wire)
             if declared is not None:
-                calls = [call for call in calls if _call_name(call) in declared]
+                kept = []
+                for call in calls:
+                    name = _call_name(call)
+                    if name in declared:
+                        kept.append(call)
+                    else:
+                        record_drop(name or "(sans nom)", "outil non déclaré dans request.tools")
+                calls = kept
             if calls:
                 message = {**message, "tool_calls": calls}
             else:
@@ -220,6 +227,22 @@ def request_messages(
                     continue
         cleaned.append(message)
     return _close_open_calls(cleaned)
+
+
+#: A call dropped on the wire, kept only until the turn reports it.
+_DROPS: List[dict] = []
+
+
+def record_drop(tool: str, reason: str) -> None:
+    """Remember that a replayed call was dropped, so the turn can say it aloud."""
+    _DROPS.append({"tool": tool, "reason": reason})
+
+
+def take_drops() -> List[dict]:
+    """Every drop recorded since the last call, then clear the list."""
+    drops = list(_DROPS)
+    _DROPS.clear()
+    return drops
 
 
 def _declared_tool_names(tools: Optional[List[dict]]) -> Optional[set]:

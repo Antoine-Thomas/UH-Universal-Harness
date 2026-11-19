@@ -322,3 +322,29 @@ def test_one_allowed_execution_and_one_forbidden_tool_in_the_same_message(
     refusal = json.loads(tools[1]["content"])
     assert refusal["type"] == "forbidden" and refusal["tool"] == "desktop_click"
     assert history[-1]["content"] == "voici 4"
+
+
+def test_a_dropped_call_is_announced_in_the_conversation(tmp_path: Path) -> None:
+    """A silent repair would be a lie by omission: the user sees what was removed.
+
+    The boundary removes a replayed call to a tool the request no longer declares
+    (a strict gateway refuses the whole request otherwise). The turn says it once,
+    in one line, naming the tool - the same channel as the other notices.
+    """
+    from uh.providers import record_drop, take_drops
+
+    take_drops()
+    record_drop("mcp__positron__execute_code", "outil non déclaré dans request.tools")
+    notices: list[str] = []
+
+    run_turn(
+        [{"role": "user", "content": "dessine"}],
+        ScriptedProvider([final("ok")]),
+        {"file": FileToolset(workspace=tmp_path)},
+        on_notice=notices.append,
+    )
+
+    said = "\n".join(notices)
+    assert "mcp__positron__execute_code" in said
+    assert "retiré de l'historique" in said
+    assert take_drops() == [], "reported once, not on every following turn"

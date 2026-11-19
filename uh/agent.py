@@ -411,6 +411,8 @@ def run_turn(
     if max_iterations < 1:
         raise ValueError("max_iterations must be >= 1")
 
+    from .providers import take_drops
+
     history: List[dict] = [dict(message) if isinstance(message, dict) else message for message in messages]
     index = _tool_index(toolsets)
     definitions = _tool_definitions(toolsets)
@@ -426,6 +428,16 @@ def run_turn(
     for _iteration in range(1, total_iterations + 1):  # the count is only for the error
         outgoing = context.prepare(history) if context is not None else history
         response = _chat(provider, outgoing, definitions, on_token)
+        # The boundary may have removed a call to a tool this request does not
+        # declare (a strict gateway refuses the whole request otherwise). That is a
+        # fact about the conversation, so it is said once, plainly, instead of
+        # disappearing into a log nobody reads.
+        if on_notice is not None:
+            for dropped in take_drops():
+                on_notice(
+                    f"appel d'outil retiré de l'historique : `{dropped['tool']}` "
+                    f"({dropped['reason']}) — l'outil n'est plus proposé dans cette requête"
+                )
         # ``truncated`` is a fact about the call, not part of the message: it is
         # popped here so the history - and the next provider payload - stays the
         # three keys every backend accepts.
