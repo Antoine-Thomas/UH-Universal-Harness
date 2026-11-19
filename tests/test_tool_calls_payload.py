@@ -93,9 +93,22 @@ IMAGE_TOOL_MESSAGE = {
 }
 
 
+def asked(call_id: str, name: str = "render") -> dict:
+    """A legal predecessor: the assistant message that asked for the call.
+
+    Since 2026-11-19 the boundary drops a tool message nobody asked for (strict
+    APIs refuse it), so a payload case has to sit in a sequence that can exist.
+    """
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": call_id, "function": {"name": name, "arguments": "{}"}}],
+    }
+
+
 def test_the_image_bytes_are_dropped_from_a_tool_result() -> None:
     """The interface needs the data URL; a text model pays for it in tokens."""
-    sent = request_messages([IMAGE_TOOL_MESSAGE])[0]
+    sent = request_messages([asked("call_1"), IMAGE_TOOL_MESSAGE])[1]
     payload = json.loads(sent["content"])
 
     assert "artifacts" not in payload
@@ -104,18 +117,19 @@ def test_the_image_bytes_are_dropped_from_a_tool_result() -> None:
 
 
 def test_the_stored_message_keeps_its_artifacts() -> None:
-    request_messages([IMAGE_TOOL_MESSAGE])
+    request_messages([asked("call_1"), IMAGE_TOOL_MESSAGE])
     assert "data_url" in IMAGE_TOOL_MESSAGE["content"], "the session keeps the bytes"
 
 
 def test_a_plain_tool_result_is_left_untouched() -> None:
-    message = {"role": "tool", "content": "stdout: 42"}
-    assert request_messages([message])[0]["content"] == "stdout: 42"
+    message = {"role": "tool", "tool_call_id": "call_2", "content": "stdout: 42"}
+    assert request_messages([asked("call_2"), message])[1]["content"] == "stdout: 42"
 
 
 def test_a_malformed_tool_payload_is_left_untouched() -> None:
     broken = '{"text": "artifacts" unbalanced'
-    assert request_messages([{"role": "tool", "content": broken}])[0]["content"] == broken
+    message = {"role": "tool", "tool_call_id": "call_3", "content": broken}
+    assert request_messages([asked("call_3"), message])[1]["content"] == broken
 
 
 def test_the_bytes_are_absent_from_a_real_provider_body() -> None:
@@ -130,7 +144,7 @@ def test_the_bytes_are_absent_from_a_real_provider_body() -> None:
         spec,
         "key",
         "model-x",
-        [*HISTORY, IMAGE_TOOL_MESSAGE],
+        [*HISTORY, asked("call_1", "mcp__chart__render"), IMAGE_TOOL_MESSAGE],
         [],
         transport=httpx.MockTransport(handler),
     )

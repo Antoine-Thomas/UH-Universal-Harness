@@ -198,7 +198,75 @@ def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
             calls = _wire_tool_calls(message["tool_calls"], wire)
             message = {**message, "tool_calls": calls}
         cleaned.append(message)
-    return cleaned
+    return _close_open_calls(cleaned)
+
+
+def _close_open_calls(messages: List[dict]) -> List[dict]:
+    """Make the sequence legal: no orphan tool_call, no orphan tool message.
+
+    Measured 2026-11-18/19: an interrupted turn persisted an assistant message
+    with ``tool_calls`` and no matching ``role: tool`` answer. The next request
+    then carried an orphan call, and DeepSeek answered 422 while Ollama answered
+    400 - the conversation could not continue at all.
+
+    Two repairs, both at the boundary so the store keeps exactly what happened:
+
+    * a call with no answer gets a synthetic tool message ("interrupted: no result
+      was recorded"). The model sees that the call failed instead of a hole;
+    * a tool message whose ``tool_call_id`` matches no call is dropped - strict
+      APIs reject an answer nobody asked for.
+
+    Order is preserved: each group of answers stays right after its assistant.
+    """
+    pending: Dict[str, str] = {}  # call id -> tool name, for the group being closed
+    closed: List[dict] = []
+
+    def flush() -> None:
+        for call_id, name in list(pending.items()):
+            closed.append(
+                {
+                    "role": "tool",
+                    "name": name,
+                    "tool_call_id": call_id,
+                    "content": json.dumps(
+                        {
+                            "error": (
+                                f"the call to `{name}` was interrupted before it answered: "
+                                "no result was recorded"
+                            ),
+                            "type": "tool_error",
+                            "tool": name,
+                            "reason": "orphan_call",
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            )
+        pending.clear()
+
+    for message in messages:
+        role = str(message.get("role") or "") if isinstance(message, dict) else ""
+        if role == "tool":
+            call_id = str(message.get("tool_call_id") or "")
+            if call_id and call_id in pending:
+                pending.pop(call_id, None)
+                closed.append(message)
+            # else: an answer to a call nobody made - dropped on purpose.
+            continue
+        flush()
+        closed.append(message)
+        if role == "assistant":
+            for call in message.get("tool_calls") or []:
+                if isinstance(call, dict) and call.get("id"):
+                    raw_function = call.get("function")
+                    function: Dict[str, object] = (
+                        raw_function if isinstance(raw_function, dict) else {}
+                    )
+                    pending[str(call["id"])] = str(
+                        function.get("name") or call.get("name") or "tool"
+                    )
+    flush()
+    return closed
 
 
 def _arguments_object(value: object) -> dict:

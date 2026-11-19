@@ -138,3 +138,71 @@ def test_the_stored_messages_are_never_mutated() -> None:
     request_messages(stored, wire="openai")
 
     assert stored[1]["tool_calls"][0] == OLLAMA_CALL, "the session keeps what it stored"
+
+
+# --------------------------------------------------------------------------- #
+# the sequence must stay legal: this is what produced 422/400 after a crash
+# --------------------------------------------------------------------------- #
+def test_an_orphan_call_gets_an_answer_before_the_request_leaves() -> None:
+    """An interrupted turn stored a call and no result: the provider refuses that."""
+    broken = [
+        {"role": "user", "content": "dessine"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "function": {"name": "execute_code", "arguments": '{"code": "x"}'}},
+                {"id": "c2", "function": {"name": "execute_code", "arguments": '{"code": "y"}'}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "name": "execute_code", "content": '{"ok": true}'},
+    ]
+
+    sent = request_messages(broken, wire="openai")
+
+    answered = [m.get("tool_call_id") for m in sent if m.get("role") == "tool"]
+    assert answered == ["c1", "c2"], "every call is answered, in order"
+    synthetic = json.loads(sent[-1]["content"])
+    assert synthetic["reason"] == "orphan_call"
+    assert synthetic["tool"] == "execute_code"
+
+
+def test_an_answer_nobody_asked_for_is_dropped() -> None:
+    stray = [
+        {"role": "user", "content": "x"},
+        {"role": "tool", "tool_call_id": "ghost", "name": "execute_code", "content": "{}"},
+    ]
+
+    sent = request_messages(stray, wire="openai")
+
+    assert [m["role"] for m in sent] == ["user"], "a strict API rejects an unasked answer"
+
+
+def test_a_clean_history_is_untouched() -> None:
+    clean = history(OPENAI_CALL)
+    assert request_messages(clean, wire="openai") == clean
+
+
+def test_every_assistant_call_is_answered_before_the_next_turn() -> None:
+    """The property, not a case: whatever the store holds, the request is legal."""
+    messy = [
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": "", "tool_calls": [dict(OLLAMA_CALL)]},
+        {"role": "user", "content": "b"},  # the turn died here, no tool answer
+        {"role": "assistant", "content": "", "tool_calls": [dict(OPENAI_CALL)]},
+        {"role": "tool", "tool_call_id": "call_abc123", "name": "patch", "content": "{}"},
+    ]
+
+    sent = request_messages(messy, wire="openai")
+
+    open_ids: list[str] = []
+    for message in sent:
+        if message.get("role") == "assistant":
+            assert not open_ids, f"unanswered call(s) {open_ids} before a new assistant message"
+            open_ids = [call["id"] for call in message.get("tool_calls") or []]
+        elif message.get("role") == "tool":
+            if message.get("tool_call_id") in open_ids:
+                open_ids.remove(message["tool_call_id"])
+        elif message.get("role") == "user":
+            assert not open_ids, f"unanswered call(s) {open_ids} before a user message"
+    assert not open_ids
