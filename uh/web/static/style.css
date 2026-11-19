@@ -1523,3 +1523,44 @@ select:focus-visible {
   cursor: default;
 }
 .mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Barre d'actions sous une image : icône + mot, même hauteur, même thème. */
+.tool-artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tool-artifact-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+.tool-artifact-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.tool-artifact-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tool-artifact-btn:disabled { opacity: 0.55; cursor: default; }
+.tool-artifact-btn .icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tool-artifact-btn.safe:hover:not(:disabled) { border-color: var(--accent); }
+.tool-artifact-btn.danger:hover:not(:disabled) { border-color: #b4453a; color: #b4453a; background: #fbeeec; }
+.tool-artifact-label { white-space: nowrap; }
+.tool-artifact-note { font-size: 11px; color: var(--muted); }

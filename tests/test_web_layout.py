@@ -735,3 +735,23 @@ def test_the_decision_view_exposes_the_execution_mode() -> None:
     assert "lecture seule" in script and "exécuter du code" in script
     # It is a sibling of the panel that renderDecision clears on every reload.
     assert "host.parentNode.insertBefore(card, host)" in script
+
+
+@KEEP
+def test_the_artifact_toolbar_speaks_french_with_icons() -> None:
+    """The bar under an image was four text buttons, two of them emoji.
+
+    Measured 2026-11-19 (screenshot): "Poubelle" beside a bare 👍/👎 pixel pair and
+    a lowercase "garder" link, no way to keep a copy of the picture. Now: inline
+    SVG icons (an emoji takes whatever size the platform decides), a short French
+    label per button, an explicit accessible name, and a download link built from
+    the artifact's own data URL.
+    """
+    script = APP.read_text(encoding="utf-8")
+
+    for label in ("Garder", "Utile", "Pas utile", "Télécharger", "Corbeille"):
+        assert f'"{label}"' in script, f"the toolbar offers {label}"
+    assert "👍" not in script and "👎" not in script, "no emoji as a button face"
+    assert 'ARTIFACT_ICONS' in script and 'createElementNS("http://www.w3.org/2000/svg"' in script
+    assert 'link.download =' in script, "the image can actually be saved"
+    assert 'setAttribute("aria-label", title)' in script, "every icon button is named"

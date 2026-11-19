@@ -267,7 +267,7 @@ function drawArtifacts(container, artifacts, context) {
 // the SERVER decides what may be touched (uh/artifacts.py: the file must resolve
 // inside UHB's runs root). A refusal is shown verbatim, never swallowed.
 async function artifactAction(button, figure, body, done) {
-  button.disabled = true;
+  if (button) button.disabled = true;
   const note = el("span", "tool-artifact-note", "…");
   figure.appendChild(note);
   try {
@@ -290,24 +290,77 @@ async function artifactAction(button, figure, body, done) {
   }
 }
 
+// Icons drawn inline: an emoji renders at whatever size the platform decides and
+// reads as text next to a real button. `currentColor` keeps them on theme.
+const ARTIFACT_ICONS = {
+  keep: ["M6 3h12v18l-6-4.2L6 21z"],
+  trash: ["M4 7h16", "M9.5 7V4.8h5V7", "M6.5 7l1 13.2h9L17.5 7"],
+  up: ["M7 21V10l4.5-7L13.8 4v6H19a2 2 0 0 1 2 2.3l-1.4 8.7z"],
+  down: ["M17 3v11l-4.5 7L10.2 20v-6H5a2 2 0 0 1-2-2.3L4.4 3z"],
+  download: ["M12 3.5v11", "M12 14.5l4-4", "M12 14.5l-4-4", "M4.5 20.5h15"],
+};
+
+function artifactIcon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.classList.add("icon");
+  // Real nodes rather than parsed markup: the page renders server data
+  // elsewhere, and one HTML-parsing sink here is how a data URL becomes markup.
+  for (const d of ARTIFACT_ICONS[name] || []) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+// One button: icon, short French label, tooltip. The label is the accessible name,
+// so an icon-only button never becomes a guess for a screen reader or a newcomer.
+function artifactButton(icon, label, title, onClick, extraClass) {
+  const node = el("button", "tool-artifact-btn" + (extraClass ? " " + extraClass : ""));
+  node.type = "button";
+  node.title = title;
+  node.setAttribute("aria-label", title);
+  node.appendChild(artifactIcon(icon));
+  node.appendChild(el("span", "tool-artifact-label", label));
+  if (onClick) node.addEventListener("click", onClick);
+  return node;
+}
+
+function artifactDownload(artifact) {
+  const source = artifact && artifact.source;
+  if (!source || !artifact.data_url) return null;
+  const link = document.createElement("a");
+  link.className = "tool-artifact-btn";
+  link.href = artifact.data_url;
+  link.download = String(source.relative || "image").split(/[\\/]/).pop() || "image.png";
+  link.title = "télécharger cette image";
+  link.setAttribute("aria-label", `télécharger ${link.download}`);
+  link.appendChild(artifactIcon("download"));
+  link.appendChild(el("span", "tool-artifact-label", "Télécharger"));
+  return link;
+}
+
 function artifactToolbar(figure, artifact, context) {
   const source = artifact && artifact.source;
   // No provenance, no button: an image whose file is unknown gets no action that
   // would promise to delete something.
   if (!source || (!source.path && !source.relative)) return;
   const bar = el("div", "tool-artifact-actions");
-  const add = (label, title, extra, done) => {
-    const node = el("button", "tool-artifact-btn", label);
-    node.type = "button";
-    node.title = title;
+  const add = (icon, label, title, extra, done, extraClass) => {
     const base = { source, session_id: (context && context.sessionId) || "" };
+    const node = artifactButton(icon, label, title, null, extraClass);
     node.addEventListener("click", () => artifactAction(node, figure, { ...base, ...extra }, done));
     bar.appendChild(node);
   };
-  add("Garder", "garder cette image", { action: "keep" }, "gardée");
-  add("Poubelle", "déplacer vers la corbeille du dossier runs", { action: "trash" }, "dans la corbeille");
-  add("👍", "image réussie : signal au second cerveau", { action: "rate", vote: "up" }, "noté 👍");
-  add("👎", "image ratée", { action: "rate", vote: "down" }, "noté 👎");
+  add("keep", "Garder", "garder cette image : elle échappe au nettoyage", { action: "keep" }, "gardée", "safe");
+  add("up", "Utile", "image réussie : enregistrée comme exemple à reproduire", { action: "rate", vote: "up" }, "notée utile");
+  add("down", "Pas utile", "image ratée : contre-exemple à éviter", { action: "rate", vote: "down" }, "notée à éviter");
+  const link = artifactDownload(artifact);
+  if (link) bar.appendChild(link);
+  add("trash", "Corbeille", "déplacer vers la corbeille du dossier runs (récupérable)", { action: "trash" }, "dans la corbeille", "danger");
   figure.appendChild(bar);
 }
 
