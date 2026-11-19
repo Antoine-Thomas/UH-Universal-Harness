@@ -1381,4 +1381,25 @@ limites d'écriture du mode `dev` (`uhb/**`, `tests/**`, `docs/**`), et l'approb
 n'est pas mesuré, le libellé « Agent » ne doit pas promettre une limite. Texte
 proposé : « Agent : exécute du code — portée non vérifiée ».
 
-*Ouvert. Bloque toute promesse d'installation « en une commande ».*
+Précisions ajoutées après revue (à respecter, non implémenté) :
+
+- **silencieux, pas caché.** L'installateur affiche ce qu'il installe et où, avec un
+  récapitulatif final et une désinstallation propre. Un composant téléchargé à l'insu
+  de l'utilisateur ressemble à un malware, et fait fuir antivirus et entreprises ;
+- **chaque composant épinglé et vérifié** : version exacte + somme SHA-256 (signature
+  si disponible), sinon l'installateur devient la porte d'entrée d'une attaque de
+  chaîne d'approvisionnement ;
+- **hors ligne après installation** (modèles locaux et clés exceptés) ;
+- **aucun identifiant GitHub en écriture embarqué**. `gh repo clone` est un chemin
+  développeur, pas la voie du public : pour le grand public, installateur (MSI/exe)
+  ou `pip install` depuis une **release publique vérifiée** ;
+- **un interpréteur « atelier » isolé** (numpy + matplotlib épinglés) et
+  **annoncé** au modèle, turtle/tkinter interdits, PNG via `savefig` dans le dossier
+  du run ;
+- **l'installateur doit livrer la restriction réelle**, pas seulement les
+  bibliothèques : dossier de travail du run et écriture bornée. Embarquer un
+  interpréteur sans cela ne règle que la moitié du problème.
+
+*Ouvert. Bloque toute promesse d'installation « en une commande ». À ne pas
+implémenter avant la mesure du point 0 (interpréteur réel, écriture hors zone,
+lecture des secrets) et le « go » de l'opérateur.*
