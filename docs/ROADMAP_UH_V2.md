@@ -1322,6 +1322,22 @@ inscrite) : version épinglée, **SHA-256 vérifié**, une ligne dans le récapi
 final (« Voix locale XTTS-v2 — 1,8 Go — `~/.uhb/xtts` »), et la désinstallation les
 retire. Fonctionne hors ligne ensuite, clé Mistral exceptée.
 
+**Règles d'interface (ajoutées le 19/11 par l'opérateur, avant tout code)**
+1. **Lecteur conditionnel.** Le lecteur avec forme d'onde n'apparaît dans la bulle
+   **que** si un son existe réellement pour ce message : dicté au micro, uploadé, ou
+   synthétisé. Aucun lecteur vide sur une réponse purement texte — l'absence d'audio
+   n'est pas une erreur, c'est l'état normal.
+2. **Actions unifiées sur tous les rendus.** Un rendu audio porte la **même barre
+   d'actions** que les images et les réponses : **Garder**, **Utile**, **Pas utile**,
+   **Télécharger**, **Corbeille avec annulation**. Une seule implémentation de la
+   barre (pas une deuxième pour l'audio), les routes existantes servent (`rate`,
+   `artifacts`, suppression de message) : l'audio n'invente pas son propre vocabulaire
+   d'actions, et « Télécharger » rend un fichier lisible (WAV/MP3 selon la source),
+   jamais une URL temporaire.
+3. Corollaire de cohérence : les votes « Utile / Pas utile » restent **exclusifs et
+   réversibles** pour l'audio comme pour le texte, et la Corbeille laisse une fenêtre
+   d'annulation — c'est ce que le point 5 du relais demande déjà pour les images.
+
 **Verrou d'architecture (anti-régression) — la partie qui compte**
 - le pipeline audio vit derrière des routes dédiées `/api/audio/*` (transcription,
   synthèse, échantillon de voix). **Aucune** modification de `request_messages`, du
