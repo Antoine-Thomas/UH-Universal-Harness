@@ -2048,6 +2048,20 @@ async function sendMessage(text) {
               bubble.appendChild(again);
             }
           });
+        } else if (event === "answer") {
+          guardedStep("answer", () => {
+            // The non-streaming form of the same content (a slash command answers
+            // this way). It fills the bubble only when no token arrived: the two
+            // frames describe one answer, and drawing both would duplicate it.
+            const body = String(data.content || "");
+            if (!body) return;
+            if (!assistantText) {
+              assistantText = body;
+              assistantContent.textContent = body;
+              assistantContent.classList.add("md");
+              assistantContent.innerHTML = renderMarkdown(body);
+            }
+          });
         } else if (event === "answer_meta") {
           guardedStep("answer_meta", () => {
             // The model that answered, said once and used everywhere (point 5).
