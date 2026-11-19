@@ -51,6 +51,14 @@
         <button id="menu-toggle" class="icon-button" title="Sessions" aria-label="Sessions">☰</button>
         <button id="sidebar-toggle" class="icon-button" title="Hide the sessions column" aria-label="Hide sessions">«</button>
         <div class="title" id="session-title">No session</div>
+        <!-- Mode d'exécution : toujours visible, parce qu'une capacité qu'on ne peut
+             pas voir est une capacité qu'on ne peut pas accorder. Un clic bascule. -->
+        <button id="mode-badge" class="mode-badge" type="button"
+                title="Mode d'exécution du second cerveau : cliquez pour changer"
+                aria-label="Mode d'exécution">
+          <span class="mode-badge-dot" aria-hidden="true"></span>
+          <span id="mode-badge-label">mode…</span>
+        </button>
         <select id="model-select" name="model" class="model-select" aria-label="Model"></select>
         <button id="model-advanced" class="ghost model-advanced" title="Voir tous les modèles installés">Avancé</button>
         <!-- Character & role (P3-14): the posture of the answer, per conversation.
@@ -96,9 +104,21 @@
       <div id="llm-badge" class="skill-badge llm-badge" hidden></div>
 
       <div id="attachments" class="attachments" aria-live="polite"></div>
+      <p id="mic-status" class="mic-status" aria-live="polite" hidden></p>
 
       <form id="composer" class="composer">
-        <button type="button" id="attach" class="icon-button" title="Attach files" aria-label="Attach files">📎</button>
+        <div class="plus-wrap">
+          <button type="button" id="attach" class="icon-button" title="Ajouter des images, des fichiers, du son" aria-label="Ajouter des images ou des fichiers" aria-haspopup="true" aria-expanded="false">+</button>
+          <div id="plus-menu" class="plus-menu" role="menu" hidden>
+            <button type="button" class="plus-item" data-accept="image" role="menuitem">Images — .png .jpg .gif .svg .heic (jusqu'à 4K)</button>
+            <button type="button" class="plus-item" data-accept="video" role="menuitem">Vidéo — .mp4 (H.264 / H.265)</button>
+            <button type="button" class="plus-item" data-accept="audio" role="menuitem">Son — .mp3 .wav .flac .ogg</button>
+            <button type="button" class="plus-item" data-accept="document" role="menuitem">Documents — .pdf .csv .html .zip .txt .md .json</button>
+            <button type="button" class="plus-item" id="plus-dictate" role="menuitem">Dictée vocale</button>
+          </div>
+        </div>
+        <p id="media-warning" class="media-warning" hidden></p>
+        <button type="button" id="mic" class="icon-button" title="Dicter (micro)" aria-label="Dicter un message" hidden>🎙️</button>
         <button type="button" id="skill-open" class="skill-open" title="Attacher un skill à ce tour" aria-label="Skill">⚑</button>
         <button type="button" id="llm-open" class="skill-open" title="Réglages de la conversation" aria-label="Réglages de la conversation">🎚</button>
         <input id="files" name="files" class="visually-hidden" type="file" multiple

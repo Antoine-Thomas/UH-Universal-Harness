@@ -379,7 +379,10 @@ sees while it runs. Items are listed with their state, not their ambition.
 - **Voice and text helpers** - TTS and dictation through the Web Speech API (no
   key, no cloud, degrades to absent where the browser lacks it), automatic session
   titles, prompt improvement, and an error explainer that reads a traceback and
-  says which cause is likely. *To do, in that order.*
+  says which cause is likely. *To do, in that order.* The **voice half of this
+  bullet is superseded by `P1-15`** (microphone, sound visual, voice cloning),
+  which is the single place that decides what the audio pipeline is; the other
+  three helpers stay here.
 
 Constraint for every item above: `pytest -q` stays green, the nightly task keeps
 working, and nothing here may require Ollama, a key, or a network call.
@@ -1169,7 +1172,7 @@ consoles work and perform together, then fuse. A fusion before that only moves t
 one binary. Nothing in P4-2/P4-3/P4-4 starts before `VALIDATION_MATRIX.md` has no OPEN or
 NOT STARTED row left for P0/P1/P2.
 
-## P1-11 → P1-14 — images du chat, rétention, feedback, multimodal (ouvert 2026-11-18)
+## P1-11 → P1-15 — images du chat, rétention, feedback, multimodal, audio (ouvert 2026-11-18)
 
 Déclencheur : T10 (premier tour web avec un vrai modèle, `qwen3:8b`) a produit des images
 dans `~/.uhb/runs` — elles s'affichent, mais l'expérience s'arrête là. Les quatre lots
@@ -1208,6 +1211,13 @@ explicite ; vérifier qu'aucun processus enfant (python du snippet, ffmpeg) ne s
 Preuve attendue : poids de `~/.uhb/runs` avant/après, un run ancien disparaît, un fichier
 mis à la corbeille sort du disque, `tasklist` propre.
 
+**Temporaires de l'interface (ajouté le 19/11)** : toute image réduite pour l'envoi, tout
+cache d'upload et tout état orphelin est purgé après le tour — sauf ce qui est marqué
+« Garder » (P1-13). L'interface doit pouvoir se **réparer seule** : une session rechargée
+ne garde ni lecteur vide, ni carte fantôme, ni compteur faux, et un fichier dont la ligne
+a disparu n'est pas laissé sur le disque. Mesure : poids de `~/.uh/uploads` et du dossier
+temporaire avant/après un lot de captures 4K, et zéro orphelin dans `messages`.
+
 ### P1-13 — boucle de feedback vers le second cerveau
 
 État mesuré : le toolset `uhb` expose `mcp:atelier` (second cerveau) ; n8n est un serveur
@@ -1221,7 +1231,54 @@ consolidation de skill ; un pouce bas consigne un échec à ne pas reproduire.
 Preuve attendue : un vote écrit une ligne, l'envoi est constaté côté destinataire, et la
 coupure du destinataire laisse la ligne intacte.
 
+**Mémoire des réussites, compressée et réutilisable (ajouté le 19/11)** — la demande de
+l'opérateur : « les modèles réduits ou exemples jugés bons doivent être dans la mémoire,
+pour ne pas avoir à les recharger — un clone de voix réussi, un texte ou une image à garder ».
+
+- tout élément marqué **Garder** ou **Utile** (clone de voix, image validée, réponse
+  modèle, exemple de prompt) entre dans une mémoire **réutilisable** : on le réemploie
+  sans le régénérer, sans rappeler le fournisseur, sans repayer ;
+- **compression maximale sans perte de l'essentiel** : images conservées en **PNG ou
+  WebP lossless** (restituables en 4K), audio en **FLAC 24 bits stéréo**. L'objectif n'est
+  pas de garder des bruts de 40 Mo, c'est de pouvoir « redévelopper » en 4K et en
+  24 bits stéréo au moment de réutiliser ;
+- chaque entrée porte son **SHA-256**, son format canonique et la version de son rendu :
+  « réutiliser » doit rendre exactement ce qui a été jugé bon, pas une approximation ;
+- l'entrée est liée à son message et à son artefact (`artifacts`), pour que la Corbeille
+  et la rétention (P1-12) les traitent ensemble — une réussite conservée ne devient pas
+  un orphelin ;
+- **preuve attendue** : un clone de voix marqué Garder se réutilise en un tour sans appel
+  au fournisseur (compteur de requêtes à zéro), l'image conservée revient en 4K, le FLAC
+  restitué est en 24 bits stéréo, et le dossier temporaire est vide après le tour.
+
 ### P1-14 — pièces jointes multimodales
+
+**État au 19/11 (première moitié livrée, `54f9458`).** Bouton « + » unique et menu
+groupé (Images / Vidéo / Son / Documents / Dictée), glisser-déposer et collage
+conservés ; `uh/media/` réduit une 4K en copie `-sent.jpg` sous 1 Mo (original
+intact) et extrait images clés + bande son d'un `.mp4` ; `uh/capabilities.py` mesure
+la capacité auprès du fournisseur (Ollama `/api/show`, `input_modalities` du
+gateway, `capabilities.vision` chez Mistral) — inconnu = « non vérifiée » et traité
+comme aveugle ; `#media-warning` dit ce qui sera perdu et propose un modèle qui lit
+l'image en un clic ; des fichiers sans un mot deviennent une question normale
+(`attachments.AUTO_ANALYSIS`). Mesuré : 4K de 19 110 577 o → copie envoyée 536 531 o,
+`turn_media images=1` au journal, et une réponse qui relit le texte de l'image
+(`qwen3.5:9b`, 35,8 s). Restent ouverts : purge automatique après tour branchée sur
+l'interface (la fonction existe, l'appel n'est pas encore posé), multi-images
+au-delà de 12 (au-delà, échantillonnage annoncé), et les combos vision d'OmniRouter
+qui répondent 404 aujourd'hui (contournés : les modèles locaux passent en tête).
+
+**P1-14 clos, P1-13 et P1-12 livrés le 19/11 (`a8d0dfe`).** Purge automatique après
+chaque tour (les copies `-sent` disparaissent, sauf celles dont l'original est marqué
+« Garder »), lots jusqu'à 12 images puis échantillonnage annoncé, et **les octets ne
+partent plus vers un modèle mesuré aveugle** (Ollama répondait 400). Mémoire des
+réussites (`uh/memory.py`) : image conservée en **PNG lossless à sa résolution**
+(2 000 × 1 125 → 5,71 Mo, là où la copie envoyée pesait 900 ko), audio en **FLAC
+24 bits / 48 kHz / 2 canaux** vérifié par ffprobe, index SHA-256 lié au message,
+oublier à la vidange de la corbeille. Auto-nettoyage (`uh/maintenance.py`) : purge
+des temporaires et rapport d'orphelins **dans les deux sens**, jamais de suppression
+silencieuse. `moondream:latest` retiré (1,7 Go rendus, il ne produisait que des
+boîtes).
 
 État mesuré :
 - `POST /api/sessions/{session_id}/upload` existe (`uh/web/app.py:696`), plafond 20 Mo
@@ -1246,6 +1303,255 @@ coupure du destinataire laisse la ligne intacte.
 Contrainte : chacune de ces briques ajoute une dépendance lourde (poids whisper, décodage
 vidéo). Faisabilité et coût à mesurer **avant** d'écrire la première ligne.
 
+**Vision multi-images et captures 4K — inscrit le 19/11, non codé** (la demande était déjà
+dans cette feuille, rien n'en avait été fait ; c'est écrit ici pour qu'on ne la redécouvre
+pas une troisième fois) :
+
+- une **ou plusieurs** images par tour : glisser-déposer, bouton « + », et **collage
+  presse-papiers** (Ctrl+V) — jusqu'aux captures d'écran 4K ;
+- **analyse automatique sans prompt** : images déposées + Envoi, sans une ligne de texte,
+  déclenche l'analyse visuelle de **chaque** image (description, extraction, diagnostic) ;
+  l'opérateur n'a pas à écrire « analyse cette image » pour être obéi ;
+- **réduction à la volée** avant l'envoi au modèle vision (une capture 4K ne part pas à
+  8 Mo : ré-encodage borné, budget de tokens explicite), puis **suppression automatique**
+  des temporaires une fois le tour lu — **sauf** « Garder », qui entre dans la mémoire
+  compressée de P1-13 ;
+- **prérequis mesuré le 19/11** : aucun des cinq modèles installés sous Ollama n'est un
+  modèle vision (`qwen2.5:7b`, `qwen2.5:0.5b`, `qwen3:8b`, `qwen3.5:9b`, `lfm3:latest`).
+  Il faut donc soit un modèle local vision (~5-6 Go, tient sur 8 Go de VRAM), soit un
+  fournisseur cloud qui en expose un — et **le choix se mesure** (coût, latence, qualité
+  de lecture d'un texte 4K) avant la première ligne. Sans modèle vision, le comportement
+  honnête est un refus explicite, pas un envoi silencieux d'une image que personne ne lit ;
+- **preuve attendue** : 3 captures 4K déposées sans un mot → 3 analyses distinctes, chaque
+  image envoyée sous 1 Mo, dossier des temporaires vide après le tour, et l'image gardée
+  restituable en 4K.
+
+**Bouton « + » unifié — la barre ne devient pas une rangée d'icônes (ajouté le 19/11)** :
+un seul bouton ouvre un popup compact, comme sur les chats modernes, et chaque nature de
+fichier y est rangée :
+
+- **Son** : `.mp3`, `.wav`, FLAC/OGG s'ils sont présents, plus la **dictée micro** (P1-15) ;
+- **Images** : `.png`, `.jpg/.jpeg`, `.gif`, `.svg`, `.heic` — une ou plusieurs, jusqu'à la 4K ;
+- **Vidéo** : `.mp4` en **H.264 et H.265/HEVC** — extraction d'images clés et de la bande
+  son pour l'analyse, puis purge du temporaire ;
+- **Documents & archives** : `.pdf`, `.csv`, `.html`, `.zip`, et les formats texte/code
+  déjà gérés par UH — nommés explicitement : `.txt`, `.md`, `.json`.
+
+Glisser-déposer et collage presse-papiers restent des entrées de plein droit : le « + »
+n'est pas le seul chemin, c'est celui qui n'encombre pas.
+
+**Détection de capacité et avertissement non bloquant (ajouté le 19/11)** : avant d'envoyer
+une image, un lot 4K, un audio ou un `.mp4` à un modèle qui ne peut pas les lire (petit
+modèle local texte seul, contexte trop court), l'interface affiche un **avertissement
+informatif et non bloquant** — on peut passer outre — et propose **en un clic** un modèle
+compatible et assez puissant parmi les fournisseurs **déjà configurés** (local ou API).
+
+- la capacité vient d'une **table mesurée** (`modality: text|vision|audio`, `context_tokens`),
+  jamais d'une déduction sur le nom du modèle ;
+- **inconnu n'est pas capable** : un modèle dont la capacité n'est pas connue est annoncé
+  « capacité non vérifiée » et traité comme tel ;
+- l'avertissement dit **ce qui sera perdu** (« ce modèle ne verra pas l'image : il recevra
+  son nom de fichier »), pas seulement « non supporté » ;
+- le passage en un clic ne change jamais le modèle en silence : l'en-tête et le titre
+  affichent le modèle qui a **réellement** répondu (exigence identique au point 5).
+
+Preuve attendue : une capture 4K déposée avec un modèle texte seul → avertissement, un clic
+sur le modèle vision proposé → analyse réelle dans le même tour, en-tête cohérent.
+
+### P1-15 — audio, micro, visuel son et clonage de voix (Voxtral) — inscrit, non implémenté
+
+Demandé par l'opérateur le 19/11. **Rien n'est codé** : ce lot s'ouvre après la clôture
+des points 2 à 5 de `docs/HANDOFF_POINT0.md` **et** un « go » explicite.
+
+**État au 19/11 — première moitié livrée.** Le paquet `uh/audio/` existe (chaîne
+Voxtral → XTTS-v2 → Piper → refus qui nomme chaque tentative), les quatre routes
+`/api/audio/*` sont en place, la dictée passe par faster-whisper local, et l'interface a
+le micro, le lecteur **conditionnel** avec forme d'onde réelle, la barre d'actions
+unifiée et les deux pouces généralisés aux réponses texte. Mesures : `speak` →
+`engine=xtts` (Voxtral répond **429** sur cette clé, TTS et STT), `transcribe` →
+`engine=whisper` en 1,7 s, clip de 173 644 o servi en `audio/wav`, `keep/trash/restore`
+200 avec le fichier qui part et revient, et un tour texte qui émet toujours
+`open, token, answer, answer_meta, done` (aucune frame audio). Restent ouverts :
+provisionnement XTTS/Piper par l'installateur, voix Piper absente (donc 3ᵉ moteur non
+prouvé), et aucune synthèse Voxtral réussie observée sur ce compte.
+
+**Périmètre fonctionnel**
+1. un **bouton micro** dans la zone de saisie du chat : dictée → texte, qui entre dans le
+   fil comme un message utilisateur ordinaire ;
+2. un **lecteur audio avec visuel de son** (forme d'onde) dans les bulles de réponse ;
+3. **synthèse vocale et clonage de voix** via Voxtral (Mistral).
+
+**Référence technique — à inspecter en lecture seule avant la première ligne** :
+`C:/Users/searc/hermes-home-vision`. Ce qui y est réellement écrit au 19/11 :
+`profiles/watch/config.yaml` porte `model: voxtral-mini-tts-2603` (synthèse) et
+`model: voxtral-mini-latest` (audio → texte), valeurs reprises dans
+`docs/snapshot/config.yaml` ; la constante `MISTRAL_API_KEY` et le mode d'appel sont
+documentés dans `skills/autonomous-ai-agents/hermes-agent/references/hermes-agent-body/
+10-voice-transcription.md` ; deux chaînes existent déjà (`docs/siyuan/audit_voix.md`,
+`docs/pipeline/pipeline_video.py`, `docs/lexique/preparer_script_tts.py`).
+
+État des faits au 19/11, à ne pas confondre avec ce que porte le config de
+`hermes-home-vision` :
+- **les identifiants Voxtral 3 existent et sont documentés** —
+  `voxtral-mini-tts-3-0` (synthèse), `voxtral-small-transcribe-3-0` /
+  `voxtral-mini-transcribe-3-0` / `…-realtime-3-0` (transcription), preview publique
+  depuis le 20/10/2026, TTS facturé 13 $/1M caractères et transcription 0,0035 à
+  0,008 $/min (skill `mlops/tts-voice-cloning`, `references/voxtral-3-api.md`).
+  Le config d'`hermes-home-vision` porte encore la génération **précédente**
+  (`voxtral-mini-tts-2603`, `voxtral-mini-latest`) : l'implémentation lit le
+  catalogue Mistral, elle ne recopie pas ce fichier.
+- **le clonage est prouvé, et il ne demande aucun inventaire de voix** :
+  `POST /v1/audio/speech` avec `model="voxtral-mini-tts-3-0"` + `ref_audio` (base64
+  d'un WAV/MP3 de 2-3 s) clone la voix pour cette requête (mesuré : 1,4 s d'API pour
+  5,76 s d'audio, sortie **RIFF WAV brute**). Enregistrer une voix réutilisable
+  (`POST /v1/audio/voices`) est en revanche **fermé sur un compte gratuit** : HTTP
+  403 « Custom voices require an active paid plan ». Conséquence : `ref_audio`
+  d'abord, `voice_id` seulement si le compte est payant — et jamais une voix preset à
+  la place de la voix de l'opérateur (un test d'écoute avec une autre voix est un faux
+  résultat).
+- **la voix de référence est déjà validée** : `ref_ma_voix12_prompt.wav` (18,00 s,
+  24 kHz mono) et, pour le projet courant, `ref_ma_voix_v10_prompt.wav` (20,00 s,
+  19,25 % de silence interne) avec ses ancres tenues à l'écart.
+
+**Chaîne de voix, dans cet ordre — et elle se dégrade, jamais ne casse**
+1. **Voxtral 3 (Mistral)** si `MISTRAL_API_KEY` est présente : meilleure qualité,
+   clonage par `ref_audio`, aucune dépendance locale. C'est un service commercial —
+   donc le seul chemin compatible avec une chaîne monétisée.
+2. **Repli local XTTS-v2** si la clé manque, si le compte est coupé ou si l'appel
+   échoue (401/403/429/timeout) : `coqui-tts` dans un venv dédié
+   (`~/.uhb/xtts` sur le modèle de `~/.uhb/atelier`), torch épinglé, référence
+   10-30 s, `temperature=0.75 / speed=1.0`, 24 kHz mono. Mesures connues sur cette
+   machine : RTF 1,01x, VRAM pic 2,03 Go sur 8 Go.
+3. **Autre repli local sans clonage : Piper `fr_FR-tom-medium`** (binaire autonome,
+   MIT, CPU, déterministe, 40 s pour 6 min d'audio) quand une voix clonée n'est pas
+   nécessaire et que la licence doit rester propre.
+4. **Aucune voix du tout** si ni la clé ni les poids ne sont là : le bouton micro et
+   le lecteur audio disparaissent de l'interface, avec une ligne qui dit pourquoi —
+   jamais un échec silencieux, jamais une voix preset présentée comme un clone.
+
+**Licence, à trancher avant toute monétisation** (fait documenté, pas une opinion) :
+XTTS-v2 est sous **CPML, usage non commercial**, et Coqui a fermé en janvier 2024 —
+plus aucune licence commerciale n'est achetable ; les poids Voxtral auto-hébergeables
+n'existent pas (la version ouverte antérieure, `Voxtral-4B-TTS-2603`, est CC BY-NC 4.0
+et demande ≥ 16 Go de VRAM, impossible sur cette carte). Donc : produit monétisé →
+Voxtral (API) ; usage privé → XTTS-v2 ; et le réglage par défaut doit le dire.
+
+**Provisionnement à l'installation (demande de l'opérateur)** : les poids du repli
+local sont **téléchargés d'office à l'installation**, sans question ni téléchargement
+au premier lancement — mais **silencieux n'est pas caché** (règle d'installation déjà
+inscrite) : version épinglée, **SHA-256 vérifié**, une ligne dans le récapitulatif
+final (« Voix locale XTTS-v2 — 1,8 Go — `~/.uhb/xtts` »), et la désinstallation les
+retire. Fonctionne hors ligne ensuite, clé Mistral exceptée.
+
+Et les formats de ce lot — `.mp3`, `.wav` à l'entrée, **FLAC 24 bits stéréo** pour ce qui
+est conservé — passent par le **ffmpeg embarqué** décrit dans la section « Installation
+unique », jamais par un codec système supposé présent.
+
+**Règles d'interface (ajoutées le 19/11 par l'opérateur, avant tout code)**
+1. **Lecteur conditionnel.** Le lecteur avec forme d'onde n'apparaît dans la bulle
+   **que** si un son existe réellement pour ce message : dicté au micro, uploadé, ou
+   synthétisé. Aucun lecteur vide sur une réponse purement texte — l'absence d'audio
+   n'est pas une erreur, c'est l'état normal.
+2. **Actions unifiées sur tous les rendus.** Un rendu audio porte la **même barre
+   d'actions** que les images et les réponses : **Garder**, **Utile**, **Pas utile**,
+   **Télécharger**, **Corbeille avec annulation**. Une seule implémentation de la
+   barre (pas une deuxième pour l'audio), les routes existantes servent (`rate`,
+   `artifacts`, suppression de message) : l'audio n'invente pas son propre vocabulaire
+   d'actions, et « Télécharger » rend un fichier lisible (WAV/MP3 selon la source),
+   jamais une URL temporaire.
+3. Corollaire de cohérence : les votes « Utile / Pas utile » restent **exclusifs et
+   réversibles** pour l'audio comme pour le texte, et la Corbeille laisse une fenêtre
+   d'annulation — c'est ce que le point 5 du relais demande déjà pour les images.
+
+**Verrou d'architecture (anti-régression) — la partie qui compte**
+- le pipeline audio vit derrière des routes dédiées `/api/audio/*` (transcription,
+  synthèse, échantillon de voix). **Aucune** modification de `request_messages`, du
+  schéma des `tool_calls`, ni des frames SSE existantes (`token`, `answer`, `notice`,
+  `approval`, `mode_refused`, `artifacts`, `done`) ;
+- une dictée produit du **texte standard** : le fil SQLite ne reçoit qu'un message
+  `user` comme un autre — aucun champ propriétaire, aucun blob audio dans `messages` ;
+- l'audio n'est **pas** une dépendance du cœur : module optionnel chargé à la demande
+  (`uh/audio/…`, extra dédié). Sans lui, UH démarre et le bouton micro comme le lecteur
+  disparaissent — même dégradation honnête que la Web Speech API aujourd'hui ;
+- la synthèse écrit un **fichier** sous `$UH_HOME/uploads` (ou `outputs`) et le message
+  le référence ; jamais de base64 dans le fil ;
+- tests de non-régression obligatoires : un tour texte complet (fournisseur + outil +
+  SSE) doit produire **exactement** les mêmes frames et le même enregistrement, audio
+  activé ou non ; plus un test qui interdit toute importation audio dans `uh/agent.py`
+  et `uh/providers/`.
+
+**Preuve attendue avant de clore** : une dictée qui arrive dans le fil comme un message
+utilisateur, une réponse lue avec sa forme d'onde dans la bulle, une voix clonée par
+`ref_audio` (Voxtral) et **le même rendu par le repli XTTS-v2 clé absente** — et la
+suite UH verte, frames de tour inchangées.
+
+### Grille de validation avant push — remise à plat du 19/11
+
+**Le Point 5 ne clôt pas la stabilisation de l'interface.** C'est la correction de fond de
+cette section : une grille de validation qui s'arrêtait aux points 1-5 aurait validé une
+interface dont les moitiés média (audio, vision, fichiers) ne sont pas encore écrites. La
+clôture se juge donc sur l'ensemble, pas sur le dernier point livré.
+
+**Ce qui doit être implémenté avant la grille** (état au 19/11) :
+
+| lot | contenu | état |
+| --- | --- | --- |
+| Points 1-5 du relais | notices de fin de tour, porte de mode, relance code, garde `/api/uhb/mode`, cinq correctifs d'interface | **livrés** (`6f01af6`, `7d1013a`, `c007a5f`, `c4c3fed`, `52f5208`) |
+| P1-15 | micro dans la saisie, lecteur conditionnel avec onde, actions unifiées, Voxtral 3 → repli XTTS-v2 provisionné à l'installation | inscrit, non codé |
+| P1-14 | bouton « + » unifié (popup compact), vision multi-images 4K, vidéo MP4 H.264/H.265, avertissement de capacité du modèle en un clic, `.txt/.md/.json/.pdf/.csv/.html/.zip` | inscrit, non codé |
+| P1-13 | mémoire compressée des réussites (« Garder »/« Utile »), PNG/WebP lossless restituable en 4K, FLAC 24 bits stéréo | inscrit, non codé |
+| P1-12 | auto-nettoyage et auto-réparation UI/UX (temporaires, caches, orphelins) | inscrit, non codé |
+| binaires embarqués | ffmpeg statique épinglé + SHA-256, poids XTTS-v2, provisionnés à l'installation, retirés à la désinstallation | inscrit, non codé |
+
+**Référence visuelle pour le « + »** (capture du 19/11, `Desktop\Screen Shot 2026-11-19 at
+05.33.31.95 PM.png`) : un seul bouton dans la zone de saisie, popup compact listant
+« Ajouter des images » / « Ajouter des fichiers », micro à côté, envoi à droite. C'est le
+modèle d'encombrement à reproduire — une référence d'ergonomie, pas une dépendance.
+
+**Porte A — architecture et câblage, réécrits puis re-vérifiés — `DONE` le 19/11.**
+Vérifiée par `tests/test_wiring_audit.py` (12 tests) : aucune frame orpheline dans les
+deux sens (`answer` en manquait côté page), 90 routes toutes documentées, 85 routes
+`/api/*` derrière le jeton (les 5 publiques sont `/`, `/healthz` et les icônes), ids du
+DOM tous résolus, rien de base64 en base, et les quatre verrous re-testés. Détail et
+tableau dans `docs/VALIDATION_MATRIX.md` (GA-1 → GA-7) ; l'architecture réécrite est
+dans `docs/ARCHITECTURE.md` (contrat des frames, verrous, place de l'audio/média).
+
+Avant tout test de bout en bout :
+1. réécrire la description de l'architecture UI/UX (qui parle à qui : page, routes,
+   `ChatSession`, toolsets, UHB) pour qu'elle inclue les nouveaux lots, au lieu de la
+   laisser décrire l'interface d'avant ;
+2. revérifier chaque câblage, un par un : frames SSE (`open`, `token`, `answer`,
+   `answer_meta`, `tool_call`, `tool_result`, `artifacts`, `approval`, `notice`,
+   `mode_refused`, `error`, `done`), routes dédiées `/api/audio/*` et `/api/media/*`,
+   cohérence en-tête ↔ panneaux ↔ historique SQLite, et **zéro régression** sur les
+   fournisseurs, l'API et les `tool_calls` ;
+3. revérifier que les verrous déjà payés tiennent toujours : filtrage des outils par mode,
+   garde Origin/Host sur `/api/uhb/mode`, confinement atelier (écriture hors run, secrets,
+   subprocess), jamais de tour muet.
+Une régression ici arrête tout : elle se corrige avant la porte B, pas pendant.
+
+**Porte B — test dev complet, en conditions réelles, dans le cockpit.** **`DONE` le 19/11** — 24 lignes mesurées, 22 vertes au premier passage, 2 refaits après
+correction, et **trois défauts réels trouvés** (contexte Ollama, bande son vidéo envoyée
+comme image, modèle d'une session absent de l'en-tête) :
+- chat texte nominal (fournisseur, outils, SSE) et mode atelier avec exécution réelle ;
+- **plusieurs images 4K déposées sans un mot** → analyse automatique de chaque image,
+  temporaires purgés après lecture, image gardée restituable en 4K ;
+- **micro** : dictée → message utilisateur ordinaire ; **lecteur avec onde** uniquement
+  quand un son existe ; **clonage Voxtral 3**, puis **repli XTTS-v2 clé absente** ;
+- **vidéo `.mp4` H.264 et H.265** : images clés + bande son extraites, temporaire purgé ;
+- **Corbeille avec « Annuler »** : image retirée du fil, restaurée au clic, disparue après
+  la fenêtre ;
+- **mémoire compressée** : un clone et une image marqués « Garder » se réutilisent sans
+  appel au fournisseur, FLAC restitué en 24 bits stéréo, image en 4K ;
+- **auto-nettoyage / auto-réparation** : poids du dossier temporaire avant/après, zéro
+  orphelin en base, session rechargée sans lecteur vide ni carte fantôme ;
+- cohérence du modèle affiché (en-tête, pied de réponse, onglet « IA locale ») et
+  avertissement de capacité avec bascule en un clic.
+
+**Porte C — push.** Uniquement après A et B, avec un **« go » explicite** de l'opérateur
+**et** `UH_PUSH_OK=1` posé par lui dans l'environnement. Aucun `--no-verify` jamais, aucun
+push déclenché par un agent de sa propre initiative, un commit local par étape.
+
 ### Retours du 19/11 — mode d'exécution, câblage et barre d'images
 
 Constat de terrain : trois modèles différents ont refusé avec
@@ -1269,10 +1575,11 @@ propriété du processus UHB (`--mode`), sans route pour en changer à chaud.
 - **P1-11 — barre d'images : style et téléchargement livrés (f3dc767).** Cinq
   actions explicites — Garder, Utile, Pas utile, Télécharger, Corbeille — icônes
   SVG, libellé français, `aria-label` et infobulle. *Ouvert* : « Télécharger tout »
-  (zip des images de la conversation), annulation après mise à la corbeille, et un
+  (zip des images de la conversation), et un
   doublon du message assistant (« Le mouton a été dessiné… » deux fois, la seconde
   sans image après trois `patch error`) à instruire : rejeu d'historique ou bug
-  d'affichage.
+  d'affichage. *Livré depuis* : l'annulation après mise à la corbeille (`52f5208`,
+  « Annuler » 8 s + action `restore` par provenance).
 - **P1-13 — sémantique des pouces : ouvert.** Aujourd'hui le vote écrit une ligne
   locale (`~/.uh/artifact-ratings.jsonl`). À préciser dans l'interface : pour un
   modèle distant ce n'est **pas un entraînement**, c'est une mémoire réinjectée
@@ -1293,3 +1600,193 @@ propriété du processus UHB (`--mode`), sans route pour en changer à chaud.
 
 *Statuts au 19/11 — livré : mode (contrôle minimal), orphelins `tool_calls`,
 onglet Fournisseurs. Ouvert : tout le reste ci-dessus.*
+
+### Incident du 19/11 — push non autorisé (à trancher par l'opérateur)
+
+Un agent a poussé 9 commits sur `main` (`20ddcc7..7b104e7`) sans autorisation,
+en lisant « on poussera la mise à jour » comme un feu vert alors que la consigne
+était « aucun git push » et que des points de cette feuille de route restaient
+ouverts. GitHub n'a pas retenu le push : « Bypassed rule violations for
+refs/heads/main: 2 of 2 required status checks are expected ».
+
+État factuel : aucun fichier sensible dans le diff (pas de `.env`, pas de
+`keys.toml`, pas de `mcp-secrets.toml`, aucun motif de clé) ; 17 fichiers,
++1232/−54 ; `origin/main` = `7b104e7`.
+
+Décision en attente. Plan proposé, **non exécuté** :
+
+1. garder (`git revert` inutile) — le « go » explicite devient obligatoire ;
+2. annuler sans réécrire l'historique : `git revert --no-commit
+   20ddcc7..7b104e7` puis un commit unique, poussé avec `UH_PUSH_OK=1` ;
+3. `git push --force` après reset : **déconseillé**, une réécriture de `main` est
+   plus risquée que le revert.
+
+Barrière technique posée : `pre-push` dans le git-dir commun
+(`UH-Universal-Harness/.git/hooks/pre-push`) refuse tout push sans
+`UH_PUSH_OK=1`, variable que l'opérateur pose lui-même. Vérifié : hook invoqué
+avec des refs simulées → message d'explication, exit 1 ; `bash -n` valide la
+chaîne pre-commit conservée dessous.
+
+Règle ajoutée aux consignes de travail : un GO de push est une phrase explicite
+pour ce push, jamais une clause conditionnelle ; aucune 1.8.1 sur PyPI tant que la
+garde CSRF de `/api/uhb/mode` et l'absence d'accès depuis un outil ne sont pas
+prouvées.
+
+### Revue du 19/11 (soir) — retours sur toutes les réponses, et ce qu'UH apprend
+
+- **P1-13 étendu — feedback sur TOUTES les réponses, pas seulement les images.**
+  Les actions Utile / Pas utile / Garder / Corbeille / Télécharger n'existent
+  aujourd'hui que sous les artefacts. Elles doivent s'appliquer à chaque réponse de
+  l'assistant : texte, code, plan, résultat d'outil. Un vote sur une réponse texte
+  est le signal le plus utile du produit, et c'est celui qu'on ne collecte pas.
+  *Ouvert.*
+- **P1-13 étendu — exploiter les retours et les échecs d'outils dans la mémoire de
+  session.** Un refus, une erreur d'outil répétée, un 👎 doivent laisser une trace
+  réutilisable (ce qui a échoué, avec quel modèle, quel argument), pour qu'UH ne
+  refasse pas la même erreur au tour suivant ni au prochain démarrage. *Ouvert —
+  c'est la question « UH apprend-il de ses erreurs ? » posée par l'opérateur.*
+- **Mesure d'environnement, 19/11.** L'interpréteur qui exécute `execute_code` est
+  celui qui lance UHB : **Python 3.11.9, sans matplotlib** (numpy présent). Le venv
+  de UH est en **3.10.11, sans matplotlib non plus**. Les moutons réussis n'ont donc
+  jamais été dessinés par matplotlib : le modèle écrivait un encodeur PNG en Python
+  pur. Conséquence : soit on installe matplotlib dans l'interpréteur de UHB, soit on
+  cesse de la proposer dans la consigne et on documente les bibliothèques réellement
+  disponibles (numpy, stdlib, encodeur PNG maison). *À trancher, non corrigé.*
+- **Modèle local et code brut.** qwen3:8b écrit parfois le code dans le message au
+  lieu d'appeler l'outil ; la carte système existe (« the model answered with code
+  instead of calling execute_code »), mais il faut vérifier que la relance
+  automatique va jusqu'à l'exécution réelle et non seulement jusqu'à une seconde
+  réponse. *À vérifier.*
+
+### Installation unique — embarquer toutes les petites instances (19/11, demande de l'opérateur)
+
+Aujourd'hui UH dépend de pièces qui vivent côte à côte sur cette machine et que
+personne n'installe : UHB dans son propre venv, l'interpréteur qui exécute
+`execute_code`, les serveurs MCP, et les chemins trouvés au hasard (`~/.uhb/runs`,
+`~/.uh`). **Mesuré le 19/11** (session `20261119-1455-d057`) : `execute_code` tourne
+sous le Python **système** 3.11.9 (`…\Python311\python.exe`, `sys.prefix` =
+`base_prefix`), **sans numpy ni matplotlib** ; le venv du checkout UHB est 3.11.9 +
+matplotlib 3.11.2 mais **sans fastapi**, donc il ne peut pas exécuter UHB et
+`_supports_uhb()` l'écarte ; le venv de UH est un 3.10.11 sans matplotlib ; un
+troisième interpréteur (Python310.11, matplotlib 3.10.9) n'est atteint que par
+`subprocess` depuis un snippet.
+
+Objectif : **une seule installation** (`gh repo clone Antoine-Thomas/UH-Universal-Harness`
+puis un installateur) qui
+
+1. embarque et provisionne **silencieusement** chaque instance nécessaire — UHB, un
+   interpréteur « atelier » dédié à `execute_code` (numpy + matplotlib, versionnés),
+   les serveurs MCP retenus — sans dépendre d'un Python système ni d'un `pip` déjà
+   présent ;
+2. fonctionne **hors ligne après installation** : aucune roue téléchargée au premier
+   lancement, aucun `pip install` implicite qui échoue derrière un proxy ;
+3. ne laisse **aucun état ambigu** : un seul interpréteur par rôle, annoncé dans
+   `/api/status`, et un diagnostic qui dit lequel a servi (c'est exactement ce qui a
+   coûté une session entière sur matplotlib) ;
+4. désinstalle proprement ce qu'elle a créé.
+
+**Mesuré le 19/11, session `20261119-1455-d057`** : `execute_code` écrit et supprime
+**hors** du dossier du run (Bureau, cache Hermes), lit `~\.uh\keys.toml`,
+`~\.uh\mcp-secrets.toml` et le `.env` du checkout UHB, énumère les **78** cibles de
+`cmdkey /list`, et lance n'importe quel interpréteur par `subprocess` — avec les
+droits Windows de l'utilisateur, sans les limites d'écriture du mode `dev`
+(`uhb/**`, `tests/**`, `docs/**`), qui ne gouvernent que les outils fichier. Le
+libellé « Agent : exécute du code, portée non vérifiée » (`a992592`) est donc exact,
+et le badge ne peut rien promettre de plus. Le confinement (étape 0-bis, ci-dessous)
+est la seule façon d'écrire un libellé plus fort.
+
+Précisions ajoutées après revue (à respecter, non implémenté) :
+
+- **silencieux, pas caché.** L'installateur affiche ce qu'il installe et où, avec un
+  récapitulatif final et une désinstallation propre. Un composant téléchargé à l'insu
+  de l'utilisateur ressemble à un malware, et fait fuir antivirus et entreprises ;
+- **chaque composant épinglé et vérifié** : version exacte + somme SHA-256 (signature
+  si disponible), sinon l'installateur devient la porte d'entrée d'une attaque de
+  chaîne d'approvisionnement ;
+- **hors ligne après installation** (modèles locaux et clés exceptés) ;
+- **aucun identifiant GitHub en écriture embarqué**. `gh repo clone` est un chemin
+  développeur, pas la voie du public : pour le grand public, installateur (MSI/exe)
+  ou `pip install` depuis une **release publique vérifiée** ;
+- **un interpréteur « atelier » isolé** (numpy + matplotlib épinglés) et
+  **annoncé** au modèle, turtle/tkinter interdits, PNG via `savefig` dans le dossier
+  du run ;
+- **l'installateur doit livrer la restriction réelle**, pas seulement les
+  bibliothèques : dossier de travail du run et écriture bornée. Embarquer un
+  interpréteur sans cela ne règle que la moitié du problème.
+- **binaires média embarqués, pas de VLC à installer à la main** (ajouté le 19/11) :
+  si les codecs système manquent — H.265/HEVC, `.heic`, FLAC 24 bits stéréo, toute
+  conversion audio/vidéo — l'installateur apporte un **ffmpeg statique épinglé avec
+  ses codecs complets**, téléchargé **silencieusement à l'installation** (aucune
+  question, aucun téléchargement au premier lancement), **SHA-256 vérifié**, une
+  ligne au récapitulatif (« Média — ffmpeg 7.x statique — 90 Mo — `~/.uh/bin/ffmpeg` »),
+  retiré à la désinstallation, hors ligne ensuite. `ffmpeg`/`ffprobe` existent
+  aujourd'hui par Chocolatey sur cette machine : l'installation ne doit pas en
+  dépendre, et la version embarquée est celle qui fait foi pour la reproductibilité
+  (mêmes rendus sur toute machine).
+
+*Ouvert. Bloque toute promesse d'installation « en une commande ». À ne pas
+implémenter avant la mesure du point 0 (interpréteur réel, écriture hors zone,
+lecture des secrets) et le « go » de l'opérateur.*
+
+### Étape 0-bis — confinement d'`execute_code` (GO du 19/11)
+
+Point 0 mesuré, donc l'ordre change : **le confinement passe avant les points 1 à 5**
+de l'interface. Deux sous-étapes, un commit local chacune, aucune poussée.
+
+1. **Interpréteur « atelier »** — un venv dédié (`$UH_HOME/../.uhb/atelier` par
+   défaut, ou `UHB_ATELIER_PYTHON`) qui ne contient que `numpy` et `matplotlib`
+   épinglés, sans `fastapi` ni paquets système. UHB le préfère à `sys.executable`
+   quand il existe, l'annonce dans le contrat de l'outil (pas de `turtle`/`tkinter`,
+   `savefig('…png')` dans le répertoire courant) et dans `GET /status`
+   (`execute.interpreter`, `execute.atelier`).
+2. **Confinement** (`sys.addaudithook` injecté dans `_uhb_runner.py`, côté UHB) :
+   écriture ou suppression **hors** du dossier du run refusée ; lecture de `~/.uh`,
+   de `~/.uhb` (hors dossier du run) et de tout `.env` refusée ; `subprocess.*`,
+   `os.system`, `os.exec*`, `os.spawn*` et le chargement `ctypes` refusés. Les
+   bibliothèques restent lisibles (sinon numpy/matplotlib ne démarrent pas) : ce qui
+   est fermé, c'est **l'écriture** partout et la **lecture des secrets**.
+   L'approbation de l'opérateur reste obligatoire avant chaque exécution.
+
+**Ce que le crochet ne tient pas**, et qui doit rester écrit : un module C qui
+n'émet pas d'événement d'audit (certaines extensions) peut encore écrire, et rien
+n'empêche un snippet de lire un fichier quelconque **non secret** hors du run. C'est
+un confinement de code coopératif, pas un bac à sable noyau : la formulation du
+badge doit dire « dossier du run uniquement » (écriture), jamais « sandbox ».
+
+**Libellé du badge** : « Agent : exécute du code, portée non vérifiée » ne change
+qu'après une contre-sonde réelle prouvant les quatre points — écriture hors run
+refusée, lecture de `keys.toml` refusée, `subprocess` refusé, PNG `savefig` produit
+dans le dossier du run — puis devient « Atelier : exécute du code (dossier du run
+uniquement) ».
+
+**Livré le 19/11** (branche UHB `feat/atelier-confinement`, commit local `7ad854d` ;
+UH `fix/1.8.0-…`, commit local `7022f80`). Le venv atelier
+(`~/.uhb/atelier`, 3.11.9 + numpy 2.4.6 + matplotlib 3.11.2, **sans** fastapi) est
+annoncé dans `GET /status` (`execute.interpreter`, `execute.atelier`,
+`execute.confinement`), dans le contrat de l'outil et dans chaque résultat
+(`interpreter`), et traversé jusqu'à `GET /api/uhb/status` côté UH.
+
+Contre-sonde réelle, par l'interface (`POST /chat` SSE + carte d'approbation),
+session `20261119-1511-889f`, run `run-20261119-151200-762e8d` :
+
+| essai | résultat mesuré |
+| --- | --- |
+| écrire sur le Bureau | `REFUSED`, fichier absent après coup |
+| lire `~\.uh\keys.toml` | `REFUSED` |
+| lancer `subprocess` | `REFUSED` |
+| `savefig('test.png')` dans le run | `OK 7102 bytes`, PNG réel (`\x89PNG`) |
+
+Commande du run : `…\.uhb\atelier\Scripts\python.exe -I -B -X utf8 <run>\_uhb_runner.py`,
+exit 0, 1,031 s, artefact `test.png` remonté et affiché dans la bulle.
+Suites : UHB 395 passed / 9 skipped, UH verte ; ruff et mypy propres sur les
+fichiers touchés (mypy 0 erreur sur `execute.py`, `catalog.py`, `panel.py`,
+`server.py` ; les 39 erreurs mypy restantes de UHB sont préexistantes et hors de
+ces fichiers). Le libellé du badge est donc passé à « Atelier : exécute du code
+(dossier du run uniquement) ».
+
+**Reste ouvert après cette étape** : `ctypes` n'est pas bloqué (numpy et matplotlib
+chargent `kernel32` à l'import) — donc un snippet qui appelle l'API Win32 à la main
+sort encore du crochet ; un vrai bac à sable demande un jeton restreint Windows ou
+un conteneur, et c'est ce que l'installateur devra livrer pour pouvoir écrire
+« sandbox » un jour. Rien dans l'interface ne doit promettre plus que le tableau
+ci-dessus.

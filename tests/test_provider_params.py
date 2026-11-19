@@ -39,6 +39,18 @@ def capture(monkeypatch: pytest.MonkeyPatch, payload: dict) -> List[Dict[str, An
     return seen
 
 
+def chat_body(seen: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The ``/api/chat`` body among the POSTs a turn makes.
+
+    Since gate B the provider also asks ``/api/show`` for the measured context window,
+    so ``seen[0]`` is that probe, not the turn. Choosing by shape keeps the assertion
+    on the payload that matters.
+    """
+    bodies = [body for body in seen if "messages" in body]
+    assert bodies, f"no chat body among {len(seen)} POSTs: {seen}"
+    return bodies[-1]
+
+
 # --------------------------------------------------------------------------- #
 # ollama
 # --------------------------------------------------------------------------- #
@@ -58,8 +70,10 @@ def test_ollama_sends_its_options_and_nothing_unsupported(monkeypatch) -> None:
 
     provider.chat([{"role": "user", "content": "salut"}], [])
 
-    payload = seen[0]
-    assert payload["options"] == {"temperature": 0.2, "top_p": 0.9, "num_predict": 256}
+    payload = chat_body(seen)
+    assert payload["options"]["temperature"] == 0.2
+    assert payload["options"]["top_p"] == 0.9
+    assert payload["options"]["num_predict"] == 256
     assert "reasoning_effort" not in json.dumps(payload)
 
 
@@ -72,7 +86,10 @@ def test_ollama_without_params_sends_no_options(monkeypatch) -> None:
 
     provider.chat([{"role": "user", "content": "salut"}], [])
 
-    assert "options" not in seen[0]
+    options = chat_body(seen).get("options") or {}
+    # No parameter travels; the measured context window may still be sent, because
+    # Ollama's 8 192 default is what gate B overflowed with three images.
+    assert set(options) <= {"num_ctx"}, f"unexpected options: {options}"
 
 
 # --------------------------------------------------------------------------- #

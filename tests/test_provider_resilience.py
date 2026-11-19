@@ -264,7 +264,14 @@ def test_an_empty_failure_stores_no_ghost_answer(
     errors = [frame for frame in frames if frame.get("type") == "error"]
     assert errors and errors[0]["partial"] is False
     stored = store.get_messages(session_id)
-    assert [m["role"] for m in stored] == ["user"], "the question is kept, no empty answer"
+    roles = [m["role"] for m in stored]
+    # No ghost answer: nothing claims the model spoke. What is stored is the
+    # question plus the sentence that explains the silence (point 1) — the error
+    # bubble itself is live only, so without this row a reload would show a
+    # question and nothing else.
+    assert roles == ["user", "system"], "the question is kept, and the silence is explained"
+    assert not [m for m in stored if m["role"] == "assistant"], "no empty answer is invented"
+    assert stored[-1]["content"] == console.PROVIDER_FAILED_NOTICE.format(error="ProviderError")
     store.close()
 
 

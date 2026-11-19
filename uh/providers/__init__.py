@@ -138,7 +138,9 @@ def retry_transport(
 
 
 
-def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
+def request_messages(
+    messages: List[dict], wire: str = "openai", tools: Optional[List[dict]] = None
+) -> List[dict]:
     """Copy of ``messages`` as a provider should see it - never the stored dicts.
 
     The messages are stored in whatever shape the provider that produced them
@@ -166,6 +168,12 @@ def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
     * a ``tool`` message without ``tool_call_id`` inherits the id of the call it
       answers: without it OpenAI refuses the request, and the model cannot pair
       result and call.
+    * when the caller passes the ``tools`` this request declares, a replayed call
+      to a tool it does not offer is **dropped**. A strict gateway rejects the
+      whole request over one such call - OmniRouter answered ``attempted to call
+      tool 'mcp__positron__execute_code' which was not in request.tools`` on
+      19/11, and the session could not continue. Without a tool list nothing is
+      filtered, so every existing caller keeps its behaviour.
     * the **image bytes are dropped from a tool result**. The interface needs
       them (`artifacts[].data_url`, kept in the session so a reload redraws the
       chart); a text model does not, and it already has the marker
@@ -175,6 +183,7 @@ def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
     """
     cleaned: List[dict] = []
     last_calls: List[str] = []
+    declared = _declared_tool_names(tools)
     for message in messages:
         if not isinstance(message, dict):
             cleaned.append(message)
@@ -188,6 +197,27 @@ def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
             # pays for them in tokens and cannot read them: the text survives, the
             # bytes stay in the session.
             message = {key: value for key, value in message.items() if key != "artifacts"}
+        if message.get("_images"):
+            # P1-14: the operator's own images, attached to this request only (never
+            # stored - `run_turn` passes a copy). Each wire wants them differently:
+            # Ollama has a `images` array on the message, OpenAI-compatible providers
+            # want content parts. A wire we have not measured gets the text and no
+            # bytes: sending a shape the provider rejects would cost the whole turn.
+            payload = [str(item) for item in message["_images"] if item]
+            message = {key: value for key, value in message.items() if key != "_images"}
+            if payload and wire == "ollama":
+                message = {**message, "images": payload}
+            elif payload and wire == "openai":
+                text = str(message.get("content") or "")
+                parts: List[dict] = [{"type": "text", "text": text}]
+                for encoded in payload:
+                    parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+                        }
+                    )
+                message = {**message, "content": parts}
         if message.get("role") == "tool":
             content = _without_image_bytes(message.get("content"))
             if content is not message.get("content"):
@@ -196,9 +226,68 @@ def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
                 message = {**message, "tool_call_id": last_calls.pop(0)}
         if message.get("tool_calls"):
             calls = _wire_tool_calls(message["tool_calls"], wire)
-            message = {**message, "tool_calls": calls}
+            if declared is not None:
+                kept = []
+                for call in calls:
+                    name = _call_name(call)
+                    if name in declared:
+                        kept.append(call)
+                    else:
+                        record_drop(name or "(sans nom)", "outil non déclaré dans request.tools")
+                calls = kept
+            if calls:
+                message = {**message, "tool_calls": calls}
+            else:
+                # A replayed call to a tool this request does not declare. Replaying
+                # it makes a strict gateway reject the WHOLE request ("attempted to
+                # call tool 'mcp__positron__execute_code' which was not in
+                # request.tools", OmniRouter 19/11), and keeping an assistant
+                # message with no content and no calls is refused just as well.
+                message = {key: value for key, value in message.items() if key != "tool_calls"}
+                if not str(message.get("content") or "").strip():
+                    continue
         cleaned.append(message)
     return _close_open_calls(cleaned)
+
+
+#: A call dropped on the wire, kept only until the turn reports it.
+_DROPS: List[dict] = []
+
+
+def record_drop(tool: str, reason: str) -> None:
+    """Remember that a replayed call was dropped, so the turn can say it aloud."""
+    _DROPS.append({"tool": tool, "reason": reason})
+
+
+def take_drops() -> List[dict]:
+    """Every drop recorded since the last call, then clear the list."""
+    drops = list(_DROPS)
+    _DROPS.clear()
+    return drops
+
+
+def _declared_tool_names(tools: Optional[List[dict]]) -> Optional[set]:
+    """The names this request offers, or ``None`` when the caller did not say.
+
+    ``None`` means "do not filter": every existing caller that passes no tool list
+    keeps the behaviour it had, filtering is opt-in and therefore testable.
+    """
+    if not tools:
+        return None
+    names = set()
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        function = tool.get("function")
+        name = (function or {}).get("name") if isinstance(function, dict) else None
+        names.add(str(name or tool.get("name") or ""))
+    names.discard("")
+    return names or None
+
+
+def _call_name(call: dict) -> str:
+    function = call.get("function")
+    return str((function or {}).get("name") or "") if isinstance(function, dict) else ""
 
 
 def _close_open_calls(messages: List[dict]) -> List[dict]:

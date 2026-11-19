@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uh-harness"
-version = "1.8.0"
+version = "1.9.0"
 description = "uh-harness (UH): a local-first, provider-agnostic agent harness for your desktop - console, web cockpit, file-backed memory, MIT"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -56,6 +56,14 @@ dev = [
 ]
 ui = ["rich>=13"]
 web = ["fastapi>=0.110", "uvicorn>=0.29"]
+# P1-15: dictation on this machine without a cloud key. Optional on purpose - UH
+# starts, chats and runs tools with none of it, and the audio routes say why they
+# cannot dictate instead of failing the turn.
+# huggingface-hub is pinned below 1 and filelock below 3.17 on purpose: both newer
+# lines call `dataclass(weakref_slot=)`, which this venv's Python 3.10 does not have.
+# (pip then warns that virtualenv wants a newer filelock; virtualenv is only used by
+# the pre-commit hooks, which are never run on this project.)
+audio = ["faster-whisper>=1.2", "huggingface-hub<1", "filelock<3.17"]
 
 [project.scripts]
 uh = "uh.cli:main"

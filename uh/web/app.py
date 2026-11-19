@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import re
@@ -97,6 +98,29 @@ def _local_tools_ok(name: str) -> Optional[bool]:
 
     capabilities = model_capabilities(name)
     return None if capabilities is None else "tools" in capabilities
+
+
+def answer_meta(session_obj: object, kind: str, model: str) -> "dict | None":
+    """Which model actually answered, as a frame the browser can trust.
+
+    ``last_real_model`` is what the provider says it served, which is not always the
+    configured alias: ``auto/best-free`` resolves to a concrete name, and a fallback
+    switches provider mid-flight. Point 5 asks the header, the answer's footer and
+    the local-model tab to name that model - one value, emitted once, and ``None``
+    when nothing has answered yet (a frame that says nothing is better than a frame
+    that invents a model).
+    """
+    served = str(getattr(session_obj, "last_real_model", "") or "")
+    if not served:
+        return None
+    requested = str(model or "")
+    return {
+        "type": "answer_meta",
+        "provider": str(kind or ""),
+        "model": served,
+        "requested": requested,
+        "substituted": bool(requested and requested != served),
+    }
 
 
 def _hostname(host_header: str) -> str:
@@ -373,16 +397,19 @@ def create_app(
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
+        # Every refusal here is 403, not 400: the request is well formed, the
+        # caller is simply not allowed — and the browser turns a 403 into "you
+        # cannot do that from this page", which is the honest sentence (point 4).
         if request.headers.get("host", "") not in allowed_hosts:
-            return JSONResponse({"detail": "host not allowed"}, status_code=400)
+            return JSONResponse({"detail": "host not allowed"}, status_code=403)
         origin = request.headers.get("origin")
         if origin and origin not in allowed_origins:
-            return JSONResponse({"detail": "origin not allowed"}, status_code=400)
+            return JSONResponse({"detail": "origin not allowed"}, status_code=403)
         # ``Sec-Fetch-Site`` is set by the browser itself and cannot be forged by
         # a page: a cross-site request is refused even when it carries no Origin.
         site = (request.headers.get("sec-fetch-site") or "").strip().lower()
         if site == "cross-site":
-            return JSONResponse({"detail": "cross-site request refused"}, status_code=400)
+            return JSONResponse({"detail": "cross-site request refused"}, status_code=403)
         if (
             request.method in UNSAFE_METHODS
             and request.cookies.get(getattr(app.state, "cookie_name", COOKIE_NAME))
@@ -475,14 +502,21 @@ def create_app(
 
     # -- status ------------------------------------------------------------ #
     @app.get("/api/status", dependencies=[Depends(require_token)])
-    async def status() -> dict:
+    async def status(session_id: str = "") -> dict:
         with _store(app) as store:
             sessions = len(store.list_sessions(limit=10_000))
             schema = store.schema_version
+        # Gate B found this: a session can run on a model of its own (`POST /api/model`
+        # with a session_id), and the header kept announcing the global default -
+        # exactly the "two models on screen" the interface rules forbid. Asking for a
+        # session's status gives that session's pair.
+        kind, model = app.state.kind, app.state.model
+        if session_id:
+            kind, model = app.state.session_models.get(session_id, (kind, model))
         return {
             "version": __version__,
-            "provider": app.state.kind,
-            "model": app.state.model,
+            "provider": kind,
+            "model": model,
             "provider_error": app.state.provider_error,
             "sessions": sessions,
             "store": str(app.state.settings.store_path),
@@ -706,9 +740,29 @@ def create_app(
         action = str(payload.get("action") or "").strip().lower()
         try:
             if action == "keep":
-                return uh_artifacts.keep(provenance)
+                result = uh_artifacts.keep(provenance)
+                # P1-13: what was kept is copied into the memory, in a canonical
+                # format (PNG lossless / FLAC 24 bits). A failure there must not
+                # undo the keep that already succeeded: it is reported beside it.
+                try:
+                    from .. import memory as uh_memory
+
+                    kind = str(payload.get("kind") or "").lower() or "image"
+                    if kind not in {"image", "audio"}:
+                        kind = "image"
+                    result["memory"] = uh_memory.keep(
+                        Path(str(result.get("file") or "")),
+                        kind=kind,
+                        session_id=str(payload.get("session_id") or ""),
+                        message_id=payload.get("message_id"),
+                    )
+                except Exception as exc:  # noqa: BLE001 - the keep already happened
+                    result["memory_error"] = f"{type(exc).__name__}: {exc}"
+                return result
             if action == "trash":
                 return uh_artifacts.trash(provenance)
+            if action == "restore":
+                return uh_artifacts.restore(provenance)
             if action == "rate":
                 return uh_artifacts.rate(
                     provenance,
@@ -720,7 +774,7 @@ def create_app(
                 )
         except uh_artifacts.ArtifactActionError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        raise HTTPException(status_code=400, detail="action must be keep, trash or rate")
+        raise HTTPException(status_code=400, detail="action must be keep, trash, restore or rate")
 
     @app.get("/api/artifacts/trash", dependencies=[Depends(require_token)])
     async def artifact_trash() -> dict:
@@ -731,10 +785,164 @@ def create_app(
 
     @app.post("/api/artifacts/trash/empty", dependencies=[Depends(require_token)])
     async def artifact_trash_empty() -> dict:
-        """Empty the trash. Only the trash: a run directory is never swept here."""
-        from .. import artifacts as uh_artifacts
+        """Empty the trash. Only the trash: a run directory is never swept here.
 
-        return uh_artifacts.empty_trash()
+        P1-13: emptying the bin is also what forgets the memory entries it holds. The
+        undo window of « Corbeille » is why this is here and not in `trash`: an entry
+        dropped at click time would die while the file was still recoverable.
+        """
+        from .. import artifacts as uh_artifacts
+        from .. import memory as uh_memory
+
+        folder = uh_artifacts.runs_root() / uh_artifacts.TRASH_DIR
+        sources = []
+        if folder.is_dir():
+            for sidecar in folder.rglob("*.json"):
+                try:
+                    sources.append(str(json.loads(sidecar.read_text(encoding="utf-8")).get("from") or ""))
+                except (OSError, ValueError):
+                    continue
+        result = uh_artifacts.empty_trash()
+        forgotten = 0
+        for source in sources:
+            if source:
+                forgotten += uh_memory.drop_for(Path(source))
+        result["memory_forgotten"] = forgotten
+        return result
+
+    @app.get("/api/memory", dependencies=[Depends(require_token)])
+    async def memory_entries() -> dict:
+        """What the operator kept, in canonical format, and what it costs."""
+        from .. import memory as uh_memory
+
+        return {"entries": uh_memory.entries(), "weight": uh_memory.weight()}
+
+    @app.get("/api/maintenance", dependencies=[Depends(require_token)])
+    async def maintenance_summary(session_id: str = "") -> dict:
+        """Orphans both ways for one session - shown, never silently deleted."""
+        from .. import attachments as _att
+        from .. import maintenance as uh_maintenance
+
+        if not session_id:
+            return {"ok": False, "detail": "session_id requis"}
+        session = _session_or_404(app, session_id)
+        with _store(app) as store:
+            rows = store.get_messages(session["id"], limit=5000)
+        folder = _att.session_dir(session["id"])
+        swept = uh_maintenance.sweep_folder(folder)
+        return {
+            "ok": True,
+            "swept": swept,
+            "summary": uh_maintenance.summary(folder, rows),
+        }
+
+    # -- media and model capability ---------------------------------------- #
+    # P1-14. Two questions the page needs answered before it sends anything: what can
+    # this model read, and which configured model could read it instead.
+    @app.get("/api/media/capabilities", dependencies=[Depends(require_token)])
+    async def media_capabilities(provider: str = "", model: str = "", kind: str = "") -> dict:
+        from .. import capabilities as uh_caps
+        from .. import media as uh_media
+
+        kind = str(kind or "").strip() or "image"
+        answer: dict = {
+            "kinds": {
+                "image": sorted(uh_media.IMAGE_SUFFIXES),
+                "video": sorted(uh_media.VIDEO_SUFFIXES),
+                "audio": sorted(uh_media.AUDIO_SUFFIXES),
+                "document": sorted(uh_media.DOC_SUFFIXES),
+            },
+            "budget_bytes": uh_media.IMAGE_BUDGET,
+            "max_side": uh_media.MAX_SIDE,
+            "ffmpeg": uh_media.ffmpeg_path(),
+        }
+        if provider or model:
+            active_provider = provider or app.state.kind
+            active_model = model or app.state.model
+            answer["model"] = uh_caps.can_read(active_provider, active_model, kind)
+            answer["vision_candidates"] = uh_caps.vision_candidates()[:24]
+        return answer
+
+    @app.get("/api/models/vision", dependencies=[Depends(require_token)])
+    async def vision_models() -> dict:
+        """Configured models that can read an image - the one-click switch menu."""
+        from .. import capabilities as uh_caps
+
+        candidates = uh_caps.vision_candidates()
+        return {"candidates": candidates[:24], "total": len(candidates)}
+
+    # -- audio ------------------------------------------------------------- #
+    # P1-15. Every audio path is its own route, and the package they use is
+    # imported inside the handler: UH starts, chats and runs tools with no audio
+    # engine at all, and a broken one cannot reach the text turn.
+    @app.get("/api/audio/capabilities", dependencies=[Depends(require_token)])
+    async def audio_capabilities() -> dict:
+        """Which engines can run here - and the sentence explaining the ones that cannot."""
+        from .. import audio as uh_audio
+
+        return uh_audio.capabilities()
+
+    @app.post("/api/audio/transcribe", dependencies=[Depends(require_token)])
+    async def audio_transcribe(
+        request: Request, session_id: str = "", name: str = "clip.wav", language: str = "fr"
+    ) -> dict:
+        """A recorded clip in, plain text out: what the composer inserts.
+
+        The body is the audio itself (raw bytes), not multipart: the page has a Blob,
+        and this keeps `python-multipart` out of the dependencies. The answer is text
+        only - the caller turns it into an ordinary user message, which is the whole
+        anti-regression rule of this lot.
+        """
+        from .. import audio as uh_audio
+
+        data = await request.body()
+        try:
+            result = uh_audio.transcribe(
+                data, filename=name, language=language, session_id=session_id or "audio"
+            )
+        except uh_audio.AudioUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return result
+
+    @app.post("/api/audio/speak", dependencies=[Depends(require_token)])
+    async def audio_speak(payload: dict) -> dict:
+        """Text in, one WAV file out, with the reference the thread keeps instead of bytes."""
+        from .. import audio as uh_audio
+
+        body = payload or {}
+        text = str(body.get("text") or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="text is required")
+        reference = str(body.get("reference") or "").strip()
+        reference_wav = None
+        if reference:
+            try:
+                reference_wav = uh_audio.resolve_upload(reference)
+            except uh_audio.AudioUnavailable as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            clip = uh_audio.speak(
+                text,
+                voice=str(body.get("voice") or "") or None,
+                session_id=str(body.get("session_id") or "audio"),
+                reference_wav=reference_wav,
+            )
+        except uh_audio.AudioUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return clip
+
+    @app.get("/api/audio/file", dependencies=[Depends(require_token)])
+    async def audio_file(path: str = "") -> FileResponse:
+        """One stored clip, and only inside the uploads root."""
+        from .. import audio as uh_audio
+
+        try:
+            target = uh_audio.resolve_upload(path)
+        except uh_audio.AudioUnavailable as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if target.suffix.lower() not in uh_audio.AUDIO_SUFFIXES:
+            raise HTTPException(status_code=400, detail="not an audio file")
+        return FileResponse(str(target), media_type="audio/wav", filename=target.name)
 
     # -- attachments ------------------------------------------------------- #
     # Raw-body upload, not multipart: FastAPI needs ``python-multipart`` for form
@@ -798,12 +1006,33 @@ def create_app(
         if not text and not raw_paths:
             raise HTTPException(status_code=400, detail="message is required")
         session = _session_or_404(app, session_id)
+        # P1-14: files and no words is a question. The turn asks it in plain French,
+        # as a normal user message, instead of sending a wall of file names and
+        # hoping the model guesses what was wanted. Decided BEFORE composing: the
+        # attachments block alone would already look like a message.
+        if not text.strip() and raw_paths:
+            text = attachments.AUTO_ANALYSIS
         try:
             # Inlined under 4 KB, referenced above it: the turn is pruned here,
             # before the history grows by a file.
             text = attachments.compose(text, raw_paths, session["id"])
         except attachments.AttachmentError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        turn_images: list[str] = []
+        media_kinds: list[str] = []
+        media_omitted = 0
+        if raw_paths:
+            prepared = attachments.media_for(raw_paths, session["id"])
+            turn_images = list(prepared.get("images") or [])
+            media_kinds = [str(item.get("kind") or "?") for item in prepared.get("items") or []]
+            media_omitted = int(prepared.get("omitted") or 0)
+            if media_omitted:
+                # Said, not hidden: the model received a sample, and the operator can
+                # see it in the message it was given.
+                text = (
+                    f"{text}\n\n[lot de {len(turn_images) + media_omitted} images : "
+                    f"{len(turn_images)} envoyées au modèle, {media_omitted} non envoyées]"
+                )
         try:
             kind, model, provider = _provider_for(app, session["id"])
         except ProviderError as exc:
@@ -836,6 +1065,11 @@ def create_app(
         # turn id ties the lines together; nothing a user typed goes in it.
         turn_id = uuid.uuid4().hex[:8]
         turn_started = time.perf_counter()
+        # P1-14: what the turn actually sent, so "the image was attached" is a line
+        # in the journal and not a memory of the browser.
+        turnlog.event(
+            "turn_media", turn=turn_id, images=len(turn_images), kinds=media_kinds
+        )
         tool_since: dict[str, float] = {}
         turn_reason = "done"
 
@@ -854,6 +1088,15 @@ def create_app(
                     # ok/error only: the payload is the user's data.
                     status = "error" if '"error"' in str(event.get("content") or "") else "ok"
                     turnlog.event("tool_end", turn=turn_id, tool=name, ms=elapsed, status=status)
+                    # A refusal caused by the mode gets its own event: the page turns
+                    # it into one card whose button grants execution and re-sends the
+                    # turn. Without it the user is told "switch to dev" and has to
+                    # find a control - the exact dead end reported on 19/11.
+                    from .. import mode_gate as uh_mode_gate
+
+                    refused = uh_mode_gate.mode_refused_frame(name, event.get("content"))
+                    if refused is not None:
+                        loop.call_soon_threadsafe(queue.put_nowait, refused)
                 elif kind == "error":
                     turn_reason = "error"
                     turnlog.event("turn_error", turn=turn_id, detail=str(event.get("message") or "")[:200])
@@ -891,6 +1134,16 @@ def create_app(
                 toolsets.update(uh_mcp_http.build_toolsets(notify=emit))
             except Exception:  # noqa: BLE001 - a remote server never breaks a turn
                 pass
+            # Point 2: the mode decides what may be *offered*. UH reads it from the
+            # UHB toolset (one cached /status); an unreachable UHB means an unknown
+            # mode, and an unknown mode never narrows anything by guesswork.
+            mode = ""
+            current = getattr(toolsets.get("uhb"), "current_mode", None)
+            if callable(current):
+                try:
+                    mode = str(current() or "")
+                except Exception:  # noqa: BLE001 - a mode is never worth a turn
+                    mode = ""
             try:
                 store = Store(app.state.settings.store_path)
                 session_obj = ChatSession(
@@ -910,6 +1163,7 @@ def create_app(
                     console=Console(stream=io.StringIO(), err=io.StringIO()),
                     extra_system=skill_block,
                     params=chat_params,
+                    mode=mode,
                 )
                 session_obj.events = emit
                 app.state.active[session["id"]] = session_obj
@@ -929,19 +1183,51 @@ def create_app(
                         emit({"type": "token", "text": body})
                         emit({"type": "answer", "content": body})
                 else:
-                    session_obj.run_text(text)
+                    session_obj.run_text(text, images=turn_images or None)
             except Exception as exc:  # noqa: BLE001 - reported to the browser
                 emit({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
             finally:
                 app.state.active.pop(session["id"], None)
+                # What the model was actually offered, and what the mode withheld:
+                # one line per turn, so "the gate is real" is a measurement in the
+                # log rather than a sentence in a prompt (point 2).
+                turnlog.event(
+                    "turn_offer",
+                    turn=turn_id,
+                    mode=mode or "unknown",
+                    offered=list(getattr(session_obj, "last_offered", []) or []),
+                    withheld=list(getattr(session_obj, "last_withheld", []) or []),
+                )
                 turnlog.event(
                     "turn_end",
                     turn=turn_id,
                     reason=turn_reason,
                     ms=int((time.perf_counter() - turn_started) * 1000),
                     tools=len(tool_since),
+                    # Point 3: how many times the turn re-asked a model that pasted
+                    # code instead of calling the tool it was offered.
+                    nudges=int(getattr(session_obj, "last_nudges", 0) or 0),
                 )
+                # Which model actually answered (point 5). The configured alias is
+                # not always what served - decision.py records the substitution, and
+                # this is the same fact carried to the browser, so the header, the
+                # answer's footer and the local-model tab all name one model.
+                meta = answer_meta(session_obj, kind, model)
+                if meta:
+                    emit(meta)
                 emit({"type": "__end__"})
+                # P1-14: the prepared copies lived for exactly one turn. What the
+                # operator marked « Garder » survives, because the purge reads the
+                # sidecar the media pipeline wrote next to each copy.
+                try:
+                    from .. import attachments as _att
+                    from .. import media as uh_media
+
+                    purged = uh_media.purge(_att.session_dir(session["id"]))
+                    if purged:
+                        turnlog.event("turn_purge", turn=turn_id, removed=purged)
+                except Exception:  # noqa: BLE001 - a purge must never fail a turn
+                    pass
                 if store is not None:
                     store.close()
 
@@ -1087,7 +1373,19 @@ def create_app(
         and then to a sentence blaming the model.
         """
         from .. import uhb_spawn
+        from ..providers_admin import is_loopback_bind
         from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        # Switching the mode is what turns code execution on: a UH reachable from
+        # another machine must not offer it, whatever the token says (point 4).
+        if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "changer de mode n'est permis que si UH écoute en loopback : "
+                    "un poste distant ne doit pas pouvoir ouvrir l'exécution de code."
+                ),
+            )
 
         wanted = str((payload or {}).get("mode") or "").strip().lower()
         if wanted not in ("chat", "dev", "review", "observe"):

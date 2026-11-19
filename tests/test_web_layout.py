@@ -731,7 +731,7 @@ def test_the_decision_view_exposes_the_execution_mode() -> None:
     assert "async function renderExecutionMode()" in script
     assert 'api("/api/uhb/mode"' in script
     # Labels are words a person uses, not the profile keys.
-    assert '"Discussion"' in script and '"Agent"' in script
+    assert '"Discussion"' in script and '"Atelier"' in script
     assert "lecture seule" in script and "exécuter du code" in script
     # It is a sibling of the panel that renderDecision clears on every reload.
     assert "host.parentNode.insertBefore(card, host)" in script
@@ -755,3 +755,48 @@ def test_the_artifact_toolbar_speaks_french_with_icons() -> None:
     assert 'ARTIFACT_ICONS' in script and 'createElementNS("http://www.w3.org/2000/svg"' in script
     assert 'link.download =' in script, "the image can actually be saved"
     assert 'setAttribute("aria-label", title)' in script, "every icon button is named"
+
+
+@KEEP
+def test_the_mode_is_visible_in_the_header_and_grantable_from_the_refusal() -> None:
+    """Conditions of point 1: default chat, a permanent badge, a card that re-sends.
+
+    The refusal used to say "switch to dev" and point at a panel without a control.
+    Now the badge is in the header on every screen, and the refusal carries a card
+    whose button grants execution and re-posts the turn the user already typed.
+    """
+    page = INDEX.read_text(encoding="utf-8")
+    script = APP.read_text(encoding="utf-8")
+
+    assert 'id="mode-badge"' in page and 'aria-label="Mode d\'exécution"' in page
+    assert "function refreshModeBadge()" in script and 'api("/api/uhb/status")' in script
+    assert "function toggleModeFromBadge()" in script
+    # Human labels, not the profile keys.
+    assert "Discussion : lecture seule" in script
+    # The confinement is measured (counter-probe of 19/11), so the badge describes
+    # it: the workshop runs code, and writes stay in the run directory.
+    assert "Atelier : exécute du code (dossier du run uniquement)" in script
+    assert "portée non vérifiée" not in script, "the old caveat must not survive the proof"
+    assert "peut exécuter du code et créer des fichiers" not in script, "no unproven promise"
+    # The card answers the refusal event, and re-sends the same turn.
+    assert 'event === "mode_refused"' in script
+    assert "function modeRefusalCard(" in script
+    assert "state.lastUserText" in script and "await sendMessage(again)" in script
+    assert "Autoriser pour cette conversation" in script
+
+
+@KEEP
+def test_no_tool_can_change_the_execution_mode() -> None:
+    """The model proposes tools; the operator grants capability.
+
+    A mode change restarts the second brain. If any tool could call that route, the
+    model would be able to grant itself execution - the one thing the gate exists to
+    prevent. The check is structural: tool code lives in uh/toolsets, and none of it
+    knows the route, nor does the loop.
+    """
+    for path in (ROOT / "uh" / "toolsets").glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        assert "/api/uhb/mode" not in text, f"{path.name} can reach the mode route"
+        assert "uhb_set_mode" not in text and "uhb/mode" not in text
+    agent = (ROOT / "uh" / "agent.py").read_text(encoding="utf-8")
+    assert "/api/uhb/mode" not in agent, "the loop must not grant itself execution"

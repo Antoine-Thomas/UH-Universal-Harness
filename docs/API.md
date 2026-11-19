@@ -49,7 +49,7 @@ come back", which nothing else in the product could.
 | GET | `/favicon.ico` | — | `204`, empty. The page declares its icon as a data URI; this route answers the request a browser makes anyway (bookmark bar, "add to home screen") without a 404 in the console |
 | GET | `/apple-touch-icon.png` | — | `204`, empty — same rule as `/favicon.ico` |
 | GET | `/apple-touch-icon-precomposed.png` | — | `204`, empty — same rule as `/favicon.ico` |
-| GET | `/api/status` | — | `{version, provider, model, provider_error, sessions, store, schema_version, terminal, workspace}` |
+| GET | `/api/status?session_id=` | — | `{version, provider, model, provider_error, sessions, store, schema_version, terminal, workspace}` — le couple `provider`/`model` est celui de la **session** quand `session_id` est fourni, sinon le défaut global (Porte B : l'en-tête annonçait le défaut pendant qu'une session tournait sur un autre modèle) |
 | GET | `/api/commands` | — | `{commands: [{name, aliases, help, args, group}]}` |
 | GET | `/api/sessions` | `?limit=` | `{sessions: [{…, short_id}]}` |
 | POST | `/api/sessions` | `{title?}` | `{session: {…, short_id}}` |
@@ -64,7 +64,15 @@ come back", which nothing else in the product could.
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
 | POST | `/api/artifacts/action` | `{source: {path \| run_dir+relative}, action: keep\|trash\|rate, vote?: up\|down, comment?, session_id?, message_id?, index?}` | `{action, kept\|trashed\|rated, …}` · `400` refusé : fichier hors du dossier `runs`, disparu, ou action inconnue. Le fichier est résolu côté serveur et doit vivre sous `~/.uhb/runs` (`uh/artifacts.py`) : le corps de la requête ne peut viser aucun autre fichier |
 | GET | `/api/artifacts/trash` | — | `{files, root}` — ce que la corbeille contient avant de la vider |
-| POST | `/api/artifacts/trash/empty` | — | `{action: empty_trash, removed}` — ne touche jamais un dossier de run |
+| GET | `/api/media/capabilities?provider=&model=&kind=` | — | `{kinds: {image: [...], video: [...], audio: [...], document: [...]}, budget_bytes, max_side, ffmpeg, model?, vision_candidates?}` — P1-14 : les extensions acceptées par nature, le budget d'image envoyée, et ce que le modèle **actif** peut réellement lire (`capable`, `loss`, `source`, `verified`) |
+| GET | `/api/models/vision` | — | `{candidates: [{provider, model, modalities, context, tools}], total}` — les modèles **configurés** qui lisent une image, capacité mesurée auprès du fournisseur (jamais déduite du nom) |
+| GET | `/api/audio/capabilities` | — | `{engines: [{name, label, kind, clones, stt, tts, available, reason}], tts, stt, ffmpeg}` — chaque moteur dit pourquoi il ne peut pas tourner (P1-15) |
+| POST | `/api/audio/transcribe?session_id=&name=&language=` | **octets audio bruts** dans le corps (pas de multipart : pas de `python-multipart`) | `{text, engine, clip}` · `503` aucun moteur : le détail nomme chaque tentative. Le texte rendu entre dans le fil comme un message `user` ordinaire — aucun champ audio n'est stocké |
+| POST | `/api/audio/speak` | `{text, session_id?, voice?, reference?}` | `{kind, source: {path, root: "uploads"}, url, name, mime, bytes, seconds, sha256, engine}` · `400` texte vide ou référence hors des envois · `503` aucun moteur (détail par tentative). Les octets vont dans `$UH_HOME/uploads/<session>/audio/` : le fil ne garde qu'une référence |
+| GET | `/api/audio/file?path=` | — | le clip (`audio/wav`), chemin résolu **sous `$UH_HOME/uploads`** uniquement · `404` hors racine ou disparu · `400` extension non audio |
+| POST | `/api/artifacts/trash/empty` | — | `{action: empty_trash, removed, memory_forgotten}` — ne touche jamais un dossier de run ; vider la corbeille **oublie** aussi les entrées mémoire des fichiers qu'elle contenait (P1-13) |
+| GET | `/api/memory` | — | `{entries: [{sha256, kind, path, bytes, source, session, message_id, format, width?, height?, bits?, channels?}], weight: {root, bytes, by_kind, entries}}` — ce que l'opérateur a gardé, en PNG lossless ou FLAC 24 bits (P1-13) |
+| GET | `/api/maintenance?session_id=` | — | `{ok, swept: {derived, stale, freed_bytes}, summary: {files, unmentioned, unmentioned_bytes, missing, stale_days}}` — purge des copies préparées et **rapport** des orphelins dans les deux sens (P1-12). Aucune suppression de fichier mentionné |
 | POST | `/api/uhb/mode` | `{mode: chat\|dev\|review\|observe}` | `{mode, changed, owned?, connected?}` · `400` mode inconnu ou UHB désactivé · `409` UHB démarré hors de UH (UH ne tue pas un processus qu'il ne possède pas) · `503` redémarrage impossible. Le mode est une propriété du PROCESSUS : le changer redémarre UHB, en `--mode <mode>` |
 | POST | `/api/sessions/{session_id}/chat` | `{message, attachments?: [path], skill?: name}` | **SSE stream** (below) · `400` empty message, refused attachment, or unknown skill · `404` · `503` provider unreachable. `skill` names a markdown file from `$UH_HOME/skills` or the shipped `uh/skills`; its instructions ride on the system message for that turn only |
 | POST | `/api/sessions/{session_id}/stop` | — | `{stopped: bool, reason?}` · `404` |
@@ -183,7 +191,8 @@ contract of the bundled one:
 
 ```
 app-banner
-attach  attachments  command-chips  composer  files  folder-hint
+attach  attachments  command-chips  composer  files  folder-hint  mic  mic-status
+plus-menu  plus-dictate  media-warning
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 role-custom  role-custom-save  role-label  role-panel  role-posture  role-select  role-view
@@ -198,7 +207,7 @@ pane-detach  pane-reset  pane-&lt;name&gt;  pane-body  pane-head
 panel-dock  panel-float  panel-head
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
-layout  menu-toggle  messages  model-advanced  model-note  model-select  new-folder  new-session  palette
+layout  menu-toggle  messages  mode-badge  mode-badge-label  model-advanced  model-note  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
 install-badge  providers-open  providers-panel  router-settings  search  quit-uh
 remote-banner  search-results  send  session-list  session-title  sidebar

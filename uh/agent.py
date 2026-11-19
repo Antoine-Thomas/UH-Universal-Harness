@@ -155,6 +155,12 @@ def _ensure_call_ids(message: dict) -> None:
 #: the user a provider call each time and cannot succeed.
 _REFUSAL_LIMIT = 3
 
+#: How many times a turn re-asks a model that answered with a code block instead of
+#: calling a tool it was offered (point 3). Two, not one: a small local model often
+#: needs the format repeated before it acts, and a third attempt has never been
+#: observed to change the outcome - it only multiplies the bill.
+_NUDGE_LIMIT = 2
+
 
 def _split_call(call: Any) -> tuple[str, str, dict]:
     """``(call_id, name, arguments)`` for either tool-call shape a provider sends."""
@@ -178,12 +184,29 @@ _CODE_FENCE = re.compile(
 #: on the indexed names, because that is what the model is offered - a toolset
 #: named `positron` only counts if it publishes a callable such as `execute_code`.
 _RUNNABLE_HINTS = ("execute", "terminal", "shell", "command", "run", "python", "code")
-#: Injected once, in the language the system prompt is written in. Naming the
-#: tool matters: "call a tool" is advice, "call `terminal`" is an instruction.
+#: Injected when a model answers with a code block instead of calling a tool it was
+#: offered. Naming the tool matters: "call a tool" is advice, "call `execute_code`"
+#: is an instruction - and the last sentence closes the door on handing code back
+#: a third time, which is what a small model does when it is only told "you can".
 _NUDGE = (
-    "You answered with a code block instead of using a tool. You can run this "
-    "yourself: call `{tool}` now with the code as its argument. Never hand code "
-    "to the user to copy and paste when a tool can do the work."
+    "You answered with a code block instead of calling the tool, and the code was "
+    "not executed: the user has to copy it, which is not the job. Call `{tool}` now, "
+    "with that code as its argument, and let the tool run it. Do not paste the code "
+    "again, do not describe what it would print: call `{tool}`."
+)
+#: A stable substring of `_NUDGE`, so a caller can recognise the retry instruction
+#: in a returned history without depending on the whole sentence. Used to keep it
+#: out of the stored transcript (it is protocol, not conversation) and to count it.
+NUDGE_MARK = "instead of calling the tool"
+#: A request that *asks for the code* is not a missed tool call: nudging it would
+#: fight the operator's own instruction, twice, at their expense. Deliberately
+#: narrow - a handful of explicit phrasings, never a semantic guess: a wrong
+#: suppression would silently disable point 3 for the questions it exists for.
+_CODE_REQUEST = re.compile(
+    r"(montre[- ]moi le code|donne[- ]moi le code|[ée]cris[- ]moi le code"
+    r"|sans l'ex[ée]cuter|write the code|show me the code|pseudo[- ]?code"
+    r"|exemple de code|code source)",
+    re.IGNORECASE,
 )
 #: The provider stopped because max_tokens ran out. The answer is real but
 #: unfinished, and a transcript that does not say so reads as a broken model.
@@ -212,6 +235,18 @@ def _runnable_tools(index: Dict[str, "Toolset"]) -> List[str]:
 
 def _answers_with_code(content: Any) -> bool:
     return bool(_CODE_FENCE.search(str(content or "")))
+
+
+def _asks_for_code(messages: List[dict]) -> bool:
+    """True when the operator's own request asks for the code, not for a result.
+
+    Read from the last user message only: an older turn asking for a snippet must
+    not silence the nudge for the current one.
+    """
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            return bool(_CODE_REQUEST.search(str(message.get("content") or "")))
+    return False
 
 
 def _tool_parameters(toolset: "Toolset", name: str) -> Dict[str, Any]:
@@ -255,8 +290,32 @@ def _argument_problem(toolset: "Toolset", name: str, args: dict) -> Optional[str
     return None
 
 
+def _missing_explanation(toolsets: Optional[Dict[str, "Toolset"]], name: str) -> Optional[dict]:
+    """Ask the toolsets whether the *mode* is why this tool is missing.
+
+    A toolset that knows its mode answers with a typed refusal naming it; the
+    others have nothing to say. One loopback question on an error path, never on
+    a normal call — and it grants nothing: an explanation is not a permission.
+    """
+    for toolset in (toolsets or {}).values():
+        explain = getattr(toolset, "explain_missing", None)
+        if not callable(explain):
+            continue
+        try:
+            answer = explain(name)
+        except Exception:  # noqa: BLE001 - an explanation never breaks a turn
+            continue
+        if isinstance(answer, dict) and answer:
+            return answer
+    return None
+
+
 def _execute(
-    index: Dict[str, "Toolset"], name: str, args: dict, call_id: str = ""
+    index: Dict[str, "Toolset"],
+    name: str,
+    args: dict,
+    call_id: str = "",
+    toolsets: Optional[Dict[str, "Toolset"]] = None,
 ) -> tuple[dict, bool]:
     """Run one tool, always returning a ``role: tool`` message and a refusal flag.
 
@@ -280,7 +339,14 @@ def _execute(
             "tool": name,
             "reason": "unknown_tool",
         }
-        if name == "execute_code":
+        # The mode is the cause more often than the name is wrong: a model replays
+        # a tool it saw in a previous mode. Ask the toolset that knows, so the
+        # refusal names the mode and the interface can offer « Autoriser » (point
+        # 2) instead of an anonymous "unknown tool".
+        explanation = _missing_explanation(toolsets, name)
+        if explanation is not None:
+            payload.update(explanation)
+        elif name == "execute_code":
             # The one absence that has a precise, actionable cause. "Not allowed
             # in this mode" sent the operator looking at modes and personas for
             # an hour: the tool is published only when the process that serves
@@ -357,6 +423,47 @@ def provider_supports_streaming(provider: Any) -> bool:
     return any(param.kind is inspect.Parameter.VAR_KEYWORD for param in parameters.values())
 
 
+def _images_payload(paths: Optional[List[str]], limit: int = 6) -> List[str]:
+    """Base64 of the prepared copies, bounded - or nothing at all.
+
+    Only the ``-sent`` copies are read (already under 1 MB, see ``uh/media``), never
+    the original: a 4K screenshot must not become a 8 MB request. A path that no
+    longer exists is skipped rather than failing the turn: a purge between the click
+    and the send must not cost the operator their question.
+    """
+    import base64
+    from pathlib import Path
+
+    encoded: List[str] = []
+    for raw in (paths or [])[:limit]:
+        try:
+            data = Path(raw).read_bytes()
+        except OSError:
+            continue
+        if not data or len(data) > 2_000_000:
+            continue
+        encoded.append(base64.b64encode(data).decode("ascii"))
+    return encoded
+
+
+def _with_images(messages: List[dict], paths: Optional[List[str]]) -> List[dict]:
+    """The list sent to a provider, with the images attached to the last user turn.
+
+    A copy on purpose: ``_images`` must never reach the store - a base64 blob in the
+    SQLite thread is exactly what P1-14 forbids. The stored history keeps the text,
+    which already names each attachment.
+    """
+    payload = _images_payload(paths)
+    if not payload:
+        return messages
+    copy = [dict(message) for message in messages]
+    for message in reversed(copy):
+        if message.get("role") == "user":
+            message["_images"] = payload
+            break
+    return copy
+
+
 def _chat(
     provider: "Provider",
     messages: List[dict],
@@ -391,6 +498,8 @@ def run_turn(
     on_token: Optional[Callable[[str], None]] = None,
     context: Optional["ContextManager"] = None,
     on_notice: Optional[Callable[[str], None]] = None,
+    images: Optional[List[str]] = None,
+    offer_tools: bool = True,
 ) -> List[dict]:
     """Run the agent loop until a final answer or until the budget is spent.
 
@@ -411,21 +520,44 @@ def run_turn(
     if max_iterations < 1:
         raise ValueError("max_iterations must be >= 1")
 
+    from .providers import take_drops
+
     history: List[dict] = [dict(message) if isinstance(message, dict) else message for message in messages]
     index = _tool_index(toolsets)
     definitions = _tool_definitions(toolsets)
+    if not offer_tools:
+        # A model that cannot call tools (measured, not guessed) must not be sent a
+        # tool list: Ollama answers 400 "does not support tool calling" and the whole
+        # turn dies over a capability the model never had. The mode gate has already
+        # decided what was allowed; this only stops us asking for something the model
+        # cannot do.
+        index = {}
+        definitions = []
     total_iterations = int(max_iterations)
     runnable = _runnable_tools(index)
-    # One nudge per turn, not one per iteration: a model that ignores it twice
-    # will not be talked into it on the fourth try, and the user is paying for
-    # every extra call.
-    nudges_left = 1 if runnable else 0
+    #: How many times this turn may re-ask for a tool call (point 3). Two attempts,
+    #: only when a tool that runs something was actually offered: in a read-only
+    #: mode `runnable` is empty, and a code answer is the *correct* answer there -
+    #: the snippet is the deliverable, not a missed call. Same when the operator
+    #: explicitly asked for the code: the nudge would fight their own sentence.
+    wants_code = _asks_for_code(history)
+    nudges_left = 0 if wants_code else (_NUDGE_LIMIT if runnable else 0)
     #: Per (tool, arguments): how many more refusals the loop tolerates this turn.
     refusals_left: Dict[tuple[str, str], int] = {}
 
     for _iteration in range(1, total_iterations + 1):  # the count is only for the error
         outgoing = context.prepare(history) if context is not None else history
-        response = _chat(provider, outgoing, definitions, on_token)
+        response = _chat(provider, _with_images(outgoing, images), definitions, on_token)
+        # The boundary may have removed a call to a tool this request does not
+        # declare (a strict gateway refuses the whole request otherwise). That is a
+        # fact about the conversation, so it is said once, plainly, instead of
+        # disappearing into a log nobody reads.
+        if on_notice is not None:
+            for dropped in take_drops():
+                on_notice(
+                    f"appel d'outil retiré de l'historique : `{dropped['tool']}` "
+                    f"({dropped['reason']}) — l'outil n'est plus proposé dans cette requête"
+                )
         # ``truncated`` is a fact about the call, not part of the message: it is
         # popped here so the history - and the next provider payload - stays the
         # three keys every backend accepts.
@@ -452,10 +584,16 @@ def run_turn(
                 nudges_left -= 1
                 history.append({"role": "system", "content": _NUDGE.format(tool=runnable[0])})
                 continue
-            if runnable and _answers_with_code(message.get("content")) and on_notice is not None:
+            if (
+                runnable
+                and not wants_code
+                and _answers_with_code(message.get("content"))
+                and on_notice is not None
+            ):
                 on_notice(
-                    f"the model answered with code instead of calling `{runnable[0]}` "
-                    "after a retry; the snippet was left in the transcript"
+                    f"le modèle a répondu par du code au lieu d'appeler `{runnable[0]}` "
+                    f"après {_NUDGE_LIMIT} relances : le code reste dans le transcript, "
+                    "il n'a pas été exécuté"
                 )
             if truncated and on_notice is not None:
                 on_notice(TRUNCATED_NOTICE)
@@ -463,7 +601,7 @@ def run_turn(
 
         for call in calls:
             call_id, name, args = _split_call(call)
-            result, refused = _execute(index, name, args, call_id)
+            result, refused = _execute(index, name, args, call_id, toolsets)
             history.append(result)
             if not refused:
                 continue

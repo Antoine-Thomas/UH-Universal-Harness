@@ -22,6 +22,14 @@ const state = {
   llm: { enabled: false, values: {} },
   llmDefaults: { enabled: false, values: {} },
   llmSpec: null,
+  //: The model that actually answered (point 5): one value, read by the answer's
+  //: footer, the header's tooltip and the local-model tab.
+  servedModel: "",
+  requestedModel: "",
+  //: The active provider/model, as the server reports them: the capability check
+  //: must ask about the model that will actually receive the image.
+  kind: "",
+  model: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -116,6 +124,91 @@ async function deleteMessage(box) {
 
 // A message id is optional: live tokens arrive before the row exists in the
 // store, and a bubble you cannot name is a bubble you cannot delete.
+// Two thumbs on a text answer: same route, same journal, same honest sentence as an
+// image. The vote carries the message id so the journal can point at what was read.
+function textFeedback(box) {
+  const bar = el("div", "text-feedback");
+  const status = el("span", "tool-artifact-status");
+  const buttons = [];
+  for (const [vote, label, title] of [
+    ["up", "Utile", "réponse utile : notée comme exemple à reproduire"],
+    ["down", "Pas utile", "réponse à éviter : notée comme contre-exemple"],
+  ]) {
+    const button = el("button", "tool-artifact-btn", label);
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.dataset.vote = vote;
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", async () => {
+      const current = bar.dataset.vote || "";
+      const wanted = current === vote ? "none" : vote;
+      status.textContent = "…";
+      try {
+        const response = await fetch("/api/artifacts/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "rate",
+            vote: wanted,
+            session_id: state.sessionId || "",
+            message_id: box.dataset.messageId || null,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+        bar.dataset.vote = wanted === "none" ? "" : wanted;
+        for (const node of buttons) {
+          const active = Boolean(bar.dataset.vote) && node.dataset.vote === bar.dataset.vote;
+          node.setAttribute("aria-pressed", active ? "true" : "false");
+          node.classList.toggle("voted", active);
+        }
+        status.textContent = wanted === "none" ? "vote retiré" : VOTE_NOTE;
+      } catch (error) {
+        status.textContent = `refusé : ${error.message}`;
+      }
+    });
+    buttons.push(button);
+    bar.appendChild(button);
+  }
+  bar.appendChild(status);
+  box.appendChild(bar);
+  return bar;
+}
+
+// Read an answer aloud. The synthesis is what creates the sound, so the player only
+// appears once a file really exists - the conditional rule, applied to its origin.
+function speakBox(box, text) {
+  const bar = el("div", "answer-audio");
+  const button = el("button", "tool-artifact-btn", "Écouter");
+  button.type = "button";
+  button.title = "lire cette réponse à voix haute";
+  button.setAttribute("aria-label", "lire cette réponse à voix haute");
+  button.addEventListener("click", async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    const status = el("span", "tool-artifact-status", "synthèse…");
+    bar.appendChild(status);
+    try {
+      const payload = await api("/api/audio/speak", {
+        method: "POST",
+        body: JSON.stringify({
+          text: String(text || "").slice(0, 2000),
+          session_id: state.sessionId || "",
+        }),
+      });
+      status.remove();
+      drawAudio(box, [payload], { sessionId: state.sessionId });
+      bar.remove();
+    } catch (error) {
+      status.textContent = `voix impossible : ${error.message}`;
+      button.disabled = false;
+    }
+  });
+  bar.appendChild(button);
+  box.appendChild(bar);
+}
+
 function appendMessage(role, text, messageId) {
   const box = el("div", `msg ${role}`);
   if (messageId !== undefined && messageId !== null) {
@@ -137,6 +230,13 @@ function appendMessage(role, text, messageId) {
     content.textContent = text;
   }
   box.appendChild(content);
+  if (role === "assistant") {
+    // Point 5 generalised: a text answer deserves the same two thumbs as an image,
+    // and the same honest sentence about what a vote does today.
+    textFeedback(box);
+    // P1-15: read the answer aloud. The player appears only once a sound exists.
+    speakBox(box, text);
+  }
   $("messages").appendChild(box);
   $("messages").scrollTop = $("messages").scrollHeight;
   return box;
@@ -263,13 +363,36 @@ function drawArtifacts(container, artifacts, context) {
   }
 }
 
+// ------------------------------------------------------------------ figures --
+//: How long « Annuler » stays clickable after a trash: long enough to catch a
+//: misclick, short enough that the thread keeps no ghost row for ever.
+const TRASH_UNDO_MS = 8000;
+//: What a vote means, in the operator's words (point 5). Until P1-13 connects the
+//: journal to the brain, "the model learns from this" would be a lie.
+const VOTE_NOTE = "noté (pas encore utilisé pour s'améliorer)";
+
+// One status line per figure. The bug this replaces was two inline <span> notes
+// glued into one word - "notée utilegardée" - because every action appended its
+// own note and nothing separated them.
+function figureStatus(figure) {
+  let line = figure.querySelector(".tool-artifact-status");
+  if (!line) {
+    line = el("span", "tool-artifact-status");
+    figure.appendChild(line);
+  }
+  return line;
+}
+
+function say(figure, text) {
+  figureStatus(figure).textContent = text;
+}
+
 // The four things a figure accepts. The page sends the artifact's own provenance;
 // the SERVER decides what may be touched (uh/artifacts.py: the file must resolve
 // inside UHB's runs root). A refusal is shown verbatim, never swallowed.
-async function artifactAction(button, figure, body, done) {
+async function artifactAction(button, figure, body) {
   if (button) button.disabled = true;
-  const note = el("span", "tool-artifact-note", "…");
-  figure.appendChild(note);
+  say(figure, "…");
   try {
     const response = await fetch("/api/artifacts/action", {
       method: "POST",
@@ -283,11 +406,60 @@ async function artifactAction(button, figure, body, done) {
       data = {};
     }
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-    note.textContent = done;
+    if (button) button.disabled = false;
+    return data;
   } catch (error) {
-    note.textContent = `refusé : ${error.message}`;
-    button.disabled = false;
+    say(figure, `refusé : ${error.message}`);
+    if (button) button.disabled = false;
+    return null;
   }
+}
+
+// Votes are exclusive and reversible: one image carries one opinion. Clicking the
+// active thumb retracts it (`vote: "none"`, journalled) instead of recording the
+// same vote twice, and the other thumb is unmarked in the same gesture.
+async function voteOn(button, figure, base, vote) {
+  const current = figure.dataset.vote || "";
+  const wanted = current === vote ? "none" : vote;
+  const data = await artifactAction(button, figure, { ...base, action: "rate", vote: wanted });
+  if (!data) return;
+  figure.dataset.vote = wanted === "none" ? "" : wanted;
+  for (const node of figure.querySelectorAll(".tool-artifact-btn[data-vote]")) {
+    const active = Boolean(figure.dataset.vote) && node.dataset.vote === figure.dataset.vote;
+    node.setAttribute("aria-pressed", active ? "true" : "false");
+    node.classList.toggle("voted", active);
+  }
+  say(figure, wanted === "none" ? "vote retiré" : VOTE_NOTE);
+}
+
+// Trash takes the image out of the thread at once, with a way back for a few
+// seconds: the file is in the bin (already reversible), and « Annuler » restores
+// it where it came from before the window closes.
+async function trashWithUndo(button, figure, base) {
+  const data = await artifactAction(button, figure, { ...base, action: "trash" });
+  if (!data) return;
+  figure.classList.add("trashed");
+  const line = figureStatus(figure);
+  line.textContent = "dans la corbeille";
+  const undo = el("button", "tool-artifact-undo", "Annuler");
+  undo.type = "button";
+  line.appendChild(document.createTextNode(" "));
+  line.appendChild(undo);
+  let closed = false;
+  const timer = window.setTimeout(() => {
+    closed = true;
+    line.textContent = "dans la corbeille (récupérable jusqu'au vidage)";
+  }, TRASH_UNDO_MS);
+  undo.addEventListener("click", async () => {
+    if (closed) return;
+    closed = true;
+    window.clearTimeout(timer);
+    undo.disabled = true;
+    const restored = await artifactAction(null, figure, { ...base, action: "restore" });
+    if (!restored) return;
+    figure.classList.remove("trashed");
+    line.textContent = "restaurée";
+  });
 }
 
 // Icons drawn inline: an emoji renders at whatever size the platform decides and
@@ -349,18 +521,36 @@ function artifactToolbar(figure, artifact, context) {
   // would promise to delete something.
   if (!source || (!source.path && !source.relative)) return;
   const bar = el("div", "tool-artifact-actions");
-  const add = (icon, label, title, extra, done, extraClass) => {
-    const base = { source, session_id: (context && context.sessionId) || "" };
-    const node = artifactButton(icon, label, title, null, extraClass);
-    node.addEventListener("click", () => artifactAction(node, figure, { ...base, ...extra }, done));
-    bar.appendChild(node);
+  const base = {
+    source,
+    session_id: (context && context.sessionId) || "",
+    // P1-13 needs to know what it is keeping: a voice clip is copied to FLAC, a
+    // picture to PNG. The artifact already carries its kind; this only forwards it.
+    kind: String(artifact.kind || "").toLowerCase() === "audio" ? "audio" : "image",
   };
-  add("keep", "Garder", "garder cette image : elle échappe au nettoyage", { action: "keep" }, "gardée", "safe");
-  add("up", "Utile", "image réussie : enregistrée comme exemple à reproduire", { action: "rate", vote: "up" }, "notée utile");
-  add("down", "Pas utile", "image ratée : contre-exemple à éviter", { action: "rate", vote: "down" }, "notée à éviter");
+  const add = (icon, label, title, extraClass) => {
+    const node = artifactButton(icon, label, title, null, extraClass);
+    bar.appendChild(node);
+    return node;
+  };
+  const keep = add("keep", "Garder", "garder cette image : elle échappe au nettoyage", "safe");
+  keep.addEventListener("click", async () => {
+    const data = await artifactAction(keep, figure, { ...base, action: "keep" });
+    if (data) say(figure, "gardée");
+  });
+  for (const [vote, label, title] of [
+    ["up", "Utile", "rendu réussi : noté comme exemple à reproduire"],
+    ["down", "Pas utile", "rendu raté : noté comme contre-exemple à éviter"],
+  ]) {
+    const node = add(vote, label, title);
+    node.dataset.vote = vote;
+    node.setAttribute("aria-pressed", "false");
+    node.addEventListener("click", () => voteOn(node, figure, base, vote));
+  }
   const link = artifactDownload(artifact);
   if (link) bar.appendChild(link);
-  add("trash", "Corbeille", "déplacer vers la corbeille du dossier runs (récupérable)", { action: "trash" }, "dans la corbeille", "danger");
+  const trash = add("trash", "Corbeille", "retirer cette image du fil (récupérable quelques secondes)", "danger");
+  trash.addEventListener("click", () => trashWithUndo(trash, figure, base));
   figure.appendChild(bar);
 }
 
@@ -401,6 +591,7 @@ function renderHistory(messages) {
       const box = appendMessage(role, message.content || "", message.id);
       if (Array.isArray(message.artifacts) && message.artifacts.length) {
         drawArtifacts(box, message.artifacts);
+        drawAudio(box, message.artifacts, { sessionId: state.sessionId });
       }
     }
   }
@@ -416,11 +607,16 @@ function updateGauge(messages) {
 
 // ------------------------------------------------------------------ status --
 async function loadStatus() {
-  const status = await api("/api/status");
+  // The session's own pair when there is one: a session can run on a different model
+  // than the global default, and the header must not announce the other one.
+  const query = state.sessionId ? `?session_id=${encodeURIComponent(state.sessionId)}` : "";
+  const status = await api(`/api/status${query}`);
   // Version only. "ollama · v1.5.1" read as "Ollama is required", which is false:
   // the provider is a choice, made in Configuration, and a user who runs a cloud
   // key should never be told a local model server is part of the deal.
   const provider = String(status.provider || "").trim();
+  state.kind = provider;
+  state.model = String(status.model || "").trim();
   const label = $("status-provider");
   label.textContent = `v${status.version}`;
   label.title = provider
@@ -663,6 +859,10 @@ async function loadModels() {
           : where,
         result && result.persisted === false ? "warn" : "ok"
       );
+      // The header names the model of THIS session (gate B: it kept announcing the
+      // global default while the session ran on another one).
+      await loadStatus().catch(() => {});
+      checkMediaFit();
     } catch (error) {
       // A refused switch changed nothing: put the selector back where it was.
       select.value = `${current.provider}/${current.id}`;
@@ -711,6 +911,111 @@ function renderAttachments() {
   box.textContent = "";
   for (const attachment of state.attachments) box.appendChild(attachmentChip(attachment));
   box.hidden = state.attachments.length === 0;
+  checkMediaFit();
+}
+
+// ------------------------------------------------------------------ media -- P1-14
+// One "+" instead of a row of icons: the menu is grouped by nature, and each group
+// sets the picker's own filter. Drag, drop and paste keep working on the whole area.
+const ACCEPT = {
+  image: ".png,.jpg,.jpeg,.gif,.svg,.heic,.webp,.bmp",
+  video: ".mp4,.mov,.mkv,.webm,.m4v",
+  audio: ".mp3,.wav,.flac,.ogg,.m4a,.opus",
+  document: ".pdf,.csv,.html,.htm,.zip,.txt,.md,.json,.yaml,.yml,.toml,.py,.js,.ts,.sh",
+};
+
+function plusOpen(open) {
+  const menu = $("plus-menu");
+  const button = $("attach");
+  if (!menu) return;
+  const next = open === undefined ? menu.hidden : Boolean(open);
+  menu.hidden = !next;
+  if (button) button.setAttribute("aria-expanded", next ? "true" : "false");
+}
+
+// The warning is informative, never a door: it says what will be lost and offers a
+// model that would not lose it, then gets out of the way.
+function mediaWarning(text, offer) {
+  const box = $("media-warning");
+  if (!box) return;
+  box.textContent = "";
+  if (!text) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  box.appendChild(el("span", null, text));
+  if (offer) {
+    const switchTo = el("button", "media-switch", `Passer à ${offer.model}`);
+    switchTo.type = "button";
+    switchTo.title = `${offer.provider} · ${offer.model} (${(offer.modalities || []).join(", ")})`;
+    switchTo.addEventListener("click", async () => {
+      switchTo.disabled = true;
+      try {
+        await api("/api/model", {
+          method: "POST",
+          body: JSON.stringify({ provider: offer.provider, model: offer.model }),
+        });
+        await loadStatus();
+        await loadModels().catch(() => {});
+        await checkMediaFit();
+        await loadAudioCapabilities().catch(() => {});
+      } catch (error) {
+        switchTo.disabled = false;
+        box.appendChild(el("span", "media-warning-error", `bascule impossible : ${error.message}`));
+      }
+    });
+    box.appendChild(switchTo);
+  }
+}
+
+function attachmentKinds() {
+  const kinds = new Set();
+  for (const item of state.attachments) {
+    const name = String(item.name || "").toLowerCase();
+    if (/\.(png|jpe?g|gif|svg|heic|webp|bmp)$/.test(name)) kinds.add("image");
+    else if (/\.(mp4|mov|mkv|webm|m4v)$/.test(name)) kinds.add("video");
+    else if (/\.(mp3|wav|flac|ogg|m4a|opus)$/.test(name)) kinds.add("audio");
+  }
+  return [...kinds];
+}
+
+let mediaFitToken = 0;
+
+async function checkMediaFit() {
+  const kinds = attachmentKinds();
+  if (!kinds.length) {
+    mediaWarning("");
+    return;
+  }
+  const token = ++mediaFitToken;
+  try {
+    const kind = kinds.includes("image") ? "image" : kinds[0];
+    const data = await api(
+      `/api/media/capabilities?kind=${encodeURIComponent(kind)}&provider=${encodeURIComponent(
+        state.kind || ""
+      )}&model=${encodeURIComponent(state.model || "")}`
+    );
+    if (token !== mediaFitToken) return;
+    const model = data.model || {};
+    if (model.capable) {
+      mediaWarning("");
+      return;
+    }
+    const candidates = data.vision_candidates || [];
+    const verified = model.verified === false;
+    const head = verified
+      ? `capacité non vérifiée pour ${model.model || "ce modèle"} : l'image pourrait être ignorée.`
+      : model.loss || "ce modèle ne lira pas cette pièce jointe.";
+    mediaWarning(
+      candidates.length
+        ? `${head} Un modèle qui la lit est déjà configuré.`
+        : `${head} Aucun modèle capable n'est configuré : ajoute une clé dans « Connexions ».`,
+      candidates[0] || null
+    );
+  } catch (error) {
+    /* a capability table that cannot be read must not block a send */
+  }
 }
 
 // One session-creation path, memoised: two concurrent callers used to POST two
@@ -766,7 +1071,36 @@ async function uploadFiles(files) {
 }
 
 function wireAttachments() {
-  $("attach").addEventListener("click", () => $("files").click());
+  // One "+" opening a grouped menu: the picker's filter changes with the group, so
+  // the same button reaches images, video, sound and documents without a row of
+  // icons. Drag, drop and paste on the whole area are untouched.
+  $("attach").addEventListener("click", (event) => {
+    event.stopPropagation();
+    plusOpen();
+  });
+  for (const item of document.querySelectorAll(".plus-item[data-accept]")) {
+    item.addEventListener("click", () => {
+      const group = item.dataset.accept || "document";
+      $("files").setAttribute("accept", ACCEPT[group] || "");
+      plusOpen(false);
+      $("files").click();
+    });
+  }
+  const dictate = $("plus-dictate");
+  if (dictate) {
+    dictate.addEventListener("click", () => {
+      plusOpen(false);
+      toggleMic().catch(() => {});
+    });
+  }
+  document.addEventListener("click", (event) => {
+    const menu = $("plus-menu");
+    if (!menu || menu.hidden) return;
+    if (!menu.contains(event.target) && event.target !== $("attach")) plusOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") plusOpen(false);
+  });
   $("files").addEventListener("change", async (event) => {
     const files = [...event.target.files];
     event.target.value = "";  // same file twice must upload twice
@@ -1159,7 +1493,228 @@ async function newSession() {
   $("input").focus();
 }
 
+// ------------------------------------------------------------------ audio -- P1-15
+// Three rules from the roadmap, and they are visible here:
+//   * the microphone exists only if an engine can dictate (`stt`), and it says so
+//     when it cannot - a button that fails silently is worse than no button;
+//   * the player is CONDITIONAL: a bubble shows one only when a sound really exists
+//     for that message (recorded, uploaded, synthesised). No empty player ever;
+//   * an audio render carries the same action bar as an image, with the same
+//     exclusive votes and the same bin-with-undo, because it is the same code.
+function audioArtifacts(list) {
+  return (Array.isArray(list) ? list : []).filter(
+    (item) => item && String(item.kind || "").toLowerCase() === "audio" && item.url
+  );
+}
+
+// A real waveform, drawn from the decoded samples: a decorative bar chart would be
+// a lie about what the sound contains.
+function drawWaveform(canvas, url) {
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  const paint = (peaks) => {
+    const width = canvas.width;
+    const height = canvas.height;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = getComputedStyle(document.body).getPropertyValue("--accent") || "#0c9f93";
+    const middle = height / 2;
+    const step = Math.max(1, Math.floor(peaks.length / width));
+    for (let x = 0; x < width; x += 1) {
+      const peak = peaks[Math.min(peaks.length - 1, x * step)] || 0;
+      const bar = Math.max(1, Math.round(peak * (height - 2)));
+      context.fillRect(x, middle - bar / 2, 1, bar);
+    }
+  };
+  const flat = () => paint(new Array(120).fill(0.08));
+  flat();
+  fetch(url, { credentials: "same-origin" })
+    .then((response) => response.arrayBuffer())
+    .then((buffer) => {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return flat();
+      return new Ctx().decodeAudioData(buffer).then((decoded) => {
+        const channel = decoded.getChannelData(0);
+        const buckets = 240;
+        const size = Math.floor(channel.length / buckets) || 1;
+        const peaks = [];
+        for (let index = 0; index < buckets; index += 1) {
+          let peak = 0;
+          for (let cursor = 0; cursor < size; cursor += 1) {
+            const value = Math.abs(channel[index * size + cursor] || 0);
+            if (value > peak) peak = value;
+          }
+          peaks.push(peak);
+        }
+        paint(peaks);
+      });
+    })
+    .catch(() => flat());
+}
+
+function drawAudio(container, artifacts, context) {
+  for (const artifact of audioArtifacts(artifacts)) {
+    const figure = el("figure", "tool-artifact audio");
+    const player = el("audio", "audio-player");
+    player.controls = true;
+    player.preload = "none";
+    player.src = artifact.url;
+    figure.appendChild(player);
+    const canvas = el("canvas", "audio-wave");
+    canvas.width = 320;
+    canvas.height = 40;
+    canvas.setAttribute("aria-hidden", "true");
+    figure.appendChild(canvas);
+    drawWaveform(canvas, artifact.url);
+    const engine = String(artifact.engine || "");
+    const seconds = Number(artifact.seconds || 0);
+    const caption = [`${seconds ? seconds.toFixed(1) + " s" : "audio"}`];
+    if (engine) caption.push(engine === "voxtral" ? "Voxtral 3" : engine === "xtts" ? "XTTS-v2 (local)" : engine);
+    figure.appendChild(el("figcaption", "tool-artifact-note", caption.join(" · ")));
+    artifactToolbar(figure, artifact, context);
+    container.appendChild(figure);
+  }
+}
+
+// The mic: record, ask the transcribe route, insert PLAIN TEXT. Nothing about the
+// audio reaches the turn - that is the anti-regression promise of this lot.
+let recorder = null;
+let recorderChunks = [];
+
+function micStatus(text) {
+  const box = $("mic-status");
+  if (box) {
+    box.textContent = text || "";
+    box.hidden = !text;
+  }
+}
+
+async function toggleMic() {
+  const button = $("mic");
+  if (recorder && recorder.state === "recording") {
+    recorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    micStatus("Ce navigateur ne sait pas enregistrer le micro.");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (error) {
+    micStatus(`Micro refusé : ${error.message}`);
+    return;
+  }
+  recorderChunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.addEventListener("dataavailable", (event) => {
+    if (event.data && event.data.size) recorderChunks.push(event.data);
+  });
+  recorder.addEventListener("stop", async () => {
+    stream.getTracks().forEach((track) => track.stop());
+    button.classList.remove("recording");
+    micStatus("transcription…");
+    const blob = new Blob(recorderChunks, { type: recorder.mimeType || "audio/webm" });
+    recorderChunks = [];
+    try {
+      const suffix = (recorder.mimeType || "").includes("ogg") ? ".ogg" : ".webm";
+      const url = `/api/audio/transcribe?session_id=${encodeURIComponent(state.sessionId || "")}` +
+        `&name=dictation${suffix}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "application/octet-stream" },
+        body: blob,
+        credentials: "same-origin",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+      const text = String(payload.text || "").trim();
+      if (!text) throw new Error("transcription vide");
+      const input = $("input");
+      input.value = input.value ? `${input.value} ${text}` : text;
+      input.focus();
+      micStatus(`dicté (${payload.engine || "local"})`);
+      window.setTimeout(() => micStatus(""), 4000);
+    } catch (error) {
+      micStatus(`dictée impossible : ${error.message}`);
+    }
+  });
+  recorder.start();
+  button.classList.add("recording");
+  micStatus("enregistrement… cliquer pour arrêter");
+}
+
+async function loadAudioCapabilities() {
+  const button = $("mic");
+  if (!button) return;
+  try {
+    const data = await api("/api/audio/capabilities");
+    state.audio = data;
+    button.hidden = !data.stt;
+    if (!data.stt) {
+      const reasons = (data.engines || [])
+        .filter((engine) => engine.stt === false && engine.reason)
+        .map((engine) => engine.reason)
+        .join(" · ");
+      button.title = `Dicter — indisponible : ${reasons || "aucun moteur de dictée"}`;
+    } else {
+      button.title = "Dicter (micro)";
+    }
+  } catch (error) {
+    button.hidden = true;
+  }
+}
+
+function wireMic() {
+  const button = $("mic");
+  if (button) button.addEventListener("click", () => toggleMic().catch(() => {}));
+  loadAudioCapabilities().catch(() => {});
+}
+
 // -------------------------------------------------------------------- chat --
+// The model that answered, named once (point 5). The header's tooltip, the
+// answer's footer and the local-model tab read this same value: before, the header
+// named the configured model (`auto/best-free`) while the answer came from another
+// one, and nothing on screen said so.
+function markServedModel(meta, bubble) {
+  const model = String((meta && meta.model) || "").trim();
+  if (!model) return;
+  const requested = String((meta && meta.requested) || "").trim();
+  const substituted = Boolean(meta && meta.substituted) || Boolean(requested && requested !== model);
+  const provider = String((meta && meta.provider) || "").trim();
+  state.servedModel = model;
+  state.requestedModel = requested;
+  const label = $("status-provider");
+  if (label) {
+    const version = String(label.textContent || "").trim() || "UH";
+    const tail = substituted
+      ? `modèle qui a répondu : ${model} (demandé : ${requested})`
+      : `modèle : ${model}`;
+    label.title = `${version} · fournisseur : ${provider} · ${tail}`;
+  }
+  if (bubble) {
+    let footer = bubble.querySelector(".answer-model");
+    if (!footer) {
+      footer = el("span", "answer-model");
+      bubble.appendChild(footer);
+    }
+    footer.textContent = substituted
+      ? `modèle qui a répondu : ${model} (demandé : ${requested})`
+      : `modèle : ${model}`;
+  }
+  markLocalModelTab();
+}
+
+// Same value in the local-model tab: the row that answered, not merely the default.
+function markLocalModelTab() {
+  const list = $("local-models");
+  if (!list) return;
+  for (const name of list.querySelectorAll(".local-model-name")) {
+    const label = String(name.textContent || "").trim();
+    name.classList.toggle("served", Boolean(state.servedModel) && label === state.servedModel);
+  }
+}
+
 function parseFrames(buffer, onEvent) {
   const blocks = buffer.replace(/\r\n/g, "\n").split("\n\n");
   const rest = blocks.pop();
@@ -1350,6 +1905,9 @@ async function sendMessage(text) {
   state.streaming = true;
 
   const attachments = state.attachments.map((item) => item.path);
+  // Kept so a refusal card can re-send this exact turn after the user grants
+  // execution: the point is not to make them type it again.
+  state.lastUserText = text;
   $("send").disabled = true;
   $("stop").disabled = false;
   appendMessage("user", attachments.length ? `${text}\n\n[${attachments.length} file(s) attached]` : text);
@@ -1461,6 +2019,10 @@ async function sendMessage(text) {
             drawArtifacts(assistant, data.images);
             $("messages").scrollTop = $("messages").scrollHeight;
           });
+        } else if (event === "mode_refused") {
+          guardedStep("mode_refused", () => {
+            modeRefusalCard(data);
+          });
         } else if (event === "notice") {
           guardedStep("notice", () => {
             appendMessage("system", String(data.message || ""));
@@ -1492,6 +2054,25 @@ async function sendMessage(text) {
               });
               bubble.appendChild(again);
             }
+          });
+        } else if (event === "answer") {
+          guardedStep("answer", () => {
+            // The non-streaming form of the same content (a slash command answers
+            // this way). It fills the bubble only when no token arrived: the two
+            // frames describe one answer, and drawing both would duplicate it.
+            const body = String(data.content || "");
+            if (!body) return;
+            if (!assistantText) {
+              assistantText = body;
+              assistantContent.textContent = body;
+              assistantContent.classList.add("md");
+              assistantContent.innerHTML = renderMarkdown(body);
+            }
+          });
+        } else if (event === "answer_meta") {
+          guardedStep("answer_meta", () => {
+            // The model that answered, said once and used everywhere (point 5).
+            markServedModel(data, assistant);
           });
         } else if (event === "done") {
           guardedStep("done", () => {
@@ -2957,7 +3538,7 @@ function tierDot(tier) {
 // restarts a process it owns; a foreign UHB is reported, never killed.
 const MODE_LABELS = {
   chat: ["Discussion", "lecture seule : lit et cherche, n'exécute rien"],
-  dev: ["Agent", "peut exécuter du code et créer des fichiers"],
+  dev: ["Atelier", "exécute du code, écriture limitée au dossier du run"],
   review: ["Revue", "lit et commente, n'exécute pas"],
   observe: ["Observation", "observe et rapporte, ne modifie rien"],
 };
@@ -2997,7 +3578,7 @@ async function renderExecutionMode() {
     el(
       "div",
       "panel-hint",
-      "l'exécution de code exige le mode Agent ; un mode se change en redémarrant le second cerveau, c'est UH qui s'en charge"
+      "l'exécution de code exige le mode Atelier ; un mode se change en redémarrant le second cerveau, c'est UH qui s'en charge"
     )
   );
   const row = el("div", "mode-row");
@@ -3030,6 +3611,90 @@ async function switchExecutionMode(mode, card) {
   } catch (error) {
     hint.textContent = error.message;
   }
+}
+
+// --- mode d'exécution : badge permanent + carte de refus -------------------- //
+// A capability the user cannot see is a capability they cannot grant. The badge is
+// in the header on every screen; the card appears in the conversation, exactly
+// where the refusal happened, and its button is the only way to grant execution.
+const MODE_BADGE_TEXT = {
+  chat: "Discussion : lecture seule",
+  // Measured, not hoped: the workshop interpreter carries numpy and matplotlib,
+  // the audit hook refuses a write outside the run directory, the credential
+  // files and any subprocess - proven by a counter-probe on 19/11 (an attempt on
+  // each of the four is refused, a savefig in the run is kept). A win32 call made
+  // through ctypes is still outside that hook; the sentence says what is confined.
+  dev: "Atelier : exécute du code (dossier du run uniquement)",
+  review: "Revue : lit, n'exécute pas",
+  observe: "Observation : rapporte seulement",
+};
+
+async function refreshModeBadge() {
+  const badge = $("mode-badge");
+  if (!badge) return;
+  let status = {};
+  try {
+    status = await api("/api/uhb/status");
+  } catch (error) {
+    $("mode-badge-label").textContent = "second cerveau arrêté";
+    badge.dataset.mode = "";
+    return;
+  }
+  const mode = String(status.mode || "");
+  const label = MODE_BADGE_TEXT[mode] || (status.connected ? `mode « ${mode} »` : "second cerveau arrêté");
+  $("mode-badge-label").textContent = label;
+  badge.dataset.mode = mode;
+  badge.classList.toggle("readonly", mode === "chat");
+  badge.classList.toggle("agent", mode === "dev");
+  badge.title =
+    mode === "chat"
+      ? "Lecture seule. Cliquez pour autoriser l'exécution de code (mode Atelier)."
+      : "Ce mode peut exécuter du code. Cliquez pour revenir en lecture seule.";
+}
+
+async function toggleModeFromBadge() {
+  const badge = $("mode-badge");
+  const target = badge && badge.dataset.mode === "dev" ? "chat" : "dev";
+  await applyMode(target);
+  await refreshModeBadge();
+}
+
+// One call, used by the badge and by the refusal card: switch, then report.
+async function applyMode(mode) {
+  const answer = await api("/api/uhb/mode", { method: "POST", body: JSON.stringify({ mode }) });
+  await refreshModeBadge();
+  return answer;
+}
+
+// The card that turns "switch to dev" into one click, and re-sends the turn the
+// user already typed - no copy, no paste, no lost message.
+function modeRefusalCard(data) {
+  const card = el("div", "mode-card-inline");
+  card.appendChild(
+    el(
+      "div",
+      "mode-card-text",
+      `Le second cerveau est en lecture seule, donc \`${data.tool || "l'outil"}\` n'était pas disponible. ` +
+        "Rien n'a été exécuté."
+    )
+  );
+  const button = artifactButton("keep", "Autoriser pour cette conversation", "passer en mode Atelier et relancer ce tour", null, "safe");
+  button.classList.add("mode-allow");
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await applyMode("dev");
+      card.remove();
+      const again = state.lastUserText;
+      if (again) await sendMessage(again);
+    } catch (error) {
+      button.disabled = false;
+      card.appendChild(el("div", "tool-artifact-note", `refusé : ${error.message}`));
+    }
+  });
+  card.appendChild(button);
+  $("messages").appendChild(card);
+  $("messages").scrollTop = $("messages").scrollHeight;
 }
 
 function renderDecision(data, reload) {
@@ -5501,6 +6166,7 @@ async function bootStep(label, run) {
 async function boot() {
   wireLayout();
   wireAttachments();
+  wireMic();
   wireChips();
   wireComposer();
   wireViewStale();
@@ -5541,6 +6207,10 @@ async function boot() {
   // Every entry point (⚙, tab click, ?panel=, #providers) now ends in the same
   // coalesced loader, so this costs one request on arrival.
   if (providersAreOpen() && state.activeTab === "keys") openProviders();
+  // The mode is a state of the second brain, not of a tab: it is read on arrival.
+  refreshModeBadge().catch(() => {});
+  const badge = $("mode-badge");
+  if (badge) badge.addEventListener("click", () => toggleModeFromBadge().catch(() => {}));
   showRemoteBanner().catch(() => {});
   // Open the most recent session on first load: an empty pane on arrival looks
   // like a broken app, and the session the user left is the one they want.
@@ -6440,6 +7110,8 @@ async function loadLocalPanel() {
       });
       guide.appendChild(list);
       guide.appendChild(note);
+      // The row that answered keeps its marker across a reload of the tab.
+      markLocalModelTab();
     }
   }
   box.appendChild(guide);

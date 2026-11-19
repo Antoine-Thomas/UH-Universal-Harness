@@ -104,7 +104,7 @@ def _body(model: str, messages: list[dict], tools: list[dict], stream: bool) -> 
         "model": model,
         # DeepSeek-style gateways reject an assistant message whose tool_calls
         # list is empty: strip it on the wire, keep the local dicts as they are.
-        "messages": request_messages(messages),
+        "messages": request_messages(messages, tools=tools),
         "stream": stream,
     }
     if tools:

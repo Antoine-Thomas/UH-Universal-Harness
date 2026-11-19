@@ -175,8 +175,10 @@ def test_the_child_is_started_with_the_right_command(
         "--port",
         "8101",
         "--mode",
-        "dev",
+        "chat",
     ], "the server module drops --port and --mode; the CLI honours them"
+    # A cold start is read-only: nothing runs until the operator clicks Agent.
+    assert uhb_spawn.MODE == "chat", "the default must not be able to write"
     if sys.version_info >= (3, 11):
         assert uhb_spawn._supports_uhb(command[0]), "the spawned interpreter must import UHB"
     assert cwd == root

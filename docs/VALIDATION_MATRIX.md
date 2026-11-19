@@ -113,6 +113,65 @@ a comment claims more very easily:
    carrying the nonce, give #13's integration test an approver, serve `/tools/approvals` in
    #13's fake server. Measured on the merged tree: **1513 passed, 2 skipped**.
 
+## Porte A — audit de câblage UI/UX (19/11, avant tout push)
+
+Cette porte ne juge pas des fonctionnalités : elle vérifie que ce qui est livré est
+**relié**. Chaque ligne est un test du dépôt, rejouable.
+
+| ID | Critère | État | Preuve |
+|---|---|---|---|
+| GA-1 | Aucune frame SSE orpheline, dans un sens ou dans l'autre | `DONE` | `tests/test_wiring_audit.py::test_no_frame_is_emitted_without_a_consumer` lit `console._emit`, `app.emit`/`frame` et les handlers `app.js` ; les frames construites par un helper (`answer_meta`, `approval`, `mode_refused`) sont listées avec leur producteur, qui est vérifié présent. Trouvaille réelle : `answer` était **émise et jamais consommée** → handler ajouté (remplit la bulle seulement si aucun token n'est arrivé) |
+| GA-2 | Toute route est documentée, et les familles `/api/audio/*`, `/api/media/*`, `/api/memory`, `/api/maintenance` existent | `DONE` | `test_every_route_is_documented` (90 routes, 0 absente) + `test_the_audio_and_media_families_are_isolated_under_their_own_prefix` |
+| GA-3 | Les 5 routes publiques sont les seules sans jeton | `DONE` | audit : `GET /`, `/healthz`, `/favicon.ico`, 2 × `apple-touch-icon` ; **85 routes `/api/*` portent `require_token`** |
+| GA-4 | Aucun id du DOM utilisé par `app.js` n'est absent de la page ou créé par elle | `DONE` | `test_the_ids_the_page_uses_exist_or_are_created_by_it` (115 ids ; `execution-mode`, `llm-panel`, `skill-menu`, `local-models` sont construits par le panneau, et le test accepte les trois formes de construction) |
+| GA-5 | Rien de base64 en base, un lecteur audio ne naît que d'un clip réel | `DONE` | `test_the_thread_never_stores_base64`, `test_an_audio_player_only_ever_comes_from_a_real_clip`, `test_the_media_warning_is_hidden_until_a_file_needs_it` |
+| GA-6 | Les quatre verrous sont toujours câblés | `DONE` | `test_the_locks_the_relay_paid_for_are_still_wired` (porte de mode, garde Host/Origin, audithook atelier, isolation audio/média) + suites dédiées `test_mode_gate`, `test_uhb_mode_guard`, `test_audio_chain`, `test_turn_never_silent` |
+| GA-7 | Architecture UI/UX réécrite avec les lots livrés | `DONE` | `docs/ARCHITECTURE.md` : contrat des frames (13 types avec producteur et consommateur), les quatre verrous, la place de l'audio et du média « à côté » du tour, ce qui est stocké vs référencé, mémoire et nettoyage |
+
+## Porte B — banc d'essai dev complet (19/11, `DONE`)
+
+Un passage, 24 lignes mesurées sur le serveur lancé (`PYTHONPATH= UH_UHB_EXECUTE=1`).
+Chaque ligne est un chiffre lu dans une réponse HTTP, un fichier, le journal du serveur
+ou `ffprobe` — pas une impression. Tableau complet : `porte_b_table.md` (scratch du
+relais), résumé ici.
+
+**Trois défauts réels trouvés par le banc, corrigés avec leurs tests** :
+
+1. **Contexte Ollama** — trois images de 1536 px débordent le défaut de 8 192 jetons
+   (`request (9641 tokens) exceeds the available context size`). Le provider demande
+   maintenant la fenêtre **mesurée** (`/api/show`), bornée à 32 768 :
+   `tests/test_gate_b_media_fixes.py`.
+2. **Bande son d'une vidéo envoyée comme image** — Ollama répondait `Failed to load
+   image or audio file`. Les images clés partent seules ; la piste audio a sa propre
+   clé (`soundtrack`), pour la dictée : même fichier de test.
+3. **Modèle affiché d'une session** — l'en-tête annonçait le défaut global
+   (`auto/best-free`) pendant que la session tournait sur `qwen2.5:7b`. `/api/status`
+   accepte `session_id` et rend le couple de la session ; la page le demande :
+   `tests/test_status_scope.py`.
+
+Et deux lignes de banc qui accusaient le code à tort, corrigées côté banc (dit ici pour
+que personne ne « re-corrige » du code sain) : la purge lue **avant** que le thread worker
+ne l'ait faite (attendre 3 s), et un « sans jeton » qui portait quand même le jeton par
+l'en-tête par défaut du client HTTP.
+
+| Groupe | Lignes | Résultat mesuré |
+|---|---|---|
+| 1. Démarrage & mode chat | 4 | page + libellés servis ; tour streamé **sans aucune approbation** ; `offered` en chat sans `execute_code`/`write_file`/`patch` |
+| 2. Atelier & sécurité | 3 | bascule 200 (`mode=dev`) ; garde **401/403/403/403** + légitime 200 ; dessin PNG exécuté après **1 approbation** |
+| 3. Tour texte | 2 | frames `open, token, answer, answer_meta, done` ; `answer_meta` = statut de session = modèle demandé |
+| 4. Capacité & bascule | 3 | `capable=false` + perte annoncée ; premier candidat `ollama/qwen3.5:9b` ; bascule 200 → `capable=true` |
+| 5. Lot 4K sans prompt | 3 | analyse déclenchée sans texte ; mémoire **3000×1688 PNG** (12,9 Mo) sha OK ; copies `-sent` purgées sauf la gardée |
+| 6. Vidéo H.264 + H.265 | 2 | `turn_media images=10 kinds=['video','video']` ; images clés + bande son extraites puis purgées |
+| 7. Audio & dictée | 3 | synthèse `engine=xtts` (Voxtral 429 en amont) 2,04 s ; **FLAC 48 kHz / 2 canaux / 24 bits** ; dictée `engine=whisper` |
+| 8. Corbeille & votes | 2 | `up, down, none` journalisés dans l'ordre ; corbeille 200 (fichier absent) puis `restore` 200 (présent) |
+| 9. Auto-nettoyage | 2 | `derived: 0`, `unmentioned ≤ 2`, `missing: 0` ; poids identique avant/après (delta 0) |
+
+**Ménage de fin de banc** : sessions de test supprimées (17), dossiers d'uploads de
+sessions disparues retirés, entrées mémoire orphelines oubliées, `~/.uh/uploads` ramené
+de 216 Mo à 155 ko, `~/.uh/memory` à 0 entrée, `config.toml` restauré à l'octet.
+
+**Porte C** : à ta main. Aucun push n'a été fait.
+
 ## What is missing to be able to say "proven"
 
 - one dated capture per screen concerned, on the published version;

@@ -38,6 +38,9 @@ RUNS_ROOT = Path(os.environ.get("UH_UHB_RUNS") or (Path.home() / ".uhb" / "runs"
 RATINGS_FILE = Path(os.environ.get("UH_HOME") or (Path.home() / ".uh")) / "artifact-ratings.jsonl"
 TRASH_DIR = "_trash"
 VOTES = ("up", "down")
+#: The retraction of a vote. Recorded, not deleted: the journal is a history, and
+#: "the operator changed their mind" is a fact worth keeping (P1-13 will want it).
+VOTE_CLEAR = "none"
 KEEP_SUFFIX = ".keep"
 
 
@@ -49,8 +52,12 @@ def runs_root() -> Path:
     return Path(RUNS_ROOT).expanduser()
 
 
-def _resolved_inside(path: Path) -> Optional[Path]:
-    """The file's real path when it lives under the runs root, else None.
+def uh_home() -> Path:
+    return Path(os.environ.get("UH_HOME") or (Path.home() / ".uh"))
+
+
+def _resolved_inside(path: Path, root: Optional[Path] = None) -> Optional[Path]:
+    """The file's real path when it lives under ``root`` (the runs root by default).
 
     ``realpath`` first: a symlink inside the tree that points outside is out.
     """
@@ -58,12 +65,23 @@ def _resolved_inside(path: Path) -> Optional[Path]:
         real = Path(os.path.realpath(path))
     except OSError:
         return None
-    root = Path(os.path.realpath(runs_root()))
+    base = Path(os.path.realpath(root if root is not None else runs_root()))
     try:
-        real.relative_to(root)
+        real.relative_to(base)
     except ValueError:
         return None
     return real
+
+
+def _root_for(provenance: Dict[str, Any]) -> Path:
+    """Which of the two allowed roots a provenance means.
+
+    ``runs`` by default; ``uploads`` only when asked for by name - so a caller can
+    reach a voice clip without being able to point the guard at any other folder.
+    """
+    if str((provenance or {}).get("root") or "").strip().lower() == "uploads":
+        return uh_home() / "uploads"
+    return runs_root()
 
 
 def resolve(provenance: Dict[str, Any]) -> Path:
@@ -72,8 +90,14 @@ def resolve(provenance: Dict[str, Any]) -> Path:
     Accepts ``{"path": ...}`` or ``{"run_dir": ..., "relative": ...}``. Both are
     checked, never trusted: a relative part with ``..`` in it is refused by the
     same ``relative_to`` as an absolute path outside the root.
+
+    ``{"root": "uploads"}`` is the second door, opened for P1-15: a synthesised voice
+    clip is legitimately stored under ``$UH_HOME/uploads``, not in a run. It is not a
+    hole - the path is still resolved inside one root, chosen by name, never by the
+    caller's string (an unknown root falls back to ``runs``).
     """
     raw = str((provenance or {}).get("path") or "").strip()
+    root = _root_for(provenance)
     if not raw:
         run_dir = str((provenance or {}).get("run_dir") or "").strip()
         relative = str((provenance or {}).get("relative") or "").strip()
@@ -81,7 +105,7 @@ def resolve(provenance: Dict[str, Any]) -> Path:
             raise ArtifactActionError("this image has no file on disk to act on")
         raw = str(Path(run_dir) / relative)
     candidate = Path(raw).expanduser()
-    real = _resolved_inside(candidate)
+    real = _resolved_inside(candidate, root)
     if real is None:
         raise ArtifactActionError(
             "refused: the file is outside the run directory, so nothing was touched"
@@ -145,6 +169,61 @@ def trash(provenance: Dict[str, Any]) -> Dict[str, Any]:
     return {"action": "trash", "trashed": True, "moved_to": str(target), "from": str(path)}
 
 
+def _wanted(provenance: Dict[str, Any]) -> Path:
+    """The path an artifact points at, whether or not it still exists.
+
+    :func:`resolve` refuses a missing file because it is about to read or move it.
+    The undo of a trash needs the opposite: the file is gone by construction, and the
+    point is to put it back where it was.
+    """
+    raw = str((provenance or {}).get("path") or "").strip()
+    if not raw:
+        run_dir = str((provenance or {}).get("run_dir") or "").strip()
+        relative = str((provenance or {}).get("relative") or "").strip()
+        if not run_dir or not relative:
+            raise ArtifactActionError("this image has no file on disk to act on")
+        raw = str(Path(run_dir) / relative)
+    real = _resolved_inside(Path(raw).expanduser(), _root_for(provenance))
+    if real is None:
+        raise ArtifactActionError(
+            "refused: the file is outside the run directory, so nothing was touched"
+        )
+    return real
+
+
+def restore(provenance: Dict[str, Any]) -> Dict[str, Any]:
+    """Undo a ``trash``: bring the file back to the path it was taken from.
+
+    The search is by provenance, not by name: a second image with the same name gets
+    a ``-1`` suffix in the trash, and restoring by name would bring back the wrong
+    file. The sidecar written by :func:`trash` records ``from`` - that is the key.
+    """
+    path = _wanted(provenance)
+    folder = Path(os.path.realpath(runs_root() / TRASH_DIR))
+    if not folder.is_dir():
+        raise ArtifactActionError("rien à restaurer : la corbeille est vide")
+    wanted = str(path)
+    for sidecar in sorted(folder.rglob("*.json")):
+        try:
+            data = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if str(data.get("from") or "") != wanted:
+            continue
+        moved = sidecar.with_name(sidecar.name[: -len(".json")])
+        if not moved.is_file():
+            continue
+        if path.exists():
+            raise ArtifactActionError(
+                "refusé : un fichier existe déjà à cet emplacement, restauration annulée"
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(moved), str(path))
+        sidecar.unlink(missing_ok=True)
+        return {"action": "restore", "restored": True, "file": str(path)}
+    raise ArtifactActionError("rien à restaurer : ce fichier n'est pas dans la corbeille")
+
+
 def rate(
     provenance: Dict[str, Any],
     vote: str,
@@ -154,9 +233,15 @@ def rate(
     index: int = 0,
     comment: str = "",
 ) -> Dict[str, Any]:
-    """Record one opinion: a local line first, delivery to the brain later."""
-    if vote not in VOTES:
-        raise ArtifactActionError("a vote is 'up' or 'down'")
+    """Record one opinion: a local line first, delivery to the brain later.
+
+    ``vote`` is ``up``, ``down`` or ``none``. ``none`` is the retraction of a vote
+    (clicking the active thumb again): it is journalled like the others, because a
+    history that silently loses a change of mind cannot be used to improve anything.
+    """
+    vote = str(vote or "").strip().lower()
+    if vote not in VOTES and vote != VOTE_CLEAR:
+        raise ArtifactActionError("a vote is 'up', 'down' or 'none'")
     try:
         path: Optional[Path] = resolve(provenance)
     except ArtifactActionError:
@@ -201,11 +286,13 @@ __all__ = [
     "RATINGS_FILE",
     "TRASH_DIR",
     "VOTES",
+    "VOTE_CLEAR",
     "empty_trash",
     "is_kept",
     "keep",
     "rate",
     "resolve",
+    "restore",
     "runs_root",
     "trash",
     "trash_count",

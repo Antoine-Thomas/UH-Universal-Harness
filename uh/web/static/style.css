@@ -1564,3 +1564,130 @@ select:focus-visible {
 .tool-artifact-btn.danger:hover:not(:disabled) { border-color: #b4453a; color: #b4453a; background: #fbeeec; }
 .tool-artifact-label { white-space: nowrap; }
 .tool-artifact-note { font-size: 11px; color: var(--muted); }
+
+/* One status line per figure (point 5): a block, so two states never glue into
+   one word, and the undo of a trash lives on that same line. */
+.tool-artifact-status { display: block; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.tool-artifact-undo {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.tool-artifact-btn.voted { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+/* The local model that actually answered, not merely the default one (point 5). */
+.local-model-name.served::after { content: " · a répondu"; color: var(--accent); }
+/* The image leaves the thread at once; the status line stays to offer « Annuler ». */
+.tool-artifact.trashed .tool-artifact-img { display: none; }
+
+/* Footer of an answer: which model actually spoke (point 5), same value as the
+   header and the local-model tab. */
+.answer-model { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+
+/* P1-15 — audio. The player exists only inside a figure that a real clip created,
+   and the waveform is drawn from the decoded samples, so it shows the sound. */
+.tool-artifact audio.audio-player { width: 100%; height: 32px; }
+.audio-wave { display: block; width: 100%; height: 40px; margin-top: 4px; }
+.text-feedback, .answer-audio { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.text-feedback .tool-artifact-btn, .answer-audio .tool-artifact-btn { font-size: 11px; padding: 2px 8px; }
+.mic-status { margin: 0 0 4px; font-size: 11px; color: var(--muted); }
+.icon-button.recording { color: var(--error); border-color: var(--error); }
+
+/* P1-14 — one "+" and a compact menu, so the composer stays a composer. */
+.plus-wrap { position: relative; display: inline-flex; }
+.plus-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(6, 48, 44, 0.18);
+}
+.plus-item {
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.plus-item:hover, .plus-item:focus-visible { background: var(--accent-soft); }
+.media-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--highlight) 22%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--highlight) 55%, var(--border));
+  border-radius: 8px;
+}
+.media-switch {
+  padding: 3px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.media-warning-error { color: var(--error); }
+
+/* Badge de mode : lisible d'un coup d'oeil, cliquable, jamais decoratif. */
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mode-badge:hover { border-color: var(--accent); }
+.mode-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mode-badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 8px; }
+.mode-badge.readonly .mode-badge-dot { background: #b4453a; }
+.mode-badge.agent .mode-badge-dot { background: var(--accent); }
+
+/* Carte de refus liee au mode : dans le fil, la ou la demande a echoue. */
+.mode-card-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--highlight);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--panel);
+}
+.mode-card-text { flex: 1 1 320px; font-size: 13px; color: var(--text); }
+.mode-card-inline .mode-allow { background: var(--accent); color: #ffffff; border-color: var(--accent); }

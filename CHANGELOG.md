@@ -13,6 +13,63 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.9.0] — 2026-11-19 *(non publiée : le tag suit la fusion)*
+
+**Quatre lots et cinq correctifs de stabilisation, tous mesurés dans l'interface.**
+Le fil ne ment plus, il ne meurt plus en silence, et il sait lire une capture 4K, écouter
+une voix et se souvenir de ce qu'on lui a dit de garder.
+
+### Added
+
+- **P1-15 — audio, micro, voix.** Routes dédiées `/api/audio/*` : transcription (Voxtral 3,
+  repli local `faster-whisper` CPU/int8), synthèse (Voxtral 3, repli **XTTS-v2**), lecteur
+  avec **forme d'onde réelle** calculée depuis les échantillons décodés, affiché seulement
+  quand un son existe. `uh/agent.py` et `uh/providers/*` n'importent jamais le paquet audio
+  (test architectural). Preuve : repli réel sur un HTTP 429 Voxtral.
+- **P1-14 — bouton « + » unifié, vision 4K, vidéo.** Un seul bouton range par nature (son,
+  images, vidéo, documents `.txt/.md/.json/.pdf/.csv/.html/.zip`). Réduction à la volée sous
+  1 Mo par image (`-sent.jpg`, l'original intact), images clés + bande son extraites d'un
+  `.mp4` H.264/H.265 par le ffmpeg résolu, analyse **automatique sans prompt** quand on
+  envoie un média seul. Capacité **mesurée** (`/api/show`, `input_modalities`), jamais déduite
+  d'un nom ; un modèle inconnu est déclaré incapable et l'avertissement dit ce qui sera perdu,
+  avec une bascule en un clic. Les octets ne partent plus vers un modèle mesuré aveugle
+  (Ollama répondait 400).
+- **P1-13 — mémoire des réussites.** « Garder » copie le fichier en format canonique :
+  **PNG lossless à la résolution d'origine** (une capture 3000×1688 revient en 3000×1688) et
+  **FLAC 24 bits / 48 kHz / 2 canaux** pour un son, indexés par SHA-256 (+ `sha256_stored`)
+  et liés à leur message. Idempotent par contenu ; vider la corbeille oublie les entrées
+  qu'elle contenait, « Corbeille » seule non (la fenêtre d'Annuler les détruirait).
+- **P1-12 — auto-nettoyage et auto-réparation.** Purge des copies préparées en fin de tour
+  (ce qui est gardé survit, via le sidecar de chaque copie), fichiers de plus de 7 jours non
+  gardés, dossiers vides, et `GET /api/maintenance` qui rapporte les orphelins **dans les deux
+  sens** sans jamais supprimer un fichier qu'un message mentionne.
+
+### Fixed
+
+- **Un tour ne finit jamais muet** : toute sortie de `run_turn`, y compris `ProviderError`,
+  produit une réponse ou une notice visible, persistée en `system`.
+- **Mode `chat`** : les outils interdits sont retirés de l'offre (mesuré : 8 outils, ni
+  `execute_code`, ni `write_file`, ni `patch`) et un appel forcé revient refusé et typé
+  `mode_forbidden`, avec une carte « Autoriser pour cette conversation ».
+- **Relance bornée** (2 essais) sur du code collé en texte au lieu d'un appel d'outil, coupée
+  en mode chat et dès que l'opérateur demande explicitement le code.
+- **Bascule de mode protégée** : `POST /api/uhb/mode` exige le jeton, refuse le cross-site en
+  **403** (Host, Origin, Sec-Fetch-Site, CSRF), et le modèle ne peut pas changer de mode.
+- **Cinq mensonges d'interface du point 5** : un seul statut par artefact, « Corbeille » avec
+  « Annuler » 8 s, votes `Utile`/`Pas utile` exclusifs et réversibles (journalisés, `none`
+  compris), libellé honnête « noté (pas encore utilisé pour s'améliorer) », et **une seule
+  source pour le modèle affiché** (`answer_meta`), y compris quand la session tourne sur un
+  autre modèle que le défaut global.
+- **Frame `answer` sans consommateur** trouvée par l'audit de la Porte A, et **trois défauts**
+  trouvés par le banc de la Porte B : contexte Ollama sous-dimensionné pour trois images
+  1536 px, bande son d'une vidéo envoyée comme image, en-tête annonçant le mauvais modèle.
+
+### Documentation
+
+- `docs/ARCHITECTURE.md` réécrit (contrat des 13 frames, les quatre verrous, place de
+  l'audio/média, ce qui est stocké vs référencé vs mémorisé) ; `docs/VALIDATION_MATRIX.md`
+  gagne la table des Portes A (GA-1 → GA-7) et B, avec les chiffres bruts.
+
 ## [1.8.0] — 2026-11-18
 
 ### Added

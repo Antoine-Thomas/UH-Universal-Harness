@@ -26,6 +26,9 @@ class CatalogError(RuntimeError):
 class ModelSpec:
     id: str
     tools: bool = False
+    #: Documented input modality: a model that reads images says so in the catalogue
+    #: (data, never a guess from the name). Default False - unknown is not capable.
+    vision: bool = False
 
 
 @dataclass(frozen=True)

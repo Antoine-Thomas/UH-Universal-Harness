@@ -68,6 +68,23 @@ sequenceDiagram
 A local stdio server runs inside the turn. A remote HTTP/SSE server never executes
 without a per-call approval, and an unanswered ticket counts as a refusal.
 
+Since P1-14, the same turn also carries files - and they change nothing about the
+shape above:
+
+```
+message + attachments
+  → attachments.compose()      text, with each file described (inlined if small)
+  → attachments.media_for()    prepared copies: -sent.jpg under 1 MB, or keyframes
+  → run_turn(images=[…])       bytes on the REQUEST copy, shaped per wire, never stored
+  → console / app              the same frames, plus answer_meta at the end
+  → purge                      derived/ disappears, except what « Garder » marked
+```
+
+`media_for()` samples a batch beyond 12 images and says so in the message rather than
+refusing it, and `run_text` drops the bytes entirely when the capability table says the
+model is blind - Ollama answers 400 "Multimodal data provided, but model does not
+support multimodal requests", which used to cost the whole turn.
+
 ## Where the state lives
 
 | File | Holds | Never holds |
@@ -75,11 +92,67 @@ without a per-call approval, and an unanswered ticket counts as a refusal.
 | `$UH_HOME/config.toml` | defaults: provider, model, workspace, limits | a key, a token |
 | `$UH_HOME/keys.toml` (owner-only) | API keys and custom gateways | anything shown in the UI |
 | `$UH_HOME/mcp-secrets.toml` (owner-only) | MCP tokens | anything returned by an API |
-| `$UH_HOME/uh.db` | sessions, decisions, memory | — |
+| `$UH_HOME/uh.db` | sessions, decisions, memory | base64 audio or images |
+| `$UH_HOME/uploads/<session>/` | the files the operator chose, plus `derived/` (prepared copies) | anything the turn did not produce |
+| `$UH_HOME/memory/` | what was kept, in canonical format (PNG lossless, FLAC 24-bit stereo) | a pointer to a run that retention may delete |
+| `$UH_HOME/artifact-ratings.jsonl` | one line per vote, `none` included | a secret |
 
 `config.toml` is the file people paste into issues; a secret never enters it. Every
 route that describes a stored key returns a mask (`••••` + 4 characters) and nothing
 else.
+
+## The frame contract (every type, both ends)
+
+`uh/console.py` and `uh/web/app.py` emit; `uh/web/static/app.js` consumes. A test
+(`tests/test_wiring_audit.py`) reads both files and refuses a frame with only one end.
+
+| Frame | Emitted by | What the page does |
+| --- | --- | --- |
+| `open` | `app.py` chat route | takes the turn: clears the composer, starts the watchdog |
+| `ping` | `app.py` (heartbeat) | life sign, nothing rendered |
+| `token` | `console._emit` / slash command | appends to the answer bubble |
+| `answer` | `console._emit` / slash command | fills the bubble **only if** no token arrived |
+| `answer_meta` | `app.answer_meta()` | one model value: footer, header tooltip, local-model tab |
+| `tool_call` | `console._emit` | opens a tool card |
+| `tool_result` | `console._emit` | fills it, draws artifacts |
+| `artifacts` | `console._emit` | draws images from the bounded data URLs |
+| `approval` | `mcp_http.notify` | the approval card; no card, no call |
+| `notice` | `console` end-of-turn notices | a system line, stored too (point 1) |
+| `mode_refused` | `mode_gate.mode_refused_frame()` | the « Autoriser pour cette conversation » card |
+| `error` | `app.py` / `console` | a failed bubble, never a silent turn |
+| `done` | `app.py` | closes the turn, reconciles the view with SQLite |
+
+## The four locks, and where each one lives
+
+| Lock | Lives in | Test that holds it |
+| --- | --- | --- |
+| a mode that decides what is offered | `uh/mode_gate.py` + `console._intent_toolsets` | `tests/test_mode_gate.py` |
+| a mode switch only this machine can perform | `app.py` middleware (Host/Origin/Sec-Fetch-Site) + `is_loopback_bind` + token | `tests/test_uhb_mode_guard.py` |
+| a confined atelier interpreter | UHB `uhb/tools/execute.py` (`sys.addaudithook`) | UHB `uhb/tests` |
+| audio and media that cannot reach the turn | package boundaries (`uh/audio`, `uh/media` imported inside handlers only) | `tests/test_audio_chain.py`, `tests/test_wiring_audit.py` |
+
+The last row is the architectural one: `uh/agent.py` and `uh/providers/*` contain no
+import of either package, measured in a clean process (`sys.modules`), so a broken
+engine, an absent key or a missing codec can never cost a text answer.
+
+## Audio and media sit beside the turn, not inside it
+
+- **routes**: `/api/audio/*` (capabilities, transcribe, speak, file) and
+  `/api/media/capabilities` are the only doors; the chat route never calls an engine.
+- **what a turn receives**: prepared image copies under 1 MB (`-sent.jpg`), keyframes
+  instead of a video, and text for everything else. The bytes ride on the *request*
+  copy of the history (`_images`), are shaped per wire, and never reach SQLite.
+- **capability is measured**: `uh/capabilities.py` asks the provider (Ollama
+  `/api/show`, a gateway's `input_modalities`, Mistral's `capabilities.vision`).
+  Unknown is not capable, and the composer says what will be lost before sending.
+- **what survives a turn**: the originals, plus the prepared copy of anything marked
+  « Garder » (the purge reads the sidecar each copy carries).
+- **what is remembered**: `uh/memory.py` copies a kept file into a canonical format -
+  PNG lossless at its resolution, FLAC 24-bit stereo - indexed by SHA-256 and tied to
+  its message. Emptying the bin forgets the entries its files carried.
+- **what cleans up**: `uh/maintenance.py` sweeps prepared copies and stale uploads,
+  and reports orphans in both directions instead of deleting something a message
+  still mentions.
 
 ## The interface rule
 

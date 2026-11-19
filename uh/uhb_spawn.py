@@ -50,7 +50,11 @@ DEFAULT_URL = "http://127.0.0.1:8101"
 #: Measured 2026-11-19: a UH-spawned UHB answered `mode: "chat"` while its command
 #: line said `--mode dev`, and every `execute_code` was refused 403.
 MODULE = "uhb.entrypoints.cli"
-MODE = "dev"
+#: Read-only by default: a cold start can look at the conversation, but nothing
+#: runs until the operator clicks "Agent" (header badge or the Décision card). A
+#: default that can write means every error - a model inventing a tool, a replayed
+#: call - happens with write access the user never granted.
+MODE = "chat"
 LOG_NAME = "uhb.log"
 START_TIMEOUT = 5.0
 STOP_TIMEOUT = 5.0
