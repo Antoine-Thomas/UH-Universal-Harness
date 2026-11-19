@@ -26,6 +26,10 @@ const state = {
   //: footer, the header's tooltip and the local-model tab.
   servedModel: "",
   requestedModel: "",
+  //: The active provider/model, as the server reports them: the capability check
+  //: must ask about the model that will actually receive the image.
+  kind: "",
+  model: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -602,6 +606,8 @@ async function loadStatus() {
   // the provider is a choice, made in Configuration, and a user who runs a cloud
   // key should never be told a local model server is part of the deal.
   const provider = String(status.provider || "").trim();
+  state.kind = provider;
+  state.model = String(status.model || "").trim();
   const label = $("status-provider");
   label.textContent = `v${status.version}`;
   label.title = provider
@@ -892,6 +898,111 @@ function renderAttachments() {
   box.textContent = "";
   for (const attachment of state.attachments) box.appendChild(attachmentChip(attachment));
   box.hidden = state.attachments.length === 0;
+  checkMediaFit();
+}
+
+// ------------------------------------------------------------------ media -- P1-14
+// One "+" instead of a row of icons: the menu is grouped by nature, and each group
+// sets the picker's own filter. Drag, drop and paste keep working on the whole area.
+const ACCEPT = {
+  image: ".png,.jpg,.jpeg,.gif,.svg,.heic,.webp,.bmp",
+  video: ".mp4,.mov,.mkv,.webm,.m4v",
+  audio: ".mp3,.wav,.flac,.ogg,.m4a,.opus",
+  document: ".pdf,.csv,.html,.htm,.zip,.txt,.md,.json,.yaml,.yml,.toml,.py,.js,.ts,.sh",
+};
+
+function plusOpen(open) {
+  const menu = $("plus-menu");
+  const button = $("attach");
+  if (!menu) return;
+  const next = open === undefined ? menu.hidden : Boolean(open);
+  menu.hidden = !next;
+  if (button) button.setAttribute("aria-expanded", next ? "true" : "false");
+}
+
+// The warning is informative, never a door: it says what will be lost and offers a
+// model that would not lose it, then gets out of the way.
+function mediaWarning(text, offer) {
+  const box = $("media-warning");
+  if (!box) return;
+  box.textContent = "";
+  if (!text) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  box.appendChild(el("span", null, text));
+  if (offer) {
+    const switchTo = el("button", "media-switch", `Passer à ${offer.model}`);
+    switchTo.type = "button";
+    switchTo.title = `${offer.provider} · ${offer.model} (${(offer.modalities || []).join(", ")})`;
+    switchTo.addEventListener("click", async () => {
+      switchTo.disabled = true;
+      try {
+        await api("/api/model", {
+          method: "POST",
+          body: JSON.stringify({ provider: offer.provider, model: offer.model }),
+        });
+        await loadStatus();
+        await loadModels().catch(() => {});
+        await checkMediaFit();
+        await loadAudioCapabilities().catch(() => {});
+      } catch (error) {
+        switchTo.disabled = false;
+        box.appendChild(el("span", "media-warning-error", `bascule impossible : ${error.message}`));
+      }
+    });
+    box.appendChild(switchTo);
+  }
+}
+
+function attachmentKinds() {
+  const kinds = new Set();
+  for (const item of state.attachments) {
+    const name = String(item.name || "").toLowerCase();
+    if (/\.(png|jpe?g|gif|svg|heic|webp|bmp)$/.test(name)) kinds.add("image");
+    else if (/\.(mp4|mov|mkv|webm|m4v)$/.test(name)) kinds.add("video");
+    else if (/\.(mp3|wav|flac|ogg|m4a|opus)$/.test(name)) kinds.add("audio");
+  }
+  return [...kinds];
+}
+
+let mediaFitToken = 0;
+
+async function checkMediaFit() {
+  const kinds = attachmentKinds();
+  if (!kinds.length) {
+    mediaWarning("");
+    return;
+  }
+  const token = ++mediaFitToken;
+  try {
+    const kind = kinds.includes("image") ? "image" : kinds[0];
+    const data = await api(
+      `/api/media/capabilities?kind=${encodeURIComponent(kind)}&provider=${encodeURIComponent(
+        state.kind || ""
+      )}&model=${encodeURIComponent(state.model || "")}`
+    );
+    if (token !== mediaFitToken) return;
+    const model = data.model || {};
+    if (model.capable) {
+      mediaWarning("");
+      return;
+    }
+    const candidates = data.vision_candidates || [];
+    const verified = model.verified === false;
+    const head = verified
+      ? `capacité non vérifiée pour ${model.model || "ce modèle"} : l'image pourrait être ignorée.`
+      : model.loss || "ce modèle ne lira pas cette pièce jointe.";
+    mediaWarning(
+      candidates.length
+        ? `${head} Un modèle qui la lit est déjà configuré.`
+        : `${head} Aucun modèle capable n'est configuré : ajoute une clé dans « Connexions ».`,
+      candidates[0] || null
+    );
+  } catch (error) {
+    /* a capability table that cannot be read must not block a send */
+  }
 }
 
 // One session-creation path, memoised: two concurrent callers used to POST two
@@ -947,7 +1058,36 @@ async function uploadFiles(files) {
 }
 
 function wireAttachments() {
-  $("attach").addEventListener("click", () => $("files").click());
+  // One "+" opening a grouped menu: the picker's filter changes with the group, so
+  // the same button reaches images, video, sound and documents without a row of
+  // icons. Drag, drop and paste on the whole area are untouched.
+  $("attach").addEventListener("click", (event) => {
+    event.stopPropagation();
+    plusOpen();
+  });
+  for (const item of document.querySelectorAll(".plus-item[data-accept]")) {
+    item.addEventListener("click", () => {
+      const group = item.dataset.accept || "document";
+      $("files").setAttribute("accept", ACCEPT[group] || "");
+      plusOpen(false);
+      $("files").click();
+    });
+  }
+  const dictate = $("plus-dictate");
+  if (dictate) {
+    dictate.addEventListener("click", () => {
+      plusOpen(false);
+      toggleMic().catch(() => {});
+    });
+  }
+  document.addEventListener("click", (event) => {
+    const menu = $("plus-menu");
+    if (!menu || menu.hidden) return;
+    if (!menu.contains(event.target) && event.target !== $("attach")) plusOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") plusOpen(false);
+  });
   $("files").addEventListener("change", async (event) => {
     const files = [...event.target.files];
     event.target.value = "";  // same file twice must upload twice

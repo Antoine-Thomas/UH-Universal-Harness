@@ -173,8 +173,9 @@ def extract(path: Path, name: Optional[str] = None) -> Attachment:
             kind=kind,
             status="referenced",
             note=(
-                "the current providers read text only: the file is stored and its "
-                "path is below, but the model cannot see it"
+                "the file is stored and its path is below. Whether the model can see "
+                "it depends on the model: /api/media/capabilities answers that from a "
+                "measured table, and a vision model gets the prepared copy (P1-14)"
             ),
         )
 
@@ -244,6 +245,42 @@ def resolve(session_id: str, raw_path: str) -> Path:
     return candidate
 
 
+#: What a turn says when the operator drops files and presses Send without writing a
+#: line. It is a normal user message: the model is asked to do the obvious thing, and
+#: the transcript shows exactly what was asked (P1-14, "analyse sans prompt").
+AUTO_ANALYSIS = (
+    "Analyse les pièces jointes de ce message. Pour chaque image : décris ce qu'elle "
+    "montre, lis le texte visible s'il y en a, et signale ce qui paraît anormal ou "
+    "important. Si c'est une vidéo, appuie-toi sur les images clés et dis ce qui s'y "
+    "passe. Réponds en français, sans réciter la liste des fichiers."
+)
+
+
+def media_for(paths: Iterable[str], session_id: str) -> dict:
+    """What a turn can actually send for these attachments (P1-14).
+
+    Images are shrunk into a ``-sent`` sibling under 1 MB and the *original* stays
+    untouched; a video yields keyframes plus its soundtrack. The record is what the
+    caller needs: the paths to attach to the request, and the measured facts the
+    interface shows (kind, bytes, seconds, codec, whether a sound exists).
+    """
+    from . import media as uh_media
+
+    images: List[str] = []
+    prepared: List[dict] = []
+    for raw in paths or []:
+        try:
+            target = resolve(session_id, str(raw))
+            record = uh_media.prepare(target)
+        except (AttachmentError, uh_media.MediaError) as exc:
+            prepared.append({"original": str(raw), "error": str(exc)})
+            continue
+        prepared.append(record)
+        if record["kind"] in {"image", "video"}:
+            images.extend(record.get("sent") or [])
+    return {"images": images, "items": prepared}
+
+
 def compose(text: str, paths: Iterable[str], session_id: str) -> str:
     """The user's message plus the attachments block. Empty input is unchanged.
 
@@ -271,12 +308,14 @@ def compose(text: str, paths: Iterable[str], session_id: str) -> str:
 __all__ = [
     "Attachment",
     "AttachmentError",
+    "AUTO_ANALYSIS",
     "HEADER",
     "INLINE_LIMIT",
     "MAX_BYTES",
     "compose",
     "extract",
     "human_size",
+    "media_for",
     "resolve",
     "safe_name",
     "save",

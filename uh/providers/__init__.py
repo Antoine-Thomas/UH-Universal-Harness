@@ -197,6 +197,27 @@ def request_messages(
             # pays for them in tokens and cannot read them: the text survives, the
             # bytes stay in the session.
             message = {key: value for key, value in message.items() if key != "artifacts"}
+        if message.get("_images"):
+            # P1-14: the operator's own images, attached to this request only (never
+            # stored - `run_turn` passes a copy). Each wire wants them differently:
+            # Ollama has a `images` array on the message, OpenAI-compatible providers
+            # want content parts. A wire we have not measured gets the text and no
+            # bytes: sending a shape the provider rejects would cost the whole turn.
+            payload = [str(item) for item in message["_images"] if item]
+            message = {key: value for key, value in message.items() if key != "_images"}
+            if payload and wire == "ollama":
+                message = {**message, "images": payload}
+            elif payload and wire == "openai":
+                text = str(message.get("content") or "")
+                parts: List[dict] = [{"type": "text", "text": text}]
+                for encoded in payload:
+                    parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+                        }
+                    )
+                message = {**message, "content": parts}
         if message.get("role") == "tool":
             content = _without_image_bytes(message.get("content"))
             if content is not message.get("content"):

@@ -101,8 +101,9 @@ def test_an_image_is_referenced_and_says_why() -> None:
     stored = store("photo.png", b"\x89PNG\r\n\x1a\n" + b"0" * 100)
 
     assert (stored.kind, stored.status) == ("image", "referenced")
-    assert "text only" in stored.note
-    assert "cannot see it" in stored.note
+    # P1-14: the sentence no longer claims every provider is blind - it points at
+    # the measured capability table, which is the only thing that knows.
+    assert "depends on the model" in stored.note
 
 
 def test_a_video_is_referenced() -> None:
@@ -228,7 +229,7 @@ def test_compose_works_with_no_text_at_all() -> None:
     composed = attachments.compose("", [str(stored.path)], SESSION)
 
     assert composed.startswith(attachments.HEADER)
-    assert "cannot see it" in composed
+    assert "depends on the model" in composed
 
 
 def test_compose_refuses_a_file_from_elsewhere(tmp_path: Path) -> None:

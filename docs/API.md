@@ -64,6 +64,8 @@ come back", which nothing else in the product could.
 | GET | `/api/sessions/{session_id}/messages` | `?limit=` | `{session, messages, provider, model}` · `404` |
 | POST | `/api/artifacts/action` | `{source: {path \| run_dir+relative}, action: keep\|trash\|rate, vote?: up\|down, comment?, session_id?, message_id?, index?}` | `{action, kept\|trashed\|rated, …}` · `400` refusé : fichier hors du dossier `runs`, disparu, ou action inconnue. Le fichier est résolu côté serveur et doit vivre sous `~/.uhb/runs` (`uh/artifacts.py`) : le corps de la requête ne peut viser aucun autre fichier |
 | GET | `/api/artifacts/trash` | — | `{files, root}` — ce que la corbeille contient avant de la vider |
+| GET | `/api/media/capabilities?provider=&model=&kind=` | — | `{kinds: {image: [...], video: [...], audio: [...], document: [...]}, budget_bytes, max_side, ffmpeg, model?, vision_candidates?}` — P1-14 : les extensions acceptées par nature, le budget d'image envoyée, et ce que le modèle **actif** peut réellement lire (`capable`, `loss`, `source`, `verified`) |
+| GET | `/api/models/vision` | — | `{candidates: [{provider, model, modalities, context, tools}], total}` — les modèles **configurés** qui lisent une image, capacité mesurée auprès du fournisseur (jamais déduite du nom) |
 | GET | `/api/audio/capabilities` | — | `{engines: [{name, label, kind, clones, stt, tts, available, reason}], tts, stt, ffmpeg}` — chaque moteur dit pourquoi il ne peut pas tourner (P1-15) |
 | POST | `/api/audio/transcribe?session_id=&name=&language=` | **octets audio bruts** dans le corps (pas de multipart : pas de `python-multipart`) | `{text, engine, clip}` · `503` aucun moteur : le détail nomme chaque tentative. Le texte rendu entre dans le fil comme un message `user` ordinaire — aucun champ audio n'est stocké |
 | POST | `/api/audio/speak` | `{text, session_id?, voice?, reference?}` | `{kind, source: {path, root: "uploads"}, url, name, mime, bytes, seconds, sha256, engine}` · `400` texte vide ou référence hors des envois · `503` aucun moteur (détail par tentative). Les octets vont dans `$UH_HOME/uploads/<session>/audio/` : le fil ne garde qu'une référence |
@@ -188,6 +190,7 @@ contract of the bundled one:
 ```
 app-banner
 attach  attachments  command-chips  composer  files  folder-hint  mic  mic-status
+plus-menu  plus-dictate  media-warning
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 role-custom  role-custom-save  role-label  role-panel  role-posture  role-select  role-view

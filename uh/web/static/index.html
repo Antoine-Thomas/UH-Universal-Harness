@@ -107,7 +107,17 @@
       <p id="mic-status" class="mic-status" aria-live="polite" hidden></p>
 
       <form id="composer" class="composer">
-        <button type="button" id="attach" class="icon-button" title="Attach files" aria-label="Attach files">📎</button>
+        <div class="plus-wrap">
+          <button type="button" id="attach" class="icon-button" title="Ajouter des images, des fichiers, du son" aria-label="Ajouter des images ou des fichiers" aria-haspopup="true" aria-expanded="false">+</button>
+          <div id="plus-menu" class="plus-menu" role="menu" hidden>
+            <button type="button" class="plus-item" data-accept="image" role="menuitem">Images — .png .jpg .gif .svg .heic (jusqu'à 4K)</button>
+            <button type="button" class="plus-item" data-accept="video" role="menuitem">Vidéo — .mp4 (H.264 / H.265)</button>
+            <button type="button" class="plus-item" data-accept="audio" role="menuitem">Son — .mp3 .wav .flac .ogg</button>
+            <button type="button" class="plus-item" data-accept="document" role="menuitem">Documents — .pdf .csv .html .zip .txt .md .json</button>
+            <button type="button" class="plus-item" id="plus-dictate" role="menuitem">Dictée vocale</button>
+          </div>
+        </div>
+        <p id="media-warning" class="media-warning" hidden></p>
         <button type="button" id="mic" class="icon-button" title="Dicter (micro)" aria-label="Dicter un message" hidden>🎙️</button>
         <button type="button" id="skill-open" class="skill-open" title="Attacher un skill à ce tour" aria-label="Skill">⚑</button>
         <button type="button" id="llm-open" class="skill-open" title="Réglages de la conversation" aria-label="Réglages de la conversation">🎚</button>

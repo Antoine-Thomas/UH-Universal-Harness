@@ -680,7 +680,8 @@ def test_upload_stores_the_file_and_reports_its_decision(
                 headers={**AUTH, "Content-Type": "application/octet-stream"},
             )
             assert image.json()["attachment"]["kind"] == "image"
-            assert "cannot see it" in image.json()["attachment"]["note"]
+            # P1-14: the note no longer says every provider is blind.
+        assert "depends on the model" in image.json()["attachment"]["note"]
 
     run(scenario())
 

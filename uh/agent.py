@@ -423,6 +423,47 @@ def provider_supports_streaming(provider: Any) -> bool:
     return any(param.kind is inspect.Parameter.VAR_KEYWORD for param in parameters.values())
 
 
+def _images_payload(paths: Optional[List[str]], limit: int = 6) -> List[str]:
+    """Base64 of the prepared copies, bounded - or nothing at all.
+
+    Only the ``-sent`` copies are read (already under 1 MB, see ``uh/media``), never
+    the original: a 4K screenshot must not become a 8 MB request. A path that no
+    longer exists is skipped rather than failing the turn: a purge between the click
+    and the send must not cost the operator their question.
+    """
+    import base64
+    from pathlib import Path
+
+    encoded: List[str] = []
+    for raw in (paths or [])[:limit]:
+        try:
+            data = Path(raw).read_bytes()
+        except OSError:
+            continue
+        if not data or len(data) > 2_000_000:
+            continue
+        encoded.append(base64.b64encode(data).decode("ascii"))
+    return encoded
+
+
+def _with_images(messages: List[dict], paths: Optional[List[str]]) -> List[dict]:
+    """The list sent to a provider, with the images attached to the last user turn.
+
+    A copy on purpose: ``_images`` must never reach the store - a base64 blob in the
+    SQLite thread is exactly what P1-14 forbids. The stored history keeps the text,
+    which already names each attachment.
+    """
+    payload = _images_payload(paths)
+    if not payload:
+        return messages
+    copy = [dict(message) for message in messages]
+    for message in reversed(copy):
+        if message.get("role") == "user":
+            message["_images"] = payload
+            break
+    return copy
+
+
 def _chat(
     provider: "Provider",
     messages: List[dict],
@@ -457,6 +498,8 @@ def run_turn(
     on_token: Optional[Callable[[str], None]] = None,
     context: Optional["ContextManager"] = None,
     on_notice: Optional[Callable[[str], None]] = None,
+    images: Optional[List[str]] = None,
+    offer_tools: bool = True,
 ) -> List[dict]:
     """Run the agent loop until a final answer or until the budget is spent.
 
@@ -482,6 +525,14 @@ def run_turn(
     history: List[dict] = [dict(message) if isinstance(message, dict) else message for message in messages]
     index = _tool_index(toolsets)
     definitions = _tool_definitions(toolsets)
+    if not offer_tools:
+        # A model that cannot call tools (measured, not guessed) must not be sent a
+        # tool list: Ollama answers 400 "does not support tool calling" and the whole
+        # turn dies over a capability the model never had. The mode gate has already
+        # decided what was allowed; this only stops us asking for something the model
+        # cannot do.
+        index = {}
+        definitions = []
     total_iterations = int(max_iterations)
     runnable = _runnable_tools(index)
     #: How many times this turn may re-ask for a tool call (point 3). Two attempts,
@@ -496,7 +547,7 @@ def run_turn(
 
     for _iteration in range(1, total_iterations + 1):  # the count is only for the error
         outgoing = context.prepare(history) if context is not None else history
-        response = _chat(provider, outgoing, definitions, on_token)
+        response = _chat(provider, _with_images(outgoing, images), definitions, on_token)
         # The boundary may have removed a call to a tool this request does not
         # declare (a strict gateway refuses the whole request otherwise). That is a
         # fact about the conversation, so it is said once, plainly, instead of

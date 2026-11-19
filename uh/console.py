@@ -405,6 +405,24 @@ def _without_nudges(messages: list[dict]) -> tuple[list[dict], int]:
     return kept, dropped
 
 
+def _model_can_use_tools(provider: str, model: str) -> bool:
+    """Whether to send a tool list at all - ``True`` unless it was measured as false.
+
+    An unmeasured model keeps its tools: removing them on a guess would silently
+    disarm a chat that worked. Only a measured ``tools: False`` disarms it, which is
+    the case this exists for (a local vision model that Ollama refuses to give tools).
+    """
+    try:
+        from . import capabilities as uh_caps
+
+        info = uh_caps.describe(provider, model)
+    except Exception:  # noqa: BLE001 - a broken table must not break a turn
+        return True
+    if info.get("verified") and info.get("tools") is False:
+        return False
+    return True
+
+
 class ChatSession:
     """Everything one console conversation needs, with or without a store."""
 
@@ -662,7 +680,7 @@ class ChatSession:
             self.store.append_message(self.session_id, message)
 
     # -- one turn ---------------------------------------------------------- #
-    def run_text(self, text: str) -> int:
+    def run_text(self, text: str, images: Optional[List[str]] = None) -> int:
         started = time.perf_counter()
         route_before = self._route_snapshot()
         before = len(self.history)
@@ -689,7 +707,7 @@ class ChatSession:
         produced: list[dict] = []
         try:
             try:
-                code = self._run_into(chunks, on_token)
+                code = self._run_into(chunks, on_token, images=images)
             except TurnCancelled:
                 self.console.errout("uh chat: stopped")
                 self._emit("error", message="stopped")
@@ -1044,7 +1062,8 @@ class ChatSession:
         )
 
     def _run_into(
-        self, chunks: list[str], on_token, extra: list[dict] | None = None
+        self, chunks: list[str], on_token, extra: list[dict] | None = None,
+        images: Optional[List[str]] = None,
     ) -> int:
         """One ``run_turn`` pass over the current history (+ optional nudge)."""
         before = len(self.history)
@@ -1060,6 +1079,10 @@ class ChatSession:
                 on_token=on_token if self.stream else None,
                 context=self.context,
                 on_notice=self._notice,
+                images=images,
+                offer_tools=_model_can_use_tools(
+                    self.provider_kind, str(getattr(self.provider, "model", "") or self.model)
+                ),
             )
             self._notice_unavailable_capability(updated)
             self._ended_on_refusal = _stopped_on_refusal(updated)

@@ -764,6 +764,41 @@ def create_app(
 
         return uh_artifacts.empty_trash()
 
+    # -- media and model capability ---------------------------------------- #
+    # P1-14. Two questions the page needs answered before it sends anything: what can
+    # this model read, and which configured model could read it instead.
+    @app.get("/api/media/capabilities", dependencies=[Depends(require_token)])
+    async def media_capabilities(provider: str = "", model: str = "", kind: str = "") -> dict:
+        from .. import capabilities as uh_caps
+        from .. import media as uh_media
+
+        kind = str(kind or "").strip() or "image"
+        answer: dict = {
+            "kinds": {
+                "image": sorted(uh_media.IMAGE_SUFFIXES),
+                "video": sorted(uh_media.VIDEO_SUFFIXES),
+                "audio": sorted(uh_media.AUDIO_SUFFIXES),
+                "document": sorted(uh_media.DOC_SUFFIXES),
+            },
+            "budget_bytes": uh_media.IMAGE_BUDGET,
+            "max_side": uh_media.MAX_SIDE,
+            "ffmpeg": uh_media.ffmpeg_path(),
+        }
+        if provider or model:
+            active_provider = provider or app.state.kind
+            active_model = model or app.state.model
+            answer["model"] = uh_caps.can_read(active_provider, active_model, kind)
+            answer["vision_candidates"] = uh_caps.vision_candidates()[:24]
+        return answer
+
+    @app.get("/api/models/vision", dependencies=[Depends(require_token)])
+    async def vision_models() -> dict:
+        """Configured models that can read an image - the one-click switch menu."""
+        from .. import capabilities as uh_caps
+
+        candidates = uh_caps.vision_candidates()
+        return {"candidates": candidates[:24], "total": len(candidates)}
+
     # -- audio ------------------------------------------------------------- #
     # P1-15. Every audio path is its own route, and the package they use is
     # imported inside the handler: UH starts, chats and runs tools with no audio
@@ -899,12 +934,24 @@ def create_app(
         if not text and not raw_paths:
             raise HTTPException(status_code=400, detail="message is required")
         session = _session_or_404(app, session_id)
+        # P1-14: files and no words is a question. The turn asks it in plain French,
+        # as a normal user message, instead of sending a wall of file names and
+        # hoping the model guesses what was wanted. Decided BEFORE composing: the
+        # attachments block alone would already look like a message.
+        if not text.strip() and raw_paths:
+            text = attachments.AUTO_ANALYSIS
         try:
             # Inlined under 4 KB, referenced above it: the turn is pruned here,
             # before the history grows by a file.
             text = attachments.compose(text, raw_paths, session["id"])
         except attachments.AttachmentError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        turn_images: list[str] = []
+        media_kinds: list[str] = []
+        if raw_paths:
+            prepared = attachments.media_for(raw_paths, session["id"])
+            turn_images = list(prepared.get("images") or [])
+            media_kinds = [str(item.get("kind") or "?") for item in prepared.get("items") or []]
         try:
             kind, model, provider = _provider_for(app, session["id"])
         except ProviderError as exc:
@@ -937,6 +984,11 @@ def create_app(
         # turn id ties the lines together; nothing a user typed goes in it.
         turn_id = uuid.uuid4().hex[:8]
         turn_started = time.perf_counter()
+        # P1-14: what the turn actually sent, so "the image was attached" is a line
+        # in the journal and not a memory of the browser.
+        turnlog.event(
+            "turn_media", turn=turn_id, images=len(turn_images), kinds=media_kinds
+        )
         tool_since: dict[str, float] = {}
         turn_reason = "done"
 
@@ -1050,7 +1102,7 @@ def create_app(
                         emit({"type": "token", "text": body})
                         emit({"type": "answer", "content": body})
                 else:
-                    session_obj.run_text(text)
+                    session_obj.run_text(text, images=turn_images or None)
             except Exception as exc:  # noqa: BLE001 - reported to the browser
                 emit({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
             finally:
