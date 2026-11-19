@@ -1350,3 +1350,35 @@ prouvées.
   instead of calling execute_code »), mais il faut vérifier que la relance
   automatique va jusqu'à l'exécution réelle et non seulement jusqu'à une seconde
   réponse. *À vérifier.*
+
+### Installation unique — embarquer toutes les petites instances (19/11, demande de l'opérateur)
+
+Aujourd'hui UH dépend de pièces qui vivent côte à côte sur cette machine et que
+personne n'installe : UHB dans son propre venv, l'interpréteur qui exécute
+`execute_code` (mesuré : le venv d'UHB est un **Python 3.11.9 avec matplotlib
+3.11.2** ; les Python enregistrés de la machine n'ont pas matplotlib ; le venv de
+UH est un 3.10.11 sans matplotlib), les serveurs MCP, et les chemins trouvés au
+hasard (`~/.uhb/runs`, `~/.uh`).
+
+Objectif : **une seule installation** (`gh repo clone Antoine-Thomas/UH-Universal-Harness`
+puis un installateur) qui
+
+1. embarque et provisionne **silencieusement** chaque instance nécessaire — UHB, un
+   interpréteur « atelier » dédié à `execute_code` (numpy + matplotlib, versionnés),
+   les serveurs MCP retenus — sans dépendre d'un Python système ni d'un `pip` déjà
+   présent ;
+2. fonctionne **hors ligne après installation** : aucune roue téléchargée au premier
+   lancement, aucun `pip install` implicite qui échoue derrière un proxy ;
+3. ne laisse **aucun état ambigu** : un seul interpréteur par rôle, annoncé dans
+   `/api/status`, et un diagnostic qui dit lequel a servi (c'est exactement ce qui a
+   coûté une session entière sur matplotlib) ;
+4. désinstalle proprement ce qu'elle a créé.
+
+Contexte de sécurité, non mesuré à ce jour : si `execute_code` peut lancer un autre
+interpréteur, le code s'exécute avec les droits Windows de l'utilisateur, sans les
+limites d'écriture du mode `dev` (`uhb/**`, `tests/**`, `docs/**`), et l'approbation
+« autorisé pour cette session » couvre ensuite tout ce qu'il exécute. Tant que ce
+n'est pas mesuré, le libellé « Agent » ne doit pas promettre une limite. Texte
+proposé : « Agent : exécute du code — portée non vérifiée ».
+
+*Ouvert. Bloque toute promesse d'installation « en une commande ».*
