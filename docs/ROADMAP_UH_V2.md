@@ -1307,8 +1307,8 @@ fichier y est rangée :
 - **Images** : `.png`, `.jpg/.jpeg`, `.gif`, `.svg`, `.heic` — une ou plusieurs, jusqu'à la 4K ;
 - **Vidéo** : `.mp4` en **H.264 et H.265/HEVC** — extraction d'images clés et de la bande
   son pour l'analyse, puis purge du temporaire ;
-- **Documents & archives** : `.pdf`, `.csv`, `.html`, `.zip`, plus les extensions texte/code
-  déjà gérées par UH.
+- **Documents & archives** : `.pdf`, `.csv`, `.html`, `.zip`, et les formats texte/code
+  déjà gérés par UH — nommés explicitement : `.txt`, `.md`, `.json`.
 
 Glisser-déposer et collage presse-papiers restent des entrées de plein droit : le « + »
 n'est pas le seul chemin, c'est celui qui n'encombre pas.
