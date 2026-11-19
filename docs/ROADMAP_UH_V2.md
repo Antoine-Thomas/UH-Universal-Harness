@@ -1266,11 +1266,13 @@ propriété du processus UHB (`--mode`), sans route pour en changer à chaud.
   dessiner ou analyser des données. Proposition : un profil « atelier »
   (exécution autorisée, écriture limitée à `~/.uhb/runs`). Aucune ligne écrite
   avant décision.
-- **P1-11 — barre d'images : ouvert.** Les boutons Garder / Poubelle / 👍 / 👎
-  existent mais ne sont pas stylés, il manque « Télécharger » et « Télécharger
-  tout » (zip), et la Poubelle n'offre pas d'annulation. Un doublon du message
-  assistant (« Le mouton a été dessiné… » deux fois, la seconde sans image après
-  trois `patch error`) est à instruire : rejeu d'historique ou bug d'affichage.
+- **P1-11 — barre d'images : style et téléchargement livrés (f3dc767).** Cinq
+  actions explicites — Garder, Utile, Pas utile, Télécharger, Corbeille — icônes
+  SVG, libellé français, `aria-label` et infobulle. *Ouvert* : « Télécharger tout »
+  (zip des images de la conversation), annulation après mise à la corbeille, et un
+  doublon du message assistant (« Le mouton a été dessiné… » deux fois, la seconde
+  sans image après trois `patch error`) à instruire : rejeu d'historique ou bug
+  d'affichage.
 - **P1-13 — sémantique des pouces : ouvert.** Aujourd'hui le vote écrit une ligne
   locale (`~/.uh/artifact-ratings.jsonl`). À préciser dans l'interface : pour un
   modèle distant ce n'est **pas un entraînement**, c'est une mémoire réinjectée
