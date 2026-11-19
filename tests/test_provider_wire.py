@@ -206,3 +206,80 @@ def test_every_assistant_call_is_answered_before_the_next_turn() -> None:
         elif message.get("role") == "user":
             assert not open_ids, f"unanswered call(s) {open_ids} before a user message"
     assert not open_ids
+
+
+# --------------------------------------------------------------------------- #
+# what SQLite hands back, and what a strict gateway accepts
+# --------------------------------------------------------------------------- #
+def test_a_row_read_from_sqlite_gets_type_function_on_the_way_out() -> None:
+    """The exact regression of 1.8.0: a stored call replayed without `type`.
+
+    The row is what the session actually holds - a JSON column, Ollama's shape,
+    arguments as an object - and the outgoing message must carry `type: function`
+    and a JSON *string*. DeepSeek/OpenAI answered
+    ``422 messages[N]: missing field 'type'`` otherwise.
+    """
+    stored = json.dumps(
+        [{"id": "call_ray9", "function": {"index": 0, "name": "execute_code", "arguments": {"code": "print(1)"}}}]
+    )
+    history_from_db = [
+        {"role": "user", "content": "dessine"},
+        {"role": "assistant", "content": "", "tool_calls": json.loads(stored)},
+        {"role": "tool", "tool_call_id": "call_ray9", "name": "execute_code", "content": "1"},
+    ]
+
+    sent = request_messages(history_from_db, wire="openai")
+    call = sent[1]["tool_calls"][0]
+
+    assert call["type"] == "function"
+    assert call["id"] == "call_ray9"
+    assert isinstance(call["function"]["arguments"], str)
+    assert "index" not in call["function"]
+
+
+def test_a_call_to_a_tool_the_request_does_not_declare_is_dropped() -> None:
+    """OmniRouter refused the whole request: `mcp__positron__execute_code` was not
+    in request.tools. A tool that is no longer offered cannot be replayed."""
+    history = [
+        {"role": "user", "content": "dessine"},
+        {
+            "role": "assistant",
+            "content": "je dessine",
+            "tool_calls": [
+                {
+                    "id": "call_ghost",
+                    "type": "function",
+                    "function": {"name": "mcp__positron__execute_code", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_ghost", "name": "mcp__positron__execute_code", "content": "{}"},
+    ]
+    tools = [{"type": "function", "function": {"name": "execute_code", "parameters": {}}}]
+
+    sent = request_messages(history, wire="openai", tools=tools)
+
+    names = [
+        call["function"]["name"]
+        for message in sent
+        if message.get("tool_calls")
+        for call in message["tool_calls"]
+    ]
+    assert "mcp__positron__execute_code" not in names
+    assert not [m for m in sent if m.get("role") == "tool"], "its answer goes too"
+    assert [m["role"] for m in sent] == ["user", "assistant"], "the text survives"
+    assert sent[1]["content"] == "je dessine"
+
+
+def test_a_declared_call_is_kept_when_the_tool_list_is_given() -> None:
+    tools = [{"type": "function", "function": {"name": "patch", "parameters": {}}}]
+    sent = request_messages(history(OPENAI_CALL), wire="openai", tools=tools)
+    assert sent[1]["tool_calls"][0]["function"]["name"] == "patch"
+
+
+def test_without_a_tool_list_nothing_is_filtered() -> None:
+    """Opt-in on purpose: existing callers keep their behaviour."""
+    history_db = history(OLLAMA_CALL)
+    assert request_messages(history_db, wire="openai") == request_messages(
+        history_db, wire="openai", tools=None
+    )

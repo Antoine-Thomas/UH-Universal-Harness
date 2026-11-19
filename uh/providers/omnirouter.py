@@ -254,7 +254,7 @@ class OmniRouterProvider(Provider):
     ) -> dict:
         payload: dict = {
             "model": self.model,
-            "messages": request_messages(messages),
+            "messages": request_messages(messages, tools=tools),
             "stream": on_token is not None,
         }
         if tools:

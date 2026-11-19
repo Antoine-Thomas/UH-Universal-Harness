@@ -138,7 +138,9 @@ def retry_transport(
 
 
 
-def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
+def request_messages(
+    messages: List[dict], wire: str = "openai", tools: Optional[List[dict]] = None
+) -> List[dict]:
     """Copy of ``messages`` as a provider should see it - never the stored dicts.
 
     The messages are stored in whatever shape the provider that produced them
@@ -166,6 +168,12 @@ def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
     * a ``tool`` message without ``tool_call_id`` inherits the id of the call it
       answers: without it OpenAI refuses the request, and the model cannot pair
       result and call.
+    * when the caller passes the ``tools`` this request declares, a replayed call
+      to a tool it does not offer is **dropped**. A strict gateway rejects the
+      whole request over one such call - OmniRouter answered ``attempted to call
+      tool 'mcp__positron__execute_code' which was not in request.tools`` on
+      19/11, and the session could not continue. Without a tool list nothing is
+      filtered, so every existing caller keeps its behaviour.
     * the **image bytes are dropped from a tool result**. The interface needs
       them (`artifacts[].data_url`, kept in the session so a reload redraws the
       chart); a text model does not, and it already has the marker
@@ -175,6 +183,7 @@ def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
     """
     cleaned: List[dict] = []
     last_calls: List[str] = []
+    declared = _declared_tool_names(tools)
     for message in messages:
         if not isinstance(message, dict):
             cleaned.append(message)
@@ -196,9 +205,45 @@ def request_messages(messages: List[dict], wire: str = "openai") -> List[dict]:
                 message = {**message, "tool_call_id": last_calls.pop(0)}
         if message.get("tool_calls"):
             calls = _wire_tool_calls(message["tool_calls"], wire)
-            message = {**message, "tool_calls": calls}
+            if declared is not None:
+                calls = [call for call in calls if _call_name(call) in declared]
+            if calls:
+                message = {**message, "tool_calls": calls}
+            else:
+                # A replayed call to a tool this request does not declare. Replaying
+                # it makes a strict gateway reject the WHOLE request ("attempted to
+                # call tool 'mcp__positron__execute_code' which was not in
+                # request.tools", OmniRouter 19/11), and keeping an assistant
+                # message with no content and no calls is refused just as well.
+                message = {key: value for key, value in message.items() if key != "tool_calls"}
+                if not str(message.get("content") or "").strip():
+                    continue
         cleaned.append(message)
     return _close_open_calls(cleaned)
+
+
+def _declared_tool_names(tools: Optional[List[dict]]) -> Optional[set]:
+    """The names this request offers, or ``None`` when the caller did not say.
+
+    ``None`` means "do not filter": every existing caller that passes no tool list
+    keeps the behaviour it had, filtering is opt-in and therefore testable.
+    """
+    if not tools:
+        return None
+    names = set()
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        function = tool.get("function")
+        name = (function or {}).get("name") if isinstance(function, dict) else None
+        names.add(str(name or tool.get("name") or ""))
+    names.discard("")
+    return names or None
+
+
+def _call_name(call: dict) -> str:
+    function = call.get("function")
+    return str((function or {}).get("name") or "") if isinstance(function, dict) else ""
 
 
 def _close_open_calls(messages: List[dict]) -> List[dict]:

@@ -78,7 +78,7 @@ class OllamaProvider(Provider):
     ) -> dict:
         payload: dict = {
             "model": self.model,
-            "messages": request_messages(messages, wire="ollama"),
+            "messages": request_messages(messages, wire="ollama", tools=tools),
             "stream": on_token is not None,
         }
         if tools:
