@@ -1324,3 +1324,29 @@ Règle ajoutée aux consignes de travail : un GO de push est une phrase explicit
 pour ce push, jamais une clause conditionnelle ; aucune 1.8.1 sur PyPI tant que la
 garde CSRF de `/api/uhb/mode` et l'absence d'accès depuis un outil ne sont pas
 prouvées.
+
+### Revue du 19/11 (soir) — retours sur toutes les réponses, et ce qu'UH apprend
+
+- **P1-13 étendu — feedback sur TOUTES les réponses, pas seulement les images.**
+  Les actions Utile / Pas utile / Garder / Corbeille / Télécharger n'existent
+  aujourd'hui que sous les artefacts. Elles doivent s'appliquer à chaque réponse de
+  l'assistant : texte, code, plan, résultat d'outil. Un vote sur une réponse texte
+  est le signal le plus utile du produit, et c'est celui qu'on ne collecte pas.
+  *Ouvert.*
+- **P1-13 étendu — exploiter les retours et les échecs d'outils dans la mémoire de
+  session.** Un refus, une erreur d'outil répétée, un 👎 doivent laisser une trace
+  réutilisable (ce qui a échoué, avec quel modèle, quel argument), pour qu'UH ne
+  refasse pas la même erreur au tour suivant ni au prochain démarrage. *Ouvert —
+  c'est la question « UH apprend-il de ses erreurs ? » posée par l'opérateur.*
+- **Mesure d'environnement, 19/11.** L'interpréteur qui exécute `execute_code` est
+  celui qui lance UHB : **Python 3.11.9, sans matplotlib** (numpy présent). Le venv
+  de UH est en **3.10.11, sans matplotlib non plus**. Les moutons réussis n'ont donc
+  jamais été dessinés par matplotlib : le modèle écrivait un encodeur PNG en Python
+  pur. Conséquence : soit on installe matplotlib dans l'interpréteur de UHB, soit on
+  cesse de la proposer dans la consigne et on documente les bibliothèques réellement
+  disponibles (numpy, stdlib, encodeur PNG maison). *À trancher, non corrigé.*
+- **Modèle local et code brut.** qwen3:8b écrit parfois le code dans le message au
+  lieu d'appeler l'outil ; la carte système existe (« the model answered with code
+  instead of calling execute_code »), mais il faut vérifier que la relance
+  automatique va jusqu'à l'exécution réelle et non seulement jusqu'à une seconde
+  réponse. *À vérifier.*
