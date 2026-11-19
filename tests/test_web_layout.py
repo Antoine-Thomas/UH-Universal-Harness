@@ -695,3 +695,22 @@ def test_tool_artifacts_are_rendered_as_images_and_never_as_markup() -> None:
     assert "renderArtifacts(card, content);" in script
     assert "drawArtifacts(box, message.artifacts)" in script, "a reload draws stored images"
     assert "drawArtifacts(assistant, data.images)" in script, "a live answer draws them too"
+
+
+@KEEP
+def test_the_providers_list_loads_on_arrival() -> None:
+    """The column is open on a wide screen and "Fournisseurs" is the default tab.
+
+    Measured 2026-11-19: the list stayed empty until another tab was clicked.
+    `showPanelTab` was the only caller of the loader that fetches, and boot never
+    called it - so the active tab was uncovered, never loaded.
+    """
+    script = APP.read_text(encoding="utf-8")
+    boot = script.split("async function boot() {", 1)[1].split("\n// First launch", 1)[0]
+
+    assert 'if (providersAreOpen() && state.activeTab === "keys") openProviders();' in boot, (
+        "boot must load the default tab it opens"
+    )
+    # And the tab click path still loads it, with the same coalesced loader.
+    tab = script.split("function showPanelTab(name) {", 1)[1].split("\nfunction ", 1)[0]
+    assert 'if (name === "keys")' in tab and "openProviders();" in tab

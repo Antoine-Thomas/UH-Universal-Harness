@@ -5393,6 +5393,12 @@ async function boot() {
   showSetupBanner().catch(() => {});
   // Narrow screens: the right column starts collapsed (overlay mode).
   if (isNarrow()) closeProviders();
+  // The column is open on wide screens and "Fournisseurs" is the default tab, but
+  // nothing loaded it at boot: the list stayed empty until another tab was clicked
+  // - `showPanelTab` is the only caller that fetches, and boot never called it.
+  // Every entry point (⚙, tab click, ?panel=, #providers) now ends in the same
+  // coalesced loader, so this costs one request on arrival.
+  if (providersAreOpen() && state.activeTab === "keys") openProviders();
   showRemoteBanner().catch(() => {});
   // Open the most recent session on first load: an empty pane on arrival looks
   // like a broken app, and the session the user left is the one they want.
