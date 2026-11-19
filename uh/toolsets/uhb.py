@@ -282,6 +282,26 @@ def _harness(value: Any) -> Optional[str]:
     return _scalar(value)
 
 
+def _execute(raw: Any) -> dict:
+    """Which interpreter serves `execute_code`, and what the confinement refuses.
+
+    Field by field, never passed through: this rides on a payload the panel
+    prints, so a wrong type must become an empty value, not a browser crash.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    confinement = raw.get("confinement")
+    return {
+        "interpreter": _scalar(raw.get("interpreter")),
+        "atelier": bool(raw.get("atelier")),
+        "confinement": (
+            {str(key): _scalar(value) for key, value in confinement.items()}
+            if isinstance(confinement, dict)
+            else {}
+        ),
+    }
+
+
 def summarize(payload: Dict[str, Any]) -> dict:
     """The compact status: what is up, what it runs, nothing else."""
     return {
@@ -291,6 +311,10 @@ def summarize(payload: Dict[str, Any]) -> dict:
         "harness": _harness(payload.get("harness")),
         "providers": _names(payload.get("providers")),
         "modes": _names(payload.get("modes")),
+        #: The interpreter behind execute_code, and what that workshop refuses:
+        #: the diagnostic that was missing when "matplotlib is absent" cost a
+        #: whole session (point 0, 19/11).
+        "execute": _execute(payload.get("execute")),
     }
 
 

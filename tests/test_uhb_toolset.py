@@ -29,6 +29,12 @@ STATUS = {
         "ollama": {"tier": "local", "url": "http://127.0.0.1:11434"},
     },
     "modes": [{"name": "chat", "allow_paid": False}, {"name": "dev"}, {"id": "review"}],
+    # What the workshop will run and what it refuses (point 0 / étape 0-bis).
+    "execute": {
+        "interpreter": "C:\\Users\\op\\.uhb\\atelier\\Scripts\\python.exe",
+        "atelier": True,
+        "confinement": {"writes": "run directory only", "processes": "refused"},
+    },
     # Anything below must never reach the model's context.
     "config": {"api_key": "must-not-leak"},
     "uptime_s": 12,
@@ -41,6 +47,11 @@ EXPECTED = {
     "harness": "uh 1.0.1",
     "providers": ["deepseek", "ollama"],
     "modes": ["chat", "dev", "review"],
+    "execute": {
+        "interpreter": "C:\\Users\\op\\.uhb\\atelier\\Scripts\\python.exe",
+        "atelier": True,
+        "confinement": {"writes": "run directory only", "processes": "refused"},
+    },
 }
 
 
@@ -76,6 +87,31 @@ def test_status_returns_only_the_compact_fields() -> None:
     assert "uptime_s" not in out
 
 
+def test_status_carries_the_workshop_interpreter_and_survives_a_wrong_type() -> None:
+    """The panel prints this, so a string where a dict belongs must not reach it."""
+    broken = uhb_mod.Uhbtoolset(URL, client=answer({**STATUS, "execute": "not-a-dict"}))
+    assert broken.call("uhb_status", {})["execute"] == {}
+
+    odd = uhb_mod.Uhbtoolset(
+        URL,
+        client=answer(
+            {
+                **STATUS,
+                "execute": {
+                    "interpreter": 42,
+                    "atelier": "yes",
+                    "confinement": {"writes": True},
+                },
+            }
+        ),
+    )
+    assert odd.call("uhb_status", {})["execute"] == {
+        "interpreter": "42",
+        "atelier": True,
+        "confinement": {"writes": None},
+    }
+
+
 def test_status_asks_the_configured_endpoint() -> None:
     seen: list[str] = []
 
@@ -108,6 +144,9 @@ def test_a_missing_field_becomes_none_or_an_empty_list() -> None:
         "harness": None,
         "providers": [],
         "modes": [],
+        # No `execute` in the payload: the key is present and empty, so the panel
+        # reads one shape whether the backend is new or old.
+        "execute": {},
     }
 
 

@@ -2964,7 +2964,7 @@ function tierDot(tier) {
 // restarts a process it owns; a foreign UHB is reported, never killed.
 const MODE_LABELS = {
   chat: ["Discussion", "lecture seule : lit et cherche, n'exécute rien"],
-  dev: ["Agent", "exécute du code, portée non vérifiée"],
+  dev: ["Atelier", "exécute du code, écriture limitée au dossier du run"],
   review: ["Revue", "lit et commente, n'exécute pas"],
   observe: ["Observation", "observe et rapporte, ne modifie rien"],
 };
@@ -3004,7 +3004,7 @@ async function renderExecutionMode() {
     el(
       "div",
       "panel-hint",
-      "l'exécution de code exige le mode Agent ; un mode se change en redémarrant le second cerveau, c'est UH qui s'en charge"
+      "l'exécution de code exige le mode Atelier ; un mode se change en redémarrant le second cerveau, c'est UH qui s'en charge"
     )
   );
   const row = el("div", "mode-row");
@@ -3045,9 +3045,12 @@ async function switchExecutionMode(mode, card) {
 // where the refusal happened, and its button is the only way to grant execution.
 const MODE_BADGE_TEXT = {
   chat: "Discussion : lecture seule",
-  // Honest until measured: nothing proves yet that code run by the execution tool
-  // stays inside the run directory, so the badge must not promise a limit.
-  dev: "Agent : exécute du code, portée non vérifiée",
+  // Measured, not hoped: the workshop interpreter carries numpy and matplotlib,
+  // the audit hook refuses a write outside the run directory, the credential
+  // files and any subprocess - proven by a counter-probe on 19/11 (an attempt on
+  // each of the four is refused, a savefig in the run is kept). A win32 call made
+  // through ctypes is still outside that hook; the sentence says what is confined.
+  dev: "Atelier : exécute du code (dossier du run uniquement)",
   review: "Revue : lit, n'exécute pas",
   observe: "Observation : rapporte seulement",
 };
@@ -3071,7 +3074,7 @@ async function refreshModeBadge() {
   badge.classList.toggle("agent", mode === "dev");
   badge.title =
     mode === "chat"
-      ? "Lecture seule. Cliquez pour autoriser l'exécution de code (mode Agent)."
+      ? "Lecture seule. Cliquez pour autoriser l'exécution de code (mode Atelier)."
       : "Ce mode peut exécuter du code. Cliquez pour revenir en lecture seule.";
 }
 
@@ -3101,7 +3104,7 @@ function modeRefusalCard(data) {
         "Rien n'a été exécuté."
     )
   );
-  const button = artifactButton("keep", "Autoriser pour cette conversation", "passer en mode Agent et relancer ce tour", null, "safe");
+  const button = artifactButton("keep", "Autoriser pour cette conversation", "passer en mode Atelier et relancer ce tour", null, "safe");
   button.classList.add("mode-allow");
   button.addEventListener("click", async () => {
     button.disabled = true;

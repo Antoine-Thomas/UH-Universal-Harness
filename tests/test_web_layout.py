@@ -731,7 +731,7 @@ def test_the_decision_view_exposes_the_execution_mode() -> None:
     assert "async function renderExecutionMode()" in script
     assert 'api("/api/uhb/mode"' in script
     # Labels are words a person uses, not the profile keys.
-    assert '"Discussion"' in script and '"Agent"' in script
+    assert '"Discussion"' in script and '"Atelier"' in script
     assert "lecture seule" in script and "exécuter du code" in script
     # It is a sibling of the panel that renderDecision clears on every reload.
     assert "host.parentNode.insertBefore(card, host)" in script
@@ -773,8 +773,10 @@ def test_the_mode_is_visible_in_the_header_and_grantable_from_the_refusal() -> N
     assert "function toggleModeFromBadge()" in script
     # Human labels, not the profile keys.
     assert "Discussion : lecture seule" in script
-    # No limit is proven yet for code launched by execute_code, so the badge says so.
-    assert "Agent : exécute du code, portée non vérifiée" in script
+    # The confinement is measured (counter-probe of 19/11), so the badge describes
+    # it: the workshop runs code, and writes stay in the run directory.
+    assert "Atelier : exécute du code (dossier du run uniquement)" in script
+    assert "portée non vérifiée" not in script, "the old caveat must not survive the proof"
     assert "peut exécuter du code et créer des fichiers" not in script, "no unproven promise"
     # The card answers the refusal event, and re-sends the same turn.
     assert 'event === "mode_refused"' in script
