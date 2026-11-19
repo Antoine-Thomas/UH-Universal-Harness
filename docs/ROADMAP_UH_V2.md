@@ -1211,6 +1211,13 @@ explicite ; vérifier qu'aucun processus enfant (python du snippet, ffmpeg) ne s
 Preuve attendue : poids de `~/.uhb/runs` avant/après, un run ancien disparaît, un fichier
 mis à la corbeille sort du disque, `tasklist` propre.
 
+**Temporaires de l'interface (ajouté le 19/11)** : toute image réduite pour l'envoi, tout
+cache d'upload et tout état orphelin est purgé après le tour — sauf ce qui est marqué
+« Garder » (P1-13). L'interface doit pouvoir se **réparer seule** : une session rechargée
+ne garde ni lecteur vide, ni carte fantôme, ni compteur faux, et un fichier dont la ligne
+a disparu n'est pas laissé sur le disque. Mesure : poids de `~/.uh/uploads` et du dossier
+temporaire avant/après un lot de captures 4K, et zéro orphelin dans `messages`.
+
 ### P1-13 — boucle de feedback vers le second cerveau
 
 État mesuré : le toolset `uhb` expose `mcp:atelier` (second cerveau) ; n8n est un serveur
@@ -1223,6 +1230,26 @@ consolidation de skill ; un pouce bas consigne un échec à ne pas reproduire.
 
 Preuve attendue : un vote écrit une ligne, l'envoi est constaté côté destinataire, et la
 coupure du destinataire laisse la ligne intacte.
+
+**Mémoire des réussites, compressée et réutilisable (ajouté le 19/11)** — la demande de
+l'opérateur : « les modèles réduits ou exemples jugés bons doivent être dans la mémoire,
+pour ne pas avoir à les recharger — un clone de voix réussi, un texte ou une image à garder ».
+
+- tout élément marqué **Garder** ou **Utile** (clone de voix, image validée, réponse
+  modèle, exemple de prompt) entre dans une mémoire **réutilisable** : on le réemploie
+  sans le régénérer, sans rappeler le fournisseur, sans repayer ;
+- **compression maximale sans perte de l'essentiel** : images conservées en **PNG ou
+  WebP lossless** (restituables en 4K), audio en **FLAC 24 bits stéréo**. L'objectif n'est
+  pas de garder des bruts de 40 Mo, c'est de pouvoir « redévelopper » en 4K et en
+  24 bits stéréo au moment de réutiliser ;
+- chaque entrée porte son **SHA-256**, son format canonique et la version de son rendu :
+  « réutiliser » doit rendre exactement ce qui a été jugé bon, pas une approximation ;
+- l'entrée est liée à son message et à son artefact (`artifacts`), pour que la Corbeille
+  et la rétention (P1-12) les traitent ensemble — une réussite conservée ne devient pas
+  un orphelin ;
+- **preuve attendue** : un clone de voix marqué Garder se réutilise en un tour sans appel
+  au fournisseur (compteur de requêtes à zéro), l'image conservée revient en 4K, le FLAC
+  restitué est en 24 bits stéréo, et le dossier temporaire est vide après le tour.
 
 ### P1-14 — pièces jointes multimodales
 
@@ -1248,6 +1275,29 @@ coupure du destinataire laisse la ligne intacte.
 
 Contrainte : chacune de ces briques ajoute une dépendance lourde (poids whisper, décodage
 vidéo). Faisabilité et coût à mesurer **avant** d'écrire la première ligne.
+
+**Vision multi-images et captures 4K — inscrit le 19/11, non codé** (la demande était déjà
+dans cette feuille, rien n'en avait été fait ; c'est écrit ici pour qu'on ne la redécouvre
+pas une troisième fois) :
+
+- une **ou plusieurs** images par tour : glisser-déposer, bouton « + », et **collage
+  presse-papiers** (Ctrl+V) — jusqu'aux captures d'écran 4K ;
+- **analyse automatique sans prompt** : images déposées + Envoi, sans une ligne de texte,
+  déclenche l'analyse visuelle de **chaque** image (description, extraction, diagnostic) ;
+  l'opérateur n'a pas à écrire « analyse cette image » pour être obéi ;
+- **réduction à la volée** avant l'envoi au modèle vision (une capture 4K ne part pas à
+  8 Mo : ré-encodage borné, budget de tokens explicite), puis **suppression automatique**
+  des temporaires une fois le tour lu — **sauf** « Garder », qui entre dans la mémoire
+  compressée de P1-13 ;
+- **prérequis mesuré le 19/11** : aucun des cinq modèles installés sous Ollama n'est un
+  modèle vision (`qwen2.5:7b`, `qwen2.5:0.5b`, `qwen3:8b`, `qwen3.5:9b`, `lfm3:latest`).
+  Il faut donc soit un modèle local vision (~5-6 Go, tient sur 8 Go de VRAM), soit un
+  fournisseur cloud qui en expose un — et **le choix se mesure** (coût, latence, qualité
+  de lecture d'un texte 4K) avant la première ligne. Sans modèle vision, le comportement
+  honnête est un refus explicite, pas un envoi silencieux d'une image que personne ne lit ;
+- **preuve attendue** : 3 captures 4K déposées sans un mot → 3 analyses distinctes, chaque
+  image envoyée sous 1 Mo, dossier des temporaires vide après le tour, et l'image gardée
+  restituable en 4K.
 
 ### P1-15 — audio, micro, visuel son et clonage de voix (Voxtral) — inscrit, non implémenté
 
