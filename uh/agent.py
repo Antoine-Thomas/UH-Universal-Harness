@@ -153,7 +153,7 @@ def _ensure_call_ids(message: dict) -> None:
 #: How many times a model may ask for the same forbidden tool before the turn is
 #: stopped. One refusal is information; two is a retry; three is a loop that costs
 #: the user a provider call each time and cannot succeed.
-_REFUSAL_LIMIT = 2
+_REFUSAL_LIMIT = 3
 
 
 def _split_call(call: Any) -> tuple[str, str, dict]:
@@ -214,6 +214,47 @@ def _answers_with_code(content: Any) -> bool:
     return bool(_CODE_FENCE.search(str(content or "")))
 
 
+def _tool_parameters(toolset: "Toolset", name: str) -> Dict[str, Any]:
+    """The JSON Schema the model was shown for this tool, or ``{}``."""
+    for spec in getattr(toolset, "tools", None) or []:
+        function = spec.get("function") if isinstance(spec, dict) else None
+        if isinstance(function, dict) and function.get("name") == name:
+            parameters = function.get("parameters")
+            return parameters if isinstance(parameters, dict) else {}
+    return {}
+
+
+def _argument_problem(toolset: "Toolset", name: str, args: dict) -> Optional[str]:
+    """Why these arguments cannot run, or ``None`` when they can.
+
+    The signature comes from the tool's own schema - the catalogue the model was
+    given - so one check covers the file, terminal, uhb and MCP tools alike. It
+    is what turns "the call was refused" into a sentence the model can act on:
+    the two failures are different, and only one of them is about permissions.
+
+    This is also the guard for repaired arguments: a call whose JSON had to be
+    reduced to ``{}`` cannot run a tool that declares required parameters.
+    """
+    parameters = _tool_parameters(toolset, name)
+    properties = parameters.get("properties")
+    allowed = set(properties) if isinstance(properties, dict) else set()
+    required = [key for key in (parameters.get("required") or []) if isinstance(key, str)]
+    if allowed:
+        unknown = sorted(key for key in args if key not in allowed)
+        if unknown:
+            return (
+                f"unknown argument(s) {', '.join(unknown)} for `{name}`; "
+                f"expected: {', '.join(sorted(allowed))}"
+            )
+    missing = [key for key in required if args.get(key) in (None, "")]
+    if missing:
+        return (
+            f"missing required argument(s) {', '.join(missing)} for `{name}`; "
+            f"expected: {', '.join(sorted(required))}"
+        )
+    return None
+
+
 def _execute(
     index: Dict[str, "Toolset"], name: str, args: dict, call_id: str = ""
 ) -> tuple[dict, bool]:
@@ -224,8 +265,9 @@ def _execute(
     the user pays for a conversation that cannot progress.
 
     A refusal is structured, not a sentence: ``type: "forbidden"`` for a tool that
-    is not offered in this mode, ``type: "tool_error"`` for a tool that raised.
-    The interface shows both, and neither is retried silently.
+    is not offered in this mode, ``type: "invalid_arguments"`` for a call the
+    tool's own schema rejects (nothing is executed), ``type: "tool_error"`` for a
+    tool that raised. The interface shows them all, and none is retried silently.
     """
     toolset = index.get(name)
     refused = False
@@ -236,14 +278,42 @@ def _execute(
                      f"Available: {sorted(index)}",
             "type": "forbidden",
             "tool": name,
+            "reason": "unknown_tool",
         }
+        if name == "execute_code":
+            # The one absence that has a precise, actionable cause. "Not allowed
+            # in this mode" sent the operator looking at modes and personas for
+            # an hour: the tool is published only when the process that serves
+            # the chat was started with the switch, and no config carries it.
+            payload["error"] = (
+                "`execute_code` is not published by this server: it only appears when the "
+                "process that serves the chat was started with UH_UHB_EXECUTE=1 "
+                "(a process variable, never a config file), and UHB must answer on its "
+                "loopback URL. Restart the server with that variable to get the tool."
+            )
+            payload["reason"] = "execute_code_not_exposed"
     else:
-        try:
-            result = toolset.call(name, args)
-        except Exception as exc:  # noqa: BLE001 - fail-closed by contract
-            payload = {"error": f"{type(exc).__name__}: {exc}", "type": "tool_error", "tool": name}
+        problem = _argument_problem(toolset, name, args)
+        if problem is not None:
+            refused = True
+            payload = {
+                "error": problem,
+                "type": "invalid_arguments",
+                "tool": name,
+                "reason": "invalid_arguments",
+                "expected": sorted((_tool_parameters(toolset, name).get("properties") or {})),
+            }
         else:
-            payload = result if isinstance(result, dict) else {"result": result}
+            try:
+                result = toolset.call(name, args)
+            except Exception as exc:  # noqa: BLE001 - fail-closed by contract
+                payload = {
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "type": "tool_error",
+                    "tool": name,
+                }
+            else:
+                payload = result if isinstance(result, dict) else {"result": result}
 
     try:
         content = json.dumps(payload, ensure_ascii=False, default=str)
@@ -350,8 +420,8 @@ def run_turn(
     # will not be talked into it on the fourth try, and the user is paying for
     # every extra call.
     nudges_left = 1 if runnable else 0
-    #: Per tool name: how many more refusals the loop tolerates this turn.
-    refusals_left: Dict[str, int] = {}
+    #: Per (tool, arguments): how many more refusals the loop tolerates this turn.
+    refusals_left: Dict[tuple[str, str], int] = {}
 
     for _iteration in range(1, total_iterations + 1):  # the count is only for the error
         outgoing = context.prepare(history) if context is not None else history
@@ -397,21 +467,35 @@ def run_turn(
             history.append(result)
             if not refused:
                 continue
-            refusals_left[name] = refusals_left.get(name, _REFUSAL_LIMIT) - 1
+            # One counter per name AND arguments, not per name: a model repeating
+            # the same invalid call is stuck, while the same tool asked with other
+            # arguments may still succeed on the next iteration.
+            signature = (name, json.dumps(args, sort_keys=True, default=str))
+            refusals_left[signature] = refusals_left.get(signature, _REFUSAL_LIMIT) - 1
+            # The reason lives in the tool message's payload, not in the message.
+            reason = "forbidden"
+            detail = ""
+            try:
+                decoded = json.loads(result.get("content") or "{}")
+                reason = str(decoded.get("reason") or reason)
+                detail = str(decoded.get("error") or "")
+            except (TypeError, ValueError):
+                pass
             if on_notice is not None:
                 on_notice(
-                    f"`{name}` n'est pas autorisé dans ce mode : "
-                    f"l'appel a été refusé (il en reste {max(refusals_left[name], 0)})"
+                    f"`{name}` refusé ({reason}) : {detail} "
+                    f"(il en reste {max(refusals_left[signature], 0)})"
                 )
-            if refusals_left[name] <= 0:
-                # The model keeps asking for the same forbidden tool. Continuing
-                # would burn the iteration budget on a conversation that cannot
-                # progress, so the turn stops here with the refusal in the
-                # transcript - visible, persisted, and honest about the reason.
+            if refusals_left[signature] <= 0:
+                # The model keeps asking for the same thing. Continuing would burn
+                # the iteration budget on a conversation that cannot progress, so
+                # the turn stops here with the refusal in the transcript - visible,
+                # persisted, and honest about the reason.
                 if on_notice is not None:
                     on_notice(
-                        f"tour arrêté : `{name}` a été demandé {_REFUSAL_LIMIT} fois "
-                        "alors que ce mode ne l'autorise pas"
+                        f"tour arrêté : le même appel à `{name}` a été refusé "
+                        f"{_REFUSAL_LIMIT} fois de suite ({reason}) ; "
+                        "il faut un autre argument ou un autre outil pour avancer"
                     )
                 return history
 

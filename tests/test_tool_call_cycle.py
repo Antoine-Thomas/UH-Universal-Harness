@@ -135,7 +135,12 @@ def test_a_forbidden_call_does_not_cancel_an_allowed_one(tmp_path: Path) -> None
 
 
 def test_a_model_stuck_on_a_forbidden_tool_stops_the_turn(tmp_path: Path) -> None:
-    """Two refusals, then the turn ends: the budget is not burned on a dead end."""
+    """Three identical refusals, then the turn ends: the budget is not burned on a dead end.
+
+    The limit is per (tool, arguments) and was raised from 2 to 3 on 2026-11-18:
+    a model that invents one argument often fixes it on the second try, so the
+    stop has to be late enough to let a corrected call through.
+    """
     provider = ScriptedProvider(
         [
             assistant(call("terminal")),
@@ -153,8 +158,8 @@ def test_a_model_stuck_on_a_forbidden_tool_stops_the_turn(tmp_path: Path) -> Non
         on_notice=notices.append,
     )
 
-    assert len(provider.calls) == 2, f"the loop must stop at the limit, got {len(provider.calls)} calls"
-    assert len(tool_messages(history)) == 2
+    assert len(provider.calls) == 3, f"the loop must stop at the limit, got {len(provider.calls)} calls"
+    assert len(tool_messages(history)) == 3
     assert any("tour arrêté" in notice for notice in notices)
     assert history[-1]["role"] == "tool", "the turn ends on the refusal, which stays in the transcript"
 
