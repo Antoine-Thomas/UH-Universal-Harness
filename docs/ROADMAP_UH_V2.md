@@ -1245,3 +1245,49 @@ coupure du destinataire laisse la ligne intacte.
 
 Contrainte : chacune de ces briques ajoute une dépendance lourde (poids whisper, décodage
 vidéo). Faisabilité et coût à mesurer **avant** d'écrire la première ligne.
+
+### Retours du 19/11 — mode d'exécution, câblage et barre d'images
+
+Constat de terrain : trois modèles différents ont refusé avec
+« mode 'chat' has no tool 'execute_code' (403) », et l'assistant renvoyait vers
+l'onglet Décision, **qui n'avait aucun contrôle de mode**. Le mode est une
+propriété du processus UHB (`--mode`), sans route pour en changer à chaud.
+
+- **Mode d'exécution — livré (contrôle minimal).** `uh/uhb_spawn.py` porte
+  désormais le mode en paramètre ; `POST /api/uhb/mode` redémarre le UHB que UH
+  possède, et répond `409` avec une phrase quand le processus a été démarré hors
+  de UH (UH ne tue pas ce qu'il ne possède pas). Le contrôle est dans l'onglet
+  Décision, en mots d'utilisateur (« Discussion — lecture seule » /
+  « Agent — peut exécuter du code et créer des fichiers »). *Ouvert* : badge
+  d'état toujours visible dans l'en-tête du chat, et carte « Autoriser pour cette
+  conversation » dans le fil quand un outil est refusé à cause du mode.
+- **Profil intermédiaire — à décider, non implémenté.** Le profil `dev` écrit
+  dans `uhb/**`, `tests/**`, `docs/**` : pensé pour développer le dépôt, pas pour
+  dessiner ou analyser des données. Proposition : un profil « atelier »
+  (exécution autorisée, écriture limitée à `~/.uhb/runs`). Aucune ligne écrite
+  avant décision.
+- **P1-11 — barre d'images : ouvert.** Les boutons Garder / Poubelle / 👍 / 👎
+  existent mais ne sont pas stylés, il manque « Télécharger » et « Télécharger
+  tout » (zip), et la Poubelle n'offre pas d'annulation. Un doublon du message
+  assistant (« Le mouton a été dessiné… » deux fois, la seconde sans image après
+  trois `patch error`) est à instruire : rejeu d'historique ou bug d'affichage.
+- **P1-13 — sémantique des pouces : ouvert.** Aujourd'hui le vote écrit une ligne
+  locale (`~/.uh/artifact-ratings.jsonl`). À préciser dans l'interface : pour un
+  modèle distant ce n'est **pas un entraînement**, c'est une mémoire réinjectée
+  dans le contexte. Un 👎 doit accepter une raison facultative.
+- **P1-14 — import de fichiers : ouvert.** Bouton « + » avec menu, glisser-déposer
+  sur toute la zone de chat, presse-papiers, plusieurs fichiers, pastilles avec
+  nom/type/taille et croix, types (images, PDF, texte et code, CSV, docx), limites
+  avec message clair, contenu encadré comme donnée et jamais comme instruction.
+- **Lot transversal « UX, accessibilité et câblage » — ouvert (seul lot neuf
+  justifié).** Langue cohérente (l'interface mélange « Search messages… »,
+  « Send », « Decision », « Telemetry »), icônes SVG lisibles avec libellé ou
+  infobulle, navigation clavier et focus visible, `aria-label` sur les boutons à
+  icône, messages d'erreur qui disent quoi faire. Règle de câblage : aucun lien
+  profond ni bouton ne doit pointer vers un contrôle absent — un test d'interface
+  par action recommandée. Résidu observé dans la recherche latérale
+  (`http://127.0.0.1:…/mcp/w/…` avec « no match ») à identifier : état de
+  l'interface ou pilotage.
+
+*Statuts au 19/11 — livré : mode (contrôle minimal), orphelins `tool_calls`,
+onglet Fournisseurs. Ouvert : tout le reste ci-dessus.*
