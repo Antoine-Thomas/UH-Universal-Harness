@@ -172,6 +172,33 @@ de 216 Mo à 155 ko, `~/.uh/memory` à 0 entrée, `config.toml` restauré à l'o
 
 **Porte C** : à ta main. Aucun push n'a été fait.
 
+## Porte D - cockpit, runs and extensions (a venir, NON COMMENCE)
+
+Ouvre avec le lot **P3-16** (`docs/ROADMAP_UH_V2.md`), ferme avant **P4-1**. Une ligne ne
+passe a `DONE` que sur une preuve rejouable : un test du depot, un chiffre mesure, ou une
+capture datee. Statut global au 2026-11-19 : **NON COMMENCE**.
+
+| ID | Critere | Sous-lot | Preuve exigee | Etat |
+|---|---|---|---|---|
+| D-1 | Un run non garde ne laisse **aucun** dossier dans `~/.uhb/runs` | P3-16a | comptage avant/apres sur 20 runs : `ls -1 ~/.uhb/runs \| wc -l` identique ; plus aucun dossier de plus de 7 jours | `NON COMMENCE` |
+| D-2 | Un run garde est compresse et archive dans un **depot Git dedie** | P3-16a | `git -C ~/.uhb/brain-runs.git log --oneline` montre un commit par run garde, `--stat` egal aux fichiers produits ; le run est restaurable a l'identique (SHA-256 du manifeste) | `NON COMMENCE` |
+| D-3 | Le filet de securite TTL/quota fonctionne sans intervention | P3-16a | quota depasse volontairement (N dossiers) : les plus anciens sont purges, les gardes sont epargnes | `NON COMMENCE` |
+| D-4 | Le panneau Projets affiche l'etat Git **exact** | P3-16b | `git status --porcelain` du terminal et la ligne du panneau identiques octet pour octet, sur 3 depots (propre / modifie / en avance) | `NON COMMENCE` |
+| D-5 | La bascule de workspace se fait sans redemarrage | P3-16b | changement de projet dans l'UI, tour envoye dans le nouveau workspace, chemin du fichier produit verifie sur disque | `NON COMMENCE` |
+| D-6 | Un cron est declenchable a la main depuis l'UI, avec sa sortie | P3-16c | declenchement, sortie affichee, prochaine execution recalculee, journal du planificateur coherent | `NON COMMENCE` |
+| D-7 | L'etat Infra dit **injoignable** sans casser le panneau | P3-16c | un service arrete volontairement (RAG, MARI ou Ollama) : sa ligne passe a `injoignable`, les autres restent vertes, aucun panneau vide | `NON COMMENCE` |
+| D-8 | Une extension s'active et se diagnostique a chaud | P3-16d | activation d'un serveur MCP et d'un skill sans redemarrage, appel de test reussi, refus explique quand la config est fausse | `NON COMMENCE` |
+| D-9 | La campagne complete est verte | P3-16d | suite UH + suite UHB vertes, ruff et mypy propres, `node --check` sur les fichiers de l'interface, et les lignes D-1 a D-8 rejouees d'affilee | `NON COMMENCE` |
+
+**Ce que la Porte D ne remplace pas.** Les Portes A et B restent valables telles quelles :
+D verifie ce que P3-16 ajoute, pas ce qui a deja ete prouve. Une regression sur une ligne de A
+ou de B pendant P3-16 est une regression, pas une « nouvelle preuve a refaire ».
+
+**Separation des pouvoirs, rappelee pour la porte elle-meme.** D-1 a D-3 sont mesures cote
+UHB (il possede la politique) ; D-4 a D-7 sont mesures dans l'interface UH (elle affiche et
+pilote) ; D-8 et D-9 croisent les deux. Une ligne D-1 prouvee par un test UH serait un
+contresens.
+
 ## What is missing to be able to say "proven"
 
 - one dated capture per screen concerned, on the published version;
