@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import re
@@ -732,7 +733,25 @@ def create_app(
         action = str(payload.get("action") or "").strip().lower()
         try:
             if action == "keep":
-                return uh_artifacts.keep(provenance)
+                result = uh_artifacts.keep(provenance)
+                # P1-13: what was kept is copied into the memory, in a canonical
+                # format (PNG lossless / FLAC 24 bits). A failure there must not
+                # undo the keep that already succeeded: it is reported beside it.
+                try:
+                    from .. import memory as uh_memory
+
+                    kind = str(payload.get("kind") or "").lower() or "image"
+                    if kind not in {"image", "audio"}:
+                        kind = "image"
+                    result["memory"] = uh_memory.keep(
+                        Path(str(result.get("file") or "")),
+                        kind=kind,
+                        session_id=str(payload.get("session_id") or ""),
+                        message_id=payload.get("message_id"),
+                    )
+                except Exception as exc:  # noqa: BLE001 - the keep already happened
+                    result["memory_error"] = f"{type(exc).__name__}: {exc}"
+                return result
             if action == "trash":
                 return uh_artifacts.trash(provenance)
             if action == "restore":
@@ -759,10 +778,56 @@ def create_app(
 
     @app.post("/api/artifacts/trash/empty", dependencies=[Depends(require_token)])
     async def artifact_trash_empty() -> dict:
-        """Empty the trash. Only the trash: a run directory is never swept here."""
-        from .. import artifacts as uh_artifacts
+        """Empty the trash. Only the trash: a run directory is never swept here.
 
-        return uh_artifacts.empty_trash()
+        P1-13: emptying the bin is also what forgets the memory entries it holds. The
+        undo window of « Corbeille » is why this is here and not in `trash`: an entry
+        dropped at click time would die while the file was still recoverable.
+        """
+        from .. import artifacts as uh_artifacts
+        from .. import memory as uh_memory
+
+        folder = uh_artifacts.runs_root() / uh_artifacts.TRASH_DIR
+        sources = []
+        if folder.is_dir():
+            for sidecar in folder.rglob("*.json"):
+                try:
+                    sources.append(str(json.loads(sidecar.read_text(encoding="utf-8")).get("from") or ""))
+                except (OSError, ValueError):
+                    continue
+        result = uh_artifacts.empty_trash()
+        forgotten = 0
+        for source in sources:
+            if source:
+                forgotten += uh_memory.drop_for(Path(source))
+        result["memory_forgotten"] = forgotten
+        return result
+
+    @app.get("/api/memory", dependencies=[Depends(require_token)])
+    async def memory_entries() -> dict:
+        """What the operator kept, in canonical format, and what it costs."""
+        from .. import memory as uh_memory
+
+        return {"entries": uh_memory.entries(), "weight": uh_memory.weight()}
+
+    @app.get("/api/maintenance", dependencies=[Depends(require_token)])
+    async def maintenance_summary(session_id: str = "") -> dict:
+        """Orphans both ways for one session - shown, never silently deleted."""
+        from .. import attachments as _att
+        from .. import maintenance as uh_maintenance
+
+        if not session_id:
+            return {"ok": False, "detail": "session_id requis"}
+        session = _session_or_404(app, session_id)
+        with _store(app) as store:
+            rows = store.get_messages(session["id"], limit=5000)
+        folder = _att.session_dir(session["id"])
+        swept = uh_maintenance.sweep_folder(folder)
+        return {
+            "ok": True,
+            "swept": swept,
+            "summary": uh_maintenance.summary(folder, rows),
+        }
 
     # -- media and model capability ---------------------------------------- #
     # P1-14. Two questions the page needs answered before it sends anything: what can
@@ -948,10 +1013,19 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         turn_images: list[str] = []
         media_kinds: list[str] = []
+        media_omitted = 0
         if raw_paths:
             prepared = attachments.media_for(raw_paths, session["id"])
             turn_images = list(prepared.get("images") or [])
             media_kinds = [str(item.get("kind") or "?") for item in prepared.get("items") or []]
+            media_omitted = int(prepared.get("omitted") or 0)
+            if media_omitted:
+                # Said, not hidden: the model received a sample, and the operator can
+                # see it in the message it was given.
+                text = (
+                    f"{text}\n\n[lot de {len(turn_images) + media_omitted} images : "
+                    f"{len(turn_images)} envoyées au modèle, {media_omitted} non envoyées]"
+                )
         try:
             kind, model, provider = _provider_for(app, session["id"])
         except ProviderError as exc:
@@ -1135,6 +1209,18 @@ def create_app(
                 if meta:
                     emit(meta)
                 emit({"type": "__end__"})
+                # P1-14: the prepared copies lived for exactly one turn. What the
+                # operator marked « Garder » survives, because the purge reads the
+                # sidecar the media pipeline wrote next to each copy.
+                try:
+                    from .. import attachments as _att
+                    from .. import media as uh_media
+
+                    purged = uh_media.purge(_att.session_dir(session["id"]))
+                    if purged:
+                        turnlog.event("turn_purge", turn=turn_id, removed=purged)
+                except Exception:  # noqa: BLE001 - a purge must never fail a turn
+                    pass
                 if store is not None:
                     store.close()
 

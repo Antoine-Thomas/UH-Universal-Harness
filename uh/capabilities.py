@@ -21,6 +21,7 @@ or to justify a refusal.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -272,11 +273,29 @@ def can_read(provider: str, model: str, kind: str) -> Dict[str, Any]:
     }
 
 
+def local_vision_models() -> List[str]:
+    """Models installed on the local Ollama that can see - no key, no upstream 404."""
+    base = str(os.environ.get("OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+    cached = _cached(f"tags:{base}")
+    if cached is not None:
+        return list(cached.get("models") or [])
+    try:
+        response = httpx.get(f"{base}/api/tags", timeout=10.0)
+        payload = response.json() if response.status_code == 200 else {}
+    except (httpx.HTTPError, ValueError):
+        return []
+    names = [str(item.get("name")) for item in payload.get("models") or [] if item.get("name")]
+    _remember(f"tags:{base}", {"models": names})
+    return names
+
+
 def vision_candidates() -> List[Dict[str, Any]]:
     """Configured models that can read an image - the one-click switch's menu.
 
-    Only configured providers are offered: proposing a model the operator has no key
-    for is a button that fails, which is worse than no button.
+    Only what this machine can actually reach is offered: the providers the operator
+    configured, plus the models installed on the local Ollama (switching to one of
+    those has never failed for want of a key or an upstream). Proposing a model the
+    operator has no key for is a button that fails, which is worse than no button.
     """
     from . import keys
 
@@ -302,24 +321,45 @@ def vision_candidates() -> List[Dict[str, Any]]:
                         "tools": info["tools"],
                     }
                 )
-        # Order matters to the one-click button: a model *named* for vision first,
-        # then the gateway's other combos, then the rest. Measured tables list 1592
-        # models alphabetically; offering "auto/best-coding" to read a screenshot
-        # would be technically capable and practically a random answer.
-        def rank(offer: Dict[str, Any]) -> tuple[int, str]:
-            name = str(offer["model"]).lower()
-            if "vision" in name or "-vl" in name or "vl-" in name:
-                return (0, name)
-            if name.startswith("auto/"):
-                return (1, name)
-            return (2, name)
-
-        mine.sort(key=rank)
+        mine.sort(key=_rank)
         offers.extend(mine)
+
+    # The local install, always last in `read_providers` but first in reliability:
+    # it needs no key and cannot answer 404 from an upstream nobody controls.
+    for model in local_vision_models():
+        info = describe("ollama", model)
+        if "image" in info["modalities"] and info["verified"]:
+            offers.append(
+                {
+                    "provider": "ollama",
+                    "model": model,
+                    "modalities": info["modalities"],
+                    "context": info["context"],
+                    "tools": info["tools"],
+                }
+            )
+    offers.sort(key=_rank)
     return offers
 
 
+def _rank(offer: Dict[str, Any]) -> tuple[int, str]:
+    """Local first, then a model named for vision, then the gateway's combos."""
+    name = str(offer["model"]).lower()
+    local = str(offer["provider"]).lower() == "ollama"
+    named = "vision" in name or "-vl" in name or "vl-" in name
+    if local and named:
+        return (0, name)
+    if local:
+        return (1, name)
+    if named:
+        return (2, name)
+    if name.startswith("auto/"):
+        return (3, name)
+    return (4, name)
+
+
 __all__ = [
+    "local_vision_models",
     "KIND_MODALITY",
     "TTL_S",
     "can_read",

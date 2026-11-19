@@ -423,6 +423,22 @@ def _model_can_use_tools(provider: str, model: str) -> bool:
     return True
 
 
+def _model_sees_images(provider: str, model: str) -> bool:
+    """Whether this model may be sent image bytes - measured, and unknown means no.
+
+    Sending them anyway is not harmless: Ollama answers 400 "Multimodal data
+    provided, but model does not support multimodal requests" and the whole turn
+    dies. The capability table already knows; this is where it is obeyed.
+    """
+    try:
+        from . import capabilities as uh_caps
+
+        info = uh_caps.describe(provider, model)
+    except Exception:  # noqa: BLE001
+        return False
+    return "image" in (info.get("modalities") or [])
+
+
 class ChatSession:
     """Everything one console conversation needs, with or without a store."""
 
@@ -681,6 +697,13 @@ class ChatSession:
 
     # -- one turn ---------------------------------------------------------- #
     def run_text(self, text: str, images: Optional[List[str]] = None) -> int:
+        if images:
+            # P1-14: bytes only go to a model measured as able to read them. The
+            # warning already told the operator; sending anyway would turn that
+            # warning into a 400 from the provider and lose the turn.
+            real_model = str(getattr(self.provider, "model", "") or self.model)
+            if not _model_sees_images(self.provider_kind, real_model):
+                images = None
         started = time.perf_counter()
         route_before = self._route_snapshot()
         before = len(self.history)

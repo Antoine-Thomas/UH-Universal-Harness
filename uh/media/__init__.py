@@ -22,6 +22,7 @@ silent "no frames".
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -207,6 +208,21 @@ def video_audio(path: Path) -> Optional[Path]:
 # --------------------------------------------------------------------------- #
 # what a turn sends, and the purge
 # --------------------------------------------------------------------------- #
+def _mark_owner(copy: Path, original: Path) -> None:
+    """Write ``<copy>.json`` recording the file this copy was made from.
+
+    The purge needs to know whether the operator asked to keep the ORIGINAL before
+    deleting the prepared copy - and a name heuristic (`-sent`, `-frame2`) would be a
+    guess. A one-line sidecar is exact, cheap and disappears with its copy.
+    """
+    try:
+        copy.with_name(copy.name + ".json").write_text(
+            json.dumps({"from": str(original)}, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
 def prepare(path: Path) -> Dict[str, Any]:
     """What to hand a model for this file, and what to leave on disk.
 
@@ -217,6 +233,7 @@ def prepare(path: Path) -> Dict[str, Any]:
     kind = kind_of(path)
     if kind == "image":
         sent = shrink_image(path)
+        _mark_owner(sent, path)
         info = image_info(sent)
         return {
             "kind": "image",
@@ -230,6 +247,8 @@ def prepare(path: Path) -> Dict[str, Any]:
         info = video_info(path)
         frames = video_frames(path)
         soundtrack = video_audio(path)
+        for produced in frames + ([soundtrack] if soundtrack else []):
+            _mark_owner(produced, path)
         return {
             "kind": "video",
             "original": str(path),
@@ -247,18 +266,45 @@ def fingerprint(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
-def purge(session_dir: Path) -> int:
+def purge(session_dir: Path, *, keep_marked: bool = True) -> int:
     """Remove every prepared copy under a session. Returns how many files went.
 
     Only ``derived/`` is touched: the files the operator chose stay until they say
-    otherwise, which is the promise the « Garder » button makes.
+    otherwise, which is the promise the « Garder » button makes. A prepared copy whose
+    original carries a ``.keep`` sidecar survives too - keeping the screenshot and then
+    losing the copy the model saw would be a strange kind of keeping.
     """
     removed = 0
     for folder in list(Path(session_dir).rglob("derived")):
-        if folder.is_dir():
-            removed += sum(1 for item in folder.rglob("*") if item.is_file())
-            shutil.rmtree(folder, ignore_errors=True)
+        if not folder.is_dir():
+            continue
+        for item in sorted(folder.rglob("*")):
+            if not item.is_file():
+                continue
+            if item.name.endswith(".json") and item.with_name(item.name[: -len(".json")]).exists():
+                # the sidecar of a copy is not a copy
+                continue
+            if keep_marked and _owner_is_kept(item):
+                continue
+            try:
+                item.unlink()
+                removed += 1
+            except OSError:
+                continue
+        shutil.rmtree(folder, ignore_errors=True) if not any(folder.iterdir()) else None
     return removed
+
+
+def _owner_is_kept(copy: Path) -> bool:
+    """True when the file this copy came from was marked « Garder »."""
+    sidecar = copy.with_name(copy.name + ".json")
+    if not sidecar.is_file():
+        return False
+    try:
+        owner = Path(str(json.loads(sidecar.read_text(encoding="utf-8")).get("from") or ""))
+    except (OSError, ValueError):
+        return False
+    return bool(str(owner)) and owner.with_name(owner.name + ".keep").is_file()
 
 
 __all__ = [

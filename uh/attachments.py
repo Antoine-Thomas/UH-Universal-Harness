@@ -256,13 +256,19 @@ AUTO_ANALYSIS = (
 )
 
 
+#: How many prepared images one request carries. Beyond that, the batch is sampled
+#: evenly instead of rejected: a folder of 40 screenshots is a real question, and
+#: "too many" would be an invented limit.
+MAX_IMAGES_PER_TURN = 12
+
+
 def media_for(paths: Iterable[str], session_id: str) -> dict:
     """What a turn can actually send for these attachments (P1-14).
 
     Images are shrunk into a ``-sent`` sibling under 1 MB and the *original* stays
     untouched; a video yields keyframes plus its soundtrack. The record is what the
-    caller needs: the paths to attach to the request, and the measured facts the
-    interface shows (kind, bytes, seconds, codec, whether a sound exists).
+    caller needs: the paths to attach to the request, the measured facts the
+    interface shows, and how many images were left out of a big batch.
     """
     from . import media as uh_media
 
@@ -278,7 +284,16 @@ def media_for(paths: Iterable[str], session_id: str) -> dict:
         prepared.append(record)
         if record["kind"] in {"image", "video"}:
             images.extend(record.get("sent") or [])
-    return {"images": images, "items": prepared}
+
+    omitted = 0
+    if len(images) > MAX_IMAGES_PER_TURN:
+        total = len(images)
+        step = total / float(MAX_IMAGES_PER_TURN)
+        images = [
+            images[min(total - 1, int(index * step))] for index in range(MAX_IMAGES_PER_TURN)
+        ]
+        omitted = total - len(images)
+    return {"images": images, "items": prepared, "omitted": omitted}
 
 
 def compose(text: str, paths: Iterable[str], session_id: str) -> str:

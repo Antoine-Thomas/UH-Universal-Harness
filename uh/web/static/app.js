@@ -521,7 +521,13 @@ function artifactToolbar(figure, artifact, context) {
   // would promise to delete something.
   if (!source || (!source.path && !source.relative)) return;
   const bar = el("div", "tool-artifact-actions");
-  const base = { source, session_id: (context && context.sessionId) || "" };
+  const base = {
+    source,
+    session_id: (context && context.sessionId) || "",
+    // P1-13 needs to know what it is keeping: a voice clip is copied to FLAC, a
+    // picture to PNG. The artifact already carries its kind; this only forwards it.
+    kind: String(artifact.kind || "").toLowerCase() === "audio" ? "audio" : "image",
+  };
   const add = (icon, label, title, extraClass) => {
     const node = artifactButton(icon, label, title, null, extraClass);
     bar.appendChild(node);
