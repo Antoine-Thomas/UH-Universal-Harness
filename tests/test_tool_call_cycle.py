@@ -140,6 +140,16 @@ def test_a_model_stuck_on_a_forbidden_tool_stops_the_turn(tmp_path: Path) -> Non
     The limit is per (tool, arguments) and was raised from 2 to 3 on 2026-11-18:
     a model that invents one argument often fixes it on the second try, so the
     stop has to be late enough to let a corrected call through.
+
+    Reconciles with point 1 ("a turn never ends without an answer or a visible
+    notice"): this is the loop-level half of the rule - it stops, and its last
+    message is the refusal, which stays in the transcript. The other half lives
+    one layer up, in `ChatSession.run_text`, which turns that silent-but-honest
+    ending into a stored sentence (`console.NO_ANSWER_NOTICE`) and skips its
+    "ask once more for text" retry, so a stuck model is not re-asked. Both halves
+    are asserted: here the three calls and the refusal, in
+    `tests/test_turn_never_silent.py::test_the_refusal_limit_turn_stores_a_readable_notice`
+    the sentence the operator actually reads.
     """
     provider = ScriptedProvider(
         [

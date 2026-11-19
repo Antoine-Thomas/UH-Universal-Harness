@@ -78,7 +78,12 @@ def test_once_budget_exhausted_exits_one(
 def test_a_failed_turn_is_still_recorded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A provider error must not erase the turn: the user message is stored."""
+    """A provider error must not erase the turn — and must not store silence.
+
+    Point 1 changed the second half: the stored turn is the user's message *and*
+    a system sentence saying the model did not answer. Before, a reload showed a
+    question with nothing after it, which reads as a lost answer.
+    """
     from uh import config as uh_config
     from uh import console as uh_console
     from uh.store import Store
@@ -103,8 +108,11 @@ def test_a_failed_turn_is_still_recorded(
     assert session.run_text("bonjour") == 1
 
     messages = store.get_messages(session.session_id)
-    assert [message["role"] for message in messages] == ["user"]
+    assert [message["role"] for message in messages] == ["user", "system"]
     assert messages[0]["content"] == "bonjour"
+    assert messages[-1]["content"] == uh_console.PROVIDER_FAILED_NOTICE.format(
+        error="ProviderError"
+    )
     store.close()
 
 

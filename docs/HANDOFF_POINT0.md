@@ -61,6 +61,17 @@ limitée au dossier du run) passe avant tout le reste.
    `BudgetExhausted`), avec réconciliation explicite de
    `test_a_model_stuck_on_a_forbidden_tool_stops_the_turn`. Le message utilisateur
    est toujours persisté avec une réponse ou une notice.
+   **Livré le 19/11** : `ChatSession._end_without_answer` pose une phrase unique
+   par tour silencieux (limite d'itérations, limite de refus, réponse vide, et
+   fournisseur muet), l'émet en `notice` et la **stocke** en message `system` —
+   direct et rechargement disent la même chose. Un modèle bloqué sur un appel
+   interdit n'est plus relancé pour du texte (`_stopped_on_refusal`), ce qui
+   supprime trois appels payés dans le vide. `test_turn_never_silent.py` (9 cas +
+   invariant paramétré « aucun tour stocké ne finit sur le message de
+   l'utilisateur ») ; preuve par l'interface : session `20261119-1526-d9e4`,
+   `max_iterations = 1` → frame `notice` « le tour s'est arrêté après 1 appels… »
+   + ligne `system` en base, puis un tour normal dans la même session → réponse
+   « bonjour », **aucune** notice.
 2. En chat, un outil interdit n'est pas proposé — ou son refus produit
    `mode_refused` avec la carte. Aucune approbation pour un outil que le mode interdit.
 3. Code brut au lieu d'un appel d'outil : relance automatique **prouvée jusqu'à

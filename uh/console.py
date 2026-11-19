@@ -47,6 +47,24 @@ TOOL_LINE_PREFIX = "· tool "
 # French on purpose: the one user-facing string that stays so (see module docstring).
 INTERRUPT_NOTE = "[interrompu] tour annulé (Ctrl+C)"
 INTERRUPT_EXIT = 130
+#: A turn never ends without something to read (point 1). These sentences are
+#: the floor: the iteration limit, a turn that stopped with nothing written
+#: (refusal limit, empty answer), and a provider that never answered. Each is
+#: emitted as a `notice` event *and* stored as a system message, so a reload shows
+#: the same sentence as the live transcript.
+BUDGET_NOTICE = (
+    "le tour s'est arrêté après {calls} appels au modèle sans réponse finale "
+    "(limite max_iterations) ; reformule la demande ou augmente la limite — "
+    "le message et les résultats d'outils restent enregistrés"
+)
+NO_ANSWER_NOTICE = (
+    "le tour s'est terminé sans réponse écrite du modèle ; le message, les appels "
+    "d'outils et leurs résultats restent dans la conversation"
+)
+PROVIDER_FAILED_NOTICE = (
+    "le modèle n'a pas répondu ({error}) ; le message reste dans la conversation, "
+    "relance quand le fournisseur répond"
+)
 
 
 #: Appended to an answer the provider cut mid-stream. In the text rather than in a
@@ -342,6 +360,27 @@ def system_message(workspace: Path, extra_system: str = "", role: Optional[dict]
     return {"role": "system", "content": content}
 
 
+def _stopped_on_refusal(messages: list[dict]) -> bool:
+    """True when `run_turn` stopped because the same call was refused too often.
+
+    The loop only returns a refusal as its last message when the per-call counter
+    reached zero - an ordinary tool error leaves the loop running. `run_text` uses
+    this to skip its "no text after a tool call, ask once more" retry: re-asking a
+    model that just repeated the same forbidden call three times is the budget
+    burning on a dead end that `run_turn` already decided to stop.
+    """
+    if not messages:
+        return False
+    last = messages[-1]
+    if not isinstance(last, dict) or last.get("role") != "tool":
+        return False
+    try:
+        payload = json.loads(last.get("content") or "{}")
+    except (TypeError, ValueError):
+        return False
+    return isinstance(payload, dict) and payload.get("type") == "forbidden"
+
+
 class ChatSession:
     """Everything one console conversation needs, with or without a store."""
 
@@ -401,6 +440,12 @@ class ChatSession:
             summarizer=lambda messages: summarise_with(self.provider, messages),
         )
         self._context_noted = False
+        #: The sentence this turn ends with when it produced no text; `run_text`
+        #: stores it with the turn so silence is never persisted (point 1).
+        self._end_notice: str = ""
+        #: Set by `_run_into` when the turn stopped on the refusal limit, so the
+        #: "ask once more for text" retry does not re-ask a model that is stuck.
+        self._ended_on_refusal: bool = False
         # Kept so a workspace move can rebuild the system prompt without dropping
         # the skill the operator attached to this turn.
         self.extra_system = extra_system
@@ -439,6 +484,28 @@ class ChatSession:
         downgrade."""
         self.console.errout(f"! {text}")
         self._emit("notice", message=text)
+
+    def _end_without_answer(self, text: str, *, emit: bool = True) -> None:
+        """Give a silent turn a sentence, once, and remember it for the store.
+
+        Point 1: the three exits of `run_turn` - a final answer, the refusal
+        limit, ``BudgetExhausted`` - all leave something to read, and the user's
+        message is never stored alone. The sentence leaves as the `notice` event
+        the browser already draws (and as the console's `!` line), and it is kept
+        in ``_end_notice`` so `run_text` stores it as a system message: a reload
+        shows exactly what the live transcript showed.
+
+        ``emit=False`` is for a failure the caller has already announced (a
+        provider error has its own bubble); the sentence is then only persisted,
+        so the transcript still explains the silence after a reload. A turn the
+        operator stopped (Ctrl+C, Stop) is the one case that writes nothing: a
+        turn cut in the middle is not a turn, and it is rolled back on purpose.
+        """
+        if self._end_notice:
+            return
+        self._end_notice = text
+        if emit:
+            self._notice(text)
 
     def _intent_skill(self, base: list[dict]) -> list[dict]:
         """Attach the router's skill to *this* call only — never to the stored history.
@@ -530,6 +597,10 @@ class ChatSession:
         started = time.perf_counter()
         route_before = self._route_snapshot()
         before = len(self.history)
+        # One sentence per turn, and only if the turn ends without text: cleared
+        # here so a previous turn's notice can never be stored twice.
+        self._end_notice = ""
+        self._ended_on_refusal = False
         # A turn owns its images: the fingerprints reset here, so a retry inside
         # this turn cannot redraw what it already drew, and the next turn starts
         # clean (Codex review on PR #25).
@@ -571,10 +642,12 @@ class ChatSession:
             content = self._normalise_answer_images(before)
             used_tools = any(message.get("role") == "tool" for message in self.history[before:])
 
-            if not content and used_tools:
+            if not content and used_tools and not self._ended_on_refusal:
                 # A small model can call a tool and then send an empty message. Ask
                 # once more; the synthetic nudge is dropped so it never reaches the
-                # stored session.
+                # stored session. Not after a refusal stop: that turn already
+                # ended, and asking again is the dead end `run_turn` refused to
+                # pay for.
                 self.console.errout("uh chat: no text after a tool call, asking once more")
                 nudge = {
                     "role": "user",
@@ -594,6 +667,11 @@ class ChatSession:
                     del self.history[position]
                 content = self._normalise_answer_images(before)
 
+            if not str(content or "").strip():
+                # Two of the three exits land here: the refusal limit (run_turn
+                # returns with tool cards and no text) and a plain empty answer.
+                # Neither may leave the operator with a user message and silence.
+                self._end_without_answer(NO_ANSWER_NOTICE)
             produced = list(self.history[before:])
             self._print_answer(content, chunks)
             self._record_usage(usage_before)
@@ -615,7 +693,13 @@ class ChatSession:
         finally:
             # Recorded even when the turn failed: the user's message and whatever
             # the model managed to say survive an HTTP error, a timeout or a crash.
+            # The closing sentence joins them, so the store never holds a user
+            # message followed by silence (point 1).
             if produced:
+                if self._end_notice:
+                    produced = list(produced) + [
+                        {"role": "system", "content": self._end_notice}
+                    ]
                 try:
                     self._persist(produced)
                 except StoreError as exc:
@@ -882,7 +966,9 @@ class ChatSession:
             return
         if last.get("tool_calls") or str(last.get("content") or "").strip():
             return
-        self._notice(
+        # The specific sentence becomes the turn's closing notice, so it is the one
+        # stored - a generic "no answer" behind it would say less, twice.
+        self._end_without_answer(
             "cette demande necessite l'execution de code, qui n'est pas activee "
             "dans ce mode : aucun graphique ne peut etre produit."
         )
@@ -906,8 +992,14 @@ class ChatSession:
                 on_notice=self._notice,
             )
             self._notice_unavailable_capability(updated)
+            self._ended_on_refusal = _stopped_on_refusal(updated)
         except BudgetExhausted as exc:
             self.console.error(f"uh chat: {exc}")
+            # The third exit of `run_turn`: no final answer, so the turn owes the
+            # operator a sentence - live (notice event) and in the store (the
+            # system message `run_text` appends). Silence here is what the rule
+            # of point 1 forbids.
+            self._end_without_answer(BUDGET_NOTICE.format(calls=self.max_iterations))
             return 1
         except ProviderError as exc:
             self.console.error(f"uh chat: provider error: {exc}")
@@ -920,6 +1012,11 @@ class ChatSession:
                 message=str(exc),
                 source="provider",
                 partial=bool("".join(chunks).strip()),
+            )
+            # The error bubble is live only; the stored turn needs its own
+            # sentence, otherwise a reload shows a user message and a silence.
+            self._end_without_answer(
+                PROVIDER_FAILED_NOTICE.format(error=type(exc).__name__), emit=False
             )
             return 1
 
