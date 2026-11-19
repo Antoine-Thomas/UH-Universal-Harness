@@ -51,6 +51,14 @@
         <button id="menu-toggle" class="icon-button" title="Sessions" aria-label="Sessions">☰</button>
         <button id="sidebar-toggle" class="icon-button" title="Hide the sessions column" aria-label="Hide sessions">«</button>
         <div class="title" id="session-title">No session</div>
+        <!-- Mode d'exécution : toujours visible, parce qu'une capacité qu'on ne peut
+             pas voir est une capacité qu'on ne peut pas accorder. Un clic bascule. -->
+        <button id="mode-badge" class="mode-badge" type="button"
+                title="Mode d'exécution du second cerveau : cliquez pour changer"
+                aria-label="Mode d'exécution">
+          <span class="mode-badge-dot" aria-hidden="true"></span>
+          <span id="mode-badge-label">mode…</span>
+        </button>
         <select id="model-select" name="model" class="model-select" aria-label="Model"></select>
         <button id="model-advanced" class="ghost model-advanced" title="Voir tous les modèles installés">Avancé</button>
         <!-- Character & role (P3-14): the posture of the answer, per conversation.

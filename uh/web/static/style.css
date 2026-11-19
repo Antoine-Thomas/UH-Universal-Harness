@@ -1564,3 +1564,43 @@ select:focus-visible {
 .tool-artifact-btn.danger:hover:not(:disabled) { border-color: #b4453a; color: #b4453a; background: #fbeeec; }
 .tool-artifact-label { white-space: nowrap; }
 .tool-artifact-note { font-size: 11px; color: var(--muted); }
+
+/* Badge de mode : lisible d'un coup d'oeil, cliquable, jamais decoratif. */
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mode-badge:hover { border-color: var(--accent); }
+.mode-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mode-badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 8px; }
+.mode-badge.readonly .mode-badge-dot { background: #b4453a; }
+.mode-badge.agent .mode-badge-dot { background: var(--accent); }
+
+/* Carte de refus liee au mode : dans le fil, la ou la demande a echoue. */
+.mode-card-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--highlight);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--panel);
+}
+.mode-card-text { flex: 1 1 320px; font-size: 13px; color: var(--text); }
+.mode-card-inline .mode-allow { background: var(--accent); color: #ffffff; border-color: var(--accent); }

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import re
@@ -854,6 +855,26 @@ def create_app(
                     # ok/error only: the payload is the user's data.
                     status = "error" if '"error"' in str(event.get("content") or "") else "ok"
                     turnlog.event("tool_end", turn=turn_id, tool=name, ms=elapsed, status=status)
+                    # A refusal caused by the mode gets its own event: the page turns
+                    # it into one card whose button grants execution and re-sends the
+                    # turn. Without it the user is told "switch to dev" and has to
+                    # find a control - the exact dead end reported on 19/11.
+                    content = str(event.get("content") or "")
+                    if "mode_forbidden" in content:
+                        refused_mode = ""
+                        try:
+                            detail = json.loads(content)
+                            refused_mode = str(detail.get("mode") or "")
+                        except (TypeError, ValueError):
+                            refused_mode = ""
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            {
+                                "type": "mode_refused",
+                                "tool": name,
+                                "mode": refused_mode or "chat",
+                            },
+                        )
                 elif kind == "error":
                     turn_reason = "error"
                     turnlog.event("turn_error", turn=turn_id, detail=str(event.get("message") or "")[:200])

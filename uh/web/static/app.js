@@ -1350,6 +1350,9 @@ async function sendMessage(text) {
   state.streaming = true;
 
   const attachments = state.attachments.map((item) => item.path);
+  // Kept so a refusal card can re-send this exact turn after the user grants
+  // execution: the point is not to make them type it again.
+  state.lastUserText = text;
   $("send").disabled = true;
   $("stop").disabled = false;
   appendMessage("user", attachments.length ? `${text}\n\n[${attachments.length} file(s) attached]` : text);
@@ -1460,6 +1463,10 @@ async function sendMessage(text) {
             // from the message, it never asks a third party for anything.
             drawArtifacts(assistant, data.images);
             $("messages").scrollTop = $("messages").scrollHeight;
+          });
+        } else if (event === "mode_refused") {
+          guardedStep("mode_refused", () => {
+            modeRefusalCard(data);
           });
         } else if (event === "notice") {
           guardedStep("notice", () => {
@@ -3030,6 +3037,85 @@ async function switchExecutionMode(mode, card) {
   } catch (error) {
     hint.textContent = error.message;
   }
+}
+
+// --- mode d'exécution : badge permanent + carte de refus -------------------- //
+// A capability the user cannot see is a capability they cannot grant. The badge is
+// in the header on every screen; the card appears in the conversation, exactly
+// where the refusal happened, and its button is the only way to grant execution.
+const MODE_BADGE_TEXT = {
+  chat: "Discussion : lecture seule",
+  dev: "Agent : peut exécuter du code et créer des fichiers",
+  review: "Revue : lit, n'exécute pas",
+  observe: "Observation : rapporte seulement",
+};
+
+async function refreshModeBadge() {
+  const badge = $("mode-badge");
+  if (!badge) return;
+  let status = {};
+  try {
+    status = await api("/api/uhb/status");
+  } catch (error) {
+    $("mode-badge-label").textContent = "second cerveau arrêté";
+    badge.dataset.mode = "";
+    return;
+  }
+  const mode = String(status.mode || "");
+  const label = MODE_BADGE_TEXT[mode] || (status.connected ? `mode « ${mode} »` : "second cerveau arrêté");
+  $("mode-badge-label").textContent = label;
+  badge.dataset.mode = mode;
+  badge.classList.toggle("readonly", mode === "chat");
+  badge.classList.toggle("agent", mode === "dev");
+  badge.title =
+    mode === "chat"
+      ? "Lecture seule. Cliquez pour autoriser l'exécution de code (mode Agent)."
+      : "Ce mode peut exécuter du code. Cliquez pour revenir en lecture seule.";
+}
+
+async function toggleModeFromBadge() {
+  const badge = $("mode-badge");
+  const target = badge && badge.dataset.mode === "dev" ? "chat" : "dev";
+  await applyMode(target);
+  await refreshModeBadge();
+}
+
+// One call, used by the badge and by the refusal card: switch, then report.
+async function applyMode(mode) {
+  const answer = await api("/api/uhb/mode", { method: "POST", body: JSON.stringify({ mode }) });
+  await refreshModeBadge();
+  return answer;
+}
+
+// The card that turns "switch to dev" into one click, and re-sends the turn the
+// user already typed - no copy, no paste, no lost message.
+function modeRefusalCard(data) {
+  const card = el("div", "mode-card-inline");
+  card.appendChild(
+    el(
+      "div",
+      "mode-card-text",
+      `Le second cerveau est en lecture seule, donc \`${data.tool || "l'outil"}\` n'était pas disponible. ` +
+        "Rien n'a été exécuté."
+    )
+  );
+  const button = artifactButton("keep", "Autoriser pour cette conversation", "passer en mode Agent et relancer ce tour", null, "safe");
+  button.classList.add("mode-allow");
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await applyMode("dev");
+      card.remove();
+      const again = state.lastUserText;
+      if (again) await sendMessage(again);
+    } catch (error) {
+      button.disabled = false;
+      card.appendChild(el("div", "tool-artifact-note", `refusé : ${error.message}`));
+    }
+  });
+  card.appendChild(button);
+  $("messages").appendChild(card);
+  $("messages").scrollTop = $("messages").scrollHeight;
 }
 
 function renderDecision(data, reload) {
@@ -5541,6 +5627,10 @@ async function boot() {
   // Every entry point (⚙, tab click, ?panel=, #providers) now ends in the same
   // coalesced loader, so this costs one request on arrival.
   if (providersAreOpen() && state.activeTab === "keys") openProviders();
+  // The mode is a state of the second brain, not of a tab: it is read on arrival.
+  refreshModeBadge().catch(() => {});
+  const badge = $("mode-badge");
+  if (badge) badge.addEventListener("click", () => toggleModeFromBadge().catch(() => {}));
   showRemoteBanner().catch(() => {});
   // Open the most recent session on first load: an empty pane on arrival looks
   // like a broken app, and the session the user left is the one they want.

@@ -198,7 +198,7 @@ pane-detach  pane-reset  pane-&lt;name&gt;  pane-body  pane-head
 panel-dock  panel-float  panel-head
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
-layout  menu-toggle  messages  model-advanced  model-note  model-select  new-folder  new-session  palette
+layout  menu-toggle  messages  mode-badge  mode-badge-label  model-advanced  model-note  model-select  new-folder  new-session  palette
 palette-input  palette-list  panel-toggle  providers-close  providers-hint  providers-list
 install-badge  providers-open  providers-panel  router-settings  search  quit-uh
 remote-banner  search-results  send  session-list  session-title  sidebar

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Iterator, List, Optional
 from urllib.parse import urlsplit
@@ -372,7 +373,20 @@ def _failure(response: httpx.Response) -> dict:
         "status": response.status_code,
     }
     payload["type"] = "forbidden" if forbidden else "tool_error"
+    # A refusal caused by the mode is not a permission bug and not the model's
+    # fault: the tool exists, the profile does not carry it. Marking it lets the
+    # interface offer the only thing that helps - a click that grants execution -
+    # instead of a sentence that sends the user looking for a setting.
+    if forbidden and "has no tool" in (detail or ""):
+        payload["reason"] = "mode_forbidden"
+        payload["mode"] = _mode_from_detail(detail or "")
     return payload
+
+
+def _mode_from_detail(detail: str) -> str:
+    """`mode 'chat' has no tool 'execute_code'` -> ``chat``."""
+    match = re.search(r"mode '([^']+)'", detail)
+    return match.group(1) if match else ""
 
 
 # --------------------------------------------------------------------------- #

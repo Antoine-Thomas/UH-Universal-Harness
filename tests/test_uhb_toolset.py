@@ -526,3 +526,40 @@ def test_a_refusal_from_uhb_keeps_its_type_and_message(monkeypatch) -> None:
     assert result["type"] == "forbidden"
     assert result["status"] == 403
     assert "does not allow execute_code" in result["error"]
+
+
+def test_a_refusal_caused_by_the_mode_is_marked_as_such() -> None:
+    """`mode 'chat' has no tool 'execute_code'` is not a permission bug.
+
+    The tool exists; the profile does not carry it. Marking it lets the page offer
+    the only useful action - one click that grants execution - instead of sending
+    the user to look for a setting (measured dead end, 19/11).
+    """
+    import httpx
+
+    from uh.toolsets import uhb as toolset
+
+    body = {"error": "mode 'chat' has no tool 'execute_code'"}
+    response = httpx.Response(403, json=body, request=httpx.Request("POST", "http://127.0.0.1:8101/tools/execute"))
+
+    payload = toolset._failure(response)
+
+    assert payload["type"] == "forbidden"
+    assert payload["reason"] == "mode_forbidden"
+    assert payload["mode"] == "chat", "the page needs to know which profile refused"
+
+
+def test_a_plain_403_is_not_mistaken_for_a_mode_refusal() -> None:
+    import httpx
+
+    from uh.toolsets import uhb as toolset
+
+    response = httpx.Response(
+        403,
+        json={"error": "approval required", "reason": "approval_required"},
+        request=httpx.Request("POST", "http://127.0.0.1:8101/tools/execute"),
+    )
+
+    payload = toolset._failure(response)
+
+    assert "reason" not in payload or payload["reason"] != "mode_forbidden"
