@@ -1355,10 +1355,14 @@ prouvées.
 
 Aujourd'hui UH dépend de pièces qui vivent côte à côte sur cette machine et que
 personne n'installe : UHB dans son propre venv, l'interpréteur qui exécute
-`execute_code` (mesuré : le venv d'UHB est un **Python 3.11.9 avec matplotlib
-3.11.2** ; les Python enregistrés de la machine n'ont pas matplotlib ; le venv de
-UH est un 3.10.11 sans matplotlib), les serveurs MCP, et les chemins trouvés au
-hasard (`~/.uhb/runs`, `~/.uh`).
+`execute_code`, les serveurs MCP, et les chemins trouvés au hasard (`~/.uhb/runs`,
+`~/.uh`). **Mesuré le 19/11** (session `20261119-1455-d057`) : `execute_code` tourne
+sous le Python **système** 3.11.9 (`…\Python311\python.exe`, `sys.prefix` =
+`base_prefix`), **sans numpy ni matplotlib** ; le venv du checkout UHB est 3.11.9 +
+matplotlib 3.11.2 mais **sans fastapi**, donc il ne peut pas exécuter UHB et
+`_supports_uhb()` l'écarte ; le venv de UH est un 3.10.11 sans matplotlib ; un
+troisième interpréteur (Python310.11, matplotlib 3.10.9) n'est atteint que par
+`subprocess` depuis un snippet.
 
 Objectif : **une seule installation** (`gh repo clone Antoine-Thomas/UH-Universal-Harness`
 puis un installateur) qui
@@ -1374,12 +1378,15 @@ puis un installateur) qui
    coûté une session entière sur matplotlib) ;
 4. désinstalle proprement ce qu'elle a créé.
 
-Contexte de sécurité, non mesuré à ce jour : si `execute_code` peut lancer un autre
-interpréteur, le code s'exécute avec les droits Windows de l'utilisateur, sans les
-limites d'écriture du mode `dev` (`uhb/**`, `tests/**`, `docs/**`), et l'approbation
-« autorisé pour cette session » couvre ensuite tout ce qu'il exécute. Tant que ce
-n'est pas mesuré, le libellé « Agent » ne doit pas promettre une limite. Texte
-proposé : « Agent : exécute du code — portée non vérifiée ».
+**Mesuré le 19/11, session `20261119-1455-d057`** : `execute_code` écrit et supprime
+**hors** du dossier du run (Bureau, cache Hermes), lit `~\.uh\keys.toml`,
+`~\.uh\mcp-secrets.toml` et le `.env` du checkout UHB, énumère les **78** cibles de
+`cmdkey /list`, et lance n'importe quel interpréteur par `subprocess` — avec les
+droits Windows de l'utilisateur, sans les limites d'écriture du mode `dev`
+(`uhb/**`, `tests/**`, `docs/**`), qui ne gouvernent que les outils fichier. Le
+libellé « Agent : exécute du code, portée non vérifiée » (`a992592`) est donc exact,
+et le badge ne peut rien promettre de plus. Le confinement (étape 0-bis, ci-dessous)
+est la seule façon d'écrire un libellé plus fort.
 
 Précisions ajoutées après revue (à respecter, non implémenté) :
 
@@ -1403,3 +1410,34 @@ Précisions ajoutées après revue (à respecter, non implémenté) :
 *Ouvert. Bloque toute promesse d'installation « en une commande ». À ne pas
 implémenter avant la mesure du point 0 (interpréteur réel, écriture hors zone,
 lecture des secrets) et le « go » de l'opérateur.*
+
+### Étape 0-bis — confinement d'`execute_code` (GO du 19/11)
+
+Point 0 mesuré, donc l'ordre change : **le confinement passe avant les points 1 à 5**
+de l'interface. Deux sous-étapes, un commit local chacune, aucune poussée.
+
+1. **Interpréteur « atelier »** — un venv dédié (`$UH_HOME/../.uhb/atelier` par
+   défaut, ou `UHB_ATELIER_PYTHON`) qui ne contient que `numpy` et `matplotlib`
+   épinglés, sans `fastapi` ni paquets système. UHB le préfère à `sys.executable`
+   quand il existe, l'annonce dans le contrat de l'outil (pas de `turtle`/`tkinter`,
+   `savefig('…png')` dans le répertoire courant) et dans `GET /status`
+   (`execute.interpreter`, `execute.atelier`).
+2. **Confinement** (`sys.addaudithook` injecté dans `_uhb_runner.py`, côté UHB) :
+   écriture ou suppression **hors** du dossier du run refusée ; lecture de `~/.uh`,
+   de `~/.uhb` (hors dossier du run) et de tout `.env` refusée ; `subprocess.*`,
+   `os.system`, `os.exec*`, `os.spawn*` et le chargement `ctypes` refusés. Les
+   bibliothèques restent lisibles (sinon numpy/matplotlib ne démarrent pas) : ce qui
+   est fermé, c'est **l'écriture** partout et la **lecture des secrets**.
+   L'approbation de l'opérateur reste obligatoire avant chaque exécution.
+
+**Ce que le crochet ne tient pas**, et qui doit rester écrit : un module C qui
+n'émet pas d'événement d'audit (certaines extensions) peut encore écrire, et rien
+n'empêche un snippet de lire un fichier quelconque **non secret** hors du run. C'est
+un confinement de code coopératif, pas un bac à sable noyau : la formulation du
+badge doit dire « dossier du run uniquement » (écriture), jamais « sandbox ».
+
+**Libellé du badge** : « Agent : exécute du code, portée non vérifiée » ne change
+qu'après une contre-sonde réelle prouvant les quatre points — écriture hors run
+refusée, lecture de `keys.toml` refusée, `subprocess` refusé, PNG `savefig` produit
+dans le dossier du run — puis devient « Atelier : exécute du code (dossier du run
+uniquement) ».

@@ -18,9 +18,17 @@ propres, preuve par l'interface réelle.
 
 ## Corrections à appliquer d'emblée
 
-1. Le venv d'UHB est un **Python 3.11.9 avec matplotlib 3.11.2** — pas 3.10.9. Le
-   « matplotlib 3.10.9 » lu dans le message 436 ne correspond à **aucun** interpréteur
-   mesuré.
+1. **Mesuré le 19/11 (session `20261119-1455-d057`)** : `execute_code` tourne sous
+   l'interpréteur **système** `…\Programs\Python\Python311\python.exe` (3.11.9,
+   `-I -B -X utf8`, `sys.prefix` = le dossier d'installation, donc pas un venv),
+   **sans numpy ni matplotlib**. Le `matplotlib 3.10.9` du message 436 est celui du
+   **Python 3.10.11 système**, lancé par `subprocess` depuis le snippet (messages
+   425 et 435 nomment ce chemin absolu) : il correspond donc à un interpréteur
+   réel, mais ce n'est pas celui du runner. Le venv du checkout UHB
+   (`UHB-Universal-Harness-Backend\.venv`) est bien 3.11.9 + matplotlib 3.11.2,
+   mais `import fastapi` y échoue : il ne peut pas faire tourner UHB, et
+   `_supports_uhb()` l'écarte. **Aucun** de ces trois messages n'atteint un venv.
+   Voir « Résultats du Point 0 » en fin de document.
 2. Toute mesure d'environnement se fait **`PYTHONPATH=` vide** : sinon `numpy`
    provient d'un venv Hermes (mesuré : `ImportError … cp314` sur un 3.11).
 3. Les sondes s'écrivent dans un **fichier** (pas de heredoc : deux échecs
@@ -82,3 +90,33 @@ mesures du point 0 et un « go ».
 - `-m uhb.entrypoints.server --mode X` : les drapeaux sont **ignorés** ; le bon
   point d'entrée est `-m uhb.entrypoints.cli run --port … --mode …`.
 - Le mode est un attribut du **processus** : en changer exige un redémarrage de UHB.
+
+## Résultats du Point 0 — mesurés le 19/11 (session `20261119-1455-d057`)
+
+Conditions : sonde écrite dans un fichier, exécutée par un vrai `execute_code` passé
+par l'interface de UH (`POST /api/sessions/{id}/chat`, SSE) avec la carte
+d'approbation (ticket `d1f9f81888aa`, `timeout 120 s`, réponse `allow`), `PYTHONPATH`
+vide dans le processus UH, UHB en mode `dev`.
+
+1. **Interpréteur** — `sys.executable` = `…\Programs\Python\Python311\python.exe`,
+   `sys.prefix` = `…\Python311` (= `base_prefix`, donc pas un venv), 3.11.9,
+   `flags.isolated` vrai, `cwd` = le dossier du run, `PYTHONPATH` et `VIRTUAL_ENV`
+   nuls. Commande enregistrée par UHB :
+   `python.exe -I -B -X utf8 <run_dir>\_uhb_runner.py`.
+2. **Écriture** — un témoin de 16 o écrit puis supprimé **hors** de `~/.uhb/runs` :
+   `…\hermes\cache\scratch\point0_witness.txt` et `…\Desktop\point0_witness.txt`,
+   succès aux deux endroits. La restriction d'écriture du mode `dev`
+   (`uhb/**`, `tests/**`, `docs/**`) ne s'applique **pas** au code de
+   `execute_code` : elle ne gouverne que les outils fichier.
+3. **Secrets** — `~\.uh\keys.toml` (384 o), `~\.uh\mcp-secrets.toml` (164 o) et
+   `UHB-Universal-Harness-Backend\.env` (65 o) : lisibles, premier octet lu, flag
+   d'écriture vrai. Le module `keyring` est absent, mais `cmdkey /list` répond
+   (rc 0) et énumère **78** cibles : le magasin d'identifiants Windows est
+   énumérable depuis `execute_code`.
+4. **Subprocess** — un interpréteur quelconque est lançable : `same_as_runner`,
+   `Python310` (matplotlib 3.10.9), `Python311` (sans matplotlib), et le venv du
+   checkout UHB (matplotlib 3.11.2) répondent tous. Le modèle s'en est servi en
+   425/435/436 pour contourner l'absence de matplotlib.
+5. **Conséquence** — le libellé « Agent : exécute du code, portée non vérifiée »
+   (`a992592`) était juste. Le profil « atelier » (confinement réel + interpréteur
+   dédié) passe **avant** les points 1 à 5 de l'interface.
