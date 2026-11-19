@@ -1299,6 +1299,38 @@ pas une troisième fois) :
   image envoyée sous 1 Mo, dossier des temporaires vide après le tour, et l'image gardée
   restituable en 4K.
 
+**Bouton « + » unifié — la barre ne devient pas une rangée d'icônes (ajouté le 19/11)** :
+un seul bouton ouvre un popup compact, comme sur les chats modernes, et chaque nature de
+fichier y est rangée :
+
+- **Son** : `.mp3`, `.wav`, FLAC/OGG s'ils sont présents, plus la **dictée micro** (P1-15) ;
+- **Images** : `.png`, `.jpg/.jpeg`, `.gif`, `.svg`, `.heic` — une ou plusieurs, jusqu'à la 4K ;
+- **Vidéo** : `.mp4` en **H.264 et H.265/HEVC** — extraction d'images clés et de la bande
+  son pour l'analyse, puis purge du temporaire ;
+- **Documents & archives** : `.pdf`, `.csv`, `.html`, `.zip`, plus les extensions texte/code
+  déjà gérées par UH.
+
+Glisser-déposer et collage presse-papiers restent des entrées de plein droit : le « + »
+n'est pas le seul chemin, c'est celui qui n'encombre pas.
+
+**Détection de capacité et avertissement non bloquant (ajouté le 19/11)** : avant d'envoyer
+une image, un lot 4K, un audio ou un `.mp4` à un modèle qui ne peut pas les lire (petit
+modèle local texte seul, contexte trop court), l'interface affiche un **avertissement
+informatif et non bloquant** — on peut passer outre — et propose **en un clic** un modèle
+compatible et assez puissant parmi les fournisseurs **déjà configurés** (local ou API).
+
+- la capacité vient d'une **table mesurée** (`modality: text|vision|audio`, `context_tokens`),
+  jamais d'une déduction sur le nom du modèle ;
+- **inconnu n'est pas capable** : un modèle dont la capacité n'est pas connue est annoncé
+  « capacité non vérifiée » et traité comme tel ;
+- l'avertissement dit **ce qui sera perdu** (« ce modèle ne verra pas l'image : il recevra
+  son nom de fichier »), pas seulement « non supporté » ;
+- le passage en un clic ne change jamais le modèle en silence : l'en-tête et le titre
+  affichent le modèle qui a **réellement** répondu (exigence identique au point 5).
+
+Preuve attendue : une capture 4K déposée avec un modèle texte seul → avertissement, un clic
+sur le modèle vision proposé → analyse réelle dans le même tour, en-tête cohérent.
+
 ### P1-15 — audio, micro, visuel son et clonage de voix (Voxtral) — inscrit, non implémenté
 
 Demandé par l'opérateur le 19/11. **Rien n'est codé** : ce lot s'ouvre après la clôture
@@ -1371,6 +1403,10 @@ au premier lancement — mais **silencieux n'est pas caché** (règle d'installa
 inscrite) : version épinglée, **SHA-256 vérifié**, une ligne dans le récapitulatif
 final (« Voix locale XTTS-v2 — 1,8 Go — `~/.uhb/xtts` »), et la désinstallation les
 retire. Fonctionne hors ligne ensuite, clé Mistral exceptée.
+
+Et les formats de ce lot — `.mp3`, `.wav` à l'entrée, **FLAC 24 bits stéréo** pour ce qui
+est conservé — passent par le **ffmpeg embarqué** décrit dans la section « Installation
+unique », jamais par un codec système supposé présent.
 
 **Règles d'interface (ajoutées le 19/11 par l'opérateur, avant tout code)**
 1. **Lecteur conditionnel.** Le lecteur avec forme d'onde n'apparaît dans la bulle
@@ -1570,6 +1606,16 @@ Précisions ajoutées après revue (à respecter, non implémenté) :
 - **l'installateur doit livrer la restriction réelle**, pas seulement les
   bibliothèques : dossier de travail du run et écriture bornée. Embarquer un
   interpréteur sans cela ne règle que la moitié du problème.
+- **binaires média embarqués, pas de VLC à installer à la main** (ajouté le 19/11) :
+  si les codecs système manquent — H.265/HEVC, `.heic`, FLAC 24 bits stéréo, toute
+  conversion audio/vidéo — l'installateur apporte un **ffmpeg statique épinglé avec
+  ses codecs complets**, téléchargé **silencieusement à l'installation** (aucune
+  question, aucun téléchargement au premier lancement), **SHA-256 vérifié**, une
+  ligne au récapitulatif (« Média — ffmpeg 7.x statique — 90 Mo — `~/.uh/bin/ffmpeg` »),
+  retiré à la désinstallation, hors ligne ensuite. `ffmpeg`/`ffprobe` existent
+  aujourd'hui par Chocolatey sur cette machine : l'installation ne doit pas en
+  dépendre, et la version embarquée est celle qui fait foi pour la reproductibilité
+  (mêmes rendus sur toute machine).
 
 *Ouvert. Bloque toute promesse d'installation « en une commande ». À ne pas
 implémenter avant la mesure du point 0 (interpréteur réel, écriture hors zone,
