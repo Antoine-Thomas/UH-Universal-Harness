@@ -99,6 +99,29 @@ def _local_tools_ok(name: str) -> Optional[bool]:
     return None if capabilities is None else "tools" in capabilities
 
 
+def answer_meta(session_obj: object, kind: str, model: str) -> "dict | None":
+    """Which model actually answered, as a frame the browser can trust.
+
+    ``last_real_model`` is what the provider says it served, which is not always the
+    configured alias: ``auto/best-free`` resolves to a concrete name, and a fallback
+    switches provider mid-flight. Point 5 asks the header, the answer's footer and
+    the local-model tab to name that model - one value, emitted once, and ``None``
+    when nothing has answered yet (a frame that says nothing is better than a frame
+    that invents a model).
+    """
+    served = str(getattr(session_obj, "last_real_model", "") or "")
+    if not served:
+        return None
+    requested = str(model or "")
+    return {
+        "type": "answer_meta",
+        "provider": str(kind or ""),
+        "model": served,
+        "requested": requested,
+        "substituted": bool(requested and requested != served),
+    }
+
+
 def _hostname(host_header: str) -> str:
     value = (host_header or "").strip()
     if value.startswith("["):  # [::1]:8765
@@ -712,6 +735,8 @@ def create_app(
                 return uh_artifacts.keep(provenance)
             if action == "trash":
                 return uh_artifacts.trash(provenance)
+            if action == "restore":
+                return uh_artifacts.restore(provenance)
             if action == "rate":
                 return uh_artifacts.rate(
                     provenance,
@@ -723,7 +748,7 @@ def create_app(
                 )
         except uh_artifacts.ArtifactActionError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        raise HTTPException(status_code=400, detail="action must be keep, trash or rate")
+        raise HTTPException(status_code=400, detail="action must be keep, trash, restore or rate")
 
     @app.get("/api/artifacts/trash", dependencies=[Depends(require_token)])
     async def artifact_trash() -> dict:
@@ -977,6 +1002,13 @@ def create_app(
                     # code instead of calling the tool it was offered.
                     nudges=int(getattr(session_obj, "last_nudges", 0) or 0),
                 )
+                # Which model actually answered (point 5). The configured alias is
+                # not always what served - decision.py records the substitution, and
+                # this is the same fact carried to the browser, so the header, the
+                # answer's footer and the local-model tab all name one model.
+                meta = answer_meta(session_obj, kind, model)
+                if meta:
+                    emit(meta)
                 emit({"type": "__end__"})
                 if store is not None:
                     store.close()

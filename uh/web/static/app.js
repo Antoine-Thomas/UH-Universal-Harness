@@ -22,6 +22,10 @@ const state = {
   llm: { enabled: false, values: {} },
   llmDefaults: { enabled: false, values: {} },
   llmSpec: null,
+  //: The model that actually answered (point 5): one value, read by the answer's
+  //: footer, the header's tooltip and the local-model tab.
+  servedModel: "",
+  requestedModel: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -263,13 +267,36 @@ function drawArtifacts(container, artifacts, context) {
   }
 }
 
+// ------------------------------------------------------------------ figures --
+//: How long « Annuler » stays clickable after a trash: long enough to catch a
+//: misclick, short enough that the thread keeps no ghost row for ever.
+const TRASH_UNDO_MS = 8000;
+//: What a vote means, in the operator's words (point 5). Until P1-13 connects the
+//: journal to the brain, "the model learns from this" would be a lie.
+const VOTE_NOTE = "noté (pas encore utilisé pour s'améliorer)";
+
+// One status line per figure. The bug this replaces was two inline <span> notes
+// glued into one word - "notée utilegardée" - because every action appended its
+// own note and nothing separated them.
+function figureStatus(figure) {
+  let line = figure.querySelector(".tool-artifact-status");
+  if (!line) {
+    line = el("span", "tool-artifact-status");
+    figure.appendChild(line);
+  }
+  return line;
+}
+
+function say(figure, text) {
+  figureStatus(figure).textContent = text;
+}
+
 // The four things a figure accepts. The page sends the artifact's own provenance;
 // the SERVER decides what may be touched (uh/artifacts.py: the file must resolve
 // inside UHB's runs root). A refusal is shown verbatim, never swallowed.
-async function artifactAction(button, figure, body, done) {
+async function artifactAction(button, figure, body) {
   if (button) button.disabled = true;
-  const note = el("span", "tool-artifact-note", "…");
-  figure.appendChild(note);
+  say(figure, "…");
   try {
     const response = await fetch("/api/artifacts/action", {
       method: "POST",
@@ -283,11 +310,60 @@ async function artifactAction(button, figure, body, done) {
       data = {};
     }
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-    note.textContent = done;
+    if (button) button.disabled = false;
+    return data;
   } catch (error) {
-    note.textContent = `refusé : ${error.message}`;
-    button.disabled = false;
+    say(figure, `refusé : ${error.message}`);
+    if (button) button.disabled = false;
+    return null;
   }
+}
+
+// Votes are exclusive and reversible: one image carries one opinion. Clicking the
+// active thumb retracts it (`vote: "none"`, journalled) instead of recording the
+// same vote twice, and the other thumb is unmarked in the same gesture.
+async function voteOn(button, figure, base, vote) {
+  const current = figure.dataset.vote || "";
+  const wanted = current === vote ? "none" : vote;
+  const data = await artifactAction(button, figure, { ...base, action: "rate", vote: wanted });
+  if (!data) return;
+  figure.dataset.vote = wanted === "none" ? "" : wanted;
+  for (const node of figure.querySelectorAll(".tool-artifact-btn[data-vote]")) {
+    const active = Boolean(figure.dataset.vote) && node.dataset.vote === figure.dataset.vote;
+    node.setAttribute("aria-pressed", active ? "true" : "false");
+    node.classList.toggle("voted", active);
+  }
+  say(figure, wanted === "none" ? "vote retiré" : VOTE_NOTE);
+}
+
+// Trash takes the image out of the thread at once, with a way back for a few
+// seconds: the file is in the bin (already reversible), and « Annuler » restores
+// it where it came from before the window closes.
+async function trashWithUndo(button, figure, base) {
+  const data = await artifactAction(button, figure, { ...base, action: "trash" });
+  if (!data) return;
+  figure.classList.add("trashed");
+  const line = figureStatus(figure);
+  line.textContent = "dans la corbeille";
+  const undo = el("button", "tool-artifact-undo", "Annuler");
+  undo.type = "button";
+  line.appendChild(document.createTextNode(" "));
+  line.appendChild(undo);
+  let closed = false;
+  const timer = window.setTimeout(() => {
+    closed = true;
+    line.textContent = "dans la corbeille (récupérable jusqu'au vidage)";
+  }, TRASH_UNDO_MS);
+  undo.addEventListener("click", async () => {
+    if (closed) return;
+    closed = true;
+    window.clearTimeout(timer);
+    undo.disabled = true;
+    const restored = await artifactAction(null, figure, { ...base, action: "restore" });
+    if (!restored) return;
+    figure.classList.remove("trashed");
+    line.textContent = "restaurée";
+  });
 }
 
 // Icons drawn inline: an emoji renders at whatever size the platform decides and
@@ -349,18 +425,30 @@ function artifactToolbar(figure, artifact, context) {
   // would promise to delete something.
   if (!source || (!source.path && !source.relative)) return;
   const bar = el("div", "tool-artifact-actions");
-  const add = (icon, label, title, extra, done, extraClass) => {
-    const base = { source, session_id: (context && context.sessionId) || "" };
+  const base = { source, session_id: (context && context.sessionId) || "" };
+  const add = (icon, label, title, extraClass) => {
     const node = artifactButton(icon, label, title, null, extraClass);
-    node.addEventListener("click", () => artifactAction(node, figure, { ...base, ...extra }, done));
     bar.appendChild(node);
+    return node;
   };
-  add("keep", "Garder", "garder cette image : elle échappe au nettoyage", { action: "keep" }, "gardée", "safe");
-  add("up", "Utile", "image réussie : enregistrée comme exemple à reproduire", { action: "rate", vote: "up" }, "notée utile");
-  add("down", "Pas utile", "image ratée : contre-exemple à éviter", { action: "rate", vote: "down" }, "notée à éviter");
+  const keep = add("keep", "Garder", "garder cette image : elle échappe au nettoyage", "safe");
+  keep.addEventListener("click", async () => {
+    const data = await artifactAction(keep, figure, { ...base, action: "keep" });
+    if (data) say(figure, "gardée");
+  });
+  for (const [vote, label, title] of [
+    ["up", "Utile", "rendu réussi : noté comme exemple à reproduire"],
+    ["down", "Pas utile", "rendu raté : noté comme contre-exemple à éviter"],
+  ]) {
+    const node = add(vote, label, title);
+    node.dataset.vote = vote;
+    node.setAttribute("aria-pressed", "false");
+    node.addEventListener("click", () => voteOn(node, figure, base, vote));
+  }
   const link = artifactDownload(artifact);
   if (link) bar.appendChild(link);
-  add("trash", "Corbeille", "déplacer vers la corbeille du dossier runs (récupérable)", { action: "trash" }, "dans la corbeille", "danger");
+  const trash = add("trash", "Corbeille", "retirer cette image du fil (récupérable quelques secondes)", "danger");
+  trash.addEventListener("click", () => trashWithUndo(trash, figure, base));
   figure.appendChild(bar);
 }
 
@@ -1160,6 +1248,49 @@ async function newSession() {
 }
 
 // -------------------------------------------------------------------- chat --
+// The model that answered, named once (point 5). The header's tooltip, the
+// answer's footer and the local-model tab read this same value: before, the header
+// named the configured model (`auto/best-free`) while the answer came from another
+// one, and nothing on screen said so.
+function markServedModel(meta, bubble) {
+  const model = String((meta && meta.model) || "").trim();
+  if (!model) return;
+  const requested = String((meta && meta.requested) || "").trim();
+  const substituted = Boolean(meta && meta.substituted) || Boolean(requested && requested !== model);
+  const provider = String((meta && meta.provider) || "").trim();
+  state.servedModel = model;
+  state.requestedModel = requested;
+  const label = $("status-provider");
+  if (label) {
+    const version = String(label.textContent || "").trim() || "UH";
+    const tail = substituted
+      ? `modèle qui a répondu : ${model} (demandé : ${requested})`
+      : `modèle : ${model}`;
+    label.title = `${version} · fournisseur : ${provider} · ${tail}`;
+  }
+  if (bubble) {
+    let footer = bubble.querySelector(".answer-model");
+    if (!footer) {
+      footer = el("span", "answer-model");
+      bubble.appendChild(footer);
+    }
+    footer.textContent = substituted
+      ? `modèle qui a répondu : ${model} (demandé : ${requested})`
+      : `modèle : ${model}`;
+  }
+  markLocalModelTab();
+}
+
+// Same value in the local-model tab: the row that answered, not merely the default.
+function markLocalModelTab() {
+  const list = $("local-models");
+  if (!list) return;
+  for (const name of list.querySelectorAll(".local-model-name")) {
+    const label = String(name.textContent || "").trim();
+    name.classList.toggle("served", Boolean(state.servedModel) && label === state.servedModel);
+  }
+}
+
 function parseFrames(buffer, onEvent) {
   const blocks = buffer.replace(/\r\n/g, "\n").split("\n\n");
   const rest = blocks.pop();
@@ -1499,6 +1630,11 @@ async function sendMessage(text) {
               });
               bubble.appendChild(again);
             }
+          });
+        } else if (event === "answer_meta") {
+          guardedStep("answer_meta", () => {
+            // The model that answered, said once and used everywhere (point 5).
+            markServedModel(data, assistant);
           });
         } else if (event === "done") {
           guardedStep("done", () => {
@@ -6535,6 +6671,8 @@ async function loadLocalPanel() {
       });
       guide.appendChild(list);
       guide.appendChild(note);
+      // The row that answered keeps its marker across a reload of the tab.
+      markLocalModelTab();
     }
   }
   box.appendChild(guide);

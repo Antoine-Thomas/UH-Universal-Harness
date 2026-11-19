@@ -1565,6 +1565,29 @@ select:focus-visible {
 .tool-artifact-label { white-space: nowrap; }
 .tool-artifact-note { font-size: 11px; color: var(--muted); }
 
+/* One status line per figure (point 5): a block, so two states never glue into
+   one word, and the undo of a trash lives on that same line. */
+.tool-artifact-status { display: block; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.tool-artifact-undo {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.tool-artifact-btn.voted { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+/* The local model that actually answered, not merely the default one (point 5). */
+.local-model-name.served::after { content: " · a répondu"; color: var(--accent); }
+/* The image leaves the thread at once; the status line stays to offer « Annuler ». */
+.tool-artifact.trashed .tool-artifact-img { display: none; }
+
+/* Footer of an answer: which model actually spoke (point 5), same value as the
+   header and the local-model tab. */
+.answer-model { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+
 /* Badge de mode : lisible d'un coup d'oeil, cliquable, jamais decoratif. */
 .mode-badge {
   display: inline-flex;

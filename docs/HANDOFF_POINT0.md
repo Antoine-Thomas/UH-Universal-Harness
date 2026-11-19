@@ -128,6 +128,18 @@ limitée au dossier du run) passe avant tout le reste.
    fil** avec « Annuler » quelques secondes ; « Utile » / « Pas utile » exclusifs et
    réversibles ; libellé « noté, pas encore utilisé pour s'améliorer » ; en-tête et
    onglet « IA locale » d'accord sur le modèle qui a **réellement** répondu.
+   **Livré le 19/11** : une seule ligne de statut par image (`.tool-artifact-status`,
+   en bloc — les deux `<span>` collés faisaient « notée utilegardée ») ; « Corbeille »
+   retire l'image du fil immédiatement et propose **« Annuler » pendant 8 s**, l'annulation
+   passant par une action serveur `restore` qui retrouve le fichier **par provenance**
+   (sidecar de la corbeille) et refuse d'écraser ; votes exclusifs et réversibles
+   (`vote: "none"` journalisé, `aria-pressed`) ; libellé « noté (pas encore utilisé pour
+   s'améliorer) » ; `answer_meta` porte le modèle **servi** et le modèle **demandé**, et
+   la même valeur s'affiche dans le pied de la réponse, l'infobulle d'en-tête et l'onglet
+   « IA locale » (ligne marquée « · a répondu »). Mesuré en réel (session
+   `20261119-1646-40d3`) : `ANSWER_META … "substituted": false`, journal de votes
+   `["up","down","none"]`, corbeille → fichier absent, restauration → mêmes 15 240 octets
+   au même chemin.
 
 Le redémarrage d'UHB pendant un tour (ancien point 3) attend un « go » explicite.
 
