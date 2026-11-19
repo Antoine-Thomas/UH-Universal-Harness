@@ -1446,6 +1446,65 @@ utilisateur, une réponse lue avec sa forme d'onde dans la bulle, une voix clon�
 `ref_audio` (Voxtral) et **le même rendu par le repli XTTS-v2 clé absente** — et la
 suite UH verte, frames de tour inchangées.
 
+### Grille de validation avant push — remise à plat du 19/11
+
+**Le Point 5 ne clôt pas la stabilisation de l'interface.** C'est la correction de fond de
+cette section : une grille de validation qui s'arrêtait aux points 1-5 aurait validé une
+interface dont les moitiés média (audio, vision, fichiers) ne sont pas encore écrites. La
+clôture se juge donc sur l'ensemble, pas sur le dernier point livré.
+
+**Ce qui doit être implémenté avant la grille** (état au 19/11) :
+
+| lot | contenu | état |
+| --- | --- | --- |
+| Points 1-5 du relais | notices de fin de tour, porte de mode, relance code, garde `/api/uhb/mode`, cinq correctifs d'interface | **livrés** (`6f01af6`, `7d1013a`, `c007a5f`, `c4c3fed`, `52f5208`) |
+| P1-15 | micro dans la saisie, lecteur conditionnel avec onde, actions unifiées, Voxtral 3 → repli XTTS-v2 provisionné à l'installation | inscrit, non codé |
+| P1-14 | bouton « + » unifié (popup compact), vision multi-images 4K, vidéo MP4 H.264/H.265, avertissement de capacité du modèle en un clic, `.txt/.md/.json/.pdf/.csv/.html/.zip` | inscrit, non codé |
+| P1-13 | mémoire compressée des réussites (« Garder »/« Utile »), PNG/WebP lossless restituable en 4K, FLAC 24 bits stéréo | inscrit, non codé |
+| P1-12 | auto-nettoyage et auto-réparation UI/UX (temporaires, caches, orphelins) | inscrit, non codé |
+| binaires embarqués | ffmpeg statique épinglé + SHA-256, poids XTTS-v2, provisionnés à l'installation, retirés à la désinstallation | inscrit, non codé |
+
+**Référence visuelle pour le « + »** (capture du 19/11, `Desktop\Screen Shot 2026-11-19 at
+05.33.31.95 PM.png`) : un seul bouton dans la zone de saisie, popup compact listant
+« Ajouter des images » / « Ajouter des fichiers », micro à côté, envoi à droite. C'est le
+modèle d'encombrement à reproduire — une référence d'ergonomie, pas une dépendance.
+
+**Porte A — architecture et câblage, réécrits puis re-vérifiés.** Avant tout test de
+bout en bout :
+1. réécrire la description de l'architecture UI/UX (qui parle à qui : page, routes,
+   `ChatSession`, toolsets, UHB) pour qu'elle inclue les nouveaux lots, au lieu de la
+   laisser décrire l'interface d'avant ;
+2. revérifier chaque câblage, un par un : frames SSE (`open`, `token`, `answer`,
+   `answer_meta`, `tool_call`, `tool_result`, `artifacts`, `approval`, `notice`,
+   `mode_refused`, `error`, `done`), routes dédiées `/api/audio/*` et `/api/media/*`,
+   cohérence en-tête ↔ panneaux ↔ historique SQLite, et **zéro régression** sur les
+   fournisseurs, l'API et les `tool_calls` ;
+3. revérifier que les verrous déjà payés tiennent toujours : filtrage des outils par mode,
+   garde Origin/Host sur `/api/uhb/mode`, confinement atelier (écriture hors run, secrets,
+   subprocess), jamais de tour muet.
+Une régression ici arrête tout : elle se corrige avant la porte B, pas pendant.
+
+**Porte B — test dev complet, en conditions réelles, dans le cockpit.** Un seul passage,
+mais chaque ligne est constatée, pas racontée :
+- chat texte nominal (fournisseur, outils, SSE) et mode atelier avec exécution réelle ;
+- **plusieurs images 4K déposées sans un mot** → analyse automatique de chaque image,
+  temporaires purgés après lecture, image gardée restituable en 4K ;
+- **micro** : dictée → message utilisateur ordinaire ; **lecteur avec onde** uniquement
+  quand un son existe ; **clonage Voxtral 3**, puis **repli XTTS-v2 clé absente** ;
+- **vidéo `.mp4` H.264 et H.265** : images clés + bande son extraites, temporaire purgé ;
+- **Corbeille avec « Annuler »** : image retirée du fil, restaurée au clic, disparue après
+  la fenêtre ;
+- **mémoire compressée** : un clone et une image marqués « Garder » se réutilisent sans
+  appel au fournisseur, FLAC restitué en 24 bits stéréo, image en 4K ;
+- **auto-nettoyage / auto-réparation** : poids du dossier temporaire avant/après, zéro
+  orphelin en base, session rechargée sans lecteur vide ni carte fantôme ;
+- cohérence du modèle affiché (en-tête, pied de réponse, onglet « IA locale ») et
+  avertissement de capacité avec bascule en un clic.
+
+**Porte C — push.** Uniquement après A et B, avec un **« go » explicite** de l'opérateur
+**et** `UH_PUSH_OK=1` posé par lui dans l'environnement. Aucun `--no-verify` jamais, aucun
+push déclenché par un agent de sa propre initiative, un commit local par étape.
+
 ### Retours du 19/11 — mode d'exécution, câblage et barre d'images
 
 Constat de terrain : trois modèles différents ont refusé avec
@@ -1469,10 +1528,11 @@ propriété du processus UHB (`--mode`), sans route pour en changer à chaud.
 - **P1-11 — barre d'images : style et téléchargement livrés (f3dc767).** Cinq
   actions explicites — Garder, Utile, Pas utile, Télécharger, Corbeille — icônes
   SVG, libellé français, `aria-label` et infobulle. *Ouvert* : « Télécharger tout »
-  (zip des images de la conversation), annulation après mise à la corbeille, et un
+  (zip des images de la conversation), et un
   doublon du message assistant (« Le mouton a été dessiné… » deux fois, la seconde
   sans image après trois `patch error`) à instruire : rejeu d'historique ou bug
-  d'affichage.
+  d'affichage. *Livré depuis* : l'annulation après mise à la corbeille (`52f5208`,
+  « Annuler » 8 s + action `restore` par provenance).
 - **P1-13 — sémantique des pouces : ouvert.** Aujourd'hui le vote écrit une ligne
   locale (`~/.uh/artifact-ratings.jsonl`). À préciser dans l'interface : pour un
   modèle distant ce n'est **pas un entraînement**, c'est une mémoire réinjectée
