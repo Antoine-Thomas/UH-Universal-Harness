@@ -1441,3 +1441,35 @@ qu'après une contre-sonde réelle prouvant les quatre points — écriture hors
 refusée, lecture de `keys.toml` refusée, `subprocess` refusé, PNG `savefig` produit
 dans le dossier du run — puis devient « Atelier : exécute du code (dossier du run
 uniquement) ».
+
+**Livré le 19/11** (branche UHB `feat/atelier-confinement`, commit local `7ad854d` ;
+UH `fix/1.8.0-…`, commit local `7022f80`). Le venv atelier
+(`~/.uhb/atelier`, 3.11.9 + numpy 2.4.6 + matplotlib 3.11.2, **sans** fastapi) est
+annoncé dans `GET /status` (`execute.interpreter`, `execute.atelier`,
+`execute.confinement`), dans le contrat de l'outil et dans chaque résultat
+(`interpreter`), et traversé jusqu'à `GET /api/uhb/status` côté UH.
+
+Contre-sonde réelle, par l'interface (`POST /chat` SSE + carte d'approbation),
+session `20261119-1511-889f`, run `run-20261119-151200-762e8d` :
+
+| essai | résultat mesuré |
+| --- | --- |
+| écrire sur le Bureau | `REFUSED`, fichier absent après coup |
+| lire `~\.uh\keys.toml` | `REFUSED` |
+| lancer `subprocess` | `REFUSED` |
+| `savefig('test.png')` dans le run | `OK 7102 bytes`, PNG réel (`\x89PNG`) |
+
+Commande du run : `…\.uhb\atelier\Scripts\python.exe -I -B -X utf8 <run>\_uhb_runner.py`,
+exit 0, 1,031 s, artefact `test.png` remonté et affiché dans la bulle.
+Suites : UHB 395 passed / 9 skipped, UH verte ; ruff et mypy propres sur les
+fichiers touchés (mypy 0 erreur sur `execute.py`, `catalog.py`, `panel.py`,
+`server.py` ; les 39 erreurs mypy restantes de UHB sont préexistantes et hors de
+ces fichiers). Le libellé du badge est donc passé à « Atelier : exécute du code
+(dossier du run uniquement) ».
+
+**Reste ouvert après cette étape** : `ctypes` n'est pas bloqué (numpy et matplotlib
+chargent `kernel32` à l'import) — donc un snippet qui appelle l'API Win32 à la main
+sort encore du crochet ; un vrai bac à sable demande un jeton restreint Windows ou
+un conteneur, et c'est ce que l'installateur devra livrer pour pouvoir écrire
+« sandbox » un jour. Rien dans l'interface ne doit promettre plus que le tableau
+ci-dessus.
