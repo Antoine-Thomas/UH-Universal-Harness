@@ -1530,8 +1530,9 @@ Avant tout test de bout en bout :
    subprocess), jamais de tour muet.
 Une régression ici arrête tout : elle se corrige avant la porte B, pas pendant.
 
-**Porte B — test dev complet, en conditions réelles, dans le cockpit.** Un seul passage,
-mais chaque ligne est constatée, pas racontée :
+**Porte B — test dev complet, en conditions réelles, dans le cockpit.** **`DONE` le 19/11** — 24 lignes mesurées, 22 vertes au premier passage, 2 refaits après
+correction, et **trois défauts réels trouvés** (contexte Ollama, bande son vidéo envoyée
+comme image, modèle d'une session absent de l'en-tête) :
 - chat texte nominal (fournisseur, outils, SSE) et mode atelier avec exécution réelle ;
 - **plusieurs images 4K déposées sans un mot** → analyse automatique de chaque image,
   temporaires purgés après lecture, image gardée restituable en 4K ;

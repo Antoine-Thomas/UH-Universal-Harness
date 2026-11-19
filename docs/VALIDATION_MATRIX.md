@@ -128,10 +128,49 @@ Cette porte ne juge pas des fonctionnalités : elle vérifie que ce qui est livr
 | GA-6 | Les quatre verrous sont toujours câblés | `DONE` | `test_the_locks_the_relay_paid_for_are_still_wired` (porte de mode, garde Host/Origin, audithook atelier, isolation audio/média) + suites dédiées `test_mode_gate`, `test_uhb_mode_guard`, `test_audio_chain`, `test_turn_never_silent` |
 | GA-7 | Architecture UI/UX réécrite avec les lots livrés | `DONE` | `docs/ARCHITECTURE.md` : contrat des frames (13 types avec producteur et consommateur), les quatre verrous, la place de l'audio et du média « à côté » du tour, ce qui est stocké vs référencé, mémoire et nettoyage |
 
-**Reste pour la Porte B** : le test dev complet dans le cockpit (texte, atelier,
-lot d'images 4K sans prompt, micro + onde, Voxtral puis repli XTTS, `.mp4` H.264/H.265,
-corbeille avec Annuler, mémoire compressée, auto-nettoyage, cohérence du modèle affiché,
-avertissement de capacité avec bascule). Aucun push avant.
+## Porte B — banc d'essai dev complet (19/11, `DONE`)
+
+Un passage, 24 lignes mesurées sur le serveur lancé (`PYTHONPATH= UH_UHB_EXECUTE=1`).
+Chaque ligne est un chiffre lu dans une réponse HTTP, un fichier, le journal du serveur
+ou `ffprobe` — pas une impression. Tableau complet : `porte_b_table.md` (scratch du
+relais), résumé ici.
+
+**Trois défauts réels trouvés par le banc, corrigés avec leurs tests** :
+
+1. **Contexte Ollama** — trois images de 1536 px débordent le défaut de 8 192 jetons
+   (`request (9641 tokens) exceeds the available context size`). Le provider demande
+   maintenant la fenêtre **mesurée** (`/api/show`), bornée à 32 768 :
+   `tests/test_gate_b_media_fixes.py`.
+2. **Bande son d'une vidéo envoyée comme image** — Ollama répondait `Failed to load
+   image or audio file`. Les images clés partent seules ; la piste audio a sa propre
+   clé (`soundtrack`), pour la dictée : même fichier de test.
+3. **Modèle affiché d'une session** — l'en-tête annonçait le défaut global
+   (`auto/best-free`) pendant que la session tournait sur `qwen2.5:7b`. `/api/status`
+   accepte `session_id` et rend le couple de la session ; la page le demande :
+   `tests/test_status_scope.py`.
+
+Et deux lignes de banc qui accusaient le code à tort, corrigées côté banc (dit ici pour
+que personne ne « re-corrige » du code sain) : la purge lue **avant** que le thread worker
+ne l'ait faite (attendre 3 s), et un « sans jeton » qui portait quand même le jeton par
+l'en-tête par défaut du client HTTP.
+
+| Groupe | Lignes | Résultat mesuré |
+|---|---|---|
+| 1. Démarrage & mode chat | 4 | page + libellés servis ; tour streamé **sans aucune approbation** ; `offered` en chat sans `execute_code`/`write_file`/`patch` |
+| 2. Atelier & sécurité | 3 | bascule 200 (`mode=dev`) ; garde **401/403/403/403** + légitime 200 ; dessin PNG exécuté après **1 approbation** |
+| 3. Tour texte | 2 | frames `open, token, answer, answer_meta, done` ; `answer_meta` = statut de session = modèle demandé |
+| 4. Capacité & bascule | 3 | `capable=false` + perte annoncée ; premier candidat `ollama/qwen3.5:9b` ; bascule 200 → `capable=true` |
+| 5. Lot 4K sans prompt | 3 | analyse déclenchée sans texte ; mémoire **3000×1688 PNG** (12,9 Mo) sha OK ; copies `-sent` purgées sauf la gardée |
+| 6. Vidéo H.264 + H.265 | 2 | `turn_media images=10 kinds=['video','video']` ; images clés + bande son extraites puis purgées |
+| 7. Audio & dictée | 3 | synthèse `engine=xtts` (Voxtral 429 en amont) 2,04 s ; **FLAC 48 kHz / 2 canaux / 24 bits** ; dictée `engine=whisper` |
+| 8. Corbeille & votes | 2 | `up, down, none` journalisés dans l'ordre ; corbeille 200 (fichier absent) puis `restore` 200 (présent) |
+| 9. Auto-nettoyage | 2 | `derived: 0`, `unmentioned ≤ 2`, `missing: 0` ; poids identique avant/après (delta 0) |
+
+**Ménage de fin de banc** : sessions de test supprimées (17), dossiers d'uploads de
+sessions disparues retirés, entrées mémoire orphelines oubliées, `~/.uh/uploads` ramené
+de 216 Mo à 155 ko, `~/.uh/memory` à 0 entrée, `config.toml` restauré à l'octet.
+
+**Porte C** : à ta main. Aucun push n'a été fait.
 
 ## What is missing to be able to say "proven"
 
