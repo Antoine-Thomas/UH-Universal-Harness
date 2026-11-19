@@ -1269,13 +1269,58 @@ documentés dans `skills/autonomous-ai-agents/hermes-agent/references/hermes-age
 10-voice-transcription.md` ; deux chaînes existent déjà (`docs/siyuan/audit_voix.md`,
 `docs/pipeline/pipeline_video.py`, `docs/lexique/preparer_script_tts.py`).
 
-Deux réserves à lever **par mesure**, pas par confiance :
-- **aucun identifiant « voxtral 3 » n'existe sur ce disque** ; le modèle exact doit être
-  relu dans le catalogue du fournisseur au moment de l'implémentation, jamais deviné ;
-- **le clonage de voix n'est pas prouvé côté Voxtral** : les deux modèles mesurés sur
-  disque sont TTS et ASR. Soit le modèle expose un clonage et il se mesure, soit le
-  clonage passe par une chaîne locale déjà documentée (XTTS-v2 / VibeVoice, skill
-  `media/tts-voice-cloning`). Aucune promesse commerciale avant cette réponse.
+État des faits au 19/11, à ne pas confondre avec ce que porte le config de
+`hermes-home-vision` :
+- **les identifiants Voxtral 3 existent et sont documentés** —
+  `voxtral-mini-tts-3-0` (synthèse), `voxtral-small-transcribe-3-0` /
+  `voxtral-mini-transcribe-3-0` / `…-realtime-3-0` (transcription), preview publique
+  depuis le 20/10/2026, TTS facturé 13 $/1M caractères et transcription 0,0035 à
+  0,008 $/min (skill `mlops/tts-voice-cloning`, `references/voxtral-3-api.md`).
+  Le config d'`hermes-home-vision` porte encore la génération **précédente**
+  (`voxtral-mini-tts-2603`, `voxtral-mini-latest`) : l'implémentation lit le
+  catalogue Mistral, elle ne recopie pas ce fichier.
+- **le clonage est prouvé, et il ne demande aucun inventaire de voix** :
+  `POST /v1/audio/speech` avec `model="voxtral-mini-tts-3-0"` + `ref_audio` (base64
+  d'un WAV/MP3 de 2-3 s) clone la voix pour cette requête (mesuré : 1,4 s d'API pour
+  5,76 s d'audio, sortie **RIFF WAV brute**). Enregistrer une voix réutilisable
+  (`POST /v1/audio/voices`) est en revanche **fermé sur un compte gratuit** : HTTP
+  403 « Custom voices require an active paid plan ». Conséquence : `ref_audio`
+  d'abord, `voice_id` seulement si le compte est payant — et jamais une voix preset à
+  la place de la voix de l'opérateur (un test d'écoute avec une autre voix est un faux
+  résultat).
+- **la voix de référence est déjà validée** : `ref_ma_voix12_prompt.wav` (18,00 s,
+  24 kHz mono) et, pour le projet courant, `ref_ma_voix_v10_prompt.wav` (20,00 s,
+  19,25 % de silence interne) avec ses ancres tenues à l'écart.
+
+**Chaîne de voix, dans cet ordre — et elle se dégrade, jamais ne casse**
+1. **Voxtral 3 (Mistral)** si `MISTRAL_API_KEY` est présente : meilleure qualité,
+   clonage par `ref_audio`, aucune dépendance locale. C'est un service commercial —
+   donc le seul chemin compatible avec une chaîne monétisée.
+2. **Repli local XTTS-v2** si la clé manque, si le compte est coupé ou si l'appel
+   échoue (401/403/429/timeout) : `coqui-tts` dans un venv dédié
+   (`~/.uhb/xtts` sur le modèle de `~/.uhb/atelier`), torch épinglé, référence
+   10-30 s, `temperature=0.75 / speed=1.0`, 24 kHz mono. Mesures connues sur cette
+   machine : RTF 1,01x, VRAM pic 2,03 Go sur 8 Go.
+3. **Autre repli local sans clonage : Piper `fr_FR-tom-medium`** (binaire autonome,
+   MIT, CPU, déterministe, 40 s pour 6 min d'audio) quand une voix clonée n'est pas
+   nécessaire et que la licence doit rester propre.
+4. **Aucune voix du tout** si ni la clé ni les poids ne sont là : le bouton micro et
+   le lecteur audio disparaissent de l'interface, avec une ligne qui dit pourquoi —
+   jamais un échec silencieux, jamais une voix preset présentée comme un clone.
+
+**Licence, à trancher avant toute monétisation** (fait documenté, pas une opinion) :
+XTTS-v2 est sous **CPML, usage non commercial**, et Coqui a fermé en janvier 2024 —
+plus aucune licence commerciale n'est achetable ; les poids Voxtral auto-hébergeables
+n'existent pas (la version ouverte antérieure, `Voxtral-4B-TTS-2603`, est CC BY-NC 4.0
+et demande ≥ 16 Go de VRAM, impossible sur cette carte). Donc : produit monétisé →
+Voxtral (API) ; usage privé → XTTS-v2 ; et le réglage par défaut doit le dire.
+
+**Provisionnement à l'installation (demande de l'opérateur)** : les poids du repli
+local sont **téléchargés d'office à l'installation**, sans question ni téléchargement
+au premier lancement — mais **silencieux n'est pas caché** (règle d'installation déjà
+inscrite) : version épinglée, **SHA-256 vérifié**, une ligne dans le récapitulatif
+final (« Voix locale XTTS-v2 — 1,8 Go — `~/.uhb/xtts` »), et la désinstallation les
+retire. Fonctionne hors ligne ensuite, clé Mistral exceptée.
 
 **Verrou d'architecture (anti-régression) — la partie qui compte**
 - le pipeline audio vit derrière des routes dédiées `/api/audio/*` (transcription,
@@ -1295,8 +1340,9 @@ Deux réserves à lever **par mesure**, pas par confiance :
   et `uh/providers/`.
 
 **Preuve attendue avant de clore** : une dictée qui arrive dans le fil comme un message
-utilisateur, une réponse lue avec sa forme d'onde dans la bulle, une voix de référence
-réutilisée si le clonage est confirmé — et la suite UH verte, frames de tour inchangées.
+utilisateur, une réponse lue avec sa forme d'onde dans la bulle, une voix clonée par
+`ref_audio` (Voxtral) et **le même rendu par le repli XTTS-v2 clé absente** — et la
+suite UH verte, frames de tour inchangées.
 
 ### Retours du 19/11 — mode d'exécution, câblage et barre d'images
 
