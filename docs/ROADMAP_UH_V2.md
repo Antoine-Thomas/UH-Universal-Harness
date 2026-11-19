@@ -1253,6 +1253,20 @@ pour ne pas avoir à les recharger — un clone de voix réussi, un texte ou une
 
 ### P1-14 — pièces jointes multimodales
 
+**État au 19/11 (première moitié livrée, `54f9458`).** Bouton « + » unique et menu
+groupé (Images / Vidéo / Son / Documents / Dictée), glisser-déposer et collage
+conservés ; `uh/media/` réduit une 4K en copie `-sent.jpg` sous 1 Mo (original
+intact) et extrait images clés + bande son d'un `.mp4` ; `uh/capabilities.py` mesure
+la capacité auprès du fournisseur (Ollama `/api/show`, `input_modalities` du
+gateway, `capabilities.vision` chez Mistral) — inconnu = « non vérifiée » et traité
+comme aveugle ; `#media-warning` dit ce qui sera perdu et propose un modèle qui lit
+l'image en un clic ; des fichiers sans un mot deviennent une question normale
+(`attachments.AUTO_ANALYSIS`). Mesuré : 4K de 19 110 577 o → copie envoyée 536 531 o,
+`turn_media images=1` au journal, et une réponse qui relit le texte de l'image
+(`qwen3.5:9b`, 35,8 s). Restent ouverts : purge automatique après tour branchée sur
+l'interface (la fonction existe, l'appel n'est pas encore posé), multi-images
+au-delà de 6, et les combos vision d'OmniRouter qui répondent 404 aujourd'hui.
+
 État mesuré :
 - `POST /api/sessions/{session_id}/upload` existe (`uh/web/app.py:696`), plafond 20 Mo
   (`uh/attachments.py:36`).
