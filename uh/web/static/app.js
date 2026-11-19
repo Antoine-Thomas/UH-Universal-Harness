@@ -607,7 +607,10 @@ function updateGauge(messages) {
 
 // ------------------------------------------------------------------ status --
 async function loadStatus() {
-  const status = await api("/api/status");
+  // The session's own pair when there is one: a session can run on a different model
+  // than the global default, and the header must not announce the other one.
+  const query = state.sessionId ? `?session_id=${encodeURIComponent(state.sessionId)}` : "";
+  const status = await api(`/api/status${query}`);
   // Version only. "ollama · v1.5.1" read as "Ollama is required", which is false:
   // the provider is a choice, made in Configuration, and a user who runs a cloud
   // key should never be told a local model server is part of the deal.
@@ -856,6 +859,10 @@ async function loadModels() {
           : where,
         result && result.persisted === false ? "warn" : "ok"
       );
+      // The header names the model of THIS session (gate B: it kept announcing the
+      // global default while the session ran on another one).
+      await loadStatus().catch(() => {});
+      checkMediaFit();
     } catch (error) {
       // A refused switch changed nothing: put the selector back where it was.
       select.value = `${current.provider}/${current.id}`;

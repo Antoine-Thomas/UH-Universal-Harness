@@ -37,11 +37,40 @@ def _tool_calls_from(message: dict) -> List[dict]:
     return [call for call in calls if isinstance(call, dict)]
 
 
-def chat_options(params: dict) -> dict:
+#: Ollama's runtime context default is small (8192 on this machine) whatever the model
+#: card says - three 1536px images overflow it and the turn dies on a 400. Sending the
+#: measured context is what makes a vision turn fit; the cap keeps VRAM sane on an 8 GB
+#: card, where a 128k window would be the opposite failure.
+NUM_CTX_CAP = 32768
+
+
+def context_window(model: str) -> int:
+    """The window to ask Ollama for: the measured one, bounded, never a guess.
+
+    ``uh.capabilities`` reads ``model_info[…context_length]`` from ``/api/show``. An
+    unknown model gets ``0`` and no ``num_ctx`` at all - which keeps the previous
+    behaviour instead of inventing a number.
+    """
+    try:
+        from .. import capabilities as uh_caps
+
+        info = uh_caps.describe("ollama", model)
+    except Exception:  # noqa: BLE001 - a broken table must not break a request
+        return 0
+    context = info.get("context")
+    if not isinstance(context, int) or context <= 0:
+        return 0
+    return min(max(context, 4096), NUM_CTX_CAP)
+
+
+def chat_options(params: dict, model: str = "") -> dict:
     """Ollama's ``options`` block from the session's parameters.
 
     Only the keys ``/api/chat`` documents, and ``max_tokens`` becomes
     ``num_predict``: a field Ollama does not know is not "ignored", it is a 400.
+    ``num_ctx`` is added from the measured window: measured on this machine, three
+    1536-pixel images overflow the 8192 default and Ollama answers
+    ``request (9641 tokens) exceeds the available context size``.
     """
     options: dict = {}
     for key in ("temperature", "top_p", "frequency_penalty", "presence_penalty"):
@@ -49,6 +78,9 @@ def chat_options(params: dict) -> dict:
             options[key] = params[key]
     if "max_tokens" in params:
         options["num_predict"] = int(params["max_tokens"])
+    window = context_window(model) if model else 0
+    if window:
+        options["num_ctx"] = window
     return options
 
 
@@ -83,7 +115,7 @@ class OllamaProvider(Provider):
         }
         if tools:
             payload["tools"] = tools
-        options = chat_options(getattr(self, "request_params", {}) or {})
+        options = chat_options(getattr(self, "request_params", {}) or {}, model=str(self.model or ""))
         if options:
             payload["options"] = options
 

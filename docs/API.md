@@ -49,7 +49,7 @@ come back", which nothing else in the product could.
 | GET | `/favicon.ico` | — | `204`, empty. The page declares its icon as a data URI; this route answers the request a browser makes anyway (bookmark bar, "add to home screen") without a 404 in the console |
 | GET | `/apple-touch-icon.png` | — | `204`, empty — same rule as `/favicon.ico` |
 | GET | `/apple-touch-icon-precomposed.png` | — | `204`, empty — same rule as `/favicon.ico` |
-| GET | `/api/status` | — | `{version, provider, model, provider_error, sessions, store, schema_version, terminal, workspace}` |
+| GET | `/api/status?session_id=` | — | `{version, provider, model, provider_error, sessions, store, schema_version, terminal, workspace}` — le couple `provider`/`model` est celui de la **session** quand `session_id` est fourni, sinon le défaut global (Porte B : l'en-tête annonçait le défaut pendant qu'une session tournait sur un autre modèle) |
 | GET | `/api/commands` | — | `{commands: [{name, aliases, help, args, group}]}` |
 | GET | `/api/sessions` | `?limit=` | `{sessions: [{…, short_id}]}` |
 | POST | `/api/sessions` | `{title?}` | `{session: {…, short_id}}` |

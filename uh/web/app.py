@@ -502,14 +502,21 @@ def create_app(
 
     # -- status ------------------------------------------------------------ #
     @app.get("/api/status", dependencies=[Depends(require_token)])
-    async def status() -> dict:
+    async def status(session_id: str = "") -> dict:
         with _store(app) as store:
             sessions = len(store.list_sessions(limit=10_000))
             schema = store.schema_version
+        # Gate B found this: a session can run on a model of its own (`POST /api/model`
+        # with a session_id), and the header kept announcing the global default -
+        # exactly the "two models on screen" the interface rules forbid. Asking for a
+        # session's status gives that session's pair.
+        kind, model = app.state.kind, app.state.model
+        if session_id:
+            kind, model = app.state.session_models.get(session_id, (kind, model))
         return {
             "version": __version__,
-            "provider": app.state.kind,
-            "model": app.state.model,
+            "provider": kind,
+            "model": model,
             "provider_error": app.state.provider_error,
             "sessions": sessions,
             "store": str(app.state.settings.store_path),

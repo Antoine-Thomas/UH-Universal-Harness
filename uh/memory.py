@@ -115,11 +115,15 @@ def keep(
             facts = {"format": "flac", "bits": 24, "channels": 2}
     else:
         target = folder / f"{digest}.png"
-        facts = {}
         if not target.is_file():
             facts = _to_png(path, target)
         else:
-            facts = {"format": "png"}
+            # Already kept: the entry still has to say what it is worth. A re-keep that
+            # returned no dimensions made the interface show "None" (gate B, line 5.2).
+            from PIL import Image
+
+            with Image.open(target) as opened:
+                facts = {"format": "png", "width": opened.width, "height": opened.height}
 
     entry = {
         "sha256": digest,
@@ -133,6 +137,10 @@ def keep(
         "kept_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         **facts,
     }
+    # The digest of the copy is its identity on disk; the source digest is what the
+    # operator gave us. Both, because a re-encode is lossless in pixels and not in
+    # bytes - checking "the SHA-256" against the wrong one is a false alarm (gate B).
+    entry["sha256_stored"] = _sha256(target)
     _append(entry)
     return entry
 

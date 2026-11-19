@@ -247,12 +247,18 @@ def prepare(path: Path) -> Dict[str, Any]:
         info = video_info(path)
         frames = video_frames(path)
         soundtrack = video_audio(path)
-        for produced in frames + ([soundtrack] if soundtrack else []):
+        for produced in frames:
             _mark_owner(produced, path)
+        if soundtrack is not None:
+            _mark_owner(soundtrack, path)
         return {
             "kind": "video",
             "original": str(path),
-            "sent": [str(frame) for frame in frames] + ([str(soundtrack)] if soundtrack else []),
+            # Only the frames go to a vision model. The soundtrack is a WAV: sending it
+            # as an image is what made Ollama answer "Failed to load image or audio
+            # file" (gate B). It travels on its own key, for dictation.
+            "sent": [str(frame) for frame in frames],
+            "soundtrack": str(soundtrack) if soundtrack else "",
             "seconds": info["seconds"],
             "codec": info["codec"],
             "audio": bool(soundtrack),
