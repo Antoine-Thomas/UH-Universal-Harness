@@ -170,6 +170,7 @@ class FileToolset:
         self,
         workspace: str | os.PathLike[str] | None = None,
         allowed: list[Path] | None = None,
+        read_roots: list[Path] | None = None,
     ) -> None:
         self.workspace = (
             Path(workspace).expanduser().resolve() if workspace else default_workspace()
@@ -177,6 +178,10 @@ class FileToolset:
         # Writes may leave the workspace for a whitelisted directory; reads may
         # not, which keeps the model from wandering the disk.
         self.allowed = list(allowed) if allowed is not None else allowed_paths(self.workspace)
+        # Racines en LECTURE SEULE, en plus du workspace : les pieces jointes de la
+        # session vivent dans ~/.uh/uploads/<session>/, hors workspace. On ouvre ce
+        # dossier-la, jamais ~/.uh (keys.toml, mcp-secrets.toml, web-token y sont).
+        self.read_roots = [Path(root).expanduser().resolve() for root in (read_roots or [])]
         # read_pdf exists only when pypdf does: a tool that fails on every call is
         # worse than a tool that is not offered.
         self.tools = (TOOLS + [READ_PDF]) if pdf_available() else list(TOOLS)
@@ -237,6 +242,9 @@ class FileToolset:
         if resolved == self.workspace or resolved.is_relative_to(self.workspace):
             return resolved, None
         if not write:
+            for root in self.read_roots:
+                if resolved == root or resolved.is_relative_to(root):
+                    return resolved, None
             # Reading stays workspace-only: a write leaves files behind, a read
             # would let the model wander the disk for anything interesting.
             return None, {

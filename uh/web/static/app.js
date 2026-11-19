@@ -893,16 +893,33 @@ function wireModelToggle() {
 // Files are uploaded as they are dropped, not when Send is pressed: the server
 // decides inlined vs referenced at upload time, and the chip shows that decision
 // before the user commits the turn.
+function humanSize(bytes) {
+  const size = Number(bytes) || 0;
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} Mo`;
+  if (size >= 1024) return `${Math.round(size / 1024)} ko`;
+  return `${size} o`;
+}
+
+function kindLabel(attachment) {
+  const name = String(attachment.name || "").toLowerCase();
+  const mime = String(attachment.mime || attachment.type || "");
+  if (mime.startsWith("image/") || /\.(png|jpe?g|gif|svg|webp|bmp|heic)$/.test(name)) return "image";
+  if (mime.startsWith("video/") || name.endsWith(".mp4")) return "vidéo";
+  if (mime.startsWith("audio/") || /\.(mp3|wav|flac|ogg)$/.test(name)) return "son";
+  if (name.endsWith(".pdf")) return "PDF";
+  return "document";
+}
+
 function attachmentChip(attachment) {
   const chip = el("span", "attachment");
   chip.dataset.path = attachment.path;
   chip.appendChild(el("span", "attachment-name", attachment.name));
   chip.appendChild(
-    el("span", "attachment-meta", `${Math.round(attachment.size / 1024)} KB · ${attachment.status}`)
+    el("span", "attachment-meta", `${humanSize(attachment.size)} · ${kindLabel(attachment)}`)
   );
   chip.title = attachment.note || attachment.path;
   const drop = el("button", "attachment-remove", "×");
-  drop.setAttribute("aria-label", `Remove ${attachment.name}`);
+  drop.setAttribute("aria-label", `Retirer ${attachment.name}`);
   drop.addEventListener("click", () => {
     state.attachments = state.attachments.filter((item) => item.path !== attachment.path);
     renderAttachments();
@@ -1953,7 +1970,15 @@ async function sendMessage(text) {
   state.lastUserText = text;
   $("send").disabled = true;
   $("stop").disabled = false;
-  appendMessage("user", attachments.length ? `${text}\n\n[${attachments.length} file(s) attached]` : text);
+  // Le fil disait « [1 file(s) attached] » en anglais, sans nom ni taille : l'operateur ne
+  // savait pas ce qui avait ete envoye. Il liste maintenant les fichiers joints, en francais.
+  const attachedList = state.attachments
+    .map((item) => `${item.name} (${humanSize(item.size)}, ${kindLabel(item)})`)
+    .join(", ");
+  appendMessage(
+    "user",
+    attachments.length ? `${text}\n\n[fichier(s) joint(s) : ${attachedList}]` : text
+  );
   const assistant = appendMessage("assistant", "");
   // Held here instead of re-found later: `lastChild` stopped being the content
   // node once the Markdown swap ran, and `querySelector(".content")` returned

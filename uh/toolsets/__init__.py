@@ -39,6 +39,7 @@ __all__ = [
 def build_toolsets(
     workspace: str | os.PathLike[str] | None = None,
     notify: Any = None,
+    read_roots: list[Path] | None = None,
 ) -> Dict[str, object]:
     """Build the Jalon 1 toolset set, keyed by toolset name.
 
@@ -55,7 +56,7 @@ def build_toolsets(
     """
     ws = Path(workspace) if workspace is not None else None
     toolsets: Dict[str, object] = {
-        "file": FileToolset(workspace=ws),
+        "file": FileToolset(workspace=ws, read_roots=read_roots),
         "terminal": TerminalToolset(workspace=ws),
         "memory": MemoryToolset(),
         "web_search": WebSearchToolset(),

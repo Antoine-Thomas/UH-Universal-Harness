@@ -241,7 +241,12 @@ def _toolsets(app: FastAPI, web_search: bool = True, notify=None) -> dict:
     # leaving the browser waiting until its deadline (measured: 604 s, no answer).
     _expose_workshop_when_uhb_is_in_dev()
     workspace = getattr(app.state, "turn_workspace", None)
-    toolsets = build_toolsets(workspace or app.state.settings.workspace, notify=notify)
+    # Les pieces jointes de la session sont lisibles (lecture seule) par l'outil `file` :
+    # elles vivent hors workspace. `~/.uh` n'est jamais ouvert, seulement ce dossier.
+    roots = list(getattr(app.state, "turn_read_roots", None) or [])
+    toolsets = build_toolsets(
+        workspace or app.state.settings.workspace, notify=notify, read_roots=roots or None
+    )
     if not app.state.settings.allow_terminal:
         toolsets.pop("terminal", None)
     if not web_search:
@@ -1118,7 +1123,11 @@ def create_app(
         if declared > attachments.MAX_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail=f"the file is larger than {attachments.human_size(attachments.MAX_BYTES)}",
+                detail=(
+                    f"fichier trop lourd : la limite est de "
+                    f"{attachments.human_size(attachments.MAX_BYTES)} par pièce jointe. "
+                    "Compressez-le, découpez-le, ou joignez seulement la partie utile."
+                ),
             )
         chunks: list[bytes] = []
         total = 0
@@ -1128,8 +1137,9 @@ def create_app(
                 raise HTTPException(
                     status_code=413,
                     detail=(
-                        "the file is larger than "
-                        f"{attachments.human_size(attachments.MAX_BYTES)}"
+                        "fichier trop lourd : la limite est de "
+                        f"{attachments.human_size(attachments.MAX_BYTES)} par pièce jointe. "
+                        "Compressez-le, découpez-le, ou joignez seulement la partie utile."
                     ),
                 )
             chunks.append(chunk)
@@ -1307,6 +1317,7 @@ def create_app(
             # Built here, not before: an HTTP/SSE toolset needs `emit` to ask its
             # per-call approval on this turn's stream.
             app.state.turn_workspace = _workspace
+            app.state.turn_read_roots = [attachments.session_dir(session["id"])]
             toolsets = _toolsets(app, web_search=search_on, notify=emit)
             try:
                 from .. import mcp_http as uh_mcp_http
