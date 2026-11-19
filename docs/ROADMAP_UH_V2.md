@@ -379,7 +379,10 @@ sees while it runs. Items are listed with their state, not their ambition.
 - **Voice and text helpers** - TTS and dictation through the Web Speech API (no
   key, no cloud, degrades to absent where the browser lacks it), automatic session
   titles, prompt improvement, and an error explainer that reads a traceback and
-  says which cause is likely. *To do, in that order.*
+  says which cause is likely. *To do, in that order.* The **voice half of this
+  bullet is superseded by `P1-15`** (microphone, sound visual, voice cloning),
+  which is the single place that decides what the audio pipeline is; the other
+  three helpers stay here.
 
 Constraint for every item above: `pytest -q` stays green, the nightly task keeps
 working, and nothing here may require Ollama, a key, or a network call.
@@ -1169,7 +1172,7 @@ consoles work and perform together, then fuse. A fusion before that only moves t
 one binary. Nothing in P4-2/P4-3/P4-4 starts before `VALIDATION_MATRIX.md` has no OPEN or
 NOT STARTED row left for P0/P1/P2.
 
-## P1-11 → P1-14 — images du chat, rétention, feedback, multimodal (ouvert 2026-11-18)
+## P1-11 → P1-15 — images du chat, rétention, feedback, multimodal, audio (ouvert 2026-11-18)
 
 Déclencheur : T10 (premier tour web avec un vrai modèle, `qwen3:8b`) a produit des images
 dans `~/.uhb/runs` — elles s'affichent, mais l'expérience s'arrête là. Les quatre lots
@@ -1245,6 +1248,55 @@ coupure du destinataire laisse la ligne intacte.
 
 Contrainte : chacune de ces briques ajoute une dépendance lourde (poids whisper, décodage
 vidéo). Faisabilité et coût à mesurer **avant** d'écrire la première ligne.
+
+### P1-15 — audio, micro, visuel son et clonage de voix (Voxtral) — inscrit, non implémenté
+
+Demandé par l'opérateur le 19/11. **Rien n'est codé** : ce lot s'ouvre après la clôture
+des points 2 à 5 de `docs/HANDOFF_POINT0.md` **et** un « go » explicite.
+
+**Périmètre fonctionnel**
+1. un **bouton micro** dans la zone de saisie du chat : dictée → texte, qui entre dans le
+   fil comme un message utilisateur ordinaire ;
+2. un **lecteur audio avec visuel de son** (forme d'onde) dans les bulles de réponse ;
+3. **synthèse vocale et clonage de voix** via Voxtral (Mistral).
+
+**Référence technique — à inspecter en lecture seule avant la première ligne** :
+`C:/Users/searc/hermes-home-vision`. Ce qui y est réellement écrit au 19/11 :
+`profiles/watch/config.yaml` porte `model: voxtral-mini-tts-2603` (synthèse) et
+`model: voxtral-mini-latest` (audio → texte), valeurs reprises dans
+`docs/snapshot/config.yaml` ; la constante `MISTRAL_API_KEY` et le mode d'appel sont
+documentés dans `skills/autonomous-ai-agents/hermes-agent/references/hermes-agent-body/
+10-voice-transcription.md` ; deux chaînes existent déjà (`docs/siyuan/audit_voix.md`,
+`docs/pipeline/pipeline_video.py`, `docs/lexique/preparer_script_tts.py`).
+
+Deux réserves à lever **par mesure**, pas par confiance :
+- **aucun identifiant « voxtral 3 » n'existe sur ce disque** ; le modèle exact doit être
+  relu dans le catalogue du fournisseur au moment de l'implémentation, jamais deviné ;
+- **le clonage de voix n'est pas prouvé côté Voxtral** : les deux modèles mesurés sur
+  disque sont TTS et ASR. Soit le modèle expose un clonage et il se mesure, soit le
+  clonage passe par une chaîne locale déjà documentée (XTTS-v2 / VibeVoice, skill
+  `media/tts-voice-cloning`). Aucune promesse commerciale avant cette réponse.
+
+**Verrou d'architecture (anti-régression) — la partie qui compte**
+- le pipeline audio vit derrière des routes dédiées `/api/audio/*` (transcription,
+  synthèse, échantillon de voix). **Aucune** modification de `request_messages`, du
+  schéma des `tool_calls`, ni des frames SSE existantes (`token`, `answer`, `notice`,
+  `approval`, `mode_refused`, `artifacts`, `done`) ;
+- une dictée produit du **texte standard** : le fil SQLite ne reçoit qu'un message
+  `user` comme un autre — aucun champ propriétaire, aucun blob audio dans `messages` ;
+- l'audio n'est **pas** une dépendance du cœur : module optionnel chargé à la demande
+  (`uh/audio/…`, extra dédié). Sans lui, UH démarre et le bouton micro comme le lecteur
+  disparaissent — même dégradation honnête que la Web Speech API aujourd'hui ;
+- la synthèse écrit un **fichier** sous `$UH_HOME/uploads` (ou `outputs`) et le message
+  le référence ; jamais de base64 dans le fil ;
+- tests de non-régression obligatoires : un tour texte complet (fournisseur + outil +
+  SSE) doit produire **exactement** les mêmes frames et le même enregistrement, audio
+  activé ou non ; plus un test qui interdit toute importation audio dans `uh/agent.py`
+  et `uh/providers/`.
+
+**Preuve attendue avant de clore** : une dictée qui arrive dans le fil comme un message
+utilisateur, une réponse lue avec sa forme d'onde dans la bulle, une voix de référence
+réutilisée si le clonage est confirmé — et la suite UH verte, frames de tour inchangées.
 
 ### Retours du 19/11 — mode d'exécution, câblage et barre d'images
 
