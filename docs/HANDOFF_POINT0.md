@@ -74,6 +74,20 @@ limitée au dossier du run) passe avant tout le reste.
    « bonjour », **aucune** notice.
 2. En chat, un outil interdit n'est pas proposé — ou son refus produit
    `mode_refused` avec la carte. Aucune approbation pour un outil que le mode interdit.
+   **Livré le 19/11** : `uh/mode_gate.py` applique la vue lecture seule
+   (`read_only_view`) au seul point où les toolsets atteignent `run_turn`
+   (`_intent_toolsets`). En `chat`, l'offre mesurée est
+   `describe_tools, memory_read, read_file, search_files, uhb_modes, uhb_route,
+   uhb_status, web_search` ; `patch`, `write_file`, `memory_write`, `desktop_*` et
+   tous les `mcp__*` sont retirés. Un appel qui passe malgré tout (rejeu, invention)
+   revient typé `mode_forbidden` avec le mode, et `mode_refused_frame` en fait le
+   frame que la carte « Autoriser pour cette conversation » consomme. La porte
+   d'approbation n'est jamais atteinte : `Uhbtoolset.call` refuse avant, et
+   `explain_missing` n'est qu'une explication. Preuve par l'interface : session
+   `20261119-1534-0917`, `turn_offer` dans `~/.uh/uh-web.log` (mode=chat, 8 outils,
+   withheld non vide ; après passage en `dev`, offered complet, withheld=[]), et le
+   modèle lui-même énumère l'offre réduite sans qu'aucune approbation ne soit
+   demandée.
 3. Code brut au lieu d'un appel d'outil : relance automatique **prouvée jusqu'à
    l'exécution réelle**, avec limite de tentatives.
 4. `POST /api/uhb/mode` : garde Origin / Host / CSRF, test qu'aucun outil du modèle

@@ -491,6 +491,12 @@ class Uhbtoolset:
         #: second registry, and the two would drift the first time one changed.
         self.tools = list(TOOLS)
         self.remote: set[str] = set()
+        #: Tools UHB knows but does not publish to the mode it serves, with the
+        #: modes that do declare them. This is what turns "unknown tool" into a
+        #: typed `mode_forbidden` for the interface's « Autoriser » card (point 2).
+        self.blocked: Dict[str, Dict[str, Any]] = {}
+        #: The mode read once from `/status`, so `explain_missing` never asks twice.
+        self._mode: str = ""
         #: Bounds published by UHB for `execute_code.timeout` (``default`` and
         #: ``maximum``), captured from the catalogue so this file never carries a
         #: second copy of the clamp. Empty until a catalogue is read.
@@ -627,6 +633,15 @@ class Uhbtoolset:
                 continue
             in_process = (entry or {}).get("execution_type") == "in_process"
             if not in_process and not (name == EXECUTE_TOOL and execute_allowed):
+                # Not offered here — but if the reason is the mode, remember the
+                # name so a model that calls it anyway gets a `mode_forbidden`
+                # answer (with the modes that do declare it) instead of "unknown".
+                declared = entry.get("available_in")
+                if isinstance(declared, list) and declared:
+                    self.blocked[name] = {
+                        "available_in": [str(item) for item in declared],
+                        "execution_type": str(entry.get("execution_type") or ""),
+                    }
                 continue
             self.tools.append(
                 {
@@ -773,6 +788,55 @@ class Uhbtoolset:
         plan = compact_decision(payload)
         self.last_route = plan
         return plan
+
+    def current_mode(self) -> str:
+        """The mode UHB serves right now; empty when it cannot be read.
+
+        Read once: a mode is a property of the UHB *process*, so it cannot change
+        under a live toolset without a restart - and a restart rebuilds this
+        object anyway.
+        """
+        if self._mode:
+            return self._mode
+        try:
+            payload = self.status()
+        except Exception:  # noqa: BLE001 - a missing mode is not a broken turn
+            return ""
+        if isinstance(payload, dict) and payload.get("connected") and not payload.get("error"):
+            self._mode = str(payload.get("mode") or "")
+        return self._mode
+
+    def explain_missing(self, name: str) -> Optional[dict]:
+        """Why a tool UH does not offer is missing: the mode, or something else.
+
+        Returns a typed refusal when the mode is the cause — the payload the
+        browser turns into « Autoriser pour cette conversation » — and ``None``
+        when it is not (an unknown name, or a tool withheld by the
+        ``UH_UHB_EXECUTE`` switch, which `agent._execute` words differently).
+
+        No approval is asked here, and none can be: this answers a call that was
+        never offered, so there is nothing to authorise. Asking the operator
+        whether a forbidden tool may run would be a question with one honest
+        answer.
+        """
+        entry = self.blocked.get(name)
+        if entry is None:
+            return None
+        mode = self.current_mode()
+        declared = list(entry.get("available_in") or [])
+        where = f" (déclaré dans : {', '.join(declared)})" if declared else ""
+        return {
+            "error": (
+                f"`{name}` est publié par UHB, mais le mode « {mode or 'courant'} » "
+                f"ne l'autorise pas{where}. Le changement de mode redémarre UHB : "
+                "utilise la carte « Autoriser pour cette conversation »."
+            ),
+            "type": "forbidden",
+            "tool": name,
+            "reason": "mode_forbidden",
+            "mode": mode,
+            "available_in": declared,
+        }
 
     def describe_tools(self, name: str = "", mode: str = "") -> dict:
         """What UHB can do, and whether this mode allows it. Never executes anything.

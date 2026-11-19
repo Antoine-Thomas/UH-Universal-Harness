@@ -255,8 +255,32 @@ def _argument_problem(toolset: "Toolset", name: str, args: dict) -> Optional[str
     return None
 
 
+def _missing_explanation(toolsets: Optional[Dict[str, "Toolset"]], name: str) -> Optional[dict]:
+    """Ask the toolsets whether the *mode* is why this tool is missing.
+
+    A toolset that knows its mode answers with a typed refusal naming it; the
+    others have nothing to say. One loopback question on an error path, never on
+    a normal call — and it grants nothing: an explanation is not a permission.
+    """
+    for toolset in (toolsets or {}).values():
+        explain = getattr(toolset, "explain_missing", None)
+        if not callable(explain):
+            continue
+        try:
+            answer = explain(name)
+        except Exception:  # noqa: BLE001 - an explanation never breaks a turn
+            continue
+        if isinstance(answer, dict) and answer:
+            return answer
+    return None
+
+
 def _execute(
-    index: Dict[str, "Toolset"], name: str, args: dict, call_id: str = ""
+    index: Dict[str, "Toolset"],
+    name: str,
+    args: dict,
+    call_id: str = "",
+    toolsets: Optional[Dict[str, "Toolset"]] = None,
 ) -> tuple[dict, bool]:
     """Run one tool, always returning a ``role: tool`` message and a refusal flag.
 
@@ -280,7 +304,14 @@ def _execute(
             "tool": name,
             "reason": "unknown_tool",
         }
-        if name == "execute_code":
+        # The mode is the cause more often than the name is wrong: a model replays
+        # a tool it saw in a previous mode. Ask the toolset that knows, so the
+        # refusal names the mode and the interface can offer « Autoriser » (point
+        # 2) instead of an anonymous "unknown tool".
+        explanation = _missing_explanation(toolsets, name)
+        if explanation is not None:
+            payload.update(explanation)
+        elif name == "execute_code":
             # The one absence that has a precise, actionable cause. "Not allowed
             # in this mode" sent the operator looking at modes and personas for
             # an hour: the tool is published only when the process that serves
@@ -475,7 +506,7 @@ def run_turn(
 
         for call in calls:
             call_id, name, args = _split_call(call)
-            result, refused = _execute(index, name, args, call_id)
+            result, refused = _execute(index, name, args, call_id, toolsets)
             history.append(result)
             if not refused:
                 continue

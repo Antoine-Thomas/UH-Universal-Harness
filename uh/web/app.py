@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import json
 import logging
 import os
 import re
@@ -859,22 +858,11 @@ def create_app(
                     # it into one card whose button grants execution and re-sends the
                     # turn. Without it the user is told "switch to dev" and has to
                     # find a control - the exact dead end reported on 19/11.
-                    content = str(event.get("content") or "")
-                    if "mode_forbidden" in content:
-                        refused_mode = ""
-                        try:
-                            detail = json.loads(content)
-                            refused_mode = str(detail.get("mode") or "")
-                        except (TypeError, ValueError):
-                            refused_mode = ""
-                        loop.call_soon_threadsafe(
-                            queue.put_nowait,
-                            {
-                                "type": "mode_refused",
-                                "tool": name,
-                                "mode": refused_mode or "chat",
-                            },
-                        )
+                    from .. import mode_gate as uh_mode_gate
+
+                    refused = uh_mode_gate.mode_refused_frame(name, event.get("content"))
+                    if refused is not None:
+                        loop.call_soon_threadsafe(queue.put_nowait, refused)
                 elif kind == "error":
                     turn_reason = "error"
                     turnlog.event("turn_error", turn=turn_id, detail=str(event.get("message") or "")[:200])
@@ -912,6 +900,16 @@ def create_app(
                 toolsets.update(uh_mcp_http.build_toolsets(notify=emit))
             except Exception:  # noqa: BLE001 - a remote server never breaks a turn
                 pass
+            # Point 2: the mode decides what may be *offered*. UH reads it from the
+            # UHB toolset (one cached /status); an unreachable UHB means an unknown
+            # mode, and an unknown mode never narrows anything by guesswork.
+            mode = ""
+            current = getattr(toolsets.get("uhb"), "current_mode", None)
+            if callable(current):
+                try:
+                    mode = str(current() or "")
+                except Exception:  # noqa: BLE001 - a mode is never worth a turn
+                    mode = ""
             try:
                 store = Store(app.state.settings.store_path)
                 session_obj = ChatSession(
@@ -931,6 +929,7 @@ def create_app(
                     console=Console(stream=io.StringIO(), err=io.StringIO()),
                     extra_system=skill_block,
                     params=chat_params,
+                    mode=mode,
                 )
                 session_obj.events = emit
                 app.state.active[session["id"]] = session_obj
@@ -955,6 +954,16 @@ def create_app(
                 emit({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
             finally:
                 app.state.active.pop(session["id"], None)
+                # What the model was actually offered, and what the mode withheld:
+                # one line per turn, so "the gate is real" is a measurement in the
+                # log rather than a sentence in a prompt (point 2).
+                turnlog.event(
+                    "turn_offer",
+                    turn=turn_id,
+                    mode=mode or "unknown",
+                    offered=list(getattr(session_obj, "last_offered", []) or []),
+                    withheld=list(getattr(session_obj, "last_withheld", []) or []),
+                )
                 turnlog.event(
                     "turn_end",
                     turn=turn_id,

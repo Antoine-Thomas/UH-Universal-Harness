@@ -29,6 +29,7 @@ from typing import Any, Callable, Dict, List, Optional
 from . import config as uh_config
 from . import decision as uh_decision
 from . import intent as uh_intent
+from . import mode_gate as uh_mode_gate
 from . import sandbox
 from . import skill_prefs as uh_skill_prefs
 from . import skills as uh_skills
@@ -403,6 +404,7 @@ class ChatSession:
         extra_system: str = "",
         params: Optional[dict] = None,
         role: Optional[dict] = None,
+        mode: str = "",
     ) -> None:
         self.provider_factory = provider_factory
         self.provider_kind = provider_kind
@@ -422,6 +424,15 @@ class ChatSession:
         self.max_iterations = max_iterations
         # Last automatic selection, for the decision journal (None when the flag is off).
         self.last_intent: Optional[dict] = None
+        #: The UHB mode this turn runs under, when the caller knows it ("chat",
+        #: "dev", …). Empty means "unknown": the mode gate then stays open, because
+        #: guessing a read-only profile would withhold tools for no reason.
+        self.mode: str = str(mode or "")
+        #: Tool names the mode withheld from this turn's offer (point 2).
+        self.last_withheld: list[str] = []
+        #: Tool names this turn was actually offered, for the turn log: the
+        #: measurement that says the gate is real, not a sentence in a prompt.
+        self.last_offered: list[str] = []
         self.session_id = session_id
         self.announce = announce
         self.console = console or Console()
@@ -534,6 +545,38 @@ class ChatSession:
         return overlay
 
     def _intent_toolsets(self, base: list[dict]) -> dict:
+        """The toolsets this turn is offered — router's choice, then the mode gate.
+
+        Two filters, in this order and never merged:
+
+        1. the intent router says what is *relevant* (`_selected_toolsets`);
+        2. the current mode says what is *allowed* at all (`_mode_toolsets`).
+
+        Both only decide what is offered. The model still decides whether to call,
+        and UHB still decides whether it may run: offering is not granting.
+        """
+        return self._mode_toolsets(self._selected_toolsets(base))
+
+    def _mode_toolsets(self, toolsets: dict) -> dict:
+        """In a read-only mode, offer only what that mode can allow (point 2).
+
+        `chat` cannot write, so offering `write_file`, `patch`, `terminal` or a
+        remote MCP tool asks the model to knock on a door that is already locked:
+        one paid provider call, one refusal, and an operator who learns nothing.
+        The withheld names are kept for the decision journal, not for the model.
+        """
+        # `getattr`: a session built by hand (tests, a future caller that skips
+        # __init__) has no `mode`, and an unknown mode must never break a turn.
+        mode = str(getattr(self, "mode", "") or "")
+        if not uh_mode_gate.is_read_only(mode):
+            self.last_offered = uh_mode_gate.offered_names(toolsets)
+            return toolsets
+        kept, withheld = uh_mode_gate.read_only_view(toolsets, mode)
+        self.last_withheld = withheld
+        self.last_offered = uh_mode_gate.offered_names(kept)
+        return kept
+
+    def _selected_toolsets(self, base: list[dict]) -> dict:
         """The toolsets this turn is offered — the router's choice, or all of them.
 
         Three responsibilities stay separate: the router says what is *relevant*,
