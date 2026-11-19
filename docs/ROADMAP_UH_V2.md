@@ -1336,6 +1336,18 @@ sur le modèle vision proposé → analyse réelle dans le même tour, en-tête 
 Demandé par l'opérateur le 19/11. **Rien n'est codé** : ce lot s'ouvre après la clôture
 des points 2 à 5 de `docs/HANDOFF_POINT0.md` **et** un « go » explicite.
 
+**État au 19/11 — première moitié livrée.** Le paquet `uh/audio/` existe (chaîne
+Voxtral → XTTS-v2 → Piper → refus qui nomme chaque tentative), les quatre routes
+`/api/audio/*` sont en place, la dictée passe par faster-whisper local, et l'interface a
+le micro, le lecteur **conditionnel** avec forme d'onde réelle, la barre d'actions
+unifiée et les deux pouces généralisés aux réponses texte. Mesures : `speak` →
+`engine=xtts` (Voxtral répond **429** sur cette clé, TTS et STT), `transcribe` →
+`engine=whisper` en 1,7 s, clip de 173 644 o servi en `audio/wav`, `keep/trash/restore`
+200 avec le fichier qui part et revient, et un tour texte qui émet toujours
+`open, token, answer, answer_meta, done` (aucune frame audio). Restent ouverts :
+provisionnement XTTS/Piper par l'installateur, voix Piper absente (donc 3ᵉ moteur non
+prouvé), et aucune synthèse Voxtral réussie observée sur ce compte.
+
 **Périmètre fonctionnel**
 1. un **bouton micro** dans la zone de saisie du chat : dictée → texte, qui entre dans le
    fil comme un message utilisateur ordinaire ;

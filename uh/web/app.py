@@ -764,6 +764,79 @@ def create_app(
 
         return uh_artifacts.empty_trash()
 
+    # -- audio ------------------------------------------------------------- #
+    # P1-15. Every audio path is its own route, and the package they use is
+    # imported inside the handler: UH starts, chats and runs tools with no audio
+    # engine at all, and a broken one cannot reach the text turn.
+    @app.get("/api/audio/capabilities", dependencies=[Depends(require_token)])
+    async def audio_capabilities() -> dict:
+        """Which engines can run here - and the sentence explaining the ones that cannot."""
+        from .. import audio as uh_audio
+
+        return uh_audio.capabilities()
+
+    @app.post("/api/audio/transcribe", dependencies=[Depends(require_token)])
+    async def audio_transcribe(
+        request: Request, session_id: str = "", name: str = "clip.wav", language: str = "fr"
+    ) -> dict:
+        """A recorded clip in, plain text out: what the composer inserts.
+
+        The body is the audio itself (raw bytes), not multipart: the page has a Blob,
+        and this keeps `python-multipart` out of the dependencies. The answer is text
+        only - the caller turns it into an ordinary user message, which is the whole
+        anti-regression rule of this lot.
+        """
+        from .. import audio as uh_audio
+
+        data = await request.body()
+        try:
+            result = uh_audio.transcribe(
+                data, filename=name, language=language, session_id=session_id or "audio"
+            )
+        except uh_audio.AudioUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return result
+
+    @app.post("/api/audio/speak", dependencies=[Depends(require_token)])
+    async def audio_speak(payload: dict) -> dict:
+        """Text in, one WAV file out, with the reference the thread keeps instead of bytes."""
+        from .. import audio as uh_audio
+
+        body = payload or {}
+        text = str(body.get("text") or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="text is required")
+        reference = str(body.get("reference") or "").strip()
+        reference_wav = None
+        if reference:
+            try:
+                reference_wav = uh_audio.resolve_upload(reference)
+            except uh_audio.AudioUnavailable as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            clip = uh_audio.speak(
+                text,
+                voice=str(body.get("voice") or "") or None,
+                session_id=str(body.get("session_id") or "audio"),
+                reference_wav=reference_wav,
+            )
+        except uh_audio.AudioUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return clip
+
+    @app.get("/api/audio/file", dependencies=[Depends(require_token)])
+    async def audio_file(path: str = "") -> FileResponse:
+        """One stored clip, and only inside the uploads root."""
+        from .. import audio as uh_audio
+
+        try:
+            target = uh_audio.resolve_upload(path)
+        except uh_audio.AudioUnavailable as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if target.suffix.lower() not in uh_audio.AUDIO_SUFFIXES:
+            raise HTTPException(status_code=400, detail="not an audio file")
+        return FileResponse(str(target), media_type="audio/wav", filename=target.name)
+
     # -- attachments ------------------------------------------------------- #
     # Raw-body upload, not multipart: FastAPI needs ``python-multipart`` for form
     # uploads, which is not in the ``[web]`` extra. A Blob posted as the body with

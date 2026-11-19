@@ -104,9 +104,11 @@
       <div id="llm-badge" class="skill-badge llm-badge" hidden></div>
 
       <div id="attachments" class="attachments" aria-live="polite"></div>
+      <p id="mic-status" class="mic-status" aria-live="polite" hidden></p>
 
       <form id="composer" class="composer">
         <button type="button" id="attach" class="icon-button" title="Attach files" aria-label="Attach files">📎</button>
+        <button type="button" id="mic" class="icon-button" title="Dicter (micro)" aria-label="Dicter un message" hidden>🎙️</button>
         <button type="button" id="skill-open" class="skill-open" title="Attacher un skill à ce tour" aria-label="Skill">⚑</button>
         <button type="button" id="llm-open" class="skill-open" title="Réglages de la conversation" aria-label="Réglages de la conversation">🎚</button>
         <input id="files" name="files" class="visually-hidden" type="file" multiple

@@ -52,8 +52,12 @@ def runs_root() -> Path:
     return Path(RUNS_ROOT).expanduser()
 
 
-def _resolved_inside(path: Path) -> Optional[Path]:
-    """The file's real path when it lives under the runs root, else None.
+def uh_home() -> Path:
+    return Path(os.environ.get("UH_HOME") or (Path.home() / ".uh"))
+
+
+def _resolved_inside(path: Path, root: Optional[Path] = None) -> Optional[Path]:
+    """The file's real path when it lives under ``root`` (the runs root by default).
 
     ``realpath`` first: a symlink inside the tree that points outside is out.
     """
@@ -61,12 +65,23 @@ def _resolved_inside(path: Path) -> Optional[Path]:
         real = Path(os.path.realpath(path))
     except OSError:
         return None
-    root = Path(os.path.realpath(runs_root()))
+    base = Path(os.path.realpath(root if root is not None else runs_root()))
     try:
-        real.relative_to(root)
+        real.relative_to(base)
     except ValueError:
         return None
     return real
+
+
+def _root_for(provenance: Dict[str, Any]) -> Path:
+    """Which of the two allowed roots a provenance means.
+
+    ``runs`` by default; ``uploads`` only when asked for by name - so a caller can
+    reach a voice clip without being able to point the guard at any other folder.
+    """
+    if str((provenance or {}).get("root") or "").strip().lower() == "uploads":
+        return uh_home() / "uploads"
+    return runs_root()
 
 
 def resolve(provenance: Dict[str, Any]) -> Path:
@@ -75,8 +90,14 @@ def resolve(provenance: Dict[str, Any]) -> Path:
     Accepts ``{"path": ...}`` or ``{"run_dir": ..., "relative": ...}``. Both are
     checked, never trusted: a relative part with ``..`` in it is refused by the
     same ``relative_to`` as an absolute path outside the root.
+
+    ``{"root": "uploads"}`` is the second door, opened for P1-15: a synthesised voice
+    clip is legitimately stored under ``$UH_HOME/uploads``, not in a run. It is not a
+    hole - the path is still resolved inside one root, chosen by name, never by the
+    caller's string (an unknown root falls back to ``runs``).
     """
     raw = str((provenance or {}).get("path") or "").strip()
+    root = _root_for(provenance)
     if not raw:
         run_dir = str((provenance or {}).get("run_dir") or "").strip()
         relative = str((provenance or {}).get("relative") or "").strip()
@@ -84,7 +105,7 @@ def resolve(provenance: Dict[str, Any]) -> Path:
             raise ArtifactActionError("this image has no file on disk to act on")
         raw = str(Path(run_dir) / relative)
     candidate = Path(raw).expanduser()
-    real = _resolved_inside(candidate)
+    real = _resolved_inside(candidate, root)
     if real is None:
         raise ArtifactActionError(
             "refused: the file is outside the run directory, so nothing was touched"
@@ -162,7 +183,7 @@ def _wanted(provenance: Dict[str, Any]) -> Path:
         if not run_dir or not relative:
             raise ArtifactActionError("this image has no file on disk to act on")
         raw = str(Path(run_dir) / relative)
-    real = _resolved_inside(Path(raw).expanduser())
+    real = _resolved_inside(Path(raw).expanduser(), _root_for(provenance))
     if real is None:
         raise ArtifactActionError(
             "refused: the file is outside the run directory, so nothing was touched"

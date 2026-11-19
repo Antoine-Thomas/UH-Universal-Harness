@@ -120,6 +120,91 @@ async function deleteMessage(box) {
 
 // A message id is optional: live tokens arrive before the row exists in the
 // store, and a bubble you cannot name is a bubble you cannot delete.
+// Two thumbs on a text answer: same route, same journal, same honest sentence as an
+// image. The vote carries the message id so the journal can point at what was read.
+function textFeedback(box) {
+  const bar = el("div", "text-feedback");
+  const status = el("span", "tool-artifact-status");
+  const buttons = [];
+  for (const [vote, label, title] of [
+    ["up", "Utile", "réponse utile : notée comme exemple à reproduire"],
+    ["down", "Pas utile", "réponse à éviter : notée comme contre-exemple"],
+  ]) {
+    const button = el("button", "tool-artifact-btn", label);
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.dataset.vote = vote;
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", async () => {
+      const current = bar.dataset.vote || "";
+      const wanted = current === vote ? "none" : vote;
+      status.textContent = "…";
+      try {
+        const response = await fetch("/api/artifacts/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "rate",
+            vote: wanted,
+            session_id: state.sessionId || "",
+            message_id: box.dataset.messageId || null,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+        bar.dataset.vote = wanted === "none" ? "" : wanted;
+        for (const node of buttons) {
+          const active = Boolean(bar.dataset.vote) && node.dataset.vote === bar.dataset.vote;
+          node.setAttribute("aria-pressed", active ? "true" : "false");
+          node.classList.toggle("voted", active);
+        }
+        status.textContent = wanted === "none" ? "vote retiré" : VOTE_NOTE;
+      } catch (error) {
+        status.textContent = `refusé : ${error.message}`;
+      }
+    });
+    buttons.push(button);
+    bar.appendChild(button);
+  }
+  bar.appendChild(status);
+  box.appendChild(bar);
+  return bar;
+}
+
+// Read an answer aloud. The synthesis is what creates the sound, so the player only
+// appears once a file really exists - the conditional rule, applied to its origin.
+function speakBox(box, text) {
+  const bar = el("div", "answer-audio");
+  const button = el("button", "tool-artifact-btn", "Écouter");
+  button.type = "button";
+  button.title = "lire cette réponse à voix haute";
+  button.setAttribute("aria-label", "lire cette réponse à voix haute");
+  button.addEventListener("click", async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    const status = el("span", "tool-artifact-status", "synthèse…");
+    bar.appendChild(status);
+    try {
+      const payload = await api("/api/audio/speak", {
+        method: "POST",
+        body: JSON.stringify({
+          text: String(text || "").slice(0, 2000),
+          session_id: state.sessionId || "",
+        }),
+      });
+      status.remove();
+      drawAudio(box, [payload], { sessionId: state.sessionId });
+      bar.remove();
+    } catch (error) {
+      status.textContent = `voix impossible : ${error.message}`;
+      button.disabled = false;
+    }
+  });
+  bar.appendChild(button);
+  box.appendChild(bar);
+}
+
 function appendMessage(role, text, messageId) {
   const box = el("div", `msg ${role}`);
   if (messageId !== undefined && messageId !== null) {
@@ -141,6 +226,13 @@ function appendMessage(role, text, messageId) {
     content.textContent = text;
   }
   box.appendChild(content);
+  if (role === "assistant") {
+    // Point 5 generalised: a text answer deserves the same two thumbs as an image,
+    // and the same honest sentence about what a vote does today.
+    textFeedback(box);
+    // P1-15: read the answer aloud. The player appears only once a sound exists.
+    speakBox(box, text);
+  }
   $("messages").appendChild(box);
   $("messages").scrollTop = $("messages").scrollHeight;
   return box;
@@ -489,6 +581,7 @@ function renderHistory(messages) {
       const box = appendMessage(role, message.content || "", message.id);
       if (Array.isArray(message.artifacts) && message.artifacts.length) {
         drawArtifacts(box, message.artifacts);
+        drawAudio(box, message.artifacts, { sessionId: state.sessionId });
       }
     }
   }
@@ -1245,6 +1338,184 @@ async function newSession() {
   updateGauge([]);
   await loadSessions();
   $("input").focus();
+}
+
+// ------------------------------------------------------------------ audio -- P1-15
+// Three rules from the roadmap, and they are visible here:
+//   * the microphone exists only if an engine can dictate (`stt`), and it says so
+//     when it cannot - a button that fails silently is worse than no button;
+//   * the player is CONDITIONAL: a bubble shows one only when a sound really exists
+//     for that message (recorded, uploaded, synthesised). No empty player ever;
+//   * an audio render carries the same action bar as an image, with the same
+//     exclusive votes and the same bin-with-undo, because it is the same code.
+function audioArtifacts(list) {
+  return (Array.isArray(list) ? list : []).filter(
+    (item) => item && String(item.kind || "").toLowerCase() === "audio" && item.url
+  );
+}
+
+// A real waveform, drawn from the decoded samples: a decorative bar chart would be
+// a lie about what the sound contains.
+function drawWaveform(canvas, url) {
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  const paint = (peaks) => {
+    const width = canvas.width;
+    const height = canvas.height;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = getComputedStyle(document.body).getPropertyValue("--accent") || "#0c9f93";
+    const middle = height / 2;
+    const step = Math.max(1, Math.floor(peaks.length / width));
+    for (let x = 0; x < width; x += 1) {
+      const peak = peaks[Math.min(peaks.length - 1, x * step)] || 0;
+      const bar = Math.max(1, Math.round(peak * (height - 2)));
+      context.fillRect(x, middle - bar / 2, 1, bar);
+    }
+  };
+  const flat = () => paint(new Array(120).fill(0.08));
+  flat();
+  fetch(url, { credentials: "same-origin" })
+    .then((response) => response.arrayBuffer())
+    .then((buffer) => {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return flat();
+      return new Ctx().decodeAudioData(buffer).then((decoded) => {
+        const channel = decoded.getChannelData(0);
+        const buckets = 240;
+        const size = Math.floor(channel.length / buckets) || 1;
+        const peaks = [];
+        for (let index = 0; index < buckets; index += 1) {
+          let peak = 0;
+          for (let cursor = 0; cursor < size; cursor += 1) {
+            const value = Math.abs(channel[index * size + cursor] || 0);
+            if (value > peak) peak = value;
+          }
+          peaks.push(peak);
+        }
+        paint(peaks);
+      });
+    })
+    .catch(() => flat());
+}
+
+function drawAudio(container, artifacts, context) {
+  for (const artifact of audioArtifacts(artifacts)) {
+    const figure = el("figure", "tool-artifact audio");
+    const player = el("audio", "audio-player");
+    player.controls = true;
+    player.preload = "none";
+    player.src = artifact.url;
+    figure.appendChild(player);
+    const canvas = el("canvas", "audio-wave");
+    canvas.width = 320;
+    canvas.height = 40;
+    canvas.setAttribute("aria-hidden", "true");
+    figure.appendChild(canvas);
+    drawWaveform(canvas, artifact.url);
+    const engine = String(artifact.engine || "");
+    const seconds = Number(artifact.seconds || 0);
+    const caption = [`${seconds ? seconds.toFixed(1) + " s" : "audio"}`];
+    if (engine) caption.push(engine === "voxtral" ? "Voxtral 3" : engine === "xtts" ? "XTTS-v2 (local)" : engine);
+    figure.appendChild(el("figcaption", "tool-artifact-note", caption.join(" · ")));
+    artifactToolbar(figure, artifact, context);
+    container.appendChild(figure);
+  }
+}
+
+// The mic: record, ask the transcribe route, insert PLAIN TEXT. Nothing about the
+// audio reaches the turn - that is the anti-regression promise of this lot.
+let recorder = null;
+let recorderChunks = [];
+
+function micStatus(text) {
+  const box = $("mic-status");
+  if (box) {
+    box.textContent = text || "";
+    box.hidden = !text;
+  }
+}
+
+async function toggleMic() {
+  const button = $("mic");
+  if (recorder && recorder.state === "recording") {
+    recorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    micStatus("Ce navigateur ne sait pas enregistrer le micro.");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (error) {
+    micStatus(`Micro refusé : ${error.message}`);
+    return;
+  }
+  recorderChunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.addEventListener("dataavailable", (event) => {
+    if (event.data && event.data.size) recorderChunks.push(event.data);
+  });
+  recorder.addEventListener("stop", async () => {
+    stream.getTracks().forEach((track) => track.stop());
+    button.classList.remove("recording");
+    micStatus("transcription…");
+    const blob = new Blob(recorderChunks, { type: recorder.mimeType || "audio/webm" });
+    recorderChunks = [];
+    try {
+      const suffix = (recorder.mimeType || "").includes("ogg") ? ".ogg" : ".webm";
+      const url = `/api/audio/transcribe?session_id=${encodeURIComponent(state.sessionId || "")}` +
+        `&name=dictation${suffix}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "application/octet-stream" },
+        body: blob,
+        credentials: "same-origin",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+      const text = String(payload.text || "").trim();
+      if (!text) throw new Error("transcription vide");
+      const input = $("input");
+      input.value = input.value ? `${input.value} ${text}` : text;
+      input.focus();
+      micStatus(`dicté (${payload.engine || "local"})`);
+      window.setTimeout(() => micStatus(""), 4000);
+    } catch (error) {
+      micStatus(`dictée impossible : ${error.message}`);
+    }
+  });
+  recorder.start();
+  button.classList.add("recording");
+  micStatus("enregistrement… cliquer pour arrêter");
+}
+
+async function loadAudioCapabilities() {
+  const button = $("mic");
+  if (!button) return;
+  try {
+    const data = await api("/api/audio/capabilities");
+    state.audio = data;
+    button.hidden = !data.stt;
+    if (!data.stt) {
+      const reasons = (data.engines || [])
+        .filter((engine) => engine.stt === false && engine.reason)
+        .map((engine) => engine.reason)
+        .join(" · ");
+      button.title = `Dicter — indisponible : ${reasons || "aucun moteur de dictée"}`;
+    } else {
+      button.title = "Dicter (micro)";
+    }
+  } catch (error) {
+    button.hidden = true;
+  }
+}
+
+function wireMic() {
+  const button = $("mic");
+  if (button) button.addEventListener("click", () => toggleMic().catch(() => {}));
+  loadAudioCapabilities().catch(() => {});
 }
 
 // -------------------------------------------------------------------- chat --
@@ -5728,6 +5999,7 @@ async function bootStep(label, run) {
 async function boot() {
   wireLayout();
   wireAttachments();
+  wireMic();
   wireChips();
   wireComposer();
   wireViewStale();
