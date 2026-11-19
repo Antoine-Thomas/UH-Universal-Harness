@@ -1036,8 +1036,12 @@ def create_app(
                 # failed start, and the user should not have to find it.
                 "log": uhb_spawn.log_tail(),
                 "checkout": str(uhb_spawn.find_checkout() or ""),
+                # `owned`: this UH process started the running UHB, so it may
+                # restart it to change the mode. A process started elsewhere is
+                # reported, never killed.
+                "owned": uhb_spawn.running() is not None,
             }
-        return {"connected": True, **payload}
+        return {"connected": True, **payload, "owned": uhb_spawn.running() is not None}
 
     @app.post("/api/uhb/start", dependencies=[Depends(require_token)])
     async def uhb_start() -> dict:
@@ -1070,6 +1074,59 @@ def create_app(
                 "checkout": str(uhb_spawn.find_checkout() or ""),
             }
         return {"connected": True, **payload}
+
+    @app.post("/api/uhb/mode", dependencies=[Depends(require_token)])
+    async def uhb_set_mode(payload: dict) -> dict:
+        """Change UHB's execution mode, and say plainly when that is impossible.
+
+        The mode is a property of the UHB PROCESS (``--mode``), not a per-request
+        setting: there is no route on the server to change it while it runs. So
+        switching means restarting it - and UH only restarts a process it owns.
+        A UHB started by hand (or by a previous UH run) is reported, never killed:
+        "just switch to dev" used to lead the operator to a panel with no control,
+        and then to a sentence blaming the model.
+        """
+        from .. import uhb_spawn
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        wanted = str((payload or {}).get("mode") or "").strip().lower()
+        if wanted not in ("chat", "dev", "review", "observe"):
+            raise HTTPException(
+                status_code=400, detail="mode must be chat, dev, review or observe"
+            )
+        url = resolve_url()
+        if url is None:
+            raise HTTPException(
+                status_code=400, detail="UHB is disabled: UH_UHB_URL is empty or not loopback"
+            )
+        current = await asyncio.to_thread(lambda: Uhbtoolset(url, timeout=1.5).status())
+        owned = uhb_spawn.running() is not None
+        if str(current.get("mode") or "") == wanted:
+            return {"mode": wanted, "changed": False, "owned": owned}
+        if not owned:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "UHB a été démarré hors de UH (à la main, par un lancement "
+                    "précédent, ou par une tâche planifiée) : UH ne tue pas un "
+                    "processus qu'il ne possède pas. Arrête-le, puis démarre-le "
+                    "depuis ce panneau."
+                ),
+            )
+        await asyncio.to_thread(uhb_spawn.stop_running)
+        try:
+            await asyncio.to_thread(lambda: uhb_spawn.ensure(timeout=25.0, mode=wanted))
+        except uhb_spawn.SpawnError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        after = await asyncio.to_thread(lambda: Uhbtoolset(url, timeout=2.0).status())
+        if after.get("error"):
+            return {
+                "connected": False,
+                "mode": wanted,
+                "reason": str(after.get("error") or "unreachable"),
+                "changed": True,
+            }
+        return {"connected": True, "changed": True, **after}
 
     @app.post("/api/uhb/stop", dependencies=[Depends(require_token)])
     async def uhb_stop() -> dict:

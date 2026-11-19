@@ -166,7 +166,17 @@ def test_the_child_is_started_with_the_right_command(
     # running UH: a 3.10 parent used to spawn a 3.10 UHB that died on
     # datetime.UTC before it could open the port.
     assert command[0] == uhb_spawn.interpreter(root)
-    assert command[1:] == ["-m", "uhb.entrypoints.server", "--port", "8101", "--mode", "dev"]
+    assert command[1:] == [
+        "-m",
+        "uhb.entrypoints.cli",
+        "run",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8101",
+        "--mode",
+        "dev",
+    ], "the server module drops --port and --mode; the CLI honours them"
     if sys.version_info >= (3, 11):
         assert uhb_spawn._supports_uhb(command[0]), "the spawned interpreter must import UHB"
     assert cwd == root
@@ -455,3 +465,23 @@ def test_a_real_child_is_killed_and_leaves_no_orphan(tmp_path: Path) -> None:
     finally:
         if process.poll() is None:  # never leave a sleep behind
             process.kill()
+
+
+def test_the_command_carries_the_mode_it_was_given() -> None:
+    """`--mode` is the only lever on UHB's permissions: it must be explicit.
+
+    The mode is a property of the process (there is no route to change it while it
+    runs), so the interface can only switch it by restarting UHB with another
+    `--mode`. Measured 2026-11-19: every request that needed `execute_code` was
+    refused with "mode 'chat' has no tool 'execute_code'", and nothing in the page
+    could change the profile.
+    """
+    command = uhb_spawn.build_command(8101, mode="chat")
+    assert command[-2:] == ["--mode", "chat"]
+    # The entry point that honours its flags: `uhb.entrypoints.server` ignores
+    # --port and --mode (its __main__ calls serve() with no argv), which is how a
+    # UH-spawned second brain stayed in read-only chat mode.
+    assert uhb_spawn.MODULE == "uhb.entrypoints.cli", "server.py drops the flags"
+    assert "run" in command and "--host" in command
+    assert uhb_spawn.build_command(8101, mode="dev")[-2:] == ["--mode", "dev"]
+    assert uhb_spawn.build_command(8101)[-2:] == ["--mode", uhb_spawn.MODE], "default unchanged"

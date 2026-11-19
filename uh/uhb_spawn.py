@@ -43,7 +43,13 @@ from .config import uh_home
 
 ENV_PATH = "UH_UHB_PATH"
 DEFAULT_URL = "http://127.0.0.1:8101"
-MODULE = "uhb.entrypoints.server"
+#: The entry point that HONOURS the flags. `python -m uhb.entrypoints.server`
+#: accepts `--port`/`--mode` on the command line and ignores both: its `__main__`
+#: calls `serve()` with no argument parsing, so the port fell back to the default
+#: (which happens to be the one we wanted) and the mode stayed `chat` forever.
+#: Measured 2026-11-19: a UH-spawned UHB answered `mode: "chat"` while its command
+#: line said `--mode dev`, and every `execute_code` was refused 403.
+MODULE = "uhb.entrypoints.cli"
 MODE = "dev"
 LOG_NAME = "uhb.log"
 START_TIMEOUT = 5.0
@@ -162,9 +168,31 @@ def _log_path() -> Path:
     return home / LOG_NAME
 
 
-def build_command(port: int, checkout: Optional[Path] = None) -> List[str]:
-    """The child command: a UHB-capable interpreter, the same checkout, the port."""
-    return [interpreter(checkout), "-m", MODULE, "--port", str(port), "--mode", MODE]
+def _command(checkout: Optional[Path], port: int, mode: Optional[str] = None) -> List[str]:
+    """The child command line, with the execution mode made explicit."""
+    return [
+        interpreter(checkout),
+        "-m",
+        MODULE,
+        "run",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--mode",
+        str(mode or MODE),
+    ]
+
+
+def build_command(port: int, checkout: Optional[Path] = None, mode: Optional[str] = None) -> List[str]:
+    """The child command: a UHB-capable interpreter, the same checkout, the port.
+
+    ``mode`` is the execution profile UHB starts with - it is a property of the
+    PROCESS, not a per-request setting, which is why the interface has to restart
+    it to change it (and why "just switch to dev" used to lead nowhere). Defaults
+    to the module constant ``MODE``.
+    """
+    return _command(checkout, port, mode)
 
 
 #: UHB imports ``datetime.UTC`` (3.11+) and needs ``httpx``/``fastapi``. UH
@@ -437,6 +465,7 @@ def ensure(
     timeout: float = START_TIMEOUT,
     runner: Optional[Callable[[List[str], Path, Path], subprocess.Popen]] = None,
     checker: Optional[StatusCheck] = None,
+    mode: Optional[str] = None,
 ) -> Optional[Spawned]:
     """Start UHB if it is neither running nor reachable. ``None`` means "not mine".
 
@@ -481,7 +510,7 @@ def ensure(
         )
 
     log = _log_path()
-    command = build_command(_port(target), checkout)
+    command = build_command(_port(target), checkout, mode)
     spawn = runner or _spawn
     process = spawn(command, checkout, log)
 

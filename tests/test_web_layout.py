@@ -714,3 +714,24 @@ def test_the_providers_list_loads_on_arrival() -> None:
     # And the tab click path still loads it, with the same coalesced loader.
     tab = script.split("function showPanelTab(name) {", 1)[1].split("\nfunction ", 1)[0]
     assert 'if (name === "keys")' in tab and "openProviders();" in tab
+
+
+@KEEP
+def test_the_decision_view_exposes_the_execution_mode() -> None:
+    """The assistant told the operator "go to Décision and switch to dev" - the
+    panel had no control at all, and the mode is a property of the UHB process.
+
+    Measured 2026-11-19: three models in a row refused with
+    "mode 'chat' has no tool 'execute_code'", and nothing in the interface could
+    change it. The control now lives in that panel, with human labels, and it
+    calls the route that restarts the second brain.
+    """
+    script = APP.read_text(encoding="utf-8")
+
+    assert "async function renderExecutionMode()" in script
+    assert 'api("/api/uhb/mode"' in script
+    # Labels are words a person uses, not the profile keys.
+    assert '"Discussion"' in script and '"Agent"' in script
+    assert "lecture seule" in script and "exécuter du code" in script
+    # It is a sibling of the panel that renderDecision clears on every reload.
+    assert "host.parentNode.insertBefore(card, host)" in script

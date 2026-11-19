@@ -1482,3 +1482,44 @@ select:focus-visible {
 .skill-editor textarea { resize: vertical; }
 .skill-error { font-size: 11px; color: var(--highlight); }
 .skill-error[hidden] { display: none; }
+
+/* Mode d'exécution (UHB). The mode belongs to the second brain's process, so this
+   is a state with two buttons - not a hidden setting behind a code word. */
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mode-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.mode-btn {
+  flex: 1 1 120px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.mode-btn:hover:not(:disabled) { border-color: var(--accent); }
+.mode-btn.active,
+.mode-btn:disabled {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+  cursor: default;
+}
+.mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

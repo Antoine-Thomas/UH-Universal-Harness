@@ -2896,6 +2896,89 @@ function tierDot(tier) {
   return dot;
 }
 
+// --- execution mode (UHB) -------------------------------------------------- //
+// The mode belongs to the UHB PROCESS (`--mode`), so "switch to dev" means
+// restarting it - there is no route on the server to change it while it runs.
+// This control lives in the panel the assistant already sends people to
+// ("va dans Décision et passe en dev") and which had no control at all. UH only
+// restarts a process it owns; a foreign UHB is reported, never killed.
+const MODE_LABELS = {
+  chat: ["Discussion", "lecture seule : lit et cherche, n'exécute rien"],
+  dev: ["Agent", "peut exécuter du code et créer des fichiers"],
+  review: ["Revue", "lit et commente, n'exécute pas"],
+  observe: ["Observation", "observe et rapporte, ne modifie rien"],
+};
+
+async function renderExecutionMode() {
+  const host = $("decision-panel");
+  if (!host) return;
+  let card = $("execution-mode");
+  if (!card) {
+    // A SIBLING of #decision-panel, not a child: `renderDecision` clears that
+    // panel on every reload (`box.textContent = ""`) and used to take the mode
+    // control with it.
+    card = el("div", "panel-card mode-card");
+    card.id = "execution-mode";
+    host.parentNode.insertBefore(card, host);
+  }
+  card.textContent = "";
+  card.appendChild(el("div", "panel-label", "Mode d'exécution"));
+
+  let status = {};
+  try {
+    status = await api("/api/uhb/status");
+  } catch (error) {
+    card.appendChild(el("div", "panel-hint", `second cerveau indisponible : ${error.message}`));
+    return;
+  }
+  const mode = String(status.mode || "");
+  const label = MODE_LABELS[mode];
+  card.appendChild(
+    el(
+      "div",
+      "panel-hint",
+      label ? `${label[0]} — ${label[1]}` : status.connected ? `mode « ${mode} »` : "second cerveau arrêté"
+    )
+  );
+  card.appendChild(
+    el(
+      "div",
+      "panel-hint",
+      "l'exécution de code exige le mode Agent ; un mode se change en redémarrant le second cerveau, c'est UH qui s'en charge"
+    )
+  );
+  const row = el("div", "mode-row");
+  for (const value of ["chat", "dev"]) {
+    const active = value === mode;
+    const button = el("button", "mode-btn" + (active ? " active" : ""), MODE_LABELS[value][0]);
+    button.type = "button";
+    button.dataset.mode = value;
+    button.title = MODE_LABELS[value][1];
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = active;
+    button.addEventListener("click", () => switchExecutionMode(value, card));
+    row.appendChild(button);
+  }
+  card.appendChild(row);
+}
+
+async function switchExecutionMode(mode, card) {
+  const hint = el("div", "panel-hint", "changement de mode…");
+  card.appendChild(hint);
+  try {
+    const answer = await api("/api/uhb/mode", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    hint.textContent = answer.changed
+      ? `mode ${MODE_LABELS[mode][0]} actif : renvoie ton message, l'outil est maintenant proposé.`
+      : "déjà dans ce mode.";
+    await renderExecutionMode();
+  } catch (error) {
+    hint.textContent = error.message;
+  }
+}
+
 function renderDecision(data, reload) {
   const box = $("decision-panel");
   box.textContent = "";
@@ -3469,7 +3552,10 @@ function showPanelTab(name) {
     loadSkillsManager().catch(() => {});
   }
   if (name === "memory") loadMemory().catch(() => {});
-  if (name === "decision") loadDecision().catch(() => {});
+  if (name === "decision") {
+    loadDecision().catch(() => {});
+    renderExecutionMode().catch(() => {});
+  }
   if (name === "role") loadRolePanel().catch(() => {});
   if (name === "telemetry") {
     loadTelemetry().catch(() => {});
@@ -5263,7 +5349,10 @@ function restorePanes() {
     if (name === "telemetry") loadTelemetry().catch(() => {});
     if (name === "data") loadData().catch(() => {});
     if (name === "memory") loadMemory().catch(() => {});
-    if (name === "decision") loadDecision().catch(() => {});
+    if (name === "decision") {
+      loadDecision().catch(() => {});
+      renderExecutionMode().catch(() => {});
+    }
     if (name === "uhb") {
       loadMemoryGraph().catch(() => {});
       loadUhb().catch(() => {});
