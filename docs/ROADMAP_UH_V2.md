@@ -1122,6 +1122,72 @@ the fusion or the validation programme. They queue behind P1/P2 and never before
   `tests/e2e/test_p3_14_role.py` (3 cas Chromium : choix, rechargement, changement en cours de
   session, texte libre conservé).
 
+### P3-16 Cockpit Projects, Run Lifecycle & Extensions - TO OPEN (requested 2026-11-19)
+
+*Numbering note, written down so the trail stays readable:* the operator asked for this lot
+as « P3-14 », but **P3-14 is taken** (caractere & role per project, delivered 2026-11-18,
+PR #27) and **P3-15 is in progress** (intent orchestration). The lot therefore carries
+**P3-16** in this document while the branches keep the requested names
+(`feat/p3-14-runs-lifecycle` on UHB, `feat/p3-14-cockpit-projects` on UH); renaming is a
+two-command change if the operator prefers the opposite.
+
+**Measured starting point (2026-11-19, `a37e039` UH / `aa286dd` UHB).** `~/.uhb/runs` holds
+**325 run directories, 5.2 MB**, the oldest from 16/11; each one is
+`run-<stamp>-<hex>/` with `code.py` and `_uhb_runner.py` plus whatever the snippet wrote.
+`uhb/tools/execute.py:233 runs_root()` reads `$UHB_RUNS_DIR` or `~/.uhb/runs` and **nothing
+anywhere deletes them**: a grep for `rmtree|clean|purge|ttl|keep` over `uhb/` returns **0
+line**. Runs accumulate by construction, not by choice.
+
+**Division of power, restated because these four sub-lots are the easiest place to break it:**
+UHB owns the **policy and the lifecycle** (purge, keep, compression, archive, cron scheduling);
+UH only **shows and drives** (panels, buttons, statuses). A retention rule written in UH would
+be a defect, even if it worked.
+
+#### P3-16a (UHB) - run lifecycle and the « Cerveaux » archive
+
+- **Default: nothing piles up.** At the end of a turn whose run was not asked to be kept, the
+  run directory is **deleted**; a TTL/quota safety net (e.g. 200 directories or 500 MB,
+  whichever comes first) covers the runs of a crashed or killed process.
+- **`keep=true`: compressed, then archived in a dedicated Git repository** tied to
+  intelligence, brain personalisation and the Second Brain - a bare repo
+  (`~/.uhb/brain-runs.git`) fed one commit per kept run, with a manifest (session id, mode,
+  summary, files produced, SHA-256) so `uhb brain`, the wiki and the RAG can index it without
+  unpacking anything.
+- **A run stays restorable**: `git show` gives back the exact tree, and the manifest names
+  what the run produced.
+- Proof before closing: after a non-kept run the directory count is unchanged (0 new); after
+  a kept run `git -C ~/.uhb/brain-runs.git log --oneline` shows one new commit whose `--stat`
+  matches the run's files; 50 consecutive runs leave a stable count; a killed run leaves no
+  half-written directory (or is swept on the next start).
+
+#### P3-16b (UH) - projects and Git in the cockpit
+
+- A **« Projets »** view: active projects with their path, current branch, a compact
+  `git status` (clean / modified / ahead / behind), the last commit, a one-click workspace
+  switch, and the runs attached to the project.
+- Read-only by default; a write action (checkout, commit) is an explicit, confirmed gesture.
+- Proof before closing: switching project without restarting the server, and the status shown
+  by the panel **byte-identical** to `git status --porcelain` run in a terminal.
+
+#### P3-16c (UH + UHB) - crons, files, git, infra
+
+- **Crons**: list of scheduled tasks (`uh dream`, run purge, RAG reindex), next run, last run,
+  logs, and manual trigger.
+- **Files**: browse the active workspace (read-only by default, size and date visible).
+- **Git**: recent history, branches, diff summary.
+- **Infra**: consolidated health of UHB :8101, Ollama :11434, RAG :8200, SiYuan :6806,
+  MARI :55553 and Docker - each line says *reachable* or *unreachable*, and an unreachable
+  service never blocks the panel.
+- Proof before closing: one cron triggered by hand from the UI with its output shown; one
+  service stopped on purpose and reported as unreachable without a blank panel.
+
+#### P3-16d (UH + UHB) - extensions manager and Gate D
+
+- One panel for **extensions**: MCP servers, skills, the UHB tool catalogue - activation,
+  hot reload, a test call, and a diagnostic that says *why* an extension is refused.
+- Then the **Gate D** campaign: the automated checks and end-to-end tests added by P3-16,
+  run together, before P4-1.
+
 ## P4 - Target: one product, packaged (opened 2026-11-16, restated 2026-11-17)
 
 The end state is **not** two repositories on GitHub. It is one product the operator can
