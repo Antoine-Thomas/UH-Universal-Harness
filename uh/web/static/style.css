@@ -1608,6 +1608,13 @@ select:focus-visible {
   z-index: 60;
   backdrop-filter: blur(1.5px);
 }
+/* La regle generique [hidden] du navigateur perd contre `.plus-menu { display:flex }`
+   (specificite de classe > type) : la modale restait affichee alors que l'attribut etait
+   pose. Mesure au navigateur le 19/11 : hidden=True, display=flex, 620 px visibles. */
+.plus-menu[hidden], .plus-backdrop[hidden] { display: none; }
+/* Meme piege que la modale, mesure par le test de comportement : `.plus-item` pose
+   display:flex, donc `hidden` ne masquait aucune carte et les filtres ne filtraient rien. */
+.plus-item[hidden] { display: none; }
 body.modal-open { overflow: hidden; }
 .plus-menu {
   position: fixed;
@@ -1615,7 +1622,7 @@ body.modal-open { overflow: hidden; }
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 61;
-  width: min(620px, calc(100vw - 48px));
+  width: min(760px, calc(92vw));
   max-height: calc(100vh - 120px);
   overflow: auto;
   display: flex;
@@ -1624,6 +1631,9 @@ body.modal-open { overflow: hidden; }
   padding: 18px 20px 16px;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  /* Opaque : sans fond, le fil du chat traversait la fenetre (mesure sur capture). */
+  background: var(--panel, #12161d);
+  border: 1px solid var(--line, #2a2f39);
 }
 .plus-head { display: flex; align-items: center; gap: 10px; }
 .plus-head strong { font-size: 15px; }
@@ -1664,6 +1674,12 @@ body.modal-open { overflow: hidden; }
   background: rgba(255, 255, 255, 0.02);
   color: inherit;
   cursor: pointer;
+}
+.plus-menu .plus-item {
+  /* Specificite volontaire : le style global des boutons pose un fond d'accent et
+     sortait ces cartes en teal sature (defaut visible sur la capture du 19/11). */
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
 }
 .plus-item:hover { border-color: var(--accent, #4c9aff); }
 .plus-icon { font-size: 16px; }

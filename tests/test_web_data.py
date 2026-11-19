@@ -7,6 +7,7 @@ the real home, and nothing downloads from the network.
 from __future__ import annotations
 
 import asyncio
+import re
 import zipfile
 from pathlib import Path
 
@@ -437,7 +438,16 @@ def test_the_page_is_stamped_with_its_build(
     page = run(scenario())
 
     assert page.status_code == 200
-    assert f"?v={__version__}" in page.text, "a cached app.js must not outlive a restart"
+    # Le jeton de cache suit desormais le COMMIT, pas la version : deux correctifs
+    # publies sous la meme version gardaient la meme URL, et un navigateur pouvait
+    # servir l'ancien app.js (mesure du 19/11 : fenetre sur le paquet installe).
+    build = re.search(r"app\.js\?v=([^\"&]+)", page.text)
+    assert build, "app.js porte un jeton de cache"
+    token = build.group(1)
+    assert token == __version__ or re.fullmatch(r"[0-9a-f]{7,40}", token), (
+        f"le jeton doit etre le commit (hex) ou, a defaut, la version : {token!r}"
+    )
+    assert f"style.css?v={token}" in page.text, "les deux fichiers portent le meme jeton"
     assert f'data-uh-version="{__version__}"' in page.text
     assert "{{BUILD}}" not in page.text, "every placeholder is substituted"
 

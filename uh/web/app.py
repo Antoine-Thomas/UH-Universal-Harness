@@ -531,7 +531,11 @@ def create_app(
         # routes that do not exist ("Not Found" on a button that exists in the
         # code). The build stamp makes the mismatch visible to the client, and the
         # query string keeps a cached app.js from outliving a restart.
-        page = page.replace("{{BUILD}}", __version__).replace("{{VERSION}}", __version__)
+        # `?v=` doit changer quand le CODE change, pas quand la version change : deux
+        # correctifs publies sous la meme version gardaient la meme URL, et un navigateur
+        # pouvait servir l'ancien app.js - mesure le 19/11 (fenetre sur le paquet installe).
+        build = _install_info().get("commit") or __version__
+        page = page.replace("{{BUILD}}", str(build)).replace("{{VERSION}}", __version__)
         cookie = request.cookies.get(app.state.cookie_name)
         if token and secrets.compare_digest(token, app.state.token):
             response = HTMLResponse(page)
