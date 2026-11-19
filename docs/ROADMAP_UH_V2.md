@@ -1508,8 +1508,15 @@ clôture se juge donc sur l'ensemble, pas sur le dernier point livré.
 « Ajouter des images » / « Ajouter des fichiers », micro à côté, envoi à droite. C'est le
 modèle d'encombrement à reproduire — une référence d'ergonomie, pas une dépendance.
 
-**Porte A — architecture et câblage, réécrits puis re-vérifiés.** Avant tout test de
-bout en bout :
+**Porte A — architecture et câblage, réécrits puis re-vérifiés — `DONE` le 19/11.**
+Vérifiée par `tests/test_wiring_audit.py` (12 tests) : aucune frame orpheline dans les
+deux sens (`answer` en manquait côté page), 90 routes toutes documentées, 85 routes
+`/api/*` derrière le jeton (les 5 publiques sont `/`, `/healthz` et les icônes), ids du
+DOM tous résolus, rien de base64 en base, et les quatre verrous re-testés. Détail et
+tableau dans `docs/VALIDATION_MATRIX.md` (GA-1 → GA-7) ; l'architecture réécrite est
+dans `docs/ARCHITECTURE.md` (contrat des frames, verrous, place de l'audio/média).
+
+Avant tout test de bout en bout :
 1. réécrire la description de l'architecture UI/UX (qui parle à qui : page, routes,
    `ChatSession`, toolsets, UHB) pour qu'elle inclue les nouveaux lots, au lieu de la
    laisser décrire l'interface d'avant ;

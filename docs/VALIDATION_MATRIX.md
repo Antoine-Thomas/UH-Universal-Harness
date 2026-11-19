@@ -113,6 +113,26 @@ a comment claims more very easily:
    carrying the nonce, give #13's integration test an approver, serve `/tools/approvals` in
    #13's fake server. Measured on the merged tree: **1513 passed, 2 skipped**.
 
+## Porte A — audit de câblage UI/UX (19/11, avant tout push)
+
+Cette porte ne juge pas des fonctionnalités : elle vérifie que ce qui est livré est
+**relié**. Chaque ligne est un test du dépôt, rejouable.
+
+| ID | Critère | État | Preuve |
+|---|---|---|---|
+| GA-1 | Aucune frame SSE orpheline, dans un sens ou dans l'autre | `DONE` | `tests/test_wiring_audit.py::test_no_frame_is_emitted_without_a_consumer` lit `console._emit`, `app.emit`/`frame` et les handlers `app.js` ; les frames construites par un helper (`answer_meta`, `approval`, `mode_refused`) sont listées avec leur producteur, qui est vérifié présent. Trouvaille réelle : `answer` était **émise et jamais consommée** → handler ajouté (remplit la bulle seulement si aucun token n'est arrivé) |
+| GA-2 | Toute route est documentée, et les familles `/api/audio/*`, `/api/media/*`, `/api/memory`, `/api/maintenance` existent | `DONE` | `test_every_route_is_documented` (90 routes, 0 absente) + `test_the_audio_and_media_families_are_isolated_under_their_own_prefix` |
+| GA-3 | Les 5 routes publiques sont les seules sans jeton | `DONE` | audit : `GET /`, `/healthz`, `/favicon.ico`, 2 × `apple-touch-icon` ; **85 routes `/api/*` portent `require_token`** |
+| GA-4 | Aucun id du DOM utilisé par `app.js` n'est absent de la page ou créé par elle | `DONE` | `test_the_ids_the_page_uses_exist_or_are_created_by_it` (115 ids ; `execution-mode`, `llm-panel`, `skill-menu`, `local-models` sont construits par le panneau, et le test accepte les trois formes de construction) |
+| GA-5 | Rien de base64 en base, un lecteur audio ne naît que d'un clip réel | `DONE` | `test_the_thread_never_stores_base64`, `test_an_audio_player_only_ever_comes_from_a_real_clip`, `test_the_media_warning_is_hidden_until_a_file_needs_it` |
+| GA-6 | Les quatre verrous sont toujours câblés | `DONE` | `test_the_locks_the_relay_paid_for_are_still_wired` (porte de mode, garde Host/Origin, audithook atelier, isolation audio/média) + suites dédiées `test_mode_gate`, `test_uhb_mode_guard`, `test_audio_chain`, `test_turn_never_silent` |
+| GA-7 | Architecture UI/UX réécrite avec les lots livrés | `DONE` | `docs/ARCHITECTURE.md` : contrat des frames (13 types avec producteur et consommateur), les quatre verrous, la place de l'audio et du média « à côté » du tour, ce qui est stocké vs référencé, mémoire et nettoyage |
+
+**Reste pour la Porte B** : le test dev complet dans le cockpit (texte, atelier,
+lot d'images 4K sans prompt, micro + onde, Voxtral puis repli XTTS, `.mp4` H.264/H.265,
+corbeille avec Annuler, mémoire compressée, auto-nettoyage, cohérence du modèle affiché,
+avertissement de capacité avec bascule). Aucun push avant.
+
 ## What is missing to be able to say "proven"
 
 - one dated capture per screen concerned, on the published version;
