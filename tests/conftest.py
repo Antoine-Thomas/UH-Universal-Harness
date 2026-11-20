@@ -4,13 +4,32 @@ The autouse fixture below exists because a test once wrote a fake provider key
 into the developer's real ``~/.uh/keys.toml``: it created a router provider
 without isolating ``UH_HOME``. Isolation is now the default, and the session
 fixture fails the run if anything escapes it.
+
+``UH_OLLAMA_URL`` is pinned for a second, measured reason (2026-11-20): a test
+that builds a real ``ChatSession`` probes the model's capabilities at the default
+``http://127.0.0.1:11434``, so the suite talked to the developer's own Ollama.
+Nothing was written by the test, but ``ollama serve`` had been started by their
+``uh web`` window with its stdout redirected to ``~/.uh/uhb.log`` - so every
+probe appended a line to that file, and the push gate read it as a test leaking
+into the real home. A closed loopback port makes the probe fail at once instead.
 """
 
 from __future__ import annotations
 
+import os
+import socket
+import sys
 from pathlib import Path
 
 import pytest
+
+
+def _closed_url() -> str:
+    """A loopback URL nothing listens on: a stray probe is refused instantly."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    return f"http://127.0.0.1:{port}"
 
 
 def _snapshot(directory: Path) -> dict[str, tuple[int, int]]:
@@ -47,7 +66,68 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # No test probes a real UHB: the uhb toolset is opt-in per test
     # (it sets UH_UHB_URL itself and stubs the probe).
     monkeypatch.setenv("UH_UHB_URL", "")
+    # No test probes the developer's own Ollama either - see the module
+    # docstring: that probe is what the push gate caught writing into
+    # ~/.uh/uhb.log, through a log file their live `uh web` owns.
+    monkeypatch.setenv("UH_OLLAMA_URL", _closed_url())
     return target
+
+
+@pytest.fixture(scope="session", autouse=True)
+def real_home_is_forbidden() -> None:
+    """Refuse, at the call, any write into the developer's real ``~/.uh``.
+
+    The snapshot in :func:`real_home_untouched` only reports at the end of the
+    session, cannot say *which* test did it, and cannot tell a deletion from a
+    file that a live window cleaned up. An audit hook answers the question the
+    push gate actually asks - "did the suite touch my folder?" - before the
+    call succeeds, and it catches paths the guard never enumerated.
+    """
+    real = (Path.home() / ".uh").resolve()
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+
+    def offending(value: object) -> str | None:
+        try:
+            candidate = Path(os.fspath(value))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        if not candidate.is_absolute():
+            return None
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            return None
+        if resolved == real or real in resolved.parents:
+            return str(resolved)
+        return None
+
+    def writable(mode: object, flags: object) -> bool:
+        if isinstance(mode, str) and mode:
+            return any(flag in mode for flag in "wax+")
+        return isinstance(flags, int) and bool(flags & write_flags)
+
+    def hook(event: str, args: tuple) -> None:
+        if event == "open":
+            path, mode, flags = (tuple(args) + (None, None, None))[:3]
+            if not writable(mode, flags):
+                return
+            targets = [path]
+        elif event in {"os.remove", "os.rename", "os.rmdir", "os.mkdir", "os.truncate"}:
+            targets = list(args)[:2] if event == "os.rename" else list(args)[:1]
+        elif event == "shutil.rmtree":
+            targets = list(args)[:1]
+        else:
+            return
+        for target in targets:
+            found = offending(target)
+            if found is not None:
+                raise AssertionError(
+                    f"a test reached the real ~/.uh ({event}, {found}); "
+                    "isolation leak - use tmp_path"
+                )
+
+    sys.addaudithook(hook)
+    yield
 
 
 @pytest.fixture(autouse=True)

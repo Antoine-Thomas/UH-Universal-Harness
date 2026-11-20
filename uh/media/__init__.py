@@ -143,7 +143,7 @@ def video_info(path: Path) -> Dict[str, Any]:
     out = subprocess.run(
         [probe, "-v", "error", "-show_entries",
          "format=duration:stream=codec_name,codec_type", "-of", "json", str(path)],
-        capture_output=True, text=True, timeout=60, check=False,
+        capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
     )
     if out.returncode != 0:
         raise MediaError(f"ffprobe a refusé le fichier : {out.stderr[-160:]}")
@@ -180,7 +180,7 @@ def video_frames(path: Path, *, count: int = VIDEO_FRAMES) -> List[Path]:
         proc = subprocess.run(
             [binary, "-y", "-ss", f"{moment:.2f}", "-i", str(path), "-frames:v", "1",
              "-vf", f"scale='min({MAX_SIDE},iw)':-2", str(target)],
-            capture_output=True, text=True, timeout=180, check=False,
+            capture_output=True, text=True, encoding="utf-8", timeout=180, check=False,
         )
         if proc.returncode == 0 and target.is_file():
             frames.append(target)
@@ -200,7 +200,7 @@ def video_audio(path: Path) -> Optional[Path]:
     target = derived_dir(path) / f"{path.stem}-audio.wav"
     proc = subprocess.run(
         [binary, "-y", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", str(target)],
-        capture_output=True, text=True, timeout=300, check=False,
+        capture_output=True, text=True, encoding="utf-8", timeout=300, check=False,
     )
     return target if proc.returncode == 0 and target.is_file() else None
 

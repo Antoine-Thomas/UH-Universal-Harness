@@ -36,10 +36,30 @@ __all__ = [
 ]
 
 
+def _protected_by_default() -> list[Path]:
+    """Racines protegees : le dossier de configuration de UH, en entier.
+
+    Il n'est lisible que par une `read_root` explicite : le workspace ne suffit jamais, meme
+    quand `~/.uh` se trouve dedans.
+
+    Fail-closed : si la racine ne peut pas etre determinee, **la construction leve** et aucun
+    toolset n'est produit. Un `except: return []` desactiverait silencieusement la protection,
+    ce qui est exactement le defaut qu'on vient de fermer. Aucune exception n'est attendue ici en
+    usage normal ; celle qui survient doit etre vue, pas absorbee.
+
+    `uh_home()` est importe depuis `.memory` (meme paquet) plutot que via `attachments` : cela
+    evite un cycle a l'import, sans recourir a un `try`.
+    """
+    from .memory import uh_home
+
+    return [uh_home()]
+
+
 def build_toolsets(
     workspace: str | os.PathLike[str] | None = None,
     notify: Any = None,
     read_roots: list[Path] | None = None,
+    protected_roots: list[Path] | None = None,
 ) -> Dict[str, object]:
     """Build the Jalon 1 toolset set, keyed by toolset name.
 
@@ -56,7 +76,13 @@ def build_toolsets(
     """
     ws = Path(workspace) if workspace is not None else None
     toolsets: Dict[str, object] = {
-        "file": FileToolset(workspace=ws, read_roots=read_roots),
+        "file": FileToolset(
+            workspace=ws,
+            read_roots=read_roots,
+            protected_roots=(
+                protected_roots if protected_roots is not None else _protected_by_default()
+            ),
+        ),
         "terminal": TerminalToolset(workspace=ws),
         "memory": MemoryToolset(),
         "web_search": WebSearchToolset(),

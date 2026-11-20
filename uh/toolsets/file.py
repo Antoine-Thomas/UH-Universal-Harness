@@ -171,6 +171,7 @@ class FileToolset:
         workspace: str | os.PathLike[str] | None = None,
         allowed: list[Path] | None = None,
         read_roots: list[Path] | None = None,
+        protected_roots: list[Path] | None = None,
     ) -> None:
         self.workspace = (
             Path(workspace).expanduser().resolve() if workspace else default_workspace()
@@ -181,7 +182,19 @@ class FileToolset:
         # Racines en LECTURE SEULE, en plus du workspace : les pieces jointes de la
         # session vivent dans ~/.uh/uploads/<session>/, hors workspace. On ouvre ce
         # dossier-la, jamais ~/.uh (keys.toml, mcp-secrets.toml, web-token y sont).
-        self.read_roots = [Path(root).expanduser().resolve() for root in (read_roots or [])]
+        # Une racine de lecture ne peut pas etre un lien symbolique : sinon un lien vers une
+        # autre session deviendrait une autorisation de la lire.
+        self.read_roots = []
+        for root in read_roots or []:
+            raw = Path(root).expanduser()
+            if raw.is_symlink():
+                continue
+            self.read_roots.append(raw.resolve())
+        # Racines ou l'acces n'est permis QUE par une read_root explicite : le dossier des
+        # pieces jointes de UH. Le workspace ne suffit jamais, meme quand ~/.uh est dedans.
+        self.protected_roots = [
+            Path(root).expanduser().resolve() for root in (protected_roots or [])
+        ]
         # read_pdf exists only when pypdf does: a tool that fails on every call is
         # worse than a tool that is not offered.
         self.tools = (TOOLS + [READ_PDF]) if pdf_available() else list(TOOLS)
@@ -238,6 +251,35 @@ class FileToolset:
             resolved = candidate.resolve()
         except OSError as exc:
             return None, {"error": f"cannot resolve path '{text}': {exc}"}
+
+        # 1. Exclusions d'abord : un upload n'est lisible que par la racine de lecture du tour.
+        #    La comparaison se fait sur le chemin RESOLU, donc `..`, les liens et les variantes
+        #    `C:\` sont deja neutralises ; si la resolution echoue, on a deja refuse plus haut.
+        for protected in self.protected_roots:
+            inside = resolved == protected or resolved.is_relative_to(protected)
+            if not inside:
+                continue
+            # Une racine de lecture n'ouvre QUE la sous-arborescence des pieces jointes.
+            # Elle ne peut jamais ouvrir keys.toml, mcp-secrets.toml ou web-token : la
+            # protection de ~/.uh prime sur le workspace ET sur les read_roots.
+            uploads = protected / "uploads"
+            open_by_root = any(
+                # `root.parent == uploads` impose un dossier de session de premier niveau :
+                # ni `uploads` lui-meme (toutes les sessions), ni `~/.uh`, ni un sous-dossier
+                # arbitraire plus profond.
+                root.parent == uploads
+                and (resolved == root or resolved.is_relative_to(root))
+                for root in self.read_roots
+            )
+            if not write and open_by_root:
+                return resolved, None
+            return None, {
+                "error": (
+                    f"refused: '{text}' is inside the UH configuration folder; only this "
+                    "turn's attachments (uploads/<session>) are readable, and nothing there "
+                    "is writable"
+                )
+            }
 
         if resolved == self.workspace or resolved.is_relative_to(self.workspace):
             return resolved, None

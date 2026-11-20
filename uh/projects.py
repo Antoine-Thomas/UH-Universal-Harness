@@ -45,6 +45,9 @@ def _git(path: Path, *args: str) -> subprocess.CompletedProcess:
         ("git", "-C", str(path), *args),
         capture_output=True,
         text=True,
+        # git rend de l'UTF-8 ; sans ceci, `text=True` decode avec cp1252 sur un Windows non
+        # UTF-8 et un nom de fichier accentue revient corrompu dans le panneau Projets.
+        encoding="utf-8",
         timeout=GIT_TIMEOUT,
         check=False,
         # A repository owned by someone else must not make git refuse to look, and the

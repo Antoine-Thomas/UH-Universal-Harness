@@ -176,3 +176,16 @@ exists on Ollama, `deepseek-v4-pro` only on DeepSeek. The header therefore switc
 `(provider, model)` together, refuses a contradictory pair with a sentence, and
 shows which engine is answering. `POST /api/model` accepts a bare id only when a
 catalogue can name its provider unambiguously.
+
+## The turn's context never lives on the application
+
+`app.state` belongs to the process, not to a session nor to a turn. The workspace and the
+readable upload roots of a turn are therefore **parameters** of `_toolsets(app, *, workspace,
+read_roots, ...)`, held in the variables of the thread that runs the turn, and never stored as
+`app.state.turn_*`. The previous shape was measured leaking: two concurrent turns overwrote the
+same attribute and the first one inherited the second one's upload roots, i.e. read access to
+another session's attachments. `tests/test_turn_isolation.py` forces the interleaving with a
+barrier and failed with "A received the context of session-b" before the fix.
+
+Consequence for any new per-turn value: pass it down, do not hang it on the application. A test
+that stubs `_toolsets` must accept the same keywords.

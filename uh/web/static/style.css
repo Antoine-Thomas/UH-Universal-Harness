@@ -1410,6 +1410,26 @@ select:focus-visible {
   vertical-align: middle;
 }
 .tab-badge[hidden] { display: none; }
+/* P3-16b : les sections du groupe ouvert. Une seule ligne, jamais repliée sur trois :
+   « ConnexionsNouveau » et les badges empilés venaient de boutons sans césure. */
+.panel-subtabs {
+  display: flex; flex-wrap: nowrap; gap: 6px; align-items: center;
+  padding: 8px 14px 0; overflow-x: auto; scrollbar-width: thin;
+  border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.panel-subtabs[hidden] { display: none; }
+.panel-subtab {
+  flex: 0 0 auto; white-space: nowrap;
+  min-height: 26px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  color: var(--muted); background: transparent;
+  border: 1px solid var(--border); border-radius: 999px;
+}
+.panel-subtab:hover { color: var(--text); }
+.panel-subtab.active {
+  color: var(--text); font-weight: 600;
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.panel-subtab.detached::after { content: " ⧉"; }
 /* the help list: a label, where it lives, and the button that goes there */
 .help-row {
   display: grid; grid-template-columns: 1fr auto auto; align-items: center;
@@ -1604,9 +1624,11 @@ select:focus-visible {
 .plus-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(8, 10, 14, 0.62);
+  /* 0.72 : mesure au navigateur, 0.62 laissait lire le fil du chat a travers le voile
+     et la modale ne se detachait pas du fond. */
+  background: rgba(8, 10, 14, 0.72);
   z-index: 60;
-  backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(2px);
 }
 /* La regle generique [hidden] du navigateur perd contre `.plus-menu { display:flex }`
    (specificite de classe > type) : la modale restait affichee alors que l'attribut etait
@@ -1681,6 +1703,35 @@ body.modal-open { overflow: hidden; }
   background: rgba(255, 255, 255, 0.03);
   color: inherit;
 }
+/* Reste de l'ancien popover : ce bloc, ecrit apres les cartes de la modale, posait
+   `border:0` et `white-space:nowrap` sur `.plus-item` et retirait donc leur cadre
+   aux quatre familles. Il ne s'applique plus qu'a la ligne « Dicter », seule carte
+   de la modale qui doit rester une ligne. */
+.plus-dictate-row {
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.plus-dictate-row:hover, .plus-dictate-row:focus-visible { background: var(--accent-soft); }
+/* Un filtre vide s'annonce : sans ce texte, une grille vide se lit comme une panne. */
+.plus-empty {
+  margin: 2px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--line, #2a2f39);
+  color: var(--muted, #8a8f98);
+  font-size: 12px;
+}
+.plus-empty[hidden] { display: none; }
+/* Le clavier doit voir ou il est : les cartes n'ont pas de style de focus propre. */
+.plus-menu :focus-visible { outline: 2px solid var(--accent, #4c9aff); outline-offset: 2px; }
 .plus-item:hover { border-color: var(--accent, #4c9aff); }
 .plus-icon { font-size: 16px; }
 .plus-label { font-weight: 600; font-size: 13px; }
@@ -1698,19 +1749,6 @@ body.modal-open { overflow: hidden; }
 .plus-dictate-row { flex-direction: row; align-items: center; gap: 6px; }
 @media (max-width: 640px) { .plus-items { grid-template-columns: 1fr; } }
 
-.plus-item {
-  text-align: left;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.plus-item:hover, .plus-item:focus-visible { background: var(--accent-soft); }
 .media-warning {
   display: flex;
   align-items: center;
