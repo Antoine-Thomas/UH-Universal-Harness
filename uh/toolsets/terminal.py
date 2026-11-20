@@ -52,6 +52,7 @@ terminal is a seatbelt.
 
 from __future__ import annotations
 
+import locale
 import os
 import re
 import subprocess
@@ -371,6 +372,10 @@ class TerminalToolset:
                 cwd=str(self.workspace),
                 capture_output=True,
                 text=True,
+                # Explicitement l'encodage de la console : le shell parle le codepage de la
+                # machine, pas UTF-8. On le dit au lieu de le subir, et `errors="replace"`
+                # garde une sortie illisible plutot qu'une exception.
+                encoding=locale.getpreferredencoding(False),
                 errors="replace",
                 timeout=seconds,
             )

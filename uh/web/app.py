@@ -319,7 +319,7 @@ def _git_commit(root: Path) -> str:
     try:
         proc = subprocess.run(
             ("git", "-C", str(root), "rev-parse", "--short", "HEAD"),
-            capture_output=True, text=True, timeout=5, check=False,
+            capture_output=True, text=True, encoding="utf-8", timeout=5, check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -330,7 +330,7 @@ def _git_dirty(root: Path) -> bool:
     try:
         proc = subprocess.run(
             ("git", "-C", str(root), "status", "--porcelain"),
-            capture_output=True, text=True, timeout=5, check=False,
+            capture_output=True, text=True, encoding="utf-8", timeout=5, check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return False

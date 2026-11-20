@@ -239,7 +239,7 @@ def seconds_of(path: Path) -> float:
                 out = subprocess.run(
                     [ffprobe, "-v", "error", "-show_entries", "format=duration",
                      "-of", "default=nw=1:nk=1", str(path)],
-                    capture_output=True, text=True, timeout=20, check=False,
+                    capture_output=True, text=True, encoding="utf-8", timeout=20, check=False,
                 )
                 return round(float(out.stdout.strip() or 0), 2)
             except (OSError, ValueError, subprocess.SubprocessError):
@@ -373,7 +373,7 @@ def to_flac24(source: Path, target: Optional[Path] = None) -> Path:
     proc = subprocess.run(
         [binary, "-y", "-i", str(source), "-c:a", "flac", "-sample_fmt", "s32",
          "-ar", "48000", "-ac", "2", str(out)],
-        capture_output=True, text=True, timeout=120, check=False,
+        capture_output=True, text=True, encoding="utf-8", timeout=120, check=False,
     )
     if proc.returncode != 0 or not out.is_file():
         raise AudioUnavailable(f"ffmpeg a refusé la conversion : {proc.stderr[-200:]}")

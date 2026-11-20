@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import locale
 import os
 import platform
 import shutil
@@ -96,6 +97,7 @@ def _run_version(cmd: list[str]) -> str | None:
             cmd,
             capture_output=True,
             text=True,
+            encoding=locale.getpreferredencoding(False),
             timeout=10,
             check=False,
         )
@@ -932,7 +934,7 @@ def uh_processes() -> list[str]:
     try:
         completed = subprocess.run(
             ["powershell.exe", "-NoProfile", "-Command", script],
-            capture_output=True, text=True, timeout=25,
+            capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=25,
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -959,7 +961,7 @@ def purge_pip_cache() -> bool:
     try:
         completed = subprocess.run(
             [sys.executable, "-m", "pip", "cache", "purge"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired):
         return False

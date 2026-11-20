@@ -15,6 +15,7 @@ A human reads the diff. A human merges it. That is the brake.
 
 from __future__ import annotations
 
+import locale
 import shlex
 import subprocess
 from dataclasses import dataclass, field
@@ -59,7 +60,7 @@ class Proposal:
 def _git(repo: Path, *args: str, timeout: float = 60.0) -> subprocess.CompletedProcess:
     command = ["git", "-C", str(repo), *args]
     try:
-        return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(command, capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise FixError(f"cannot run {' '.join(shlex.quote(part) for part in command)}: {exc}") from exc
 
@@ -233,7 +234,7 @@ def apply(
     failed: List[str] = []
     for command in checks:
         result = subprocess.run(
-            list(command), cwd=str(root), capture_output=True, text=True, timeout=900
+            list(command), cwd=str(root), capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=900
         )
         if result.returncode != 0:
             failed.append(

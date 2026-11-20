@@ -24,6 +24,7 @@ Nothing in here writes, and no probe raises: an absent GPU is ``None``.
 from __future__ import annotations
 
 import ctypes
+import locale
 import os
 import platform
 import re
@@ -414,7 +415,7 @@ def _read_vram() -> Optional[Dict[str, Any]]:
     ]
     try:
         done = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            command, capture_output=True, text=True, timeout=2.0
+            command, capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=2.0
         )
     except (OSError, subprocess.SubprocessError):
         return None

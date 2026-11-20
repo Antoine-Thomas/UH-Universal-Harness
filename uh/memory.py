@@ -73,7 +73,7 @@ def _to_flac(source: Path, target: Path) -> Dict[str, Any]:
     proc = subprocess.run(
         [binary, "-y", "-i", str(source), "-c:a", "flac", "-sample_fmt", "s32",
          "-ar", "48000", "-ac", "2", str(target)],
-        capture_output=True, text=True, timeout=180, check=False,
+        capture_output=True, text=True, encoding="utf-8", timeout=180, check=False,
     )
     if proc.returncode != 0 or not target.is_file():
         raise MemoryError(f"ffmpeg a refusé la conversion : {proc.stderr[-160:]}")

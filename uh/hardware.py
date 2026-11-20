@@ -35,6 +35,7 @@ caps it at 75% of the model's real window, because telling a 4k model to accept
 
 from __future__ import annotations
 
+import locale
 import os
 import platform
 import shutil
@@ -190,7 +191,7 @@ def total_ram_gb() -> float:
 def _run(command: list[str], timeout: float = 3.0) -> str:
     try:
         completed = subprocess.run(
-            command, capture_output=True, text=True, timeout=timeout, check=False, errors="replace"
+            command, capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=timeout, check=False, errors="replace"
         )
     except (OSError, subprocess.SubprocessError):
         return ""

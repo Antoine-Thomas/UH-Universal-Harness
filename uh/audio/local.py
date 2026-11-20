@@ -104,7 +104,7 @@ def xtts_speak(text: str, reference_wav: Optional[Path] = None) -> bytes:
         if model_dir:
             env["UH_XTTS_MODEL_DIR"] = model_dir
         proc = subprocess.run(
-            args, capture_output=True, text=True, timeout=900, check=False, env=env,
+            args, capture_output=True, text=True, encoding="utf-8", timeout=900, check=False, env=env,
         )
         if proc.returncode != 0 or not out.is_file():
             raise RuntimeError(f"xtts a échoué : {(proc.stderr or proc.stdout)[-300:]}")
