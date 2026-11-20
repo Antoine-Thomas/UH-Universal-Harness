@@ -605,6 +605,12 @@ body {
   font-size: 10px; padding: 1px 7px; border-radius: 9px;
   border: 1px solid var(--border); color: var(--muted);
 }
+/* Le badge est dans une puce de section : il doit coûter le moins de largeur possible,
+   sinon « MCP Nouveau » prend 110 px à lui seul dans un panneau de 319. */
+.tab-badge {
+  margin-left: 4px; font-size: 9px; padding: 0 4px; border-radius: 7px;
+  border: 1px solid var(--border); color: var(--accent);
+}
 .badge.ok { color: var(--accent); border-color: var(--accent); }
 .badge.hl { color: var(--highlight); border-color: var(--highlight); }
 .badge.warn { color: var(--error); border-color: var(--error); }
@@ -1413,14 +1419,21 @@ select:focus-visible {
 /* P3-16b : les sections du groupe ouvert. Une seule ligne, jamais repliée sur trois :
    « ConnexionsNouveau » et les badges empilés venaient de boutons sans césure. */
 .panel-subtabs {
-  display: flex; flex-wrap: nowrap; gap: 6px; align-items: center;
-  padding: 8px 14px 0; overflow-x: auto; scrollbar-width: thin;
+  /* Cinq sections au maximum (Outils & Connexions). Elles doivent tenir sur une seule
+     ligne dans 319 px de panneau, quelle que soit la police : mesuré sur Linux où les
+     glyphes sont plus larges que sur Windows. `flex: 1 1 auto` les laisse se partager
+     la place au lieu de déborder, et `min-width: 0` autorise le rétrécissement. */
+  display: flex; flex-wrap: nowrap; gap: 4px; align-items: center;
+  padding: 8px 10px 0; overflow-x: auto; scrollbar-width: none;
   border-bottom: 1px solid var(--border); background: var(--panel);
 }
 .panel-subtabs[hidden] { display: none; }
 .panel-subtab {
-  flex: 0 0 auto; white-space: nowrap;
-  min-height: 26px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  /* Pas de croissance : une puce garde sa largeur naturelle, sinon « Git & runs » et
+     « Fichiers » s'étirent sur toute la barre. Elle peut seulement rétrécir. */
+  flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; text-align: center;
+  min-height: 26px; padding: 4px 5px; font-size: 11px; cursor: pointer;
   color: var(--muted); background: transparent;
   border: 1px solid var(--border); border-radius: 999px;
 }
