@@ -84,13 +84,19 @@ def test_a_group_opens_its_sections(browser, server) -> None:
         context.close()
 
 
-def test_a_single_section_group_shows_no_subtabs(browser, server) -> None:
+def test_the_projects_group_opens_git_and_files(browser, server) -> None:
+    """Projets n'a plus une seule section : Git & runs et Fichiers vivent dans le même
+    groupe, et la barre des sections doit les montrer tous les deux."""
     context, page = open_app(browser, server)
     try:
         open_panel(page)
         page.click("#group-projects")
+        assert page.eval_on_selector("#panel-subtabs", "el => el.hidden") is False
+        assert visible_subtabs(page) == ["Git & runs", "Fichiers"]
+        page.click("#tab-files")
+        assert shown_views(page) == ["files-view"]
+        page.click("#tab-projects")
         assert shown_views(page) == ["projects-view"]
-        assert page.eval_on_selector("#panel-subtabs", "el => el.hidden") is True
     finally:
         context.close()
 

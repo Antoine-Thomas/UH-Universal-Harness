@@ -4353,7 +4353,7 @@ function loadToolCatalog() {
 // garde en mémoire la section où l'on était, pour qu'un aller-retour ne ramène pas
 // toujours à la première.
 const TAB_GROUPS = {
-  projects: { label: "Projets", leaves: ["projects"] },
+  projects: { label: "Projets", leaves: ["projects", "files"] },
   decision: { label: "Décision", leaves: ["decision", "role"] },
   tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb"] },
   brain: { label: "Cerveau & Mémoire", leaves: ["memory", "telemetry", "data"] },
@@ -4412,6 +4412,7 @@ function showPanelTab(name) {
     ["data", "data-view"],
     ["tools", "tools-view"],
     ["projects", "projects-view"],
+    ["files", "files-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -4440,6 +4441,7 @@ function showPanelTab(name) {
     loadToolCatalog().catch(() => {});
     loadSkillsManager().catch(() => {});
   }
+  if (name === "files") loadFs().catch(() => {});
   if (name === "memory") {
     loadMemory().catch(() => {});
     // Le graphe a suivi la mémoire dans « Cerveau & Mémoire » : le charger ici évite
@@ -4747,6 +4749,9 @@ function wireProviders() {
     loadProjects();
     loadRuns();
   });
+  $("tab-files").addEventListener("click", () => showPanelTab("files"));
+  $("files-refresh").addEventListener("click", () => loadFs(FS.path).catch(() => {}));
+  $("files-attach").addEventListener("click", () => attachSelectedFile());
   // Ouverture : le groupe de la section par défaut est marqué et sa barre remplie,
   // sinon la colonne s'ouvre sur cinq onglets dont aucun n'est actif.
   const startLeaf = state.activeTab || "keys";
@@ -7682,4 +7687,152 @@ async function cleanRuns() {
     say("nettoyage echoue : " + (error.message || error), "warn");
   }
   await loadRuns();
+}
+
+// --- explorateur de fichiers (P3-16c lot 1) -------------------------------- //
+// Lecture seule, et AUCUNE règle de chemin ici : le serveur décide, avec la même porte
+// que les outils (FileToolset). Un refus est affiché tel quel - le masquer ferait croire
+// que le dossier n'existe pas, ce qu'un explorateur ne doit jamais laisser croire.
+const FS = { path: "", root: "", parent: "", chain: [], entries: [], selected: null, selectedName: "" };
+
+function fsIcon(entry) {
+  if (entry.kind === "dir") return "📁";
+  const ext = String(entry.ext || "").toLowerCase();
+  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"].includes(ext)) return "🖼";
+  if (ext === ".pdf") return "📕";
+  if ([".md", ".markdown", ".txt", ".log"].includes(ext)) return "📄";
+  if ([".py", ".js", ".ts", ".json", ".toml", ".yaml", ".yml", ".sh", ".ps1", ".css", ".html"].includes(ext)) {
+    return "⌨";
+  }
+  return "·";
+}
+
+function renderFsCrumbs(data) {
+  const bar = $("files-crumbs");
+  if (!bar) return;
+  bar.textContent = "";
+  const chain = data.chain && data.chain.length ? data.chain : [{ name: "workspace", path: data.workspace }];
+  chain.forEach((step, index) => {
+    if (index) bar.appendChild(el("span", "files-crumb-sep", "›"));
+    const button = el("button", "files-crumb", step.name);
+    button.type = "button";
+    button.dataset.path = step.path;
+    if (index === chain.length - 1) button.classList.add("current");
+    button.addEventListener("click", () => loadFs(step.path));
+    bar.appendChild(button);
+  });
+}
+
+function renderFs(data) {
+  FS.path = data.path || "";
+  FS.root = data.workspace || "";
+  FS.parent = data.parent || "";
+  FS.chain = data.chain || [];
+  FS.entries = data.entries || [];
+  renderFsCrumbs(data);
+
+  const list = $("files-list");
+  if (!list) return;
+  list.textContent = "";
+  for (const entry of FS.entries) {
+    const row = el("li", "files-row");
+    const button = el("button", "files-name", `${fsIcon(entry)} ${entry.name}`);
+    button.type = "button";
+    button.dataset.path = entry.path || entry.name;
+    button.dataset.kind = entry.kind;
+    button.title = entry.kind === "dir" ? "ouvrir ce dossier" : "aperçu";
+    button.addEventListener("click", () => {
+      if (entry.kind === "dir") loadFs(button.dataset.path);
+      else openFsPreview(button.dataset.path);
+    });
+    row.appendChild(button);
+    if (entry.kind === "file") row.appendChild(el("span", "files-meta", humanSize(entry.size || 0)));
+    list.appendChild(row);
+  }
+  const hint = $("files-hint");
+  if (hint) {
+    hint.textContent = FS.entries.length
+      ? `${FS.entries.length} élément(s)${data.truncated ? ` sur ${data.total} — liste tronquée` : ""}`
+      : "dossier vide";
+  }
+}
+
+async function loadFs(path) {
+  const hint = $("files-hint");
+  if (hint) hint.textContent = "chargement…";
+  const query = path ? `?path=${encodeURIComponent(path)}` : "";
+  try {
+    const data = await api(`/api/fs/list${query}`);
+    renderFs(data);
+  } catch (error) {
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+    const list = $("files-list");
+    if (list) list.textContent = "";
+  }
+}
+
+async function openFsPreview(path) {
+  const panel = $("files-preview");
+  const body = $("files-preview-body");
+  if (!panel || !body) return;
+  panel.hidden = false;
+  body.textContent = "chargement…";
+  FS.selected = path;
+  try {
+    const data = await api(`/api/fs/preview?path=${encodeURIComponent(path)}`);
+    FS.selectedName = data.name || path;
+    $("files-preview-name").textContent = data.name || path;
+    $("files-preview-meta").textContent = `${humanSize(data.bytes || 0)} · ${data.kind}`;
+    body.textContent = "";
+    if (data.kind === "image") {
+      const img = el("img", "files-image");
+      img.src = data.data_url;
+      img.alt = data.name || "aperçu";
+      body.appendChild(img);
+    } else if (data.kind === "text") {
+      const pre = el("pre", "files-text", data.text || "");
+      body.appendChild(pre);
+      if (data.truncated) body.appendChild(el("p", "files-meta", "aperçu tronqué : le fichier est plus long"));
+    } else if (data.kind === "pdf") {
+      if (data.readable) {
+        body.appendChild(el("pre", "files-text", data.text || "(PDF sans texte extractible)"));
+      } else {
+        body.appendChild(el("p", "files-meta", `PDF non lu : ${data.reason}`));
+      }
+    } else {
+      body.appendChild(el("p", "files-meta", data.reason || "aperçu non pris en charge"));
+    }
+  } catch (error) {
+    body.textContent = `refusé : ${error.message || error}`;
+    $("files-preview-meta").textContent = "";
+  }
+}
+
+async function attachSelectedFile() {
+  const path = FS.selected;
+  if (!path) return;
+  const button = $("files-attach");
+  if (button) button.disabled = true;
+  try {
+    // Les octets repartent par l'upload existant : un seul chemin d'écriture, celui de
+    // la pièce jointe, avec ses limites et son nettoyage.
+    const response = await fetch(`/api/fs/raw?path=${encodeURIComponent(path)}`, {
+      credentials: "same-origin",
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    // Le nom vient du serveur : aucun séparateur de chemin n'est deviné ici.
+    const name = FS.selectedName || "fichier";
+    await uploadFile(new File([blob], name, { type: blob.type || "application/octet-stream" }));
+    const hint = $("files-hint");
+    if (hint) hint.textContent = `« ${name} » joint au prochain tour`;
+  } catch (error) {
+    const hint = $("files-hint");
+    if (hint) hint.textContent = `pièce jointe refusée : ${error.message || error}`;
+  } finally {
+    if (button) button.disabled = false;
+  }
 }

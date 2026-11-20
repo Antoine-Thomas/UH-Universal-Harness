@@ -306,6 +306,15 @@ class FileToolset:
             return str(resolved)
 
     # -- tools ------------------------------------------------------------- #
+    def resolve_read(self, raw: Any) -> tuple[Path | None, dict | None]:
+        """Resolution en LECTURE, la meme porte que les outils.
+
+        L'explorateur du web passe par ici plutot que par sa propre logique : `..`, les
+        liens et tout `~/.uh` sont refuses avant que la route ne touche au disque, et une
+        seule implementation repond de la borne.
+        """
+        return self._resolve(raw, write=False)
+
     def read_pdf(self, path: str, pages: str = "") -> dict:
         """Text of a PDF, page range optional. Refuses what it cannot do, clearly."""
         target, error = self._resolve(path)

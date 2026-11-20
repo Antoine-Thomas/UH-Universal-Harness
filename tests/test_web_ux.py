@@ -108,7 +108,7 @@ def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     assert positions == sorted(positions), "l'ordre des groupes est celui du strip"
     # Each section is declared once, in the pool that showPanelTab fills.
     pool = html[html.index('id="panel-pool"') : html.index('id="panel-subtabs"')]
-    for leaf in ("projects", "decision", "role", "tools", "conn", "uhb",
+    for leaf in ("projects", "files", "decision", "role", "tools", "conn", "uhb",
                  "memory", "telemetry", "data", "keys", "models", "local"):
         assert f'id="tab-{leaf}"' in pool, f"section {leaf} absente du réservoir"
     assert html.index('id="panel-subtabs"') > html.index('id="panel-pool"')
@@ -118,6 +118,7 @@ def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     script = script[: script.index("};")]
     for group in ("projects", "decision", "tools", "brain", "models"):
         assert f"{group}: {{" in script, f"groupe {group} absent de TAB_GROUPS"
+    assert 'leaves: ["projects", "files"]' in script
     assert 'leaves: ["decision", "role"]' in script
     assert 'leaves: ["tools", "conn", "uhb"]' in script
     assert 'leaves: ["memory", "telemetry", "data"]' in script

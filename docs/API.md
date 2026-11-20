@@ -74,6 +74,10 @@ come back", which nothing else in the product could.
 | GET | `/api/projects?session_id=` | — | `{ok, current, root, projects: [{path, name, label?, branch, porcelain, dirty, ahead, behind, last_commit, ok, reason, current}]}` — `porcelain` est la sortie **brute** de `git status --porcelain=v1 -b` : c'est elle que la Porte D (D-4) compare octet pour octet au terminal |
 | POST | `/api/projects/add` | `{path, label?}` | `{ok, project}` — refusé en 400 si le dossier n'est pas un dépôt (`git rev-parse --show-toplevel`) ou sort de `projects.root` |
 | POST | `/api/projects/switch` | `{path, session_id?}` | `{ok, workspace, session_id}` — le workspace est **par session** (`sessions.metadata["workspace"]`), donc aucune autre conversation ne bouge (D-5) ; 403 hors registre / `projects.root` |
+| GET | `/api/fs/list?path=&limit=` | — | `{path, name, workspace, parent, chain: [{name, path}], entries: [{name, path, kind, size, mtime, ext}], total, truncated}` — `path` vide = le workspace. Lecture **seule**, bornée aux racines de `FileToolset` : `403` sur `~/.uh` (`refused: … inside the UH configuration folder`), sur un chemin hors workspace et sur un lien qui en sort ; `400` si ce n'est pas un dossier. `chain` vient du serveur : le fil d'Ariane ne devine aucun séparateur |
+| GET | `/api/fs/stat?path=` | — | `{path, name, kind, size, mtime, ext, symlink}` · `403` refusé (mêmes règles) · `404` disparu |
+| GET | `/api/fs/preview?path=&max_bytes=` | — | `{kind: text, text, bytes, truncated}` · `{kind: image, data_url, bytes}` (PNG/JPEG/GIF/WebP/BMP/SVG, `413` au-delà de 8 Mio) · `{kind: pdf, readable: true, text}` ou `readable: false, reason` quand `pypdf` manque — un PDF n'est jamais annoncé lu sans l'avoir été · `{kind: binary, reason}` · `403` refusé. Texte borné à 200 000 o par défaut, 1 Mio au maximum |
+| GET | `/api/fs/raw?path=` | — | les octets, toujours `application/octet-stream` + `attachment` (un SVG servi affichable serait du script depuis notre origine) ; `413` au-delà de `attachments.MAX_BYTES` · `403` refusé. C'est la source du bouton « Attacher au tour », qui repart ensuite par l'upload normal |
 | GET | `/api/runs` | — | proxy de UHB `GET /runs` : `{ok, root, count, bytes, kept, recent, policy}` ; UHB arrêté ⇒ `{ok: false, reason, runs: []}` |
 | POST | `/api/runs` | `{action: close\|prune\|restore, run?, keep?, apply?, revision?}` | proxy de UHB `POST /runs` ; `prune` reste une **simulation** sans `apply: true` ; UH ne supprime jamais lui-même |
 | GET | `/api/memory` | — | `{entries: [{sha256, kind, path, bytes, source, session, message_id, format, width?, height?, bits?, channels?}], weight: {root, bytes, by_kind, entries}}` — ce que l'opérateur a gardé, en PNG lossless ou FLAC 24 bits (P1-13) |
@@ -201,6 +205,8 @@ project-add  project-path  projects-hint  projects-list  projects-refresh  proje
 runs-clean  runs-hint  runs-list  tab-projects
 plus-backdrop  plus-close  plus-empty  plus-filters  plus-import  plus-title
 plus-menu  plus-dictate  media-warning
+files-view  files-crumbs  files-refresh  files-hint  files-list  tab-files
+files-preview  files-preview-name  files-preview-meta  files-preview-body  files-attach
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 role-custom  role-custom-save  role-label  role-panel  role-posture  role-select  role-view

@@ -192,6 +192,7 @@
       </nav>
       <div id="panel-pool" hidden>
         <button id="tab-projects" class="panel-subtab" role="tab" aria-selected="false" aria-controls="projects-view">Git &amp; runs</button>
+        <button id="tab-files" class="panel-subtab" role="tab" aria-selected="false" aria-controls="files-view">Fichiers</button>
         <button id="tab-decision" class="panel-subtab" role="tab" aria-selected="false" aria-controls="decision-view">Modes</button>
         <button id="tab-role" class="panel-subtab" role="tab" aria-selected="false" aria-controls="role-view">Caractère</button>
         <button id="tab-tools" class="panel-subtab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
@@ -226,6 +227,25 @@
             <button id="runs-clean" class="ghost" type="button">Nettoyer…</button>
           </div>
           <div id="runs-list" class="runs-list" aria-busy="false"></div>
+        </div>
+        <div id="files-view" class="panel-view" role="tabpanel" aria-labelledby="tab-files" hidden>
+          <!-- P3-16c lot 1 : lecture seule. Chaque chemin passe par la même porte que
+               les outils (FileToolset), donc ~/.uh, `..` et les liens sortants sont
+               refusés côté serveur, pas cachés par l'interface. -->
+          <div class="files-head">
+            <nav id="files-crumbs" class="files-crumbs" aria-label="Chemin"></nav>
+            <button id="files-refresh" class="ghost" type="button">Actualiser</button>
+          </div>
+          <div id="files-hint" class="projects-hint">chargement…</div>
+          <ul id="files-list" class="files-list" aria-busy="false"></ul>
+          <div id="files-preview" class="files-preview" hidden>
+            <div class="files-preview-head">
+              <strong id="files-preview-name"></strong>
+              <span id="files-preview-meta" class="files-meta"></span>
+              <button id="files-attach" class="ghost" type="button">Attacher au tour</button>
+            </div>
+            <div id="files-preview-body" class="files-preview-body"></div>
+          </div>
         </div>
         <div id="tools-view" class="panel-view" role="tabpanel" aria-labelledby="tab-tools" hidden>
           <div class="panel-hint" id="tools-hint">catalogue lu depuis UHB — information, pas une autorisation</div>

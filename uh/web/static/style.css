@@ -1749,6 +1749,37 @@ body.modal-open { overflow: hidden; }
 .plus-dictate-row { flex-direction: row; align-items: center; gap: 6px; }
 @media (max-width: 640px) { .plus-items { grid-template-columns: 1fr; } }
 
+/* P3-16c lot 1 — explorateur de fichiers. Lecture seule : une liste dense, un aperçu
+   borné, et le refus du serveur affiché tel quel dans #files-hint. */
+.files-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
+.files-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; flex: 1; }
+.files-crumb {
+  border: 0; background: transparent; color: var(--muted);
+  font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 6px;
+  max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.files-crumb:hover { color: var(--text); background: var(--accent-soft); }
+.files-crumb.current { color: var(--text); font-weight: 600; }
+.files-crumb-sep { color: var(--muted); font-size: 11px; }
+.files-list { list-style: none; margin: 4px 0 0; padding: 0 8px 8px; overflow: auto; }
+.files-row { display: flex; align-items: center; gap: 8px; }
+.files-name {
+  flex: 1; min-width: 0; text-align: left; border: 0; background: transparent;
+  color: var(--text); font: inherit; font-size: 12.5px; padding: 5px 6px;
+  border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.files-name:hover, .files-name:focus-visible { background: var(--accent-soft); }
+.files-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.files-preview { margin: 6px 14px 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.files-preview[hidden] { display: none; }
+.files-preview-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.files-preview-head strong { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
+.files-preview-body { margin-top: 8px; max-height: 320px; overflow: auto; }
+.files-image { max-width: 100%; height: auto; border-radius: 6px; display: block; }
+.files-text {
+  margin: 0; padding: 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.18);
+  font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+}
 .media-warning {
   display: flex;
   align-items: center;

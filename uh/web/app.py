@@ -17,6 +17,7 @@ Security model (see ``docs/WEB_DESIGN.md``):
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
 import logging
@@ -30,7 +31,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Callable, Iterator, Optional
+from typing import TYPE_CHECKING, Annotated, Callable, Iterator, Optional
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
@@ -46,6 +47,9 @@ from ..providers import Provider, ProviderError
 from ..store import Store, display_id
 from ..toolsets import build_toolsets
 from .sse import frame
+
+if TYPE_CHECKING:  # pragma: no cover - annotations only
+    from ..toolsets.file import FileToolset
 
 STATIC_DIR = Path(__file__).parent / "static"
 #: The cookie is host-scoped, not port-scoped: with one name, two `uh web` on
@@ -335,6 +339,12 @@ def _git_dirty(root: Path) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return bool(proc.stdout.strip())
+
+
+def _read_head(path: Path, limit: int) -> bytes:
+    """Les premiers octets d'un fichier : décider texte/binaire sans tout charger."""
+    with path.open("rb") as handle:
+        return handle.read(max(1, limit))
 
 
 def _uh_version_on(host: str, port: int, timeout: float = 1.5) -> Optional[str]:
@@ -1049,6 +1059,205 @@ def create_app(
 
         candidates = uh_caps.vision_candidates()
         return {"candidates": candidates[:24], "total": len(candidates)}
+
+    # -- files / explorateur (P3-16c lot 1) -------------------------------- #
+    # Lecture seule, et une seule porte : `FileToolset.resolve_read` décide. Une route qui
+    # aurait sa propre logique de chemins finirait par diverger de la sandbox des outils -
+    # c'est précisément le défaut que la revue de sécurité a fermé sur `~/.uh`. Tout ce qui
+    # est refusé par les outils est donc refusé ici, avec le même 403 et le même texte.
+    fs_text_bytes = 200_000
+    fs_text_max = 1_000_000
+    fs_image_max = 8 * 1024 * 1024
+    fs_list_max = 1_000
+
+    def _fs_tool(app) -> "FileToolset":
+        from ..toolsets import protected_roots as uh_protected_roots
+        from ..toolsets.file import FileToolset
+
+        return FileToolset(
+            workspace=app.state.settings.workspace,
+            protected_roots=uh_protected_roots(),
+        )
+
+    def _fs_target(app, raw: str) -> Path:
+        """Le chemin demandé, ou l'exception qui dit pourquoi il est refusé."""
+        text = str(raw or "").strip()
+        if not text:
+            # L'explorateur s'ouvre sur le workspace : c'est la seule racine garantie.
+            text = str(_fs_workspace(app))
+        tool = _fs_tool(app)
+        target, error = tool.resolve_read(text)
+        if target is None or error:
+            message = str((error or {}).get("error") or "refused")
+            # `_resolve` préfixe ses refus par "refused" ; le reste est un usage invalide
+            # (chemin vide) et non une tentative d'évasion.
+            refused = message.startswith("refused")
+            raise HTTPException(status_code=403 if refused else 400, detail=message)
+        return target
+
+    def _fs_workspace(app) -> Path:
+        return Path(app.state.settings.workspace).expanduser().resolve()
+
+    @app.get("/api/fs/list", dependencies=[Depends(require_token)])
+    async def fs_list(path: str = "", limit: int = 400) -> dict:
+        """Le contenu d'un dossier autorisé. Aucun octet de fichier ici, seulement des noms."""
+        target = _fs_target(app, path)
+        if not target.is_dir():
+            raise HTTPException(status_code=400, detail=f"pas un dossier : {target}")
+        try:
+            children = list(target.iterdir())
+        except OSError as exc:
+            raise HTTPException(status_code=403, detail=f"illisible : {exc}") from exc
+        entries: list[dict] = []
+        for child in children:
+            try:
+                info = child.stat()
+            except OSError:
+                continue  # un lien mort ou un fichier verrouillé n'empêche pas le listing
+            is_dir = child.is_dir()
+            entries.append(
+                {
+                    "name": child.name,
+                    "path": str(child),
+                    "kind": "dir" if is_dir else "file",
+                    "size": 0 if is_dir else info.st_size,
+                    "mtime": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(info.st_mtime)),
+                    "ext": child.suffix.lower(),
+                }
+            )
+        entries.sort(key=lambda item: (item["kind"] != "dir", item["name"].lower()))
+        cap = max(1, min(int(limit or 400), fs_list_max))
+        workspace = _fs_workspace(app)
+        parent = ""
+        chain: list[dict] = [{"name": "workspace", "path": str(workspace)}]
+        try:
+            relative = target.relative_to(workspace)
+        except ValueError:
+            # Une racine de lecture (uploads) n'est pas sous le workspace : on n'invente
+            # pas de fil d'Ariane qui remonterait par un parent interdit.
+            relative = None
+        if relative is not None:
+            walked = workspace
+            for part in relative.parts:
+                walked = walked / part
+                chain.append({"name": part, "path": str(walked)})
+        if target != workspace:
+            # On ne propose de remonter que dans le workspace : ailleurs, le parent est
+            # justement ce que les outils refusent.
+            if target.parent == workspace or target.parent.is_relative_to(workspace):
+                parent = str(target.parent)
+        return {
+            "path": str(target),
+            "name": target.name,
+            "workspace": str(workspace),
+            "parent": parent,
+            "chain": chain,
+            "entries": entries[:cap],
+            "total": len(entries),
+            "truncated": len(entries) > cap,
+        }
+
+    @app.get("/api/fs/stat", dependencies=[Depends(require_token)])
+    async def fs_stat(path: str = "") -> dict:
+        target = _fs_target(app, path)
+        try:
+            info = target.stat()
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail=f"introuvable : {exc}") from exc
+        is_dir = target.is_dir()
+        return {
+            "path": str(target),
+            "name": target.name,
+            "kind": "dir" if is_dir else "file",
+            "size": 0 if is_dir else info.st_size,
+            "mtime": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(info.st_mtime)),
+            "ext": target.suffix.lower(),
+            "symlink": target.is_symlink(),
+        }
+
+    @app.get("/api/fs/preview", dependencies=[Depends(require_token)])
+    async def fs_preview(path: str = "", max_bytes: int = 0) -> dict:
+        """Un aperçu borné : du texte tronqué, une image en data URL, un PDF lu si possible."""
+        target = _fs_target(app, path)
+        if not target.is_file():
+            raise HTTPException(status_code=400, detail=f"pas un fichier : {target}")
+        try:
+            size = target.stat().st_size
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail=f"introuvable : {exc}") from exc
+        ext = target.suffix.lower()
+
+        from .. import media as uh_media
+
+        if ext in uh_media.IMAGE_SUFFIXES:
+            if size > fs_image_max:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"image trop lourde pour l'aperçu ({size} o, maximum {fs_image_max} o)",
+                )
+            mimes = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+                ".bmp": "image/bmp",
+                ".svg": "image/svg+xml",
+            }
+            data = await asyncio.to_thread(target.read_bytes)
+            return {
+                "kind": "image",
+                "name": target.name,
+                "bytes": size,
+                "data_url": f"data:{mimes.get(ext, 'application/octet-stream')};base64,"
+                + base64.b64encode(data).decode("ascii"),
+            }
+
+        if ext == ".pdf":
+            tool = _fs_tool(app)
+            answer = await asyncio.to_thread(tool.read_pdf, str(target), "1-5")
+            if answer.get("error"):
+                # pypdf absent, ou PDF protégé : on le dit, on ne prétend pas avoir lu.
+                return {"kind": "pdf", "name": target.name, "bytes": size, "readable": False,
+                        "reason": str(answer["error"])}
+            return {"kind": "pdf", "name": target.name, "bytes": size, "readable": True,
+                    "text": str(answer.get("text") or ""), "truncated": bool(answer.get("truncated"))}
+
+        cap = max(1, min(int(max_bytes or fs_text_bytes), fs_text_max))
+        head = await asyncio.to_thread(_read_head, target, cap)
+        if b"\x00" in head:
+            return {"kind": "binary", "name": target.name, "bytes": size,
+                    "reason": "aperçu non pris en charge pour ce format binaire"}
+        return {
+            "kind": "text",
+            "name": target.name,
+            "bytes": size,
+            "text": head.decode("utf-8", "replace"),
+            "truncated": size > len(head),
+        }
+
+    @app.get("/api/fs/raw", dependencies=[Depends(require_token)])
+    async def fs_raw(path: str = "") -> FileResponse:
+        """Les octets bruts, pour « Attacher au tour » : ils repartent vers l'upload existant.
+
+        Toujours servi en `application/octet-stream` et en pièce jointe : un SVG ouvert
+        directement dans l'onglet serait du script servi depuis notre propre origine.
+        """
+        target = _fs_target(app, path)
+        if not target.is_file():
+            raise HTTPException(status_code=400, detail=f"pas un fichier : {target}")
+        size = target.stat().st_size
+        if size > attachments.MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"fichier trop lourd : la limite est de "
+                    f"{attachments.human_size(attachments.MAX_BYTES)} par pièce jointe."
+                ),
+            )
+        return FileResponse(
+            str(target), media_type="application/octet-stream", filename=target.name
+        )
 
     # -- audio ------------------------------------------------------------- #
     # P1-15. Every audio path is its own route, and the package they use is
