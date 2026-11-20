@@ -4577,9 +4577,22 @@ async function patchRole(role) {
     method: "PATCH",
     body: JSON.stringify({ role }),
   });
-  fillRoleSelect(data.role || null);
+  const applied = data.role || null;
+  // `role` peut être un identifiant (preset de l'en-tête) ou un objet (texte libre) :
+  // on compare des identifiants, jamais des représentations d'objet.
+  const asked = role && typeof role === "object" ? String(role.id || "") : String(role || "");
+  // Le serveur peut répondre sans rôle (preset refusé, session remplacée entre-temps).
+  // Repeindre « Aucun rôle » laisserait croire que l'opérateur l'a demandé : on le dit,
+  // et on garde son choix à l'écran pour qu'il puisse réessayer. Mesuré en CI Windows,
+  // où cette réponse est arrivée sans que rien ne soit affiché.
+  if (asked && (!applied || String(applied.id) !== asked)) {
+    modelNote("rôle non enregistré par le serveur — réessaie ou recharge la page", "warn");
+    paintRoleSelection();
+    return;
+  }
+  fillRoleSelect(applied);
   paintRoleSelection();
-  modelNote(`Rôle : ${roleLabel(data.role)}`, "ok");
+  modelNote(`Rôle : ${roleLabel(applied)}`, "ok");
 }
 
 async function loadRolePanel() {
@@ -8199,6 +8212,15 @@ function renderTasks(data) {
       : "jamais lancée";
     if (task.last_detail) last.title = task.last_detail;
     row.appendChild(last);
+
+    // D-6 : la prochaine exécution est calculée côté serveur (dernier passage + cadence).
+    // Une tâche éteinte n'en a pas, et le dit plutôt que d'afficher une heure trompeuse.
+    const next = el("div", "task-next");
+    next.dataset.role = "next";
+    next.textContent = task.next_run
+      ? `prochaine : ${task.next_run}`
+      : `prochaine : aucune (${task.next_reason || "—"})`;
+    row.appendChild(next);
 
     const actions = el("div", "task-actions");
     const toggle = el("button", "ghost", task.enabled ? "Désactiver" : "Activer");
