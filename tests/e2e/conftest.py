@@ -47,9 +47,11 @@ def free_port() -> int:
 class Server:
     """One ``uh web`` process, started and stopped by the test."""
 
-    def __init__(self, home: Path, port: int) -> None:
+    def __init__(self, home: Path, port: int, workspace: Path | None = None) -> None:
         self.home = home
         self.port = port
+        #: Le workspace du serveur, quand le test en veut un jetable (panneau Git).
+        self.workspace = workspace
         self.url = ""
         self.lines: list[str] = []
         self.proc: subprocess.Popen | None = None
@@ -61,17 +63,20 @@ class Server:
     def start(self) -> "Server":
         self.home.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ, UH_HOME=str(self.home), PYTHONUNBUFFERED="1")
+        command = [
+            str(PYTHON),
+            "-m",
+            "uh",
+            "web",
+            "--no-open",
+            "--no-uhb",
+            "--port",
+            str(self.port),
+        ]
+        if self.workspace is not None:
+            command += ["--workspace", str(self.workspace)]
         self.proc = subprocess.Popen(
-            [
-                str(PYTHON),
-                "-m",
-                "uh",
-                "web",
-                "--no-open",
-                "--no-uhb",
-                "--port",
-                str(self.port),
-            ],
+            command,
             cwd=str(CWD),
             env=env,
             stdout=subprocess.PIPE,
@@ -130,8 +135,8 @@ class Server:
 def make_server(tmp_path: Path):
     started: list[Server] = []
 
-    def factory(name: str = "home", port: int | None = None) -> Server:
-        server = Server(tmp_path / name, port or free_port())
+    def factory(name: str = "home", port: int | None = None, workspace: Path | None = None) -> Server:
+        server = Server(tmp_path / name, port or free_port(), workspace=workspace)
         started.append(server)
         return server.start()
 

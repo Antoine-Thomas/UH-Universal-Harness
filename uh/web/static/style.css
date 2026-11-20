@@ -1780,6 +1780,52 @@ body.modal-open { overflow: hidden; }
   margin: 0; padding: 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.18);
   font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
 }
+/* P3-16c lot 2 — journal, index, commit et numéro de tour. */
+.git-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
+.git-head strong { font-size: 12.5px; }
+.git-log, .git-changes { list-style: none; margin: 4px 0 0; padding: 0 8px; }
+.git-entry {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 8px;
+  padding: 5px 6px; border-bottom: 1px solid var(--border);
+}
+.git-sha { font-size: 11px; color: var(--accent); }
+.git-subject { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-meta { grid-column: 2; font-size: 11px; color: var(--muted); }
+.git-change { display: flex; align-items: center; gap: 6px; }
+.git-flag {
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.git-flag.staged { color: var(--accent); border-color: var(--accent); }
+.git-path {
+  flex: 1; min-width: 0; text-align: left; border: 0; background: transparent;
+  color: var(--text); font: inherit; font-size: 12px; padding: 3px 4px; border-radius: 6px;
+  cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.git-path:hover { background: var(--accent-soft); }
+.git-act { font-size: 11px; padding: 2px 8px; }
+.git-diff {
+  margin: 6px 14px 0; padding: 8px; max-height: 260px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 8px; background: rgba(0, 0, 0, 0.18);
+  font-size: 11px; line-height: 1.45; white-space: pre;
+}
+.git-diff[hidden] { display: none; }
+.git-empty { color: var(--muted); font-size: 12px; padding: 6px; }
+.git-commit { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px 14px; }
+.git-commit label { font-size: 11.5px; color: var(--muted); }
+.git-commit textarea {
+  width: 100%; resize: vertical; font: inherit; font-size: 12px; padding: 6px 8px;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.git-commit-row { display: flex; align-items: center; gap: 8px; }
+.git-commit-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Un tour commence ici : le badge est discret, mais il nomme ce que Télémétrie compte. */
+.turn-badge {
+  display: inline-block; margin: 0 0 4px; padding: 1px 8px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+}
+.msg.turn-start { border-top: 1px solid var(--border); }
 .media-warning {
   display: flex;
   align-items: center;
@@ -1851,6 +1897,10 @@ body.modal-open { overflow: hidden; }
 .projects-head, .runs-head { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; }
 .projects-hint { color: var(--muted, #8a8f98); font-size: 12px; margin-left: auto; }
 .projects-list, .runs-list { display: flex; flex-direction: column; gap: 6px; }
+/* P3-16c lot 2 : chez un opérateur à 300+ runs, la liste poussait le journal Git et la
+   zone de commit hors de la colonne. Elle défile sur elle-même, elle ne pousse plus. */
+.runs-list { max-height: 220px; overflow-y: auto; padding-right: 2px; }
+.projects-list { max-height: 320px; overflow-y: auto; }
 .project-row { border: 1px solid var(--line, #2a2f39); border-radius: 8px; padding: 8px 10px; }
 .project-row.current { border-color: var(--accent, #4c9aff); }
 .project-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }

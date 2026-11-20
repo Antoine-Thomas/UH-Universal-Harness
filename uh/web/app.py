@@ -331,6 +331,14 @@ def _git_commit(root: Path) -> str:
 
 
 def _git_dirty(root: Path) -> bool:
+    """Vrai seulement si un fichier SUIVI est modifié.
+
+    `git status --porcelain` liste aussi les fichiers non suivis (`??`), et les compter
+    faisait dire « modifié » au pied de page pour un fichier que personne n'avait ajouté.
+    Mesuré le 20/11 : `petit_prince.svg`, non suivi, suffisait à déclarer le dépôt
+    modifié alors que le code servi était celui du commit. Un fichier non suivi n'est pas
+    une modification du dépôt ; le panneau Projets les montre séparément.
+    """
     try:
         proc = subprocess.run(
             ("git", "-C", str(root), "status", "--porcelain"),
@@ -338,7 +346,10 @@ def _git_dirty(root: Path) -> bool:
         )
     except (OSError, subprocess.SubprocessError):
         return False
-    return bool(proc.stdout.strip())
+    for line in proc.stdout.splitlines():
+        if line.strip() and not line.startswith("??"):
+            return True
+    return False
 
 
 def _read_head(path: Path, limit: int) -> bytes:
@@ -803,11 +814,21 @@ def create_app(
         kind, model = app.state.session_models.get(
             session["id"], (app.state.kind, app.state.model)
         )
+        # Un tour commence à chaque message de l'utilisateur - c'est ce que Télémétrie
+        # compte (une décision par tour envoyé). Le numéro est calculé ici, une seule fois :
+        # le fil et la télémétrie ne peuvent donc pas raconter deux histoires différentes.
+        turn = 0
+        numbered: list[dict] = []
+        for row in rows:
+            if row.get("role") == "user":
+                turn += 1
+            numbered.append({**row, "turn": turn})
         return {
             "session": {**session, "short_id": display_id(session["id"])},
-            "messages": rows,
+            "messages": numbered,
             "provider": kind,
             "model": model,
+            "turns": turn,
         }
 
     @app.delete(
@@ -997,6 +1018,102 @@ def create_app(
         else:
             app.state.settings.workspace = target
         return {"ok": True, "workspace": str(target), "session_id": session_id}
+
+    # -- git, extended (P3-16c lot 2) -------------------------------------- #
+    # Le dépôt actif seulement : le chemin demandé doit être le workspace de CETTE
+    # session, et `projects.writable` exige en plus qu'il soit enregistré (ou sous
+    # projects.root). Les écritures ne peuvent donc pas viser un dépôt que l'interface
+    # n'affiche pas ; le journal et le diff, eux, restent lisibles.
+    def _active_workspace(app, session_id: str) -> Path:
+        workspace = app.state.settings.workspace
+        if session_id:
+            session = _session_or_404(app, session_id)
+            workspace = (session.get("metadata") or {}).get("workspace") or workspace
+        return Path(workspace).expanduser().resolve()
+
+    def _git_target(app, raw_path: str, session_id: str) -> Path:
+        from .. import projects as uh_projects
+
+        active = _active_workspace(app, session_id)
+        requested = Path(raw_path).expanduser().resolve() if str(raw_path or "").strip() else active
+        if requested != active:
+            raise HTTPException(
+                status_code=403,
+                detail=f"ce n'est pas le dépôt actif de cette conversation ({active})",
+            )
+        try:
+            return uh_projects.writable(active)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    @app.get("/api/git/log", dependencies=[Depends(require_token)])
+    async def git_log(path: str = "", session_id: str = "", limit: int = 30, offset: int = 0) -> dict:
+        from .. import projects as uh_projects
+
+        root = _active_workspace(app, session_id)
+        requested = Path(path).expanduser().resolve() if str(path or "").strip() else root
+        if requested != root:
+            raise HTTPException(status_code=403, detail="ce n'est pas le dépôt actif de cette conversation")
+        try:
+            return await asyncio.to_thread(uh_projects.log, root, limit, offset)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/git/diff", dependencies=[Depends(require_token)])
+    async def git_diff(path: str = "", session_id: str = "", file: str = "", staged: bool = False) -> dict:
+        from .. import projects as uh_projects
+
+        root = _active_workspace(app, session_id)
+        requested = Path(path).expanduser().resolve() if str(path or "").strip() else root
+        if requested != root:
+            raise HTTPException(status_code=403, detail="ce n'est pas le dépôt actif de cette conversation")
+        try:
+            return await asyncio.to_thread(uh_projects.diff, root, file, staged)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/git/stage", dependencies=[Depends(require_token)])
+    async def git_stage(payload: dict) -> dict:
+        from .. import projects as uh_projects
+
+        body = payload or {}
+        root = _git_target(app, str(body.get("path") or ""), str(body.get("session_id") or ""))
+        files = body.get("files") or ([body["file"]] if body.get("file") else [])
+        try:
+            return await asyncio.to_thread(uh_projects.stage, root, files)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/git/unstage", dependencies=[Depends(require_token)])
+    async def git_unstage(payload: dict) -> dict:
+        from .. import projects as uh_projects
+
+        body = payload or {}
+        root = _git_target(app, str(body.get("path") or ""), str(body.get("session_id") or ""))
+        files = body.get("files") or ([body["file"]] if body.get("file") else [])
+        try:
+            return await asyncio.to_thread(uh_projects.unstage, root, files)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/git/commit", dependencies=[Depends(require_token)])
+    async def git_commit(payload: dict) -> dict:
+        """Un commit et rien de plus : pas de push, pas de ``--no-verify``.
+
+        Le message est obligatoire et les hooks du dépôt tournent : un hook qui refuse
+        est rapporté tel quel, jamais contourné.
+        """
+        from .. import projects as uh_projects
+
+        body = payload or {}
+        root = _git_target(app, str(body.get("path") or ""), str(body.get("session_id") or ""))
+        message = str(body.get("message") or "")
+        if not message.strip():
+            raise HTTPException(status_code=400, detail="un message de commit est obligatoire")
+        try:
+            return await asyncio.to_thread(uh_projects.commit, root, message)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/runs", dependencies=[Depends(require_token)])
     async def runs_status() -> dict:

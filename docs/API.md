@@ -78,6 +78,11 @@ come back", which nothing else in the product could.
 | GET | `/api/fs/stat?path=` | — | `{path, name, kind, size, mtime, ext, symlink}` · `403` refusé (mêmes règles) · `404` disparu |
 | GET | `/api/fs/preview?path=&max_bytes=` | — | `{kind: text, text, bytes, truncated}` · `{kind: image, data_url, bytes}` (PNG/JPEG/GIF/WebP/BMP/SVG, `413` au-delà de 8 Mio) · `{kind: pdf, readable: true, text}` ou `readable: false, reason` quand `pypdf` manque — un PDF n'est jamais annoncé lu sans l'avoir été · `{kind: binary, reason}` · `403` refusé. Texte borné à 200 000 o par défaut, 1 Mio au maximum |
 | GET | `/api/fs/raw?path=` | — | les octets, toujours `application/octet-stream` + `attachment` (un SVG servi affichable serait du script depuis notre origine) ; `413` au-delà de `attachments.MAX_BYTES` · `403` refusé. C'est la source du bouton « Attacher au tour », qui repart ensuite par l'upload normal |
+| GET | `/api/git/log?path=&session_id=&limit=&offset=` | — | `{ok, commits: [{sha, short, author, date, subject}], limit, offset, has_more, path}` — paginé (une ligne de plus demandée à git pour savoir s'il en reste) ; dépôt sans commit ⇒ `commits: []` avec `reason`, pas une erreur. Lecture seule, `403` si `path` n'est pas le workspace de la session |
+| GET | `/api/git/diff?path=&session_id=&file=&staged=` | — | `{ok, file, staged, diff, bytes, truncated, reason}` — sortie de `git diff --no-color --ignore-space-at-eol` (l'espaces de fin ne font pas un diff), tronquée à 200 000 caractères · `400` fichier hors dépôt |
+| POST | `/api/git/stage` | `{path?, session_id?, files: [...]}` | `{ok, staged: [...], project}` — `git add` sur des chemins RELATIFS au dépôt ; `400` chemin absolu, `..` hors dépôt, fichier vide · `403` si le dépôt n'est pas le dépôt actif, ou s'il n'est ni enregistré ni sous `projects.root` |
+| POST | `/api/git/unstage` | `{path?, session_id?, files: [...]}` | `{ok, unstaged: [...], project}` — `git reset HEAD --` (repli `git rm --cached` sur un dépôt sans commit) ; mêmes bornes que `stage` |
+| POST | `/api/git/commit` | `{path?, session_id?, message}` | `{ok, sha, short, message, project}` — message **obligatoire** (`400` s'il est vide), les hooks du dépôt tournent (aucun `--no-verify`), et **aucune route ne pousse** |
 | GET | `/api/runs` | — | proxy de UHB `GET /runs` : `{ok, root, count, bytes, kept, recent, policy}` ; UHB arrêté ⇒ `{ok: false, reason, runs: []}` |
 | POST | `/api/runs` | `{action: close\|prune\|restore, run?, keep?, apply?, revision?}` | proxy de UHB `POST /runs` ; `prune` reste une **simulation** sans `apply: true` ; UH ne supprime jamais lui-même |
 | GET | `/api/memory` | — | `{entries: [{sha256, kind, path, bytes, source, session, message_id, format, width?, height?, bits?, channels?}], weight: {root, bytes, by_kind, entries}}` — ce que l'opérateur a gardé, en PNG lossless ou FLAC 24 bits (P1-13) |
@@ -207,6 +212,8 @@ plus-backdrop  plus-close  plus-empty  plus-filters  plus-import  plus-title
 plus-menu  plus-dictate  media-warning
 files-view  files-crumbs  files-refresh  files-hint  files-list  tab-files
 files-preview  files-preview-name  files-preview-meta  files-preview-body  files-attach
+git-log  git-hint  git-more  git-status  git-changes  git-diff  git-message  git-commit
+git-commit-hint
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 role-custom  role-custom-save  role-label  role-panel  role-posture  role-select  role-view

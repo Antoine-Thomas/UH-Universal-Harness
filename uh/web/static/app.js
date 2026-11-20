@@ -589,6 +589,7 @@ function renderHistory(messages) {
       else toolCard(message.name || "tool", null, message.content || "");
     } else {
       const box = appendMessage(role, message.content || "", message.id);
+      if (role === "user" && message.turn) turnBadge(box, message.turn);
       if (Array.isArray(message.artifacts) && message.artifacts.length) {
         drawArtifacts(box, message.artifacts);
         drawAudio(box, message.artifacts, { sessionId: state.sessionId });
@@ -1572,6 +1573,9 @@ async function openSession(id) {
   fillRoleSelect((data.session.metadata || {}).role || null);
   renderHistory(data.messages);
   updateGauge(data.messages);
+  // Le compteur local continue à partir de ce que le serveur a numéroté : un tour envoyé
+  // après un rechargement porte le bon numéro.
+  state.turns = Number(data.turns || 0);
   // A fresh read is the fix the header control performs: the stale flag it carried
   // belongs to the previous render, not to this one (P1-12).
   viewStale(false);
@@ -2026,10 +2030,14 @@ async function sendMessage(text) {
   const attachedList = state.attachments
     .map((item) => `${item.name} (${humanSize(item.size)}, ${kindLabel(item)})`)
     .join(", ");
-  appendMessage(
+  const userBubble = appendMessage(
     "user",
     attachments.length ? `${text}\n\n[fichier(s) joint(s) : ${attachedList}]` : text
   );
+  // Le tour qui vient d'être envoyé porte son numéro tout de suite : le serveur le
+  // confirmera au prochain rechargement, avec la même règle (un par message utilisateur).
+  state.turns = (state.turns || 0) + 1;
+  turnBadge(userBubble, state.turns);
   const assistant = appendMessage("assistant", "");
   // Held here instead of re-found later: `lastChild` stopped being the content
   // node once the Markdown swap ran, and `querySelector(".content")` returned
@@ -4441,6 +4449,12 @@ function showPanelTab(name) {
     loadToolCatalog().catch(() => {});
     loadSkillsManager().catch(() => {});
   }
+  // Le groupe ouvre la section : sans ce chargement, la liste restait vide jusqu'à
+  // « Actualiser » — le bouton d'onglet chargeait, le groupe non (mesuré par l'e2e Git).
+  if (name === "projects") {
+    loadProjects().catch(() => {});
+    loadRuns().catch(() => {});
+  }
   if (name === "files") loadFs().catch(() => {});
   if (name === "memory") {
     loadMemory().catch(() => {});
@@ -4744,14 +4758,19 @@ function wireProviders() {
   $("quit-uh").addEventListener("click", quitUh);
   $("tab-data").addEventListener("click", () => showPanelTab("data"));
   $("tab-tools").addEventListener("click", () => showPanelTab("tools"));
-  $("tab-projects").addEventListener("click", () => {
-    showPanelTab("projects");
-    loadProjects();
-    loadRuns();
-  });
+  $("tab-projects").addEventListener("click", () => showPanelTab("projects"));
   $("tab-files").addEventListener("click", () => showPanelTab("files"));
   $("files-refresh").addEventListener("click", () => loadFs(FS.path).catch(() => {}));
   $("files-attach").addEventListener("click", () => attachSelectedFile());
+  $("git-more").addEventListener("click", async () => {
+    GIT.offset += GIT.page;
+    await loadGitLog(true);
+  });
+  $("git-commit").addEventListener("click", () => commitWork());
+  $("git-message").addEventListener("input", () => {
+    const button = $("git-commit");
+    if (button) button.disabled = !(GIT.staged > 0 && $("git-message").value.trim());
+  });
   // Ouverture : le groupe de la section par défaut est marqué et sa barre remplie,
   // sinon la colonne s'ouvre sur cinq onglets dont aucun n'est actif.
   const startLeaf = state.activeTab || "keys";
@@ -7533,6 +7552,10 @@ function renderProjects(data) {
     }
     list.append(row);
   }
+  // Les modifications affichées sont celles du dépôt ACTIF : c'est le seul où le serveur
+  // accepte d'indexer, donc le seul dont les boutons peuvent dire la vérité.
+  const current = projects.find((item) => item.current) || null;
+  if (current) renderGitChanges(current);
 }
 
 async function loadProjects() {
@@ -7541,6 +7564,8 @@ async function loadProjects() {
     const data = await api(`/api/projects${query}`);
     PROJECTS.data = data;
     renderProjects(data);
+    // Le journal suit la même lecture : un seul geste, deux panneaux cohérents.
+    await loadGitLog();
   } catch (error) {
     $("projects-hint").textContent = "lecture impossible : " + (error.message || error);
   }
@@ -7806,6 +7831,186 @@ async function openFsPreview(path) {
     body.textContent = `refusé : ${error.message || error}`;
     $("files-preview-meta").textContent = "";
   }
+}
+
+// --- git étendu (P3-16c lot 2) --------------------------------------------- //
+// Journal, index et commit, bornés au dépôt actif : le serveur refuse tout autre chemin
+// (403). Aucune fonction de push n'existe ici, et rien ne force les hooks.
+const GIT = { page: 30, offset: 0, commits: [], selected: "", staged: 0 };
+
+function gitStatusLetter(line) {
+  const code = line.slice(0, 2);
+  if (code === "??") return { letter: "?", staged: false, label: "non suivi" };
+  const staged = code[0] !== " " && code[0] !== "?";
+  const letters = { M: "modifié", A: "ajouté", D: "supprimé", R: "renommé", C: "copié", U: "conflit", T: "type" };
+  return {
+    letter: code.trim() || "?",
+    staged,
+    label: `${letters[code[0]] || "index"} / ${letters[code[1]] || "travail"}`,
+  };
+}
+
+function gitChangedFiles(project) {
+  const rows = [];
+  for (const line of String(project.porcelain || "").split("\n")) {
+    if (!line.trim() || line.startsWith("## ")) continue;
+    let path = line.slice(3).trim();
+    const arrow = path.indexOf(" -> ");
+    if (arrow >= 0) path = path.slice(arrow + 4);
+    rows.push({ path, ...gitStatusLetter(line) });
+  }
+  return rows;
+}
+
+function renderGitLog() {
+  const list = $("git-log");
+  if (!list) return;
+  list.textContent = "";
+  if (!GIT.commits.length) {
+    list.appendChild(el("li", "git-empty", "Aucun commit lisible pour ce dépôt."));
+  }
+  for (const commit of GIT.commits) {
+    const row = el("li", "git-entry");
+    const sha = el("code", "git-sha", commit.short);
+    sha.title = commit.sha;
+    const subject = el("span", "git-subject", commit.subject || "(sans message)");
+    const meta = el("span", "git-meta", `${commit.author || "?"} · ${String(commit.date || "").slice(0, 10)}`);
+    row.append(sha, subject, meta);
+    list.appendChild(row);
+  }
+  const hint = $("git-hint");
+  if (hint) hint.textContent = `${GIT.commits.length} commit(s) affiché(s)`;
+  const more = $("git-more");
+  if (more) more.hidden = false;
+}
+
+async function loadGitLog(append = false) {
+  const hint = $("git-hint");
+  if (hint && !append) hint.textContent = "chargement…";
+  const query = new URLSearchParams({ limit: String(GIT.page), offset: String(GIT.offset) });
+  if (state.sessionId) query.set("session_id", state.sessionId);
+  try {
+    const data = await api(`/api/git/log?${query.toString()}`);
+    GIT.commits = append ? [...GIT.commits, ...(data.commits || [])] : (data.commits || []);
+    renderGitLog();
+    const more = $("git-more");
+    if (more) more.hidden = !data.has_more;
+    if (hint) {
+      hint.textContent = data.reason
+        ? String(data.reason)
+        : `${GIT.commits.length} commit(s) affiché(s)`;
+    }
+  } catch (error) {
+    if (hint) hint.textContent = `journal refusé : ${error.message || error}`;
+  }
+}
+
+function renderGitChanges(project) {
+  const list = $("git-changes");
+  const status = $("git-status");
+  if (!list) return;
+  list.textContent = "";
+  const rows = gitChangedFiles(project);
+  GIT.staged = rows.filter((row) => row.staged).length;
+  if (!rows.length) {
+    list.appendChild(el("li", "git-empty", "Rien à indexer : l'arbre de travail est propre."));
+  }
+  for (const row of rows) {
+    const item = el("li", "git-change");
+    const badge = el(
+      "span",
+      `git-flag ${row.staged ? "staged" : "work"}`,
+      row.staged ? "index" : row.letter === "?" ? "non suivi" : "travail"
+    );
+    badge.title = row.label;
+    const name = el("button", "git-path", row.path);
+    name.type = "button";
+    name.title = "voir le diff";
+    name.addEventListener("click", () => openGitDiff(row.path, row.staged));
+    const action = el("button", "ghost git-act", row.staged ? "Retirer" : "Indexer");
+    action.type = "button";
+    action.dataset.action = row.staged ? "unstage" : "stage";
+    action.dataset.file = row.path;
+    action.addEventListener("click", () => indexFile(row.path, row.staged ? "unstage" : "stage"));
+    item.append(badge, name, action);
+    list.appendChild(item);
+  }
+  if (status) {
+    status.textContent = rows.length
+      ? `${GIT.staged} indexé(s) · ${rows.length - GIT.staged} en travail`
+      : "propre";
+  }
+  const button = $("git-commit");
+  const message = $("git-message");
+  if (button) button.disabled = !(GIT.staged > 0 && message && message.value.trim());
+}
+
+async function openGitDiff(file, staged) {
+  const pre = $("git-diff");
+  if (!pre) return;
+  pre.hidden = false;
+  pre.textContent = "chargement…";
+  GIT.selected = file;
+  const query = new URLSearchParams({ file, staged: staged ? "true" : "false" });
+  if (state.sessionId) query.set("session_id", state.sessionId);
+  try {
+    const data = await api(`/api/git/diff?${query.toString()}`);
+    pre.textContent = data.diff && data.diff.trim()
+      ? data.diff + (data.truncated ? "\n…[diff tronqué]" : "")
+      : "(aucune différence) — espaces de fin ignorés (--ignore-space-at-eol)";
+  } catch (error) {
+    pre.textContent = `diff refusé : ${error.message || error}`;
+  }
+}
+
+async function indexFile(file, action) {
+  const body = { files: [file] };
+  if (state.sessionId) body.session_id = state.sessionId;
+  try {
+    await api(`/api/git/${action}`, { method: "POST", body: JSON.stringify(body) });
+    await loadProjects();
+    await loadGitLog();
+  } catch (error) {
+    const hint = $("git-status");
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+async function commitWork() {
+  const message = $("git-message");
+  const hint = $("git-commit-hint");
+  const button = $("git-commit");
+  if (!message || !hint) return;
+  if (!message.value.trim()) {
+    hint.textContent = "un message est obligatoire";
+    return;
+  }
+  if (button) button.disabled = true;
+  hint.textContent = "commit en cours…";
+  const body = { message: message.value };
+  if (state.sessionId) body.session_id = state.sessionId;
+  try {
+    const data = await api("/api/git/commit", { method: "POST", body: JSON.stringify(body) });
+    hint.textContent = `commit ${data.short} créé`;
+    message.value = "";
+    await loadProjects();
+    GIT.offset = 0;
+    await loadGitLog();
+  } catch (error) {
+    hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+// --- numérotation des tours ------------------------------------------------ //
+// Un tour = un message de l'utilisateur, exactement ce que Télémétrie compte. Le numero
+// vient du serveur au chargement, et du compteur local pour le tour qu'on vient d'envoyer.
+function turnBadge(box, turn) {
+  if (!box || !turn) return;
+  const badge = el("span", "turn-badge", `Tour #${turn}`);
+  badge.title = `tour ${turn} de cette conversation · compté comme « ${turn} tour(s) » dans Télémétrie`;
+  box.classList.add("turn-start");
+  box.prepend(badge);
+  return badge;
 }
 
 async function attachSelectedFile() {

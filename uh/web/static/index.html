@@ -227,6 +227,28 @@
             <button id="runs-clean" class="ghost" type="button">Nettoyer…</button>
           </div>
           <div id="runs-list" class="runs-list" aria-busy="false"></div>
+          <!-- P3-16c lot 2 : journal, index et commit bornés au dépôt ACTIF de cette
+               session. Aucun bouton push n'existe ici, et --no-verify n'est jamais passé. -->
+          <div class="git-head">
+            <strong>Journal</strong>
+            <span id="git-hint" class="projects-hint">—</span>
+            <button id="git-more" class="ghost" type="button" hidden>Plus</button>
+          </div>
+          <ul id="git-log" class="git-log" aria-busy="false"></ul>
+          <div class="git-head">
+            <strong>Modifications</strong>
+            <span id="git-status" class="projects-hint">—</span>
+          </div>
+          <ul id="git-changes" class="git-changes"></ul>
+          <pre id="git-diff" class="git-diff" hidden></pre>
+          <div class="git-commit">
+            <label for="git-message">Message de commit</label>
+            <textarea id="git-message" rows="2" placeholder="Ce que ce commit change, et pourquoi"></textarea>
+            <div class="git-commit-row">
+              <button id="git-commit" class="ghost-button" type="button" disabled>Committer</button>
+              <span id="git-commit-hint" class="projects-hint"></span>
+            </div>
+          </div>
         </div>
         <div id="files-view" class="panel-view" role="tabpanel" aria-labelledby="tab-files" hidden>
           <!-- P3-16c lot 1 : lecture seule. Chaque chemin passe par la même porte que
