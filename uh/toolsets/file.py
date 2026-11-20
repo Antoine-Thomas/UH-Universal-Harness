@@ -171,6 +171,7 @@ class FileToolset:
         workspace: str | os.PathLike[str] | None = None,
         allowed: list[Path] | None = None,
         read_roots: list[Path] | None = None,
+        protected_roots: list[Path] | None = None,
     ) -> None:
         self.workspace = (
             Path(workspace).expanduser().resolve() if workspace else default_workspace()
@@ -182,6 +183,11 @@ class FileToolset:
         # session vivent dans ~/.uh/uploads/<session>/, hors workspace. On ouvre ce
         # dossier-la, jamais ~/.uh (keys.toml, mcp-secrets.toml, web-token y sont).
         self.read_roots = [Path(root).expanduser().resolve() for root in (read_roots or [])]
+        # Racines ou l'acces n'est permis QUE par une read_root explicite : le dossier des
+        # pieces jointes de UH. Le workspace ne suffit jamais, meme quand ~/.uh est dedans.
+        self.protected_roots = [
+            Path(root).expanduser().resolve() for root in (protected_roots or [])
+        ]
         # read_pdf exists only when pypdf does: a tool that fails on every call is
         # worse than a tool that is not offered.
         self.tools = (TOOLS + [READ_PDF]) if pdf_available() else list(TOOLS)
@@ -238,6 +244,25 @@ class FileToolset:
             resolved = candidate.resolve()
         except OSError as exc:
             return None, {"error": f"cannot resolve path '{text}': {exc}"}
+
+        # 1. Exclusions d'abord : un upload n'est lisible que par la racine de lecture du tour.
+        #    La comparaison se fait sur le chemin RESOLU, donc `..`, les liens et les variantes
+        #    `C:\` sont deja neutralises ; si la resolution echoue, on a deja refuse plus haut.
+        for protected in self.protected_roots:
+            inside = resolved == protected or resolved.is_relative_to(protected)
+            if not inside:
+                continue
+            allowed = not write and any(
+                resolved == root or resolved.is_relative_to(root) for root in self.read_roots
+            )
+            if allowed:
+                return resolved, None
+            return None, {
+                "error": (
+                    f"refused: '{text}' is inside the UH uploads folder; only this turn's "
+                    "attachments are readable, and never for writing"
+                )
+            }
 
         if resolved == self.workspace or resolved.is_relative_to(self.workspace):
             return resolved, None

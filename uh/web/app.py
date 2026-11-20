@@ -233,19 +233,30 @@ def _expose_workshop_when_uhb_is_in_dev(*, force: bool = False) -> bool:
     return False
 
 
-def _toolsets(app: FastAPI, web_search: bool = True, notify=None) -> dict:
-    # P3-16b: the workspace is per session, carried by `app.state.turn_workspace` for the
-    # duration of one turn. Passed through the app rather than as a new keyword because
-    # `_toolsets` is replaced wholesale by test stubs and by nothing else - a new
-    # parameter broke one of them and the whole turn thread died with a TypeError,
-    # leaving the browser waiting until its deadline (measured: 604 s, no answer).
+def _toolsets(
+    app: FastAPI,
+    *,
+    workspace: Path | str | None,
+    read_roots: list[Path] | None = None,
+    web_search: bool = True,
+    notify=None,
+) -> dict:
+    """Toolsets of ONE turn, built from that turn's own context.
+
+    `workspace` and `read_roots` are required keyword arguments on purpose. They used to be
+    carried by `app.state.turn_workspace` / `turn_read_roots`, which is shared by the whole
+    process: two concurrent turns wrote the same attribute, and the first one could inherit
+    the SECOND one's upload roots - measured, `tests/test_turn_isolation.py` failed with
+    "A received the context of session-b". A turn's context now lives in the turn's own
+    variables; nothing about a turn is stored on the application.
+    """
     _expose_workshop_when_uhb_is_in_dev()
-    workspace = getattr(app.state, "turn_workspace", None)
     # Les pieces jointes de la session sont lisibles (lecture seule) par l'outil `file` :
     # elles vivent hors workspace. `~/.uh` n'est jamais ouvert, seulement ce dossier.
-    roots = list(getattr(app.state, "turn_read_roots", None) or [])
     toolsets = build_toolsets(
-        workspace or app.state.settings.workspace, notify=notify, read_roots=roots or None
+        workspace or app.state.settings.workspace,
+        notify=notify,
+        read_roots=list(read_roots or []) or None,
     )
     if not app.state.settings.allow_terminal:
         toolsets.pop("terminal", None)
@@ -1316,9 +1327,14 @@ def create_app(
             session_obj = None
             # Built here, not before: an HTTP/SSE toolset needs `emit` to ask its
             # per-call approval on this turn's stream.
-            app.state.turn_workspace = _workspace
-            app.state.turn_read_roots = [attachments.session_dir(session["id"])]
-            toolsets = _toolsets(app, web_search=search_on, notify=emit)
+            # Le contexte du tour reste dans ce fil : rien n'est ecrit sur `app.state`.
+            toolsets = _toolsets(
+                app,
+                workspace=_workspace,
+                read_roots=[attachments.session_dir(session["id"])],
+                web_search=search_on,
+                notify=emit,
+            )
             try:
                 from .. import mcp_http as uh_mcp_http
 

@@ -126,7 +126,7 @@ def test_the_journal_writes_a_greppable_line(tmp_path, monkeypatch) -> None:
 
 def test_a_turn_journals_its_tools_and_its_end(tmp_path, monkeypatch) -> None:
     app = make_app(tmp_path, monkeypatch)
-    monkeypatch.setattr(web_app, "_toolsets", lambda _app, web_search=True, notify=None: {"slow": SlowToolset()})
+    monkeypatch.setattr(web_app, "_toolsets", lambda _app, *, workspace=None, read_roots=None, web_search=True, notify=None: {"slow": SlowToolset()})
 
     run_chat(app)
 
@@ -161,7 +161,7 @@ def test_no_argument_no_answer_and_no_key_ever_reaches_the_journal(tmp_path, mon
     """The canary is in a tool argument, in the answer and in the prompt: none of them
     may appear. This is the test that makes the journal safe to ship."""
     app = make_app(tmp_path, monkeypatch)
-    monkeypatch.setattr(web_app, "_toolsets", lambda _app, web_search=True, notify=None: {"slow": SlowToolset()})
+    monkeypatch.setattr(web_app, "_toolsets", lambda _app, *, workspace=None, read_roots=None, web_search=True, notify=None: {"slow": SlowToolset()})
 
     run_chat(app, text=f"utilise la cle {CANARY} pour finir")
 

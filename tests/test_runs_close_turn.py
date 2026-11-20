@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from uh import uhb_runs
+from uh.web import app as web_app
 
 APP = Path(__file__).resolve().parents[1] / "uh" / "web" / "app.py"
 
@@ -74,9 +75,25 @@ def test_the_run_id_is_collected_from_the_tool_result_payload() -> None:
 
 
 def test_the_workspace_of_a_turn_is_the_session_one() -> None:
+    """Le workspace vient de la session, et il est **passe** au tour, pas stocke sur l'app.
+
+    Le contrat precedent (« app.state.turn_workspace ») a ete remplace : deux tours
+    simultanes ecrasaient la meme variable (mesure : A recevait le contexte de B, donc ses
+    pieces jointes). La signature est maintenant la garantie, pas une convention.
+    """
+    import inspect
+
     source = APP.read_text(encoding="utf-8")
     assert '(session.get("metadata") or {}).get("workspace")' in source
-    # Le workspace traverse `app.state.turn_workspace` : un nouveau parametre de
-    # `_toolsets` a casse un stub de test et tue le fil du tour (604 s sans reponse).
-    assert "app.state.turn_workspace = _workspace" in source
-    assert 'getattr(app.state, "turn_workspace", None)' in source
+
+    code = [line.split("#", 1)[0] for line in source.splitlines()]
+    assert not any("app.state.turn_workspace =" in line for line in code), (
+        "le contexte d'un tour ne doit pas etre ecrit sur l'application"
+    )
+
+    signature = inspect.signature(web_app._toolsets)
+    workspace = signature.parameters["workspace"]
+    assert workspace.kind is inspect.Parameter.KEYWORD_ONLY, "workspace doit etre nomme"
+    assert workspace.default is inspect.Parameter.empty, "workspace doit etre obligatoire"
+    # `read_roots` garde `None` par defaut : la plupart des tours n'ont aucune piece jointe.
+    assert signature.parameters["read_roots"].kind is inspect.Parameter.KEYWORD_ONLY
