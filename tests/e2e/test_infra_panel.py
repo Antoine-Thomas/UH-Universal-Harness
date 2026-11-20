@@ -106,6 +106,41 @@ def test_the_logs_are_collapsed_and_masked(browser, make_server) -> None:
         context.close()
 
 
+def test_every_roadmap_service_is_shown_and_a_dead_one_stays_visible(browser, make_server) -> None:
+    """Critère D-7 : RAG arrêté → ligne rouge avec sa raison, et les six autres tiennent."""
+    server = make_server(
+        extra_env={
+            "UH_RAG_URL": f"http://127.0.0.1:{closed_port()}",
+            "SIYUAN_URL": f"http://127.0.0.1:{closed_port()}",
+            "UH_MARI_URL": f"http://127.0.0.1:{closed_port()}",
+        }
+    )
+    context, page = open_app(browser, server)
+    try:
+        open_infra(page)
+        names = page.eval_on_selector_all(
+            "#infra-services .infra-service", "els => els.map(e => e.dataset.service)"
+        )
+        assert names == ["UH", "UHB", "Ollama", "RAG", "SiYuan", "MARI", "Docker"], names
+
+        rag = page.eval_on_selector(
+            "#infra-services .infra-service[data-service='RAG']",
+            "el => ({ state: el.dataset.state, text: el.innerText })",
+        )
+        assert rag["state"] == "down", rag
+        assert "port" in rag["text"].lower(), rag["text"]
+        # Les autres lignes gardent leur propre état : le panneau n'est pas vidé.
+        assert page.eval_on_selector(
+            "#infra-services .infra-service[data-service='UH']", "el => el.dataset.state"
+        ) == "up"
+        alerts = page.eval_on_selector_all(
+            "#infra-alerts .infra-alert", "els => els.map(e => [e.dataset.level, e.innerText])"
+        )
+        assert any("RAG" in text for _, text in alerts), alerts
+    finally:
+        context.close()
+
+
 def test_the_view_offers_no_action(browser, make_server) -> None:
     server = make_server()
     context, page = open_app(browser, server)

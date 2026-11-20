@@ -22,6 +22,10 @@ import httpx  # noqa: E402
 from uh import infra as uh_infra  # noqa: E402
 from uh.web.app import create_app  # noqa: E402
 
+#: La vraie sonde Docker, capturée avant que la fixture autouse ne la remplace : les
+#: tests unitaires doivent éprouver celle-là, sinon ils éprouvent le faux.
+REAL_DOCKER_STATUS = uh_infra.docker_status
+
 TOKEN = "test-token-infra"
 BASE = "http://127.0.0.1:8765"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -156,7 +160,30 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (uh_home / "uhb.log").write_text("second cerveau\n", encoding="utf-8")
     monkeypatch.setenv("UH_UHB_RUNS", str(runs))
     monkeypatch.setenv("UH_UHB_URL", f"http://127.0.0.1:{closed_port()}")
+    # Les trois complémentaires pointent sur des ports fermés : le test ne dépend pas de
+    # ce qui écoute réellement sur le poste, et le cas « injoignable » est reproductible.
+    for name in ("UH_RAG_URL", "SIYUAN_URL", "UH_MARI_URL"):
+        monkeypatch.setenv(name, f"http://127.0.0.1:{closed_port()}")
     return uh_home
+
+
+@pytest.fixture(autouse=True)
+def docker_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Docker n'est ni installé partout ni toujours démarré : on fixe son état par défaut."""
+    monkeypatch.setattr(
+        uh_infra,
+        "docker_status",
+        lambda timeout=2.0: {
+            "name": "Docker",
+            "state": "up",
+            "detail": "moteur v27.0.0",
+            "reason": "",
+            "url": "",
+            "port": None,
+            "listening": True,
+        },
+    )
+
 
 
 @pytest.fixture()
@@ -264,3 +291,96 @@ def test_an_alert_is_ok_when_nothing_is_wrong(app, monkeypatch: pytest.MonkeyPat
     body = snapshot(app)
     levels = [alert["level"] for alert in body["alerts"]]
     assert "error" not in levels
+
+
+# --------------------------------------------------------------------------- #
+# les services de la roadmap (RAG, SiYuan, MARI, Docker)
+# --------------------------------------------------------------------------- #
+def test_every_roadmap_service_has_its_line(app) -> None:
+    body = snapshot(app)
+    names = [service["name"] for service in body["services"]]
+    assert names == ["UH", "UHB", "Ollama", "RAG", "SiYuan", "MARI", "Docker"], names
+
+
+def test_one_dead_service_does_not_empty_the_panel(app) -> None:
+    """Critère D-7 : un service arrêté passe au rouge avec sa raison, le reste tient debout."""
+    body = snapshot(app)
+    by_name = {service["name"]: service for service in body["services"]}
+    assert by_name["RAG"]["state"] == "down"
+    assert "port" in by_name["RAG"]["reason"].lower()
+    # Les autres lignes sont toujours là, avec leur propre état (l'état d'Ollama dépend
+    # du poste : ce qui compte ici, c'est que sa ligne survive).
+    assert by_name["Ollama"]["state"] in {"up", "down"}
+    assert by_name["Docker"]["state"] == "up"
+    assert by_name["UH"]["state"] == "up"
+    assert len(body["services"]) == 7
+    warnings = [alert for alert in body["alerts"] if alert["level"] == "warn"]
+    assert any("RAG" in alert["label"] for alert in warnings), warnings
+
+
+def test_a_dead_docker_is_reported_as_unreachable_with_its_reason(
+    app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        uh_infra,
+        "docker_status",
+        lambda timeout=2.0: {
+            "name": "Docker",
+            "state": "down",
+            "detail": "démon arrêté ou injoignable",
+            "reason": "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine",
+            "url": "",
+            "port": None,
+            "listening": False,
+        },
+    )
+    body = snapshot(app)
+    docker = next(service for service in body["services"] if service["name"] == "Docker")
+    assert docker["state"] == "down"
+    assert "docker API" in docker["reason"]
+    assert len(body["services"]) == 7, "le panneau n'est pas vidé par un service arrêté"
+    assert any("Docker" in alert["label"] for alert in body["alerts"])
+
+
+def test_a_missing_docker_binary_is_said_plainly(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr(uh_infra.subprocess, "run", missing)
+    report = REAL_DOCKER_STATUS()
+    assert report["state"] == "down"
+    assert report["reason"] == "binaire introuvable"
+
+
+def test_a_refused_docker_daemon_keeps_the_first_line_of_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Done:
+        returncode = 1
+        stdout = ""
+        stderr = "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine\n"
+
+    monkeypatch.setattr(uh_infra.subprocess, "run", lambda *a, **k: Done())
+    report = REAL_DOCKER_STATUS()
+    assert report["state"] == "down"
+    assert "docker API" in report["reason"]
+
+
+def test_a_running_docker_reports_its_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Done:
+        returncode = 0
+        stdout = "29.9.3\n"
+        stderr = ""
+
+    monkeypatch.setattr(uh_infra.subprocess, "run", lambda *a, **k: Done())
+    report = REAL_DOCKER_STATUS()
+    assert report["state"] == "up"
+    assert "29.9.3" in report["detail"]
+
+
+def test_the_extra_urls_can_be_redirected_by_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UH_RAG_URL", "http://127.0.0.1:9999")
+    monkeypatch.setenv("SIYUAN_URL", "http://127.0.0.1:9998")
+    monkeypatch.setenv("UH_MARI_URL", "http://127.0.0.1:9997")
+    urls = {entry["name"]: entry["url"] for entry in uh_infra.extra_services()}
+    assert urls["RAG"].endswith(":9999")
+    assert urls["SiYuan"].endswith(":9998")
+    assert urls["MARI"].endswith(":9997")

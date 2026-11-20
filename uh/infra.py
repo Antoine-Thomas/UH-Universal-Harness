@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -43,6 +44,60 @@ _SECRETS = (
 
 def _mask(match: "re.Match[str]") -> str:
     return (match.group(1) + "***") if match.groups() else "***"
+
+
+#: Les services que la roadmap demande en plus de UH/UHB/Ollama. Sondés par TCP
+#: uniquement : la vue ne parle pas à leur API, donc aucune authentification à porter,
+#: aucun effet de bord, et un service qui exige un jeton reste mesurable.
+EXTRA_SERVICES = (
+    {"name": "RAG", "env": "UH_RAG_URL", "default": "http://127.0.0.1:8200"},
+    {"name": "SiYuan", "env": "SIYUAN_URL", "default": "http://127.0.0.1:6806"},
+    {"name": "MARI", "env": "UH_MARI_URL", "default": "http://127.0.0.1:55553"},
+)
+
+
+def extra_services() -> List[Dict[str, str]]:
+    """Les URL des services complémentaires, variables d'environnement d'abord."""
+    answer: List[Dict[str, str]] = []
+    for entry in EXTRA_SERVICES:
+        url = (os.environ.get(entry["env"]) or "").strip() or entry["default"]
+        answer.append({"name": entry["name"], "url": url})
+    return answer
+
+
+def docker_status(timeout: float = 2.0) -> Dict[str, Any]:
+    """L'état du démon Docker, sans rien démarrer : ``docker version`` est en lecture seule.
+
+    Le démon arrêté est un cas normal sur un poste de développement - c'est même la preuve
+    D-7 (un service injoignable, le panneau reste lisible). On rapporte donc la première
+    ligne de l'erreur au lieu d'un « indisponible » muet.
+    """
+    blank = {"name": "Docker", "url": "", "port": None, "listening": False}
+    try:
+        done = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return {**blank, "state": "down", "detail": "docker absent du PATH", "reason": "binaire introuvable"}
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            **blank,
+            "state": "down",
+            "detail": "démon injoignable",
+            "reason": f"{type(exc).__name__}: {exc}",
+        }
+    version = (done.stdout or "").strip()
+    if done.returncode == 0 and version:
+        return {**blank, "state": "up", "detail": f"moteur v{version}", "reason": "", "listening": True}
+    reason = " ".join((done.stderr or done.stdout or "").split())[:200] or f"code {done.returncode}"
+    return {**blank, "state": "down", "detail": "démon arrêté ou injoignable", "reason": reason}
+
 
 
 def _join_reason(headline: str, probe_report: Dict[str, Any]) -> str:
@@ -249,6 +304,24 @@ def collect(
         },
     ]
 
+    # Les services complémentaires de la roadmap (RAG, SiYuan, MARI) sont sondés par TCP
+    # seul, puis Docker qui n'est pas un port. Une ligne en plus, jamais une ligne en moins :
+    # un service arrêté ne retire rien du panneau (critère D-7).
+    for entry in extra_services():
+        report = probe(entry["url"])
+        services.append(
+            {
+                "name": entry["name"],
+                "state": "up" if report.get("listening") else "down",
+                "detail": f"port {report.get('port')}" if report.get("listening") else "aucune écoute",
+                "reason": "" if report.get("listening") else _join_reason("", report) or "muet",
+                "url": entry["url"],
+                "port": report.get("port"),
+                "listening": bool(report.get("listening")),
+            }
+        )
+    services.append(docker_status())
+
     disk = {
         "home": directory_size(home),
         "runs": directory_size(runs_root),
@@ -265,6 +338,15 @@ def collect(
         add("error", "Second cerveau arrêté", str(services[1]["reason"] or "aucune réponse"))
     if not ollama_up:
         add("warn", "Ollama ne répond pas", f"{ollama_url} · {services[2]['reason']}")
+    # Les complémentaires sont optionnels : leur absence est signalée en « warn », pas en
+    # « error ». Les confondre avec le second cerveau ferait crier une vue saine.
+    for service in services[3:]:
+        if service.get("state") != "up":
+            add(
+                "warn",
+                f"{service['name']} injoignable",
+                str(service.get("reason") or service.get("detail") or "aucune réponse"),
+            )
     free = disk["free"].get("free_bytes")
     if isinstance(free, int):
         if free < FREE_ERROR_BYTES:
