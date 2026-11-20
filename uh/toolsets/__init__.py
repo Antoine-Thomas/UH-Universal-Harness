@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 from .file import FileToolset
 from .memory import MemoryToolset
@@ -100,9 +100,37 @@ def build_toolsets(
     if uhb is not None:
         toolsets["uhb"] = uhb
     try:
+        from .. import extensions as uh_extensions
         from .. import mcp
 
-        toolsets.update(mcp.build_toolsets())
+        # Le gestionnaire d'extensions décide AVANT le travail : un serveur éteint n'est
+        # même pas lancé, et un outil UHB éteint n'est pas proposé au modèle. Ces deux
+        # lectures se font à chaque construction (donc à chaque tour), ce qui rend l'effet
+        # immédiat sans redémarrer le serveur web.
+        try:
+            toolsets.update(mcp.build_toolsets(skip=uh_extensions.disabled("mcp")))
+        except TypeError:
+            # Un `mcp.build_toolsets` remplacé (test, module antérieur) qui ne connaît pas
+            # encore `skip` : on garde ses outils plutôt que de les perdre en silence. Un
+            # `except Exception` plus large a déjà caché cette régression une fois.
+            toolsets.update(mcp.build_toolsets())
+        off_uhb = uh_extensions.disabled("uhb")
+        if "uhb" in toolsets and off_uhb:
+            # `cast(Any)` plutôt que `setattr(...)` : la règle B010 de ruff réécrit un
+            # `setattr(x, "constant", v)` en `x.constant = v`, ce qui remet l'erreur mypy
+            # (le dictionnaire est typé `object`) - la correction se défaisait à chaque
+            # passage de `ruff --fix`.
+            toolset = cast(Any, toolsets["uhb"])
+            current = getattr(toolset, "tools", None) or []
+            kept = [
+                spec
+                for spec in current
+                if str(spec.get("function", {}).get("name") or "") not in off_uhb
+            ]
+            if not kept:
+                toolsets.pop("uhb", None)
+            else:
+                toolset.tools = kept
     except Exception:  # noqa: BLE001 - an external server never breaks the built-ins
         pass
     return toolsets

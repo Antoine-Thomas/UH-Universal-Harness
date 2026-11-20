@@ -89,6 +89,9 @@ come back", which nothing else in the product could.
 | POST | `/api/schedules/{task_id}/toggle` | — | `{ok, task}` — activer installe le déclencheur, désactiver le retire ; `404` si l'id est inconnu |
 | POST | `/api/schedules/{task_id}/run` | — | `{ok, task, detail}` — exécute la tâche MAINTENANT par la même liste blanche, puis enregistre `last_run`/`last_status` ; `404` si inconnue |
 | DELETE | `/api/schedules/{task_id}` | — | `{ok, removed, triggers}` — retire le registre et **seulement** les déclencheurs `uh-schedule-<id>.vbs` que nous avons écrits ; `404` si inconnue |
+| GET | `/api/extensions` | — | **Gestionnaire d'extensions (D-8).** `{ok, groups: {mcp: [...], skills: [...], uhb: [...]}, counts: {kind: {total, enabled, broken}}, kinds}`. Chaque entrée : `{kind, name, state, enabled, detail, reason, tools}`. `state` : `connected`/`idle`/`failed`/`broken` (MCP), `ready` (skills), `ready`/`unreachable` (UHB). Une extension éteinte reste listée, une extension cassée porte sa raison |
+| PATCH | `/api/extensions/{kind}/{name}/enabled` | `{enabled: bool}` | `{ok, kind, name, enabled, hot: true}` — `kind` ∈ `mcp`/`skills`/`uhb` (`400` sinon), nom absent de l'inventaire → `404`, valeur non booléenne → `400`. **Effet à chaud** : la liste d'outils est reconstruite à chaque tour, un serveur MCP éteint n'est même pas démarré ; les skills passent par `skill_prefs.json` |
+| POST | `/api/extensions/{kind}/{name}/test` | — | `{ok, kind, name, ok: bool, detail}` — épreuve RÉELLE : handshake MCP (ou sonde HTTP/SSE), lecture du skill, `status()` de UHB. Tester une extension éteinte est permis. Un refus est expliqué (`binaire introuvable`, `handshake échoué`, `aucune instruction`) |
 | GET | `/api/runs` | — | proxy de UHB `GET /runs` : `{ok, root, count, bytes, kept, recent, policy}` ; UHB arrêté ⇒ `{ok: false, reason, runs: []}` |
 | POST | `/api/runs` | `{action: close\|prune\|restore, run?, keep?, apply?, revision?}` | proxy de UHB `POST /runs` ; `prune` reste une **simulation** sans `apply: true` ; UH ne supprime jamais lui-même |
 | GET | `/api/memory` | — | `{entries: [{sha256, kind, path, bytes, source, session, message_id, format, width?, height?, bits?, channels?}], weight: {root, bytes, by_kind, entries}}` — ce que l'opérateur a gardé, en PNG lossless ou FLAC 24 bits (P1-13) |
@@ -224,6 +227,8 @@ infra-view  infra-hint  infra-refresh  infra-alerts  infra-services  infra-disk
 infra-install  infra-logs  tab-infra
 tasks-view  tasks-mode  tasks-refresh  tasks-hint  tasks-form  task-name  task-command
 task-every  task-create  tasks-catalog  tasks-list  tab-tasks
+extensions-view  extensions-mode  extensions-refresh  extensions-hint
+extensions-groups  tab-extensions
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 role-custom  role-custom-save  role-label  role-panel  role-posture  role-select  role-view

@@ -4366,7 +4366,7 @@ function loadToolCatalog() {
 const TAB_GROUPS = {
   projects: { label: "Projets", leaves: ["projects", "files"] },
   decision: { label: "Décision", leaves: ["decision", "role"] },
-  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra", "tasks"] },
+  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra", "tasks", "extensions"] },
   brain: { label: "Cerveau & Mémoire", leaves: ["memory", "telemetry", "data"] },
   models: { label: "Modèles & Fournisseurs", leaves: ["keys", "models", "local"] },
 };
@@ -4426,6 +4426,7 @@ function showPanelTab(name) {
     ["files", "files-view"],
     ["infra", "infra-view"],
     ["tasks", "tasks-view"],
+    ["extensions", "extensions-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -4463,6 +4464,7 @@ function showPanelTab(name) {
   if (name === "files") loadFs().catch(() => {});
   if (name === "infra") loadInfra().catch(() => {});
   if (name === "tasks") loadSchedules().catch(() => {});
+  if (name === "extensions") loadExtensions().catch(() => {});
   if (name === "memory") {
     loadMemory().catch(() => {});
     // Le graphe a suivi la mémoire dans « Cerveau & Mémoire » : le charger ici évite
@@ -4772,6 +4774,8 @@ function wireProviders() {
   $("tab-tasks").addEventListener("click", () => showPanelTab("tasks"));
   $("tasks-refresh").addEventListener("click", () => loadSchedules());
   $("tasks-form").addEventListener("submit", (event) => createTask(event));
+  $("tab-extensions").addEventListener("click", () => showPanelTab("extensions"));
+  $("extensions-refresh").addEventListener("click", () => loadExtensions());
   $("files-refresh").addEventListener("click", () => loadFs(FS.path).catch(() => {}));
   $("files-attach").addEventListener("click", () => attachSelectedFile());
   $("git-more").addEventListener("click", async () => {
@@ -8012,6 +8016,117 @@ async function commitWork() {
     hint.textContent = `refusé : ${error.message || error}`;
   }
 }
+
+// --- gestionnaire d'extensions (P3-16d / D-8) ----------------------------- //
+// Trois familles, une vue. Ce que le serveur décide (activé/éteint, cassé, raison) est
+// affiché tel quel : l'interface ne devine ni un état ni un diagnostic.
+const EXTENSION_LABELS = { mcp: "Serveurs MCP", skills: "Skills", uhb: "Outils du second cerveau" };
+
+function extensionRow(entry) {
+  const row = el("div", "extension-row");
+  row.dataset.kind = entry.kind;
+  row.dataset.name = entry.name;
+  row.dataset.state = entry.state || "";
+  row.dataset.enabled = entry.enabled ? "1" : "0";
+
+  const head = el("div", "extension-head");
+  head.appendChild(el("strong", "extension-name", entry.name));
+  head.appendChild(el("span", "task-flag" + (entry.enabled ? " on" : ""), entry.enabled ? "activée" : "éteinte"));
+  if (entry.state === "broken" || entry.state === "failed") {
+    head.appendChild(el("span", "extension-broken", "cassée"));
+  }
+  row.appendChild(head);
+
+  const detail = el("div", "extension-detail");
+  detail.textContent = entry.detail || "";
+  row.appendChild(detail);
+  if (entry.reason) {
+    const reason = el("div", "extension-reason");
+    reason.textContent = entry.reason;
+    row.appendChild(reason);
+  }
+
+  const actions = el("div", "task-actions");
+  const toggle = el("button", "ghost", entry.enabled ? "Désactiver" : "Activer");
+  toggle.type = "button";
+  toggle.dataset.action = "toggle";
+  toggle.addEventListener("click", () => extensionAction(entry.kind, entry.name, "toggle", entry.enabled));
+  const probe = el("button", "ghost", "Tester");
+  probe.type = "button";
+  probe.dataset.action = "test";
+  probe.addEventListener("click", () => extensionAction(entry.kind, entry.name, "test", entry.enabled));
+  actions.appendChild(toggle);
+  actions.appendChild(probe);
+  row.appendChild(actions);
+  return row;
+}
+
+function renderExtensions(data) {
+  const mode = $("extensions-mode");
+  if (mode) {
+    const counts = data.counts || {};
+    const total = Object.values(counts).reduce((sum, item) => sum + (item.total || 0), 0);
+    const enabled = Object.values(counts).reduce((sum, item) => sum + (item.enabled || 0), 0);
+    const broken = Object.values(counts).reduce((sum, item) => sum + (item.broken || 0), 0);
+    mode.textContent = `${enabled}/${total} active(s)${broken ? ` · ${broken} cassée(s)` : ""}`;
+  }
+  const box = $("extensions-groups");
+  if (!box) return;
+  box.textContent = "";
+  for (const kind of data.kinds || ["mcp", "skills", "uhb"]) {
+    const entries = (data.groups || {})[kind] || [];
+    const group = el("section", "extension-group");
+    group.dataset.kind = kind;
+    const title = el("div", "extension-group-title");
+    title.textContent = `${EXTENSION_LABELS[kind] || kind} (${entries.length})`;
+    group.appendChild(title);
+    if (!entries.length) {
+      group.appendChild(el("div", "tasks-empty", "rien de configuré dans cette famille"));
+    }
+    for (const entry of entries) group.appendChild(extensionRow(entry));
+    box.appendChild(group);
+  }
+}
+
+async function loadExtensions(options = {}) {
+  const hint = $("extensions-hint");
+  const quiet = Boolean(options.keepMessage);
+  // Un rechargement après action ne doit pas effacer la ligne qui vient de dire ce qui
+  // s'est passé : mesuré, le message disparaissait aussitôt affiché.
+  if (hint && !quiet) hint.textContent = "chargement…";
+  try {
+    const data = await api("/api/extensions");
+    renderExtensions(data);
+    if (hint && !quiet) hint.textContent = "";
+  } catch (error) {
+    if (hint) hint.textContent = `lecture impossible : ${error.message || error}`;
+  }
+}
+
+async function extensionAction(kind, name, action, wasEnabled) {
+  const hint = $("extensions-hint");
+  try {
+    if (action === "test") {
+      if (hint) hint.textContent = `épreuve de ${name}…`;
+      const data = await api(`/api/extensions/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/test`, {
+        method: "POST",
+      });
+      if (hint) hint.textContent = `${name} : ${data.ok ? "ok" : "refusé"} · ${data.detail || ""}`;
+      return;
+    }
+    const data = await api(`/api/extensions/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/enabled`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: !wasEnabled }),
+    });
+    if (hint) {
+      hint.textContent = `${name} ${data.enabled ? "activée" : "éteinte"} — effet au tour suivant, sans redémarrage`;
+    }
+    await loadExtensions({ keepMessage: true });
+  } catch (error) {
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
 
 // --- tâches planifiées (P3-16c lot 4) ------------------------------------- //
 // La commande est une clé du catalogue lu depuis le serveur : le formulaire ne propose

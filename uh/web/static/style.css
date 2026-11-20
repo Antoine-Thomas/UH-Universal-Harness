@@ -1419,12 +1419,15 @@ select:focus-visible {
 /* P3-16b : les sections du groupe ouvert. Une seule ligne, jamais repliée sur trois :
    « ConnexionsNouveau » et les badges empilés venaient de boutons sans césure. */
 .panel-subtabs {
-  /* Cinq sections au maximum (Outils & Connexions). Elles doivent tenir sur une seule
-     ligne dans 319 px de panneau, quelle que soit la police : mesuré sur Linux où les
-     glyphes sont plus larges que sur Windows. `flex: 1 1 auto` les laisse se partager
-     la place au lieu de déborder, et `min-width: 0` autorise le rétrécissement. */
-  display: flex; flex-wrap: nowrap; gap: 4px; align-items: center;
-  padding: 8px 10px 0; overflow-x: auto; scrollbar-width: none;
+  /* Six sections au maximum (Outils & Connexions). Elles doivent rester lisibles dans
+     319 px de panneau : mesuré sur Linux, où les glyphes sont plus larges que sur
+     Windows. Deux courtes rangées plutôt qu'une rangée tronquée ou un défilement caché ;
+     `min-width: 0` autorise le rétrécissement, jamais une puce hors du panneau. */
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  /* `flex-shrink: 0` : sans lui la barre est comprimée à 15 px par le conteneur en
+     colonne et les puces disparaissent sous `overflow: hidden` (mesuré à l'écran). */
+  flex-shrink: 0;
+  padding: 6px 10px 0; overflow: hidden;
   border-bottom: 1px solid var(--border); background: var(--panel);
 }
 .panel-subtabs[hidden] { display: none; }
@@ -1433,7 +1436,8 @@ select:focus-visible {
      « Fichiers » s'étirent sur toute la barre. Elle peut seulement rétrécir. */
   flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; text-align: center;
-  min-height: 26px; padding: 4px 5px; font-size: 11px; cursor: pointer;
+  min-height: 22px; padding: 2px 5px; font-size: 11px; cursor: pointer;
+  line-height: 18px;
   color: var(--muted); background: transparent;
   border: 1px solid var(--border); border-radius: 999px;
 }
@@ -1897,6 +1901,26 @@ body.modal-open { overflow: hidden; }
 .task-actions button { font-size: 11px; padding: 3px 8px; }
 .task-actions .danger { color: var(--error, #e5534b); border-color: var(--error, #e5534b); }
 .tasks-empty { color: var(--muted); font-size: 12px; padding: 6px 0; }
+/* P3-16d / D-8 — gestionnaire d'extensions : trois familles dans une vue. */
+.extensions-groups { display: flex; flex-direction: column; gap: 10px; padding: 8px 14px 14px; }
+.extension-group { display: flex; flex-direction: column; gap: 4px; }
+.extension-group-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 2px;
+}
+.extension-row { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
+.extension-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.extension-name { font-size: 12.5px; }
+.extension-broken {
+  font-size: 10px; padding: 0 6px; border-radius: 999px;
+  color: var(--error, #e5534b); border: 1px solid var(--error, #e5534b);
+}
+.extension-detail { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.extension-reason {
+  font-size: 11px; margin-top: 3px; padding: 3px 6px; border-radius: 6px;
+  background: rgba(229, 83, 75, 0.08); color: var(--text);
+  border-left: 2px solid var(--error, #e5534b);
+}
 .media-warning {
   display: flex;
   align-items: center;
