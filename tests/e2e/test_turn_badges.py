@@ -74,3 +74,33 @@ def test_the_badges_number_each_turn_and_match_the_api(browser, server) -> None:
         assert [m["turn"] for m in api["messages"]] == [1, 1, 2, 2]
     finally:
         context.close()
+
+
+def test_a_new_session_starts_the_counter_again(browser, server) -> None:
+    """Le compteur de tours appartient à la session : une session neuve repart de zéro.
+
+    `state` vit dans un module ES, donc illisible depuis la page : on prouve l'effet
+    visible - la première bulle d'une session neuve porte « Tour #1 », pas le numéro
+    hérité de la session précédente (« Tour #3 » avant ce correctif).
+    """
+    seed_two_turns(server)
+    context, page = open_app(browser, server)
+    try:
+        page.wait_for_selector("#messages .turn-badge", timeout=20000)
+        badges = page.eval_on_selector_all(
+            "#messages .turn-badge", "els => els.map(e => e.textContent.trim())"
+        )
+        assert badges == ["Tour #1", "Tour #2"], badges
+
+        page.click("#new-session")
+        page.wait_for_function(
+            "() => document.querySelector('#messages').textContent.trim() === ''", timeout=20000
+        )
+
+        page.fill("#input", "reprise apres une session neuve")
+        page.press("#input", "Enter")
+        page.wait_for_selector("#messages .msg.user .turn-badge", timeout=20000)
+        fresh = page.eval_on_selector("#messages .msg.user .turn-badge", "el => el.textContent.trim()")
+        assert fresh == "Tour #1", f"la session neuve hérite du compteur précédent : {fresh}"
+    finally:
+        context.close()

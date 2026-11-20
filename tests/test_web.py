@@ -366,6 +366,48 @@ def test_stop_without_a_running_turn(tmp_path: Path, monkeypatch: pytest.MonkeyP
     run(scenario())
 
 
+def test_the_turn_total_does_not_depend_on_the_page_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`turns` est un total, pas la taille de la page : 5 tours restent 5 avec limit=4.
+
+    La numérotation des messages rendus doit aussi continuer (tours 4 et 5 dans la page),
+    sinon la fin d'une longue conversation se réafficherait « Tour #1 ».
+    """
+    app = make_app(tmp_path, monkeypatch)
+
+    async def scenario():
+        async with client(app) as http:
+            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
+            for index in range(5):
+                await http.post(
+                    f"/api/sessions/{session_id}/chat",
+                    json={"message": f"question {index}"},
+                    headers=AUTH,
+                )
+            full = (await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)).json()
+            paged = (
+                await http.get(
+                    f"/api/sessions/{session_id}/messages", params={"limit": 4}, headers=AUTH
+                )
+            ).json()
+            return full, paged
+
+    full, paged = run(scenario())
+    assert full["turns"] == 5
+    assert len(full["messages"]) == 10
+    assert [message["turn"] for message in full["messages"] if message["role"] == "user"] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
+    assert len(paged["messages"]) == 4
+    assert paged["turns"] == 5, "le total ne doit pas se réduire à la page"
+    assert [message["turn"] for message in paged["messages"] if message["role"] == "user"] == [4, 5]
+
+
 def test_search_returns_snippets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = make_app(tmp_path, monkeypatch)
 

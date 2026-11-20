@@ -40,6 +40,9 @@ MAX_EVERY = 7 * 24 * 60
 NAME_LIMIT = 60
 DETAIL_LIMIT = 400
 RUN_TIMEOUT = 120.0
+#: Marge ajoutée au budget de la passe de nuit : le budget compte le travail, pas le
+#: démarrage de l'interpréteur ni l'écriture finale du journal.
+DREAM_MARGIN = 120.0
 VBS_PREFIX = "uh-schedule-"
 
 
@@ -103,6 +106,7 @@ CATALOG: Dict[str, Dict[str, Any]] = {
         "label": "Passe de nuit (dream)",
         "description": "écrit le journal de rêve et ses instantanés (appelle un modèle)",
         "arguments": ["dream", "--now"],
+        "budget": "dream",
         "mutating": True,
     },
     "runs-prune": {
@@ -127,14 +131,35 @@ def catalog() -> List[Dict[str, Any]]:
     ]
 
 
-def run_command(key: str) -> Dict[str, Any]:
+def dream_timeout() -> float:
+    """Le temps qu'on laisse à une passe de nuit : son budget, pas une constante à nous.
+
+    `DreamConfig.budget_wall_time_s` (1800 s par défaut) est la durée que la passe s'est
+    donnée pour finir son travail. La couper à 120 s produirait un échec qui ne dit rien
+    du travail lui-même, seulement de notre patience.
+    """
+    try:
+        from .dream_pass import DreamConfig
+
+        budget = float(getattr(DreamConfig(), "budget_wall_time_s", 1800) or 1800)
+    except Exception:  # noqa: BLE001 - une config illisible ne doit pas bloquer la tâche
+        budget = 1800.0
+    return budget + DREAM_MARGIN
+
+
+def _timeout_for(entry: Dict[str, Any]) -> float:
+    """La patience dépend de l'action : une passe de nuit n'est pas un diagnostic."""
+    return dream_timeout() if entry.get("budget") == "dream" else RUN_TIMEOUT
+
+
+def run_command(key: str, timeout: Optional[float] = None) -> Dict[str, Any]:
     """Exécute une clé du catalogue. Une clé inconnue est refusée, pas interprétée."""
     entry = CATALOG.get(str(key or "").strip())
     if entry is None:
         raise ScheduleError(f"commande non autorisée : {key!r} (catalogue : {', '.join(CATALOG)})")
     if entry.get("action") == "prune":
         return _run_prune()
-    return _run_cli(list(entry.get("arguments") or []))
+    return _run_cli(list(entry.get("arguments") or []), timeout=timeout or _timeout_for(entry))
 
 
 # --------------------------------------------------------------------------- #

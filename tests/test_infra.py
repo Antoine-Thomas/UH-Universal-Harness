@@ -376,6 +376,23 @@ def test_a_running_docker_reports_its_version(monkeypatch: pytest.MonkeyPatch) -
     assert "29.9.3" in report["detail"]
 
 
+def test_an_invalid_port_is_reported_instead_of_raising() -> None:
+    """`urlsplit(...).port` lève sur `:99999` : c'est une raison à afficher, pas un 500."""
+    for hostile in ("http://127.0.0.1:99999", "http://127.0.0.1:abc", "http://127.0.0.1:-1"):
+        report = uh_infra.probe(hostile)
+        assert report["listening"] is False
+        assert "port invalide" in report["reason"], report
+
+
+def test_the_view_survives_an_invalid_second_brain_url(app, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UH_UHB_URL", "http://127.0.0.1:99999")
+    body = snapshot(app)  # 200, pas 500
+    uhb = next(service for service in body["services"] if service["name"] == "UHB")
+    assert uhb["state"] == "down"
+    assert uhb["reason"]
+    assert len(body["services"]) == 7
+
+
 def test_the_extra_urls_can_be_redirected_by_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("UH_RAG_URL", "http://127.0.0.1:9999")
     monkeypatch.setenv("SIYUAN_URL", "http://127.0.0.1:9998")

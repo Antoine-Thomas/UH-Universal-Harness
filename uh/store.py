@@ -461,6 +461,19 @@ class Store:
         ).fetchone()
         return int(row["n"])
 
+    def turn_count(self, session_id: str) -> int:
+        """Le nombre de tours d'une session, sans lire les messages.
+
+        Un tour = un message de l'utilisateur (même définition que Télémétrie). Compter
+        sur les lignes rendues par une page (`limit=200`) donnerait un total faux dès que
+        la conversation dépasse la page.
+        """
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM messages WHERE session_id = ? AND role = 'user'",
+            (session_id,),
+        ).fetchone()
+        return int(row["n"])
+
     # -- search ------------------------------------------------------------ #
     def search(self, query: str, limit: int = 20) -> list[dict]:
         match = _fts_query(query)

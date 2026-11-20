@@ -231,6 +231,54 @@ def test_the_cli_entry_point_runs_the_same_whitelist(isolated_schedule: Path) ->
     assert uh_schedule.run_by_id("sch-inconnu") == 2
 
 
+def test_a_dream_task_gets_the_night_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Une passe de nuit dure ce que `DreamConfig` lui accorde, pas 120 s."""
+    from types import SimpleNamespace
+
+    from uh import dream_pass
+
+    # On remplace la fabrique, pas l'attribut de classe : `DreamConfig` est une dataclass,
+    # sa valeur par défaut est figée dans `__init__` au moment de sa définition.
+    monkeypatch.setattr(
+        dream_pass, "DreamConfig", lambda *a, **k: SimpleNamespace(budget_wall_time_s=42)
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run_cli(arguments, timeout=uh_schedule.RUN_TIMEOUT):
+        captured["arguments"] = arguments
+        captured["timeout"] = timeout
+        return {"ok": True, "detail": "ok"}
+
+    monkeypatch.setattr(uh_schedule, "_run_cli", fake_run_cli)
+    assert uh_schedule.run_command("dream")["ok"] is True
+    assert captured["timeout"] == 42 + uh_schedule.DREAM_MARGIN
+    assert captured["arguments"] == ["dream", "--now"]
+
+
+def test_a_diagnostic_keeps_its_short_patience(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_cli(arguments, timeout=uh_schedule.RUN_TIMEOUT):
+        captured["timeout"] = timeout
+        return {"ok": True, "detail": "ok"}
+
+    monkeypatch.setattr(uh_schedule, "_run_cli", fake_run_cli)
+    uh_schedule.run_command("doctor")
+    assert captured["timeout"] == uh_schedule.RUN_TIMEOUT
+
+
+def test_an_explicit_timeout_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_cli(arguments, timeout=uh_schedule.RUN_TIMEOUT):
+        captured["timeout"] = timeout
+        return {"ok": True, "detail": "ok"}
+
+    monkeypatch.setattr(uh_schedule, "_run_cli", fake_run_cli)
+    uh_schedule.run_command("dream", timeout=7.0)
+    assert captured["timeout"] == 7.0
+
+
 # --------------------------------------------------------------------------- #
 # la route
 # --------------------------------------------------------------------------- #

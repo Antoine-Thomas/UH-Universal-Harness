@@ -128,7 +128,19 @@ def probe(url: str, timeout: float = PROBE_TIMEOUT) -> Dict[str, Any]:
     """Un port répond-il ? Un simple connect, aucune requête, aucun effet de bord."""
     parts = urlsplit(url or "")
     host = parts.hostname or "127.0.0.1"
-    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:
+        # `urlsplit(...).port` lève sur un port non numérique ou hors bornes (« :99999 »,
+        # « :abc »). C'est une URL fausse à AFFICHER, pas une exception à remonter en 500 :
+        # la vue Infra doit rester lisible pour diagnostiquer précisément ça.
+        return {
+            "host": host,
+            "port": None,
+            "listening": False,
+            "ms": 0,
+            "reason": f"port invalide dans {url!r}",
+        }
     started = time.monotonic()
     try:
         with socket.create_connection((host, port), timeout=timeout):

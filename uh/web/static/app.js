@@ -1600,6 +1600,9 @@ async function newSession() {
   const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
   state.sessionId = data.session.id;
   state.attachments = [];
+  // Une nouvelle session repart de zéro : sans ça, la première bulle héritait du numéro
+  // de tour de la session précédente (« Tour #7 » sur une conversation vide).
+  state.turns = 0;
   renderAttachments();
   $("messages").textContent = "";
   $("session-title").textContent = "(untitled)";

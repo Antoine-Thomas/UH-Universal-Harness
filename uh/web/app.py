@@ -813,13 +813,19 @@ def create_app(
         session = _session_or_404(app, session_id)
         with _store(app) as store:
             rows = store.get_messages(session["id"], limit=limit)
+            # Le total vient d'un COUNT, pas des lignes rendues : une page de 200 messages
+            # ne doit pas faire croire que la session n'a que les tours qu'elle contient.
+            total_turns = store.turn_count(session["id"])
         kind, model = app.state.session_models.get(
             session["id"], (app.state.kind, app.state.model)
         )
         # Un tour commence à chaque message de l'utilisateur - c'est ce que Télémétrie
         # compte (une décision par tour envoyé). Le numéro est calculé ici, une seule fois :
         # le fil et la télémétrie ne peuvent donc pas raconter deux histoires différentes.
-        turn = 0
+        # `get_messages(limit=...)` rend la FIN de la conversation : la numérotation reprend
+        # donc après les tours déjà écoulés, sinon la page afficherait « Tour #1 » au milieu.
+        in_page = sum(1 for row in rows if row.get("role") == "user")
+        turn = max(0, total_turns - in_page)
         numbered: list[dict] = []
         for row in rows:
             if row.get("role") == "user":
@@ -830,7 +836,7 @@ def create_app(
             "messages": numbered,
             "provider": kind,
             "model": model,
-            "turns": turn,
+            "turns": total_turns,
         }
 
     @app.delete(
