@@ -140,3 +140,111 @@ def test_the_static_build_token_is_the_commit(server) -> None:
     for token in ("app.js?v=", "style.css?v="):
         value = page.split(token, 1)[1].split('"', 1)[0]
         assert value and value != "1.9.0", f"jeton de cache encore lié à la version : {value}"
+
+
+def test_the_cards_keep_the_border_the_modal_gives_them(browser, server) -> None:
+    """Le bloc de l'ancien popover posait `border:0` sur `.plus-item` : les quatre
+    familles s'affichaient sans cadre, dans une modale aux cartes neutres."""
+    context, page = open_app(browser, server)
+    try:
+        page.click("#attach")
+        borders = page.eval_on_selector_all(
+            ".plus-item[data-kind]",
+            "els => els.map(el => getComputedStyle(el).borderTopWidth)",
+        )
+        assert borders and all(value != "0px" for value in borders), f"cadres retirés : {borders}"
+    finally:
+        context.close()
+
+
+def test_the_veil_really_dims_the_page(browser, server) -> None:
+    """Le voile existait mais restait lisible : on lit l'alpha calculé, pas la règle."""
+    context, page = open_app(browser, server)
+    try:
+        page.click("#attach")
+        veil = page.eval_on_selector(
+            "#plus-backdrop",
+            """el => {
+                const style = getComputedStyle(el);
+                const match = style.backgroundColor.match(/rgba?\\(([^)]+)\\)/);
+                const parts = match ? match[1].split(",").map(v => parseFloat(v)) : [];
+                const rect = el.getBoundingClientRect();
+                return {
+                    alpha: parts.length === 4 ? parts[3] : 1,
+                    width: Math.round(rect.width),
+                    height: Math.round(rect.height),
+                    viewport: [window.innerWidth, window.innerHeight],
+                };
+            }""",
+        )
+        assert veil["alpha"] >= 0.6, f"le fond doit assombrir, alpha mesuré {veil['alpha']}"
+        assert veil["width"] >= veil["viewport"][0] and veil["height"] >= veil["viewport"][1]
+    finally:
+        context.close()
+
+
+def test_a_fast_reopen_still_closes_on_the_backdrop(browser, server) -> None:
+    """Fermer, rouvrir aussitôt, puis cliquer le fond : la modale doit repartir.
+    Le cas n'était pas couvert - et c'est celui du double-clic sur +."""
+    context, page = open_app(browser, server)
+    try:
+        for _ in range(2):
+            page.click("#attach")
+            page.click("#plus-close")
+        page.click("#attach")
+        assert display(page, MENU) == "flex"
+        page.mouse.click(8, 8)
+        assert display(page, MENU) == "none", "un fond cliqué après réouverture ferme la modale"
+        assert display(page, "#plus-backdrop") == "none"
+    finally:
+        context.close()
+
+
+def test_an_empty_filter_says_so(browser, server) -> None:
+    """Une grille vide se lisait comme une panne de chargement ; elle s'annonce."""
+    context, page = open_app(browser, server)
+    try:
+        page.click("#attach")
+        assert display(page, "#plus-empty") == "none", "un filtre plein ne dit rien"
+
+        # Un filtre qui ne garde plus rien : on retire la dernière carte Images.
+        page.eval_on_selector(
+            '.plus-item[data-kind="image"]',
+            "el => el.remove()",
+        )
+        page.click('.plus-filter[data-filter="image"]')
+        assert display(page, "#plus-empty") != "none"
+        text = page.eval_on_selector("#plus-empty", "el => el.textContent.trim()")
+        assert "Aucune image" in text, f"le message doit nommer le filtre : {text!r}"
+
+        page.click('.plus-filter[data-filter="document"]')
+        assert display(page, "#plus-empty") == "none", "un autre filtre reste plein"
+    finally:
+        context.close()
+
+
+def test_the_keyboard_stays_in_the_modal_and_comes_back_to_plus(browser, server) -> None:
+    """Piège de tabulation, puis retour du focus sur `+` : sans cela la tabulation
+    repartait du haut de la page après chaque fermeture."""
+    context, page = open_app(browser, server)
+    try:
+        page.focus("#attach")
+        page.keyboard.press("Enter")
+        assert display(page, MENU) == "flex"
+        assert page.evaluate("document.activeElement.closest('#plus-menu') !== null")
+
+        inside = []
+        for _ in range(14):
+            page.keyboard.press("Tab")
+            inside.append(page.evaluate("document.activeElement.closest('#plus-menu') !== null"))
+        assert all(inside), f"la tabulation est sortie de la modale : {inside}"
+
+        page.keyboard.press("Shift+Tab")
+        assert page.evaluate("document.activeElement.closest('#plus-menu') !== null")
+
+        page.keyboard.press("Escape")
+        assert display(page, MENU) == "none"
+        assert page.evaluate("document.activeElement.id") == "attach", "le focus revient sur +"
+    finally:
+        context.close()
+

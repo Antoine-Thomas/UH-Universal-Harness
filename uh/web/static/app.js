@@ -946,6 +946,9 @@ const ACCEPT = {
   document: ".pdf,.csv,.html,.htm,.zip,.txt,.md,.json,.yaml,.yml,.toml,.py,.js,.ts,.sh",
 };
 
+//: La porte qui a ouvert la modale : le focus y revient a la fermeture.
+let plusOpener = null;
+
 function plusOpen(open) {
   // P3-16b : la modale d'attachement. Elle s'ouvre au centre, assombrit le reste, et
   // se referme d'elle-meme une fois les fichiers joints : le champ de saisie redevient
@@ -962,8 +965,45 @@ function plusOpen(open) {
   if (next) {
     const first = menu.querySelector(".plus-item") || menu.querySelector("button");
     if (first) first.focus();
+  } else if (plusOpener) {
+    // Le focus revient a la porte qui l'a ouvert : sans cela il retombait sur <body>,
+    // et la tabulation repartait du haut de la page.
+    plusOpener.focus();
+    plusOpener = null;
   }
 }
+
+//: Le clavier ne sort pas de la modale tant qu'elle est ouverte (piège de tabulation).
+function plusFocusables() {
+  const menu = $("plus-menu");
+  if (!menu) return [];
+  return [...menu.querySelectorAll("button, [href], input, select, textarea")]
+    .filter((node) => !node.hidden && !node.disabled && node.offsetParent !== null);
+}
+
+function plusTrapTab(event) {
+  const menu = $("plus-menu");
+  if (!menu || menu.hidden || event.key !== "Tab") return;
+  const nodes = plusFocusables();
+  if (!nodes.length) return;
+  const first = nodes[0];
+  const last = nodes[nodes.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !menu.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !menu.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+const FILTER_EMPTY = {
+  all: "Aucun fichier proposé.",
+  image: "Aucune image proposée par cette liste.",
+  document: "Aucun document proposé par cette liste.",
+  media: "Aucun média (vidéo ou son) proposé par cette liste.",
+};
 
 function plusFilter(name) {
   for (const tab of document.querySelectorAll(".plus-filter")) {
@@ -971,9 +1011,18 @@ function plusFilter(name) {
     tab.classList.toggle("active", active);
     tab.setAttribute("aria-selected", String(active));
   }
+  let visible = 0;
   for (const item of document.querySelectorAll(".plus-item[data-kind]")) {
     const kind = item.dataset.kind || "";
-    item.hidden = !(name === "all" || kind === name);
+    const shown = name === "all" || kind === name;
+    item.hidden = !shown;
+    if (shown) visible += 1;
+  }
+  // Un filtre vide le dit : une grille vide se lit comme un bug de chargement.
+  const empty = $("plus-empty");
+  if (empty) {
+    empty.hidden = visible > 0;
+    if (!visible) empty.textContent = FILTER_EMPTY[name] || FILTER_EMPTY.all;
   }
 }
 
@@ -1120,6 +1169,7 @@ function wireAttachments() {
   // icons. Drag, drop and paste on the whole area are untouched.
   $("attach").addEventListener("click", (event) => {
     event.stopPropagation();
+    plusOpener = event.currentTarget;
     plusOpen();
   });
   for (const item of document.querySelectorAll(".plus-item[data-accept]")) {
@@ -1159,6 +1209,7 @@ function wireAttachments() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") plusOpen(false);
+    plusTrapTab(event);
   });
   $("files").addEventListener("change", async (event) => {
     const files = [...event.target.files];
