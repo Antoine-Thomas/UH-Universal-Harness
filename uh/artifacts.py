@@ -49,7 +49,13 @@ class ArtifactActionError(ValueError):
 
 
 def runs_root() -> Path:
-    return Path(RUNS_ROOT).expanduser()
+    """Le dossier des runs UHB : `UH_UHB_RUNS` s'il est posé, sinon ``RUNS_ROOT``.
+
+    La variable est relue à l'APPEL, pas à l'import : une session qui la pose après coup
+    (un test, un lanceur, la vue Infra) doit être entendue - sinon on mesure un dossier
+    que personne n'a demandé sans que rien ne le dise.
+    """
+    return Path(os.environ.get("UH_UHB_RUNS") or RUNS_ROOT).expanduser()
 
 
 def uh_home() -> Path:

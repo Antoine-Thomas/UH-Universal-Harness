@@ -198,6 +198,7 @@
         <button id="tab-tools" class="panel-subtab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
         <button id="tab-conn" class="panel-subtab" role="tab" aria-selected="false" aria-controls="conn-view" title="Serveurs MCP">MCP<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
         <button id="tab-uhb" class="panel-subtab" role="tab" aria-selected="false" aria-controls="uhb-view">Second cerveau</button>
+        <button id="tab-infra" class="panel-subtab" role="tab" aria-selected="false" aria-controls="infra-view">Infra</button>
         <button id="tab-memory" class="panel-subtab" role="tab" aria-selected="false" aria-controls="memory-view">Mémoire</button>
         <button id="tab-telemetry" class="panel-subtab" role="tab" aria-selected="false" aria-controls="telemetry-view">Télémétrie</button>
         <button id="tab-data" class="panel-subtab" role="tab" aria-selected="false" aria-controls="data-view">Données</button>
@@ -323,6 +324,21 @@
         </div>
         <div id="uhb-view" class="panel-view" role="tabpanel" aria-labelledby="tab-uhb" hidden>
           <div id="uhb-panel" class="uhb-panel"></div>
+        </div>
+        <div id="infra-view" class="panel-view" role="tabpanel" aria-labelledby="tab-infra" hidden>
+          <!-- P3-16c lot 3 : supervision en LECTURE SEULE. Aucun bouton d'arrêt, de
+               redémarrage ou de suppression : un processus qu'on n'a pas lancé n'est pas
+               à nous, et la vue ne doit pas donner le moyen de le croire. -->
+          <div class="infra-head">
+            <strong>Supervision</strong>
+            <span id="infra-hint" class="projects-hint">chargement…</span>
+            <button id="infra-refresh" class="ghost" type="button">Actualiser</button>
+          </div>
+          <div id="infra-alerts" class="infra-alerts"></div>
+          <ul id="infra-services" class="infra-services"></ul>
+          <div id="infra-disk" class="infra-block"></div>
+          <div id="infra-install" class="infra-block"></div>
+          <div id="infra-logs" class="infra-logs"></div>
         </div>
         <div id="memory-view" class="panel-view" role="tabpanel" aria-labelledby="tab-memory" hidden>
           <!-- Le graphe appartient au cerveau, pas au panneau UHB : il a suivi le

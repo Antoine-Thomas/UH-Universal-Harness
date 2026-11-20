@@ -465,6 +465,8 @@ def create_app(
             "store_path": cfg.resolved_store_path(),
         },
     )()
+    # La vue Infra affiche l'uptime de CE serveur : l'instant de départ, pas une estimation.
+    app.state.started_at = time.time()
 
     if provider_factory is None:
         from ..cli import _make_provider as provider_factory  # lazy: avoids a cycle
@@ -1114,6 +1116,47 @@ def create_app(
             return await asyncio.to_thread(uh_projects.commit, root, message)
         except uh_projects.ProjectsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # -- infra (P3-16c lot 3) ---------------------------------------------- #
+    # Lecture seule, par construction : `uh/infra.py` n'a aucune action, et cette route
+    # ne fait que composer un instantané. Aucun arrêt, aucun redémarrage, aucun kill.
+    @app.get("/api/infra", dependencies=[Depends(require_token)])
+    async def infra_state(log_lines: int = 20) -> dict:
+        from .. import artifacts as uh_artifacts
+        from .. import infra as uh_infra
+        from .. import ollama_spawn
+        from .. import telemetry as uh_telemetry
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        payload: Optional[dict] = None
+        if url:
+            try:
+                payload = await asyncio.to_thread(lambda: Uhbtoolset(url, timeout=1.0).status())
+            except Exception as exc:  # noqa: BLE001 - une sonde ne casse jamais la vue
+                payload = {"error": f"sonde impossible : {type(exc).__name__}"}
+        ollama_url = ollama_spawn.url()
+        try:
+            ollama_up = bool(await asyncio.to_thread(ollama_spawn.is_up))
+        except Exception:  # noqa: BLE001
+            ollama_up = False
+        home = uh_config.uh_home()
+        return await asyncio.to_thread(
+            uh_infra.collect,
+            version=__version__,
+            port=int(app.state.settings.port),
+            started_at=float(getattr(app.state, "started_at", 0.0)),
+            install=_install_info(),
+            uhb_url=url,
+            uhb_status=payload,
+            ollama_url=ollama_url,
+            ollama_up=ollama_up,
+            home=home,
+            runs_root=uh_artifacts.runs_root(),
+            log_paths=[turnlog.log_path(), ollama_spawn.log_path()],
+            log_lines=log_lines,
+            vram=uh_telemetry.vram_usage(),
+        )
 
     @app.get("/api/runs", dependencies=[Depends(require_token)])
     async def runs_status() -> dict:

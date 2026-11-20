@@ -1826,6 +1826,39 @@ body.modal-open { overflow: hidden; }
   color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
 }
 .msg.turn-start { border-top: 1px solid var(--border); }
+/* P3-16c lot 3 — supervision en lecture seule : une pastille, une raison, aucun bouton. */
+.infra-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
+.infra-head strong { font-size: 12.5px; }
+.infra-alerts { display: flex; flex-direction: column; gap: 4px; padding: 8px 14px 0; }
+.infra-alert {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); font-size: 12px;
+}
+.infra-alert.error { border-color: var(--error, #e5534b); }
+.infra-alert.warn { border-color: var(--warn, #d29922); }
+.infra-alert.ok { color: var(--muted); }
+.infra-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.infra-dot.ok { background: #3fb950; }
+.infra-dot.ko { background: var(--error, #e5534b); }
+.infra-services { list-style: none; margin: 6px 0 0; padding: 0 14px; }
+.infra-service {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.infra-service .infra-detail { color: var(--muted); }
+.infra-meta { color: var(--muted); font-size: 11px; }
+.infra-reason { color: var(--error, #e5534b); font-size: 11px; overflow-wrap: anywhere; }
+.infra-block { padding: 10px 14px 0; }
+.infra-line { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 2px 0; }
+.infra-name { color: var(--muted); min-width: 88px; }
+.infra-value { overflow-wrap: anywhere; }
+.infra-logs { padding: 10px 14px 14px; }
+.infra-log { margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.infra-log summary { cursor: pointer; font-size: 12px; }
+.infra-log-body {
+  margin: 6px 0 0; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word; color: var(--muted);
+}
 .media-warning {
   display: flex;
   align-items: center;

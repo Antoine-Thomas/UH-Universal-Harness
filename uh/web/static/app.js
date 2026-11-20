@@ -4363,7 +4363,7 @@ function loadToolCatalog() {
 const TAB_GROUPS = {
   projects: { label: "Projets", leaves: ["projects", "files"] },
   decision: { label: "Décision", leaves: ["decision", "role"] },
-  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb"] },
+  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra"] },
   brain: { label: "Cerveau & Mémoire", leaves: ["memory", "telemetry", "data"] },
   models: { label: "Modèles & Fournisseurs", leaves: ["keys", "models", "local"] },
 };
@@ -4421,6 +4421,7 @@ function showPanelTab(name) {
     ["tools", "tools-view"],
     ["projects", "projects-view"],
     ["files", "files-view"],
+    ["infra", "infra-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -4456,6 +4457,7 @@ function showPanelTab(name) {
     loadRuns().catch(() => {});
   }
   if (name === "files") loadFs().catch(() => {});
+  if (name === "infra") loadInfra().catch(() => {});
   if (name === "memory") {
     loadMemory().catch(() => {});
     // Le graphe a suivi la mémoire dans « Cerveau & Mémoire » : le charger ici évite
@@ -4760,6 +4762,8 @@ function wireProviders() {
   $("tab-tools").addEventListener("click", () => showPanelTab("tools"));
   $("tab-projects").addEventListener("click", () => showPanelTab("projects"));
   $("tab-files").addEventListener("click", () => showPanelTab("files"));
+  $("tab-infra").addEventListener("click", () => showPanelTab("infra"));
+  $("infra-refresh").addEventListener("click", () => loadInfra());
   $("files-refresh").addEventListener("click", () => loadFs(FS.path).catch(() => {}));
   $("files-attach").addEventListener("click", () => attachSelectedFile());
   $("git-more").addEventListener("click", async () => {
@@ -8001,7 +8005,151 @@ async function commitWork() {
   }
 }
 
-// --- numérotation des tours ------------------------------------------------ //
+// --- supervision infra (P3-16c lot 3) -------------------------------------- //
+// Lecture seule, et l'interface ne propose rien d'autre : pas de bouton d'arrêt, pas de
+// redémarrage. Ce que la vue montre vient de /api/infra, qui ne fait que lire.
+function infraUptime(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  if (total < 60) return `${total} s`;
+  if (total < 3600) return `${Math.floor(total / 60)} min`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return `${hours} h ${String(minutes).padStart(2, "0")} min`;
+}
+
+function renderInfra(data) {
+  const alerts = $("infra-alerts");
+  if (alerts) {
+    alerts.textContent = "";
+    for (const alert of data.alerts || []) {
+      const row = el("div", `infra-alert ${alert.level}`);
+      row.dataset.level = alert.level;
+      row.appendChild(el("span", "infra-dot"));
+      row.appendChild(el("strong", null, alert.label));
+      row.appendChild(el("span", "infra-detail", alert.detail || ""));
+      alerts.appendChild(row);
+    }
+  }
+
+  const services = $("infra-services");
+  if (services) {
+    services.textContent = "";
+    for (const service of data.services || []) {
+      const up = service.state === "up";
+      const row = el("li", `infra-service ${up ? "up" : "down"}`);
+      row.dataset.service = service.name;
+      row.dataset.state = service.state;
+      row.appendChild(el("span", `infra-dot ${up ? "ok" : "ko"}`));
+      row.appendChild(el("strong", null, service.name));
+      row.appendChild(el("span", "infra-detail", service.detail || ""));
+      if (service.uptime_s) row.appendChild(el("span", "infra-meta", `uptime ${infraUptime(service.uptime_s)}`));
+      if (!up && service.reason) row.appendChild(el("span", "infra-reason", service.reason));
+      services.appendChild(row);
+    }
+  }
+
+  const disk = $("infra-disk");
+  if (disk) {
+    disk.textContent = "";
+    disk.appendChild(el("div", "panel-label", "Tailles sur disque"));
+    for (const [label, value] of [
+      ["~/.uh", data.disk?.home],
+      ["~/.uhb/runs", data.disk?.runs],
+    ]) {
+      if (!value) continue;
+      const line = el("div", "infra-line");
+      line.appendChild(el("span", "infra-name", label));
+      line.appendChild(
+        el(
+          "span",
+          "infra-value",
+          value.exists
+            ? `${humanBytes(value.bytes)} · ${value.files} fichier(s)${value.complete ? "" : " · minimum"}`
+            : "absent"
+        )
+      );
+      if (value.reason) line.appendChild(el("span", "infra-reason", value.reason));
+      disk.appendChild(line);
+    }
+    const free = data.disk?.free || {};
+    if (typeof free.free_bytes === "number") {
+      const line = el("div", "infra-line");
+      line.appendChild(el("span", "infra-name", "disque libre"));
+      line.appendChild(
+        el("span", "infra-value", `${humanBytes(free.free_bytes)} sur ${humanBytes(free.total_bytes)} (${free.used_percent} % utilisé)`)
+      );
+      disk.appendChild(line);
+    }
+    if (data.vram) {
+      const line = el("div", "infra-line");
+      line.appendChild(el("span", "infra-name", "VRAM"));
+      line.appendChild(
+        el("span", "infra-value", `${data.vram.used_mb} / ${data.vram.total_mb} Mo (${data.vram.percent} %) · ${data.vram.name || "GPU"}`)
+      );
+      disk.appendChild(line);
+    }
+  }
+
+  const install = $("infra-install");
+  if (install) {
+    install.textContent = "";
+    install.appendChild(el("div", "panel-label", "Code servi"));
+    const info = data.install || {};
+    for (const [label, value] of [
+      ["origine", info.origin || "?"],
+      ["version", data.version || "?"],
+      ["commit", info.commit || "(aucun : paquet installé)"],
+      ["modifié", info.dirty ? "oui — les fichiers suivis diffèrent du commit" : "non"],
+      ["python", info.python || ""],
+    ]) {
+      if (!value) continue;
+      const line = el("div", "infra-line");
+      line.appendChild(el("span", "infra-name", label));
+      line.appendChild(el("span", "infra-value", String(value)));
+      install.appendChild(line);
+    }
+  }
+
+  const logs = $("infra-logs");
+  if (logs) {
+    logs.textContent = "";
+    logs.appendChild(el("div", "panel-label", "Fins de journal (masquées)"));
+    for (const log of data.logs || []) {
+      const details = document.createElement("details");
+      details.className = "infra-log";
+      details.dataset.name = log.name;
+      const summary = document.createElement("summary");
+      summary.textContent = log.exists
+        ? `${log.name} · ${log.returned} ligne(s) · ${humanBytes(log.bytes)}`
+        : `${log.name} · absent`;
+      details.appendChild(summary);
+      const pre = el("pre", "infra-log-body");
+      pre.textContent = log.exists
+        ? (log.lines || []).join("\n") || "(fichier vide)"
+        : String(log.reason || "absent");
+      details.appendChild(pre);
+      logs.appendChild(details);
+    }
+  }
+
+  const hint = $("infra-hint");
+  if (hint) {
+    const bad = (data.alerts || []).filter((a) => a.level !== "ok").length;
+    hint.textContent = bad ? `${bad} alerte(s) · ${data.at}` : `tout va bien · ${data.at}`;
+  }
+}
+
+async function loadInfra() {
+  const hint = $("infra-hint");
+  if (hint) hint.textContent = "chargement…";
+  try {
+    const data = await api("/api/infra?log_lines=20");
+    renderInfra(data);
+  } catch (error) {
+    if (hint) hint.textContent = `lecture impossible : ${error.message || error}`;
+  }
+}
+
 // Un tour = un message de l'utilisateur, exactement ce que Télémétrie compte. Le numero
 // vient du serveur au chargement, et du compteur local pour le tour qu'on vient d'envoyer.
 function turnBadge(box, turn) {

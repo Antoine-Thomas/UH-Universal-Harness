@@ -83,6 +83,7 @@ come back", which nothing else in the product could.
 | POST | `/api/git/stage` | `{path?, session_id?, files: [...]}` | `{ok, staged: [...], project}` — `git add` sur des chemins RELATIFS au dépôt ; `400` chemin absolu, `..` hors dépôt, fichier vide · `403` si le dépôt n'est pas le dépôt actif, ou s'il n'est ni enregistré ni sous `projects.root` |
 | POST | `/api/git/unstage` | `{path?, session_id?, files: [...]}` | `{ok, unstaged: [...], project}` — `git reset HEAD --` (repli `git rm --cached` sur un dépôt sans commit) ; mêmes bornes que `stage` |
 | POST | `/api/git/commit` | `{path?, session_id?, message}` | `{ok, sha, short, message, project}` — message **obligatoire** (`400` s'il est vide), les hooks du dépôt tournent (aucun `--no-verify`), et **aucune route ne pousse** |
+| GET | `/api/infra?log_lines=` | — | **Lecture seule.** `{ok, at, version, install, services, disk, logs, vram, alerts, read_only, actions_available: []}`. `services` : UH (uptime, port), UHB (état, mode, version, raison avec port et erreur système), Ollama (idem). `disk` : taille RÉELLE de `~/.uh` et `~/.uhb/runs` (parcours borné à 2 s, `complete: false` + raison si dépassé), espace libre. `logs` : dernières lignes de `uh-web.log` et `uhb.log`, bornées à 64 kio lues et 200 lignes, **jetons et en-têtes masqués**. `alerts` : `ok`/`warn`/`error` (UHB arrêté, Ollama muet, disque, VRAM, paquet installé au lieu du dépôt, code modifié). Aucune action : rien à arrêter, rien à relancer |
 | GET | `/api/runs` | — | proxy de UHB `GET /runs` : `{ok, root, count, bytes, kept, recent, policy}` ; UHB arrêté ⇒ `{ok: false, reason, runs: []}` |
 | POST | `/api/runs` | `{action: close\|prune\|restore, run?, keep?, apply?, revision?}` | proxy de UHB `POST /runs` ; `prune` reste une **simulation** sans `apply: true` ; UH ne supprime jamais lui-même |
 | GET | `/api/memory` | — | `{entries: [{sha256, kind, path, bytes, source, session, message_id, format, width?, height?, bits?, channels?}], weight: {root, bytes, by_kind, entries}}` — ce que l'opérateur a gardé, en PNG lossless ou FLAC 24 bits (P1-13) |
@@ -214,6 +215,8 @@ files-view  files-crumbs  files-refresh  files-hint  files-list  tab-files
 files-preview  files-preview-name  files-preview-meta  files-preview-body  files-attach
 git-log  git-hint  git-more  git-status  git-changes  git-diff  git-message  git-commit
 git-commit-hint
+infra-view  infra-hint  infra-refresh  infra-alerts  infra-services  infra-disk
+infra-install  infra-logs  tab-infra
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 role-custom  role-custom-save  role-label  role-panel  role-posture  role-select  role-view
