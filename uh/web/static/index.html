@@ -180,27 +180,31 @@
         <button id="quit-uh" class="icon-button quit-button" title="Quitter UH (arrête aussi le second brain)" aria-label="Quitter UH">⏻</button>
         <button id="providers-close" class="icon-button" aria-label="Close">×</button>
       </header>
-      <nav class="panel-tabs" role="tablist">
-        <!-- P3-16b : les panneaux sont groupes par usage, pas empiles par date d'ajout.
-             Projets | Decision | Outils & Connexions | Cerveau & Memoire | Modeles. -->
-        <button id="tab-projects" class="panel-tab" role="tab" aria-selected="false" aria-controls="projects-view">Projets</button>
-        <span class="tab-sep" aria-hidden="true"></span>
-        <button id="tab-decision" class="panel-tab" role="tab" aria-selected="false" aria-controls="decision-view">Décision</button>
-        <span class="tab-sep" aria-hidden="true"></span>
-        <button id="tab-tools" class="panel-tab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
-        <button id="tab-conn" class="panel-tab" role="tab" aria-selected="false" aria-controls="conn-view">Connexions<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
-        <span class="tab-sep" aria-hidden="true"></span>
-        <button id="tab-uhb" class="panel-tab" role="tab" aria-selected="false" aria-controls="uhb-view">Second brain</button>
-        <button id="tab-memory" class="panel-tab" role="tab" aria-selected="false" aria-controls="memory-view">Memory</button>
-        <button id="tab-telemetry" class="panel-tab" role="tab" aria-selected="false" aria-controls="telemetry-view">Telemetry</button>
-        <span class="tab-sep" aria-hidden="true"></span>
-        <button id="tab-local" class="panel-tab" role="tab" aria-selected="false" aria-controls="local-view">IA locale</button>
-        <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">Fournisseurs</button>
-        <button id="tab-models" class="panel-tab" role="tab" aria-selected="false" aria-controls="models-view">Modèles</button>
-        <span class="tab-sep" aria-hidden="true"></span>
-        <button id="tab-role" class="panel-tab" role="tab" aria-selected="false" aria-controls="role-view">Caractère</button>
-        <button id="tab-data" class="panel-tab" role="tab" aria-selected="false" aria-controls="data-view">Data</button>
+      <nav class="panel-tabs" id="panel-groups" role="tablist" aria-label="Groupes de réglages">
+        <!-- P3-16b : cinq groupes par usage, pas douze onglets empilés par date d'ajout.
+             Le groupe ouvre ses sections ; les boutons de section vivent dans le réservoir
+             ci-dessous et sont déplacés dans #panel-subtabs par showPanelTab. -->
+        <button id="group-projects" class="panel-tab" role="tab" aria-selected="false" aria-controls="projects-view" data-group="projects">Projets</button>
+        <button id="group-decision" class="panel-tab" role="tab" aria-selected="false" aria-controls="decision-view" data-group="decision">Décision</button>
+        <button id="group-tools" class="panel-tab" role="tab" aria-selected="false" aria-controls="tools-view" data-group="tools">Outils &amp; Connexions</button>
+        <button id="group-brain" class="panel-tab" role="tab" aria-selected="false" aria-controls="memory-view" data-group="brain">Cerveau &amp; Mémoire</button>
+        <button id="group-models" class="panel-tab" role="tab" aria-selected="false" aria-controls="keys-view" data-group="models">Modèles &amp; Fournisseurs</button>
       </nav>
+      <div id="panel-pool" hidden>
+        <button id="tab-projects" class="panel-subtab" role="tab" aria-selected="false" aria-controls="projects-view">Git &amp; runs</button>
+        <button id="tab-decision" class="panel-subtab" role="tab" aria-selected="false" aria-controls="decision-view">Modes</button>
+        <button id="tab-role" class="panel-subtab" role="tab" aria-selected="false" aria-controls="role-view">Caractère</button>
+        <button id="tab-tools" class="panel-subtab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
+        <button id="tab-conn" class="panel-subtab" role="tab" aria-selected="false" aria-controls="conn-view" title="Serveurs MCP">MCP<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
+        <button id="tab-uhb" class="panel-subtab" role="tab" aria-selected="false" aria-controls="uhb-view">Second cerveau</button>
+        <button id="tab-memory" class="panel-subtab" role="tab" aria-selected="false" aria-controls="memory-view">Mémoire</button>
+        <button id="tab-telemetry" class="panel-subtab" role="tab" aria-selected="false" aria-controls="telemetry-view">Télémétrie</button>
+        <button id="tab-data" class="panel-subtab" role="tab" aria-selected="false" aria-controls="data-view">Données</button>
+        <button id="tab-keys" class="panel-subtab active" role="tab" aria-selected="true" aria-controls="keys-view">Fournisseurs</button>
+        <button id="tab-models" class="panel-subtab" role="tab" aria-selected="false" aria-controls="models-view">Modèles</button>
+        <button id="tab-local" class="panel-subtab" role="tab" aria-selected="false" aria-controls="local-view">IA locale</button>
+      </div>
+      <nav id="panel-subtabs" class="panel-subtabs" role="tablist" aria-label="Sections du groupe" hidden></nav>
       <div class="rightbar-scroll">
         <div id="projects-view" class="panel-view" role="tabpanel" aria-labelledby="tab-projects" hidden>
           <!-- P3-16b : le cockpit affiche et pilote, UHB decide. Aucun bouton de ce
@@ -276,10 +280,12 @@
           <div id="hardware-card" class="hardware-card"></div>
         </div>
         <div id="uhb-view" class="panel-view" role="tabpanel" aria-labelledby="tab-uhb" hidden>
-          <div id="memory-graph" class="memory-graph"></div>
           <div id="uhb-panel" class="uhb-panel"></div>
         </div>
         <div id="memory-view" class="panel-view" role="tabpanel" aria-labelledby="tab-memory" hidden>
+          <!-- Le graphe appartient au cerveau, pas au panneau UHB : il a suivi le
+               groupe « Cerveau & Mémoire », où l'on cherche justement ce qu'on sait. -->
+          <div id="memory-graph" class="memory-graph"></div>
           <div id="memory-panel" class="memory-panel"></div>
         </div>
         <div id="decision-view" class="panel-view" role="tabpanel" aria-labelledby="tab-decision" hidden>

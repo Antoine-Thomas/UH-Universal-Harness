@@ -1410,6 +1410,26 @@ select:focus-visible {
   vertical-align: middle;
 }
 .tab-badge[hidden] { display: none; }
+/* P3-16b : les sections du groupe ouvert. Une seule ligne, jamais repliée sur trois :
+   « ConnexionsNouveau » et les badges empilés venaient de boutons sans césure. */
+.panel-subtabs {
+  display: flex; flex-wrap: nowrap; gap: 6px; align-items: center;
+  padding: 8px 14px 0; overflow-x: auto; scrollbar-width: thin;
+  border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.panel-subtabs[hidden] { display: none; }
+.panel-subtab {
+  flex: 0 0 auto; white-space: nowrap;
+  min-height: 26px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  color: var(--muted); background: transparent;
+  border: 1px solid var(--border); border-radius: 999px;
+}
+.panel-subtab:hover { color: var(--text); }
+.panel-subtab.active {
+  color: var(--text); font-weight: 600;
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.panel-subtab.detached::after { content: " ⧉"; }
 /* the help list: a label, where it lives, and the button that goes there */
 .help-row {
   display: grid; grid-template-columns: 1fr auto auto; align-items: center;

@@ -4349,8 +4349,56 @@ function loadToolCatalog() {
   return run;
 }
 
+// P3-16b : cinq groupes par usage. Un groupe ouvre ses sections ; l'onglet de groupe
+// garde en mémoire la section où l'on était, pour qu'un aller-retour ne ramène pas
+// toujours à la première.
+const TAB_GROUPS = {
+  projects: { label: "Projets", leaves: ["projects"] },
+  decision: { label: "Décision", leaves: ["decision", "role"] },
+  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb"] },
+  brain: { label: "Cerveau & Mémoire", leaves: ["memory", "telemetry", "data"] },
+  models: { label: "Modèles & Fournisseurs", leaves: ["keys", "models", "local"] },
+};
+const TAB_GROUP_OF = {};
+for (const [group, meta] of Object.entries(TAB_GROUPS)) {
+  for (const leaf of meta.leaves) TAB_GROUP_OF[leaf] = group;
+}
+const groupLeaf = {};
+
+//: Déplace les boutons de section du réservoir vers la barre du groupe ouvert.
+function renderSubtabs(group) {
+  const bar = $("panel-subtabs");
+  const pool = $("panel-pool");
+  if (!bar || !pool) return;
+  const meta = TAB_GROUPS[group];
+  const leaves = meta ? meta.leaves : [];
+  // Les boutons ne sont jamais recrees : ils retournent au reservoir puis reviennent.
+  // `bar.textContent = ""` les detruisait, et le `getElementById` du tour suivant
+  // tombait sur null (mesure : « Cannot read properties of null »).
+  for (const child of [...bar.children]) pool.appendChild(child);
+  for (const leaf of leaves) {
+    const button = $(`tab-${leaf}`);
+    if (button) bar.appendChild(button);
+  }
+  bar.hidden = leaves.length < 2;
+}
+
+function markGroupTabs(group) {
+  for (const key of Object.keys(TAB_GROUPS)) {
+    const button = $(`group-${key}`);
+    if (!button) continue;
+    const active = key === group;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  }
+}
+
 function showPanelTab(name) {
   state.activeTab = name;
+  const group = TAB_GROUP_OF[name] || name;
+  if (TAB_GROUPS[group] && TAB_GROUPS[group].leaves.includes(name)) groupLeaf[group] = name;
+  markGroupTabs(group);
+  renderSubtabs(group);
   for (const [tab, view] of [
     ["keys", "keys-view"],
     ["local", "local-view"],
@@ -4392,7 +4440,12 @@ function showPanelTab(name) {
     loadToolCatalog().catch(() => {});
     loadSkillsManager().catch(() => {});
   }
-  if (name === "memory") loadMemory().catch(() => {});
+  if (name === "memory") {
+    loadMemory().catch(() => {});
+    // Le graphe a suivi la mémoire dans « Cerveau & Mémoire » : le charger ici évite
+    // un panneau vide au premier clic.
+    loadMemoryGraph().catch(() => {});
+  }
   if (name === "decision") {
     loadDecision().catch(() => {});
     renderExecutionMode().catch(() => {});
@@ -4639,9 +4692,22 @@ async function refreshConnBadge() {
 
 // "providers" is gone as a tab - its content lives in "Fournisseurs" (keys).
 // A link written before the merge must still land somewhere sane.
-const PANEL_ALIASES = { providers: "keys", "clé": "keys", cles: "keys", connexions: "conn" };
+const PANEL_ALIASES = {
+  providers: "keys",
+  "clé": "keys",
+  cles: "keys",
+  connexions: "conn",
+  // Les noms des cinq groupes mènent à leur première section : un lien écrit à la
+  // main doit tomber quelque part de sensé, pas sur un panneau vide.
+  outils: "tools",
+  cerveau: "memory",
+  memoire: "memory",
+  données: "data",
+  donnees: "data",
+  modeles: "keys",
+};
 const PANEL_TABS = new Set([
-  "keys", "local", "conn", "models", "uhb", "memory", "decision", "role", "telemetry", "data", "tools",
+  "projects", "keys", "local", "conn", "models", "uhb", "memory", "decision", "role", "telemetry", "data", "tools",
 ]);
 
 function openPanelFromUrl() {
@@ -4656,6 +4722,13 @@ function wireProviders() {
   ensureHfModels().catch(() => {});
   $("providers-open").addEventListener("click", openProviders);
   $("providers-close").addEventListener("click", closeProviders);
+  // Les cinq groupes : chacun rouvre la section où l'on s'était arrêté.
+  for (const [group, meta] of Object.entries(TAB_GROUPS)) {
+    const button = $(`group-${group}`);
+    if (button) {
+      button.addEventListener("click", () => showPanelTab(groupLeaf[group] || meta.leaves[0]));
+    }
+  }
   $("tab-keys").addEventListener("click", () => showPanelTab("keys"));
   $("tab-local").addEventListener("click", () => showPanelTab("local"));
   $("tab-models").addEventListener("click", () => showPanelTab("models"));
@@ -4674,6 +4747,13 @@ function wireProviders() {
     loadProjects();
     loadRuns();
   });
+  // Ouverture : le groupe de la section par défaut est marqué et sa barre remplie,
+  // sinon la colonne s'ouvre sur cinq onglets dont aucun n'est actif.
+  const startLeaf = state.activeTab || "keys";
+  const startGroup = TAB_GROUP_OF[startLeaf] || "models";
+  groupLeaf[startGroup] = startLeaf;
+  markGroupTabs(startGroup);
+  renderSubtabs(startGroup);
   $("projects-refresh").addEventListener("click", () => { loadProjects(); loadRuns(); });
   $("project-add").addEventListener("click", addProject);
   $("runs-clean").addEventListener("click", cleanRuns);

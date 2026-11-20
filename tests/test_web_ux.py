@@ -91,21 +91,40 @@ def test_the_first_launch_is_a_banner_not_a_wall() -> None:
 
 def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     html = (ROOT / "uh" / "web" / "static" / "index.html").read_text(encoding="utf-8")
-    # P3-16b: the tabs are grouped by usage - Projets | Decision | Outils & Connexions |
-    # Cerveau & Memoire | Modeles & Fournisseurs - instead of piling up in arrival order.
-    projects = html.index('id="tab-projects"')
-    decision = html.index('id="tab-decision"')
-    tools = html.index('id="tab-tools"')
-    conn = html.index('id="tab-conn"')
-    uhb = html.index('id="tab-uhb"')
-    memory = html.index('id="tab-memory"')
-    telemetry = html.index('id="tab-telemetry"')
-    local = html.index('id="tab-local"')
-    keys = html.index('id="tab-keys"')
-    models = html.index('id="tab-models"')
-    assert projects < decision < tools < conn, "Projets, Decision, Outils, Connexions"
-    assert conn < uhb < memory < telemetry, "Second brain, Memory, Telemetry grouped"
-    assert telemetry < local < keys < models, "IA locale, Fournisseurs, Modeles grouped"
+    # P3-16b: five groups by usage - Projets | Decision | Outils & Connexions |
+    # Cerveau & Memoire | Modeles & Fournisseurs - and the sections live inside them.
+    groups = [
+        ('group-projects', "Projets"),
+        ("group-decision", "Décision"),
+        ("group-tools", "Outils &amp; Connexions"),
+        ("group-brain", "Cerveau &amp; Mémoire"),
+        ("group-models", "Modèles &amp; Fournisseurs"),
+    ]
+    positions = []
+    for identifier, label in groups:
+        assert f'id="{identifier}"' in html, f"groupe manquant : {identifier}"
+        assert f">{label}</button>" in html, f"libellé attendu : {label}"
+        positions.append(html.index(f'id="{identifier}"'))
+    assert positions == sorted(positions), "l'ordre des groupes est celui du strip"
+    # Each section is declared once, in the pool that showPanelTab fills.
+    pool = html[html.index('id="panel-pool"') : html.index('id="panel-subtabs"')]
+    for leaf in ("projects", "decision", "role", "tools", "conn", "uhb",
+                 "memory", "telemetry", "data", "keys", "models", "local"):
+        assert f'id="tab-{leaf}"' in pool, f"section {leaf} absente du réservoir"
+    assert html.index('id="panel-subtabs"') > html.index('id="panel-pool"')
+    # The groups a section belongs to are declared in the script, and every section
+    # of the strip is in exactly one group.
+    script = APP_JS[APP_JS.index("const TAB_GROUPS = {") :]
+    script = script[: script.index("};")]
+    for group in ("projects", "decision", "tools", "brain", "models"):
+        assert f"{group}: {{" in script, f"groupe {group} absent de TAB_GROUPS"
+    assert 'leaves: ["decision", "role"]' in script
+    assert 'leaves: ["tools", "conn", "uhb"]' in script
+    assert 'leaves: ["memory", "telemetry", "data"]' in script
+    assert 'leaves: ["keys", "models", "local"]' in script
+    # The memory graph belongs to the brain, not to the UHB panel.
+    memory_view = html[html.index('id="memory-view"') :]
+    assert 'id="memory-graph"' in memory_view[:400], "le graphe est dans Cerveau & Mémoire"
     assert "Fournisseurs</button>" in html
     assert "IA locale</button>" in html
     # One tab for the keys and the gateways: "Providers" was the same subject

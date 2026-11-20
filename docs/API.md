@@ -199,7 +199,7 @@ app-banner
 attach  attachments  command-chips  composer  files  folder-hint  mic  mic-status
 project-add  project-path  projects-hint  projects-list  projects-refresh  projects-view
 runs-clean  runs-hint  runs-list  tab-projects
-plus-backdrop  plus-close  plus-filters  plus-import  plus-title
+plus-backdrop  plus-close  plus-empty  plus-filters  plus-import  plus-title
 plus-menu  plus-dictate  media-warning
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
@@ -213,6 +213,8 @@ memory-graph  skill-badge  skill-open
 llm-badge  llm-open  llm-panel
 pane-detach  pane-reset  pane-&lt;name&gt;  pane-body  pane-head
 panel-dock  panel-float  panel-head
+panel-groups  panel-pool  panel-subtabs  group-projects  group-decision  group-tools
+group-brain  group-models
 memory-panel  memory-view  models-view
 tab-telemetry  telemetry-panel  telemetry-view
 layout  menu-toggle  messages  mode-badge  mode-badge-label  model-advanced  model-note  model-select  new-folder  new-session  palette
