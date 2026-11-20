@@ -37,7 +37,7 @@ __all__ = [
 
 
 def _protected_by_default() -> list[Path]:
-    """Racines protegees : le dossier des pieces jointes de UH.
+    """Racines protegees : le dossier de configuration de UH, en entier.
 
     Il n'est lisible que par une `read_root` explicite : le workspace ne suffit jamais, meme
     quand `~/.uh` se trouve dedans.
@@ -52,7 +52,7 @@ def _protected_by_default() -> list[Path]:
     """
     from .memory import uh_home
 
-    return [uh_home() / "uploads"]
+    return [uh_home()]
 
 
 def build_toolsets(

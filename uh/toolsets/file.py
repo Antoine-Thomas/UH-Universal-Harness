@@ -182,7 +182,14 @@ class FileToolset:
         # Racines en LECTURE SEULE, en plus du workspace : les pieces jointes de la
         # session vivent dans ~/.uh/uploads/<session>/, hors workspace. On ouvre ce
         # dossier-la, jamais ~/.uh (keys.toml, mcp-secrets.toml, web-token y sont).
-        self.read_roots = [Path(root).expanduser().resolve() for root in (read_roots or [])]
+        # Une racine de lecture ne peut pas etre un lien symbolique : sinon un lien vers une
+        # autre session deviendrait une autorisation de la lire.
+        self.read_roots = []
+        for root in read_roots or []:
+            raw = Path(root).expanduser()
+            if raw.is_symlink():
+                continue
+            self.read_roots.append(raw.resolve())
         # Racines ou l'acces n'est permis QUE par une read_root explicite : le dossier des
         # pieces jointes de UH. Le workspace ne suffit jamais, meme quand ~/.uh est dedans.
         self.protected_roots = [
@@ -252,15 +259,25 @@ class FileToolset:
             inside = resolved == protected or resolved.is_relative_to(protected)
             if not inside:
                 continue
-            allowed = not write and any(
-                resolved == root or resolved.is_relative_to(root) for root in self.read_roots
+            # Une racine de lecture n'ouvre QUE la sous-arborescence des pieces jointes.
+            # Elle ne peut jamais ouvrir keys.toml, mcp-secrets.toml ou web-token : la
+            # protection de ~/.uh prime sur le workspace ET sur les read_roots.
+            uploads = protected / "uploads"
+            open_by_root = any(
+                # `root.parent == uploads` impose un dossier de session de premier niveau :
+                # ni `uploads` lui-meme (toutes les sessions), ni `~/.uh`, ni un sous-dossier
+                # arbitraire plus profond.
+                root.parent == uploads
+                and (resolved == root or resolved.is_relative_to(root))
+                for root in self.read_roots
             )
-            if allowed:
+            if not write and open_by_root:
                 return resolved, None
             return None, {
                 "error": (
-                    f"refused: '{text}' is inside the UH uploads folder; only this turn's "
-                    "attachments are readable, and never for writing"
+                    f"refused: '{text}' is inside the UH configuration folder; only this "
+                    "turn's attachments (uploads/<session>) are readable, and nothing there "
+                    "is writable"
                 )
             }
 

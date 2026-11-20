@@ -14,6 +14,8 @@ import threading
 import types
 from pathlib import Path
 
+import pytest
+
 from uh.toolsets import build_toolsets
 from uh.web import app as web_app
 
@@ -299,8 +301,6 @@ def test_a_failure_to_determine_the_uploads_root_refuses_to_build_a_toolset(
     Un `except: return []` aurait rendu un outil sans protection, c'est-a-dire le defaut
     d'origine sans aucun signal. Ici l'echec remonte.
     """
-    import pytest
-
     from uh.toolsets import build_toolsets as build
     from uh.toolsets import memory as memory_module
 
@@ -310,3 +310,170 @@ def test_a_failure_to_determine_the_uploads_root_refuses_to_build_a_toolset(
     monkeypatch.setattr(memory_module, "uh_home", boom)
     with pytest.raises(RuntimeError, match="UH_HOME illisible"):
         build(workspace=tmp_path)
+
+
+SECRETS = ("keys.toml", "mcp-secrets.toml", "web-token")
+
+
+def _home_with_secrets(tmp_path: Path) -> Path:
+    home = tmp_path / "uh"
+    (home / "uploads" / "session-a").mkdir(parents=True)
+    (home / "uploads" / "session-a" / "note.txt").write_text("a\n", encoding="utf-8")
+    for name in SECRETS:
+        (home / name).write_text(f"secret de {name}\n", encoding="utf-8")
+    return home
+
+
+@pytest.mark.parametrize("workspace_kind", ["home", "parent"])
+def test_the_configuration_folder_is_closed_even_as_the_workspace(
+    tmp_path: Path, monkeypatch, workspace_kind: str
+) -> None:
+    """OPTION A : ~/.uh est ferme en entier, y compris quand il EST le workspace."""
+    home = _home_with_secrets(tmp_path)
+    monkeypatch.setenv("UH_HOME", str(home))
+    workspace = home if workspace_kind == "home" else tmp_path
+    mine = home / "uploads" / "session-a"
+
+    tool = build_toolsets(workspace=workspace, notify=None, read_roots=[mine])["file"]
+
+    for name in SECRETS:
+        out = str(tool.read_file(str(home / name)))
+        assert "refused" in out, f"{name} doit etre refuse : {out[:90]}"
+        assert "secret de" not in out, f"aucun contenu de {name} ne sort"
+    assert "refused" in str(tool.write_file(str(home / "keys.toml"), "x"))
+
+    assert "a" in str(tool.read_file(str(mine / "note.txt"))), "sa piece jointe reste lisible"
+
+
+def test_a_read_root_cannot_open_the_configuration_files(tmp_path: Path, monkeypatch) -> None:
+    """Une read_root trop large ne doit pas contourner la protection."""
+    home = _home_with_secrets(tmp_path)
+    monkeypatch.setenv("UH_HOME", str(home))
+
+    tool = build_toolsets(workspace=tmp_path, notify=None, read_roots=[home])["file"]
+
+    out = str(tool.read_file(str(home / "keys.toml")))
+    assert "refused" in out, out[:120]
+
+
+def test_a_symlink_to_the_configuration_files_is_refused(tmp_path: Path, monkeypatch) -> None:
+    home = _home_with_secrets(tmp_path)
+    monkeypatch.setenv("UH_HOME", str(home))
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    link = workspace / "raccourci.toml"
+    try:
+        link.symlink_to(home / "keys.toml")
+    except (OSError, NotImplementedError):
+        pytest.skip("creation de lien symbolique non autorisee sur ce poste")
+
+    tool = build_toolsets(workspace=workspace, notify=None, read_roots=[])["file"]
+    out = str(tool.read_file(str(link)))
+    assert "refused" in out, out[:120]
+
+
+@pytest.mark.parametrize(
+    "root_kind",
+    ["uploads", "home", "deeper", "symlink_other_session"],
+)
+def test_only_a_session_folder_can_be_a_read_root(
+    tmp_path: Path, monkeypatch, root_kind: str
+) -> None:
+    """Une racine de lecture trop large ne doit jamais ouvrir une autre session.
+
+    Seul un dossier de session directement sous <UH_HOME>/uploads est accepte.
+    """
+    home = _home_with_secrets(tmp_path)
+    other = home / "uploads" / "session-b"
+    other.mkdir(parents=True)
+    (other / "secret.txt").write_text("b\n", encoding="utf-8")
+    monkeypatch.setenv("UH_HOME", str(home))
+    mine = home / "uploads" / "session-a"
+    deep = mine / "sous-dossier"
+    deep.mkdir()
+
+    if root_kind == "uploads":
+        root = home / "uploads"
+    elif root_kind == "home":
+        root = home
+    elif root_kind == "deeper":
+        root = deep
+    else:
+        root = tmp_path / "lien-session-b"
+        try:
+            root.symlink_to(other, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("creation de lien symbolique non autorisee sur ce poste")
+
+    tool = build_toolsets(workspace=tmp_path, notify=None, read_roots=[root])["file"]
+    out = str(tool.read_file(str(other / "secret.txt")))
+    assert "refused" in out, f"racine {root_kind} : {out[:110]}"
+    assert "'content'" not in out
+
+
+def test_a_session_folder_replaced_by_a_symlink_after_construction_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """TOCTOU : le disque peut changer entre la construction et l'acces.
+
+    Le controle utile n'est donc pas celui de la construction seule : `_resolve` re-resout le
+    chemin a chaque appel, et c'est cette resolution-la qui decide.
+    """
+    home = _home_with_secrets(tmp_path)
+    other = home / "uploads" / "session-b"
+    other.mkdir(parents=True)
+    (other / "secret.txt").write_text("b\n", encoding="utf-8")
+    mine = home / "uploads" / "session-a"
+    monkeypatch.setenv("UH_HOME", str(home))
+
+    tool = build_toolsets(workspace=tmp_path, notify=None, read_roots=[mine])["file"]
+    assert "a" in str(tool.read_file(str(mine / "note.txt")))
+
+    # on remplace le dossier autorise par un lien vers une autre session
+    (mine / "note.txt").unlink()
+    mine.rmdir()
+    try:
+        mine.symlink_to(other, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("creation de lien symbolique non autorisee sur ce poste")
+
+    out = str(tool.read_file(str(mine / "secret.txt")))
+    assert "refused" in out or "error" in out.lower(), out[:120]
+    assert "'content'" not in out, "aucun contenu de l'autre session ne sort"
+
+
+def test_a_symlink_created_inside_the_session_after_construction_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Un fichier de la session remplace par un lien vers un secret : refus a l'acces."""
+    home = _home_with_secrets(tmp_path)
+    mine = home / "uploads" / "session-a"
+    monkeypatch.setenv("UH_HOME", str(home))
+
+    tool = build_toolsets(workspace=tmp_path, notify=None, read_roots=[mine])["file"]
+
+    trojan = mine / "innocent.txt"
+    try:
+        trojan.symlink_to(home / "keys.toml")
+    except (OSError, NotImplementedError):
+        pytest.skip("creation de lien symbolique non autorisee sur ce poste")
+
+    out = str(tool.read_file(str(trojan)))
+    assert "refused" in out, out[:120]
+    assert "secret de" not in out
+
+
+def test_a_vanished_session_folder_fails_closed(tmp_path: Path, monkeypatch) -> None:
+    """Dossier supprime : erreur lisible, jamais un acces elargi ni une exception nue."""
+    home = _home_with_secrets(tmp_path)
+    mine = home / "uploads" / "session-a"
+    monkeypatch.setenv("UH_HOME", str(home))
+    tool = build_toolsets(workspace=tmp_path, notify=None, read_roots=[mine])["file"]
+
+    target = mine / "note.txt"
+    target.unlink()
+    mine.rmdir()
+
+    out = str(tool.read_file(str(target)))
+    assert "error" in out.lower(), out[:120]
+    assert "'content'" not in out
