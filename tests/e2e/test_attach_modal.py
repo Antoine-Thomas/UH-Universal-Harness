@@ -247,4 +247,3 @@ def test_the_keyboard_stays_in_the_modal_and_comes_back_to_plus(browser, server)
         assert page.evaluate("document.activeElement.id") == "attach", "le focus revient sur +"
     finally:
         context.close()
-
