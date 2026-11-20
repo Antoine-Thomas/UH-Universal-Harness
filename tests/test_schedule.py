@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -357,3 +358,33 @@ def test_the_full_lifecycle_through_the_routes(app) -> None:
     assert deleted.status_code == 200 and deleted.json()["removed"]
     assert after.json()["tasks"] == []
     assert missing.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# la prochaine execution (D-6)
+# --------------------------------------------------------------------------- #
+def test_a_new_task_announces_its_next_run_before_any_run() -> None:
+    task = uh_schedule.create("Diagnostic", "doctor", 30)["task"]
+    entry = next(item for item in uh_schedule.listing()["tasks"] if item["id"] == task["id"])
+    assert entry["next_run"], "une tâche active a une prochaine exécution calculée"
+    assert entry["next_reason"] == ""
+    attendu = time.mktime(time.strptime(task["created"], "%Y-%m-%dT%H:%M:%S")) + 30 * 60
+    assert entry["next_run"] == time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(attendu))
+
+
+def test_running_a_task_moves_its_next_run() -> None:
+    task = uh_schedule.create("Diagnostic", "doctor", 60)["task"]
+    avant = next(i for i in uh_schedule.listing()["tasks"] if i["id"] == task["id"])["next_run"]
+    uh_schedule.run_now(task["id"])
+    apres = next(i for i in uh_schedule.listing()["tasks"] if i["id"] == task["id"])
+    assert apres["next_run"] != avant, "le prochain passage repart du dernier"
+    attendu = time.mktime(time.strptime(apres["last_run"], "%Y-%m-%dT%H:%M:%S")) + 60 * 60
+    assert apres["next_run"] == time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(attendu))
+
+
+def test_a_disabled_task_announces_no_next_run_and_says_why() -> None:
+    task = uh_schedule.create("Diagnostic", "doctor", 60)["task"]
+    uh_schedule.toggle(task["id"])
+    entry = next(i for i in uh_schedule.listing()["tasks"] if i["id"] == task["id"])
+    assert entry["next_run"] == ""
+    assert entry["next_reason"] == "désactivée"

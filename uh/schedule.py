@@ -371,7 +371,7 @@ def listing() -> Dict[str, Any]:
         "": "à déterminer au premier ajout",
     }
     return {
-        "tasks": data["tasks"],
+        "tasks": [_with_next_run(task) for task in data["tasks"]],
         "catalog": catalog(),
         "mechanism": mechanism,
         "mechanism_label": labels.get(mechanism, mechanism),
@@ -379,6 +379,36 @@ def listing() -> Dict[str, Any]:
         "system_disabled": _system_disabled(),
         "limits": {"min_every": MIN_EVERY, "max_every": MAX_EVERY, "name_limit": NAME_LIMIT},
     }
+
+
+def _with_next_run(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Ajoute la prochaine exécution attendue, calculée - jamais devinée.
+
+    Base : le dernier passage s'il existe, sinon la création. Une tâche désactivée n'a pas
+    de prochaine exécution : écrire une heure quand rien ne la déclenchera serait un
+    mensonge de plus dans une vue qui n'en veut pas.
+    """
+    entry = dict(task)
+    if not task.get("enabled"):
+        entry["next_run"] = ""
+        entry["next_reason"] = "désactivée"
+        return entry
+    base = str(task.get("last_run") or task.get("created") or "")
+    minutes = int(task.get("every_minutes") or 0)
+    if not base or minutes <= 0:
+        entry["next_run"] = ""
+        entry["next_reason"] = "cadence inconnue"
+        return entry
+    try:
+        moment = time.strptime(base, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        entry["next_run"] = ""
+        entry["next_reason"] = "horodatage illisible"
+        return entry
+    suivant = time.mktime(moment) + minutes * 60
+    entry["next_run"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(suivant))
+    entry["next_reason"] = ""
+    return entry
 
 
 def create(name: str, command: str, every_minutes: Any, enabled: bool = True) -> Dict[str, Any]:

@@ -1904,6 +1904,7 @@ body.modal-open { overflow: hidden; }
 .task-name { font-size: 12.5px; }
 .task-every { color: var(--muted); font-size: 11px; }
 .task-meta, .task-last { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.task-next { color: var(--muted); font-size: 11px; margin-top: 1px; }
 .task-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .task-actions button { font-size: 11px; padding: 3px 8px; }
 .task-actions .danger { color: var(--error, #e5534b); border-color: var(--error, #e5534b); }
