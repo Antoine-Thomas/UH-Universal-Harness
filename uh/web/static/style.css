@@ -1599,21 +1599,105 @@ select:focus-visible {
 
 /* P1-14 — one "+" and a compact menu, so the composer stays a composer. */
 .plus-wrap { position: relative; display: inline-flex; }
+/* P3-16b : modale d'attachement centree. L'ancien popover etait ancre en bas a
+   gauche du composeur : il masquait le champ de saisie et coupait les libelles. */
+.plus-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 14, 0.62);
+  z-index: 60;
+  backdrop-filter: blur(1.5px);
+}
+/* La regle generique [hidden] du navigateur perd contre `.plus-menu { display:flex }`
+   (specificite de classe > type) : la modale restait affichee alors que l'attribut etait
+   pose. Mesure au navigateur le 19/11 : hidden=True, display=flex, 620 px visibles. */
+.plus-menu[hidden], .plus-backdrop[hidden] { display: none; }
+/* Meme piege que la modale, mesure par le test de comportement : `.plus-item` pose
+   display:flex, donc `hidden` ne masquait aucune carte et les filtres ne filtraient rien. */
+.plus-item[hidden] { display: none; }
+body.modal-open { overflow: hidden; }
 .plus-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  z-index: 30;
-  min-width: 300px;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 61;
+  width: min(760px, calc(92vw));
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px 16px;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  /* Opaque : sans fond, le fil du chat traversait la fenetre (mesure sur capture). */
+  background: var(--panel, #12161d);
+  border: 1px solid var(--line, #2a2f39);
+}
+.plus-head { display: flex; align-items: center; gap: 10px; }
+.plus-head strong { font-size: 15px; }
+.plus-close {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line, #2a2f39);
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.plus-close:hover { background: rgba(255, 255, 255, 0.06); }
+.plus-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.plus-filter {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line, #2a2f39);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.plus-filter.active { border-color: var(--accent, #4c9aff); color: #9dc1ff; }
+.plus-items { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.plus-item {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 10px 30px rgba(6, 48, 44, 0.18);
+  align-items: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line, #2a2f39);
+  background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+  cursor: pointer;
 }
+.plus-menu .plus-item {
+  /* Specificite volontaire : le style global des boutons pose un fond d'accent et
+     sortait ces cartes en teal sature (defaut visible sur la capture du 19/11). */
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+}
+.plus-item:hover { border-color: var(--accent, #4c9aff); }
+.plus-icon { font-size: 16px; }
+.plus-label { font-weight: 600; font-size: 13px; }
+.plus-ext { font-size: 11px; color: var(--muted, #8a8f98); }
+.plus-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.plus-import {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--accent, #4c9aff);
+  background: rgba(76, 154, 255, 0.14);
+  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.plus-dictate-row { flex-direction: row; align-items: center; gap: 6px; }
+@media (max-width: 640px) { .plus-items { grid-template-columns: 1fr; } }
+
 .plus-item {
   text-align: left;
   padding: 7px 10px;
@@ -1691,3 +1775,42 @@ select:focus-visible {
 }
 .mode-card-text { flex: 1 1 320px; font-size: 13px; color: var(--text); }
 .mode-card-inline .mode-allow { background: var(--accent); color: #ffffff; border-color: var(--accent); }
+
+/* P3-16b : panneau Projets & Git, et la liste des runs UHB. Le statut Git est
+   affiche en clair (propre / N modifies / ↑ahead ↓behind) : une pastille qui ne dit
+   pas d'ou vient le chiffre est une decoration. */
+.projects-head, .runs-head { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; }
+.projects-hint { color: var(--muted, #8a8f98); font-size: 12px; margin-left: auto; }
+.projects-list, .runs-list { display: flex; flex-direction: column; gap: 6px; }
+.project-row { border: 1px solid var(--line, #2a2f39); border-radius: 8px; padding: 8px 10px; }
+.project-row.current { border-color: var(--accent, #4c9aff); }
+.project-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.project-name { font-weight: 600; }
+.project-branch { font-family: var(--mono, monospace); font-size: 12px; color: var(--muted, #8a8f98); }
+.project-badge { margin-left: auto; font-size: 12px; padding: 1px 6px; border-radius: 999px;
+  background: rgba(76, 154, 255, .14); color: #9dc1ff; }
+.project-badge.dirty { background: rgba(255, 176, 32, .16); color: #ffc861; }
+.project-badge.bad { background: rgba(255, 92, 92, .16); color: #ff9a9a; }
+.project-meta { font-family: var(--mono, monospace); font-size: 11px; color: var(--muted, #8a8f98);
+  margin-top: 4px; word-break: break-all; }
+.project-reason { font-size: 12px; color: #ff9a9a; margin-top: 4px; }
+.project-switch { margin-top: 6px; }
+.projects-add { display: flex; gap: 6px; margin-top: 8px; }
+.projects-input { flex: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line, #2a2f39);
+  background: transparent; color: inherit; font-family: var(--mono, monospace); font-size: 12px; }
+.projects-empty, .runs-empty { font-size: 12px; color: var(--muted, #8a8f98); padding: 6px 2px; }
+.runs-empty.bad { color: #ff9a9a; }
+.run-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.run-name { font-family: var(--mono, monospace); flex: 1; word-break: break-all; }
+.run-drop { color: #ff9a9a; }
+
+/* P3-16b : separateur entre les groupes d'onglets. Sans lui, onze onglets se lisent
+   comme une seule liste et l'operateur ne voit pas qu'ils sont cinq familles. */
+.tab-sep {
+  display: inline-block;
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 4px;
+  background: var(--line, #2a2f39);
+  opacity: 0.7;
+}

@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -194,8 +195,58 @@ def _session_or_404(app: FastAPI, session_id: str) -> dict:
     return session
 
 
+_WORKSHOP_PROBE: list[float] = [0.0]
+
+
+def _expose_workshop_when_uhb_is_in_dev(*, force: bool = False) -> bool:
+    """Offer `execute_code` when UHB really is in the workshop mode, whatever launched UH.
+
+    The desktop shortcut starts `uh web` without any environment variable, so the old
+    rule - "the tool exists only if UH was launched with UH_UHB_EXECUTE=1" - left the
+    cockpit with seven tools after the operator clicked Atelier. The mode is the fact
+    that matters, and it is measured here, once per turn, on the same probe the
+    toolset already pays for. Nothing is granted: UHB still refuses a call without the
+    approval nonce the operator's click produces.
+    """
+    if os.environ.get("UH_UHB_EXECUTE") == "0":
+        return False
+    # Cached for a few seconds: the probe is paid once per turn at most, never twice,
+    # and a dead UHB costs 0.6 s rather than a stall (a turn must not hang on a panel).
+    # `force` exists for the test that must measure the probe itself, not the cache
+    # another turn happened to fill (that order dependence kept one line red).
+    now = time.monotonic()
+    if not force and now - _WORKSHOP_PROBE[0] < 5.0:
+        return os.environ.get("UH_UHB_EXECUTE") == "1"
+    _WORKSHOP_PROBE[0] = now
+    try:
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        if not url:
+            return False
+        status = Uhbtoolset(url, timeout=0.6).status()
+    except Exception:  # noqa: BLE001 - a dead UHB must not break a text turn
+        return False
+    if str(status.get("mode") or "").strip() == "dev":
+        os.environ["UH_UHB_EXECUTE"] = "1"
+        return True
+    return False
+
+
 def _toolsets(app: FastAPI, web_search: bool = True, notify=None) -> dict:
-    toolsets = build_toolsets(app.state.settings.workspace, notify=notify)
+    # P3-16b: the workspace is per session, carried by `app.state.turn_workspace` for the
+    # duration of one turn. Passed through the app rather than as a new keyword because
+    # `_toolsets` is replaced wholesale by test stubs and by nothing else - a new
+    # parameter broke one of them and the whole turn thread died with a TypeError,
+    # leaving the browser waiting until its deadline (measured: 604 s, no answer).
+    _expose_workshop_when_uhb_is_in_dev()
+    workspace = getattr(app.state, "turn_workspace", None)
+    # Les pieces jointes de la session sont lisibles (lecture seule) par l'outil `file` :
+    # elles vivent hors workspace. `~/.uh` n'est jamais ouvert, seulement ce dossier.
+    roots = list(getattr(app.state, "turn_read_roots", None) or [])
+    toolsets = build_toolsets(
+        workspace or app.state.settings.workspace, notify=notify, read_roots=roots or None
+    )
     if not app.state.settings.allow_terminal:
         toolsets.pop("terminal", None)
     if not web_search:
@@ -244,7 +295,35 @@ def _install_info() -> dict:
         "root": str(root),
         "editable": editable,
         "python": sys.executable,
+        # What the operator cannot otherwise see, and what has cost whole sessions:
+        # the commit the running code comes from, and whether that commit is dirty.
+        "commit": _git_commit(root),
+        "dirty": _git_dirty(root),
+        "origin": "dépôt" if editable else "paquet installé",
     }
+
+
+def _git_commit(root: Path) -> str:
+    """Short SHA of the checkout this code lives in, or empty for an installed copy."""
+    try:
+        proc = subprocess.run(
+            ("git", "-C", str(root), "rev-parse", "--short", "HEAD"),
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _git_dirty(root: Path) -> bool:
+    try:
+        proc = subprocess.run(
+            ("git", "-C", str(root), "status", "--porcelain"),
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return bool(proc.stdout.strip())
 
 
 def _uh_version_on(host: str, port: int, timeout: float = 1.5) -> Optional[str]:
@@ -457,7 +536,11 @@ def create_app(
         # routes that do not exist ("Not Found" on a button that exists in the
         # code). The build stamp makes the mismatch visible to the client, and the
         # query string keeps a cached app.js from outliving a restart.
-        page = page.replace("{{BUILD}}", __version__).replace("{{VERSION}}", __version__)
+        # `?v=` doit changer quand le CODE change, pas quand la version change : deux
+        # correctifs publies sous la meme version gardaient la meme URL, et un navigateur
+        # pouvait servir l'ancien app.js - mesure le 19/11 (fenetre sur le paquet installe).
+        build = _install_info().get("commit") or __version__
+        page = page.replace("{{BUILD}}", str(build)).replace("{{VERSION}}", __version__)
         cookie = request.cookies.get(app.state.cookie_name)
         if token and secrets.compare_digest(token, app.state.token):
             response = HTMLResponse(page)
@@ -836,6 +919,91 @@ def create_app(
             "summary": uh_maintenance.summary(folder, rows),
         }
 
+    # -- projects and the run lifecycle ------------------------------------ #
+    @app.get("/api/projects", dependencies=[Depends(require_token)])
+    async def projects_list(session_id: str = "") -> dict:
+        """The current project first, then the registry, each with a measured Git state.
+
+        ``porcelain`` is returned raw on purpose: Gate D compares it byte for byte with
+        what a terminal prints, so anything derived here would be the wrong evidence.
+        """
+        from .. import projects as uh_projects
+
+        current = app.state.settings.workspace
+        if session_id:
+            session = _session_or_404(app, session_id)
+            current = (session.get("metadata") or {}).get("workspace") or current
+        data = uh_projects.listing(current)
+        return {"ok": True, **data}
+
+    @app.post("/api/projects/add", dependencies=[Depends(require_token)])
+    async def projects_add(payload: dict) -> dict:
+        """Register a folder as a project. The only path check that counts is git's."""
+        from .. import projects as uh_projects
+
+        raw = str(payload.get("path") or "").strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="path requis")
+        try:
+            entry = uh_projects.add(raw, str(payload.get("label") or ""))
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "project": entry}
+
+    @app.post("/api/projects/switch", dependencies=[Depends(require_token)])
+    async def projects_switch(payload: dict) -> dict:
+        """Move a session to another project, without restarting anything (D-5).
+
+        The workspace is **per session**: a switch never moves a turn that is already
+        running, and an old session keeps answering where it started.
+        """
+        from .. import projects as uh_projects
+
+        raw = str(payload.get("path") or "").strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="path requis")
+        try:
+            target = uh_projects.switch(raw)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        session_id = str(payload.get("session_id") or "").strip()
+        if session_id:
+            session = _session_or_404(app, session_id)
+            metadata = dict(session.get("metadata") or {})
+            metadata["workspace"] = str(target)
+            with _store(app) as store:
+                store.set_session_metadata(session["id"], metadata)
+        else:
+            app.state.settings.workspace = target
+        return {"ok": True, "workspace": str(target), "session_id": session_id}
+
+    @app.get("/api/runs", dependencies=[Depends(require_token)])
+    async def runs_status() -> dict:
+        """Proxy of UHB ``GET /runs``: UH shows, UHB decides."""
+        from .. import uhb_runs
+
+        return uhb_runs.status()
+
+    @app.post("/api/runs", dependencies=[Depends(require_token)])
+    async def runs_action(payload: dict) -> dict:
+        """Proxy of UHB ``POST /runs``. ``prune`` stays a dry run unless ``apply`` is true."""
+        from .. import uhb_runs
+
+        action = str(payload.get("action") or "").strip().lower()
+        if action == "close":
+            run_id = str(payload.get("run") or "").strip()
+            if not run_id:
+                raise HTTPException(status_code=400, detail="run requis")
+            return uhb_runs.close(run_id, bool(payload.get("keep")), str(payload.get("summary") or ""))
+        if action == "prune":
+            return uhb_runs.prune(bool(payload.get("apply")))
+        if action == "restore":
+            revision = str(payload.get("revision") or "").strip()
+            if not revision:
+                raise HTTPException(status_code=400, detail="revision requise")
+            return uhb_runs.restore(revision)
+        raise HTTPException(status_code=400, detail="action must be close, prune or restore")
+
     # -- media and model capability ---------------------------------------- #
     # P1-14. Two questions the page needs answered before it sends anything: what can
     # this model read, and which configured model could read it instead.
@@ -955,7 +1123,11 @@ def create_app(
         if declared > attachments.MAX_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail=f"the file is larger than {attachments.human_size(attachments.MAX_BYTES)}",
+                detail=(
+                    f"fichier trop lourd : la limite est de "
+                    f"{attachments.human_size(attachments.MAX_BYTES)} par pièce jointe. "
+                    "Compressez-le, découpez-le, ou joignez seulement la partie utile."
+                ),
             )
         chunks: list[bytes] = []
         total = 0
@@ -965,8 +1137,9 @@ def create_app(
                 raise HTTPException(
                     status_code=413,
                     detail=(
-                        "the file is larger than "
-                        f"{attachments.human_size(attachments.MAX_BYTES)}"
+                        "fichier trop lourd : la limite est de "
+                        f"{attachments.human_size(attachments.MAX_BYTES)} par pièce jointe. "
+                        "Compressez-le, découpez-le, ou joignez seulement la partie utile."
                     ),
                 )
             chunks.append(chunk)
@@ -1072,6 +1245,13 @@ def create_app(
         )
         tool_since: dict[str, float] = {}
         turn_reason = "done"
+        # The workspace this turn works in: the session's own if it switched project
+        # (D-5), the server's default otherwise.
+        _session_workspace = (session.get("metadata") or {}).get("workspace") or ""
+        _workspace = Path(str(_session_workspace)) if _session_workspace else None
+        # P3-16b: the runs of this turn, so they can be closed when it ends. UHB owns
+        # the decision; this list only carries the gesture.
+        turn_runs: list[dict] = []
 
         def emit(event: dict) -> None:
             nonlocal turn_reason
@@ -1088,6 +1268,18 @@ def create_app(
                     # ok/error only: the payload is the user's data.
                     status = "error" if '"error"' in str(event.get("content") or "") else "ok"
                     turnlog.event("tool_end", turn=turn_id, tool=name, ms=elapsed, status=status)
+                    # P3-16b: remember the run this tool produced, if any. The payload is
+                    # UHB's own `ExecutionResult.to_dict`; a shape we do not recognise is
+                    # simply not collected - it must never fail a turn.
+                    if name == "execute_code":
+                        try:
+                            payload = json.loads(str(event.get("content") or "") or "{}")
+                        except ValueError:
+                            payload = {}
+                        run_id = str(payload.get("run") or payload.get("run_dir") or "").strip()
+                        if run_id:
+                            name_only = Path(run_id).name if "\\" in run_id or "/" in run_id else run_id
+                            turn_runs.append({"run": name_only, "keep": bool(payload.get("keep"))})
                     # A refusal caused by the mode gets its own event: the page turns
                     # it into one card whose button grants execution and re-sends the
                     # turn. Without it the user is told "switch to dev" and has to
@@ -1124,6 +1316,8 @@ def create_app(
             session_obj = None
             # Built here, not before: an HTTP/SSE toolset needs `emit` to ask its
             # per-call approval on this turn's stream.
+            app.state.turn_workspace = _workspace
+            app.state.turn_read_roots = [attachments.session_dir(session["id"])]
             toolsets = _toolsets(app, web_search=search_on, notify=emit)
             try:
                 from .. import mcp_http as uh_mcp_http
@@ -1228,6 +1422,23 @@ def create_app(
                         turnlog.event("turn_purge", turn=turn_id, removed=purged)
                 except Exception:  # noqa: BLE001 - a purge must never fail a turn
                     pass
+                # P3-16b: close the runs this turn opened. UHB decides what "closed"
+                # means (archive if kept, delete otherwise); UH only says the turn is
+                # over. Wrapped for the same reason the purge is: bookkeeping must not
+                # cost an answer that has already been given.
+                if turn_runs:
+                    try:
+                        from .. import uhb_runs
+
+                        closed = uhb_runs.close_many(turn_runs)
+                        turnlog.event(
+                            "turn_runs_closed",
+                            turn=turn_id,
+                            closed=len(closed),
+                            ok=sum(1 for item in closed if item.get("ok")),
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                 if store is not None:
                     store.close()
 
@@ -1424,7 +1635,15 @@ def create_app(
                 "reason": str(after.get("error") or "unreachable"),
                 "changed": True,
             }
-        return {"connected": True, "changed": True, **after}
+        # The switch is the operator's gesture, so it is also what exposes the tool:
+        # before this, `execute_code` only appeared if UH had been LAUNCHED with
+        # UH_UHB_EXECUTE=1, which the desktop shortcut never set - clicking Atelier
+        # changed UHB's mode and left the chat with seven tools and no workshop, which
+        # is exactly what the cockpit showed. The per-call approval in UHB stays the
+        # real gate: a tool that is offered still cannot run without the operator's
+        # click on the approval card.
+        os.environ["UH_UHB_EXECUTE"] = "1" if wanted == "dev" else "0"
+        return {"connected": True, "changed": True, "execute_exposed": wanted == "dev", **after}
 
     @app.post("/api/uhb/stop", dependencies=[Depends(require_token)])
     async def uhb_stop() -> dict:

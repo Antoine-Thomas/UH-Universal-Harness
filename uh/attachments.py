@@ -143,7 +143,12 @@ def _pdf_text(path: Path) -> tuple[str, str]:
     try:
         from pypdf import PdfReader  # optional: never a dependency
     except ImportError:
-        return "", "PDF text extraction needs pypdf: pip install pypdf"
+        # Jamais « lu » quand ce n'est pas lu : le message dit quoi installer.
+        return "", (
+            "lecteur PDF absent : installer l'extra avec "
+            "pip install \"uh-harness[pdf]\" (ou pip install pypdf), "
+            "sinon convertir le document en texte"
+        )
     try:
         reader = PdfReader(str(path))
         pages = [(page.extract_text() or "") for page in reader.pages]

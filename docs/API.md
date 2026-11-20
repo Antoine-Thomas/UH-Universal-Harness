@@ -71,6 +71,11 @@ come back", which nothing else in the product could.
 | POST | `/api/audio/speak` | `{text, session_id?, voice?, reference?}` | `{kind, source: {path, root: "uploads"}, url, name, mime, bytes, seconds, sha256, engine}` · `400` texte vide ou référence hors des envois · `503` aucun moteur (détail par tentative). Les octets vont dans `$UH_HOME/uploads/<session>/audio/` : le fil ne garde qu'une référence |
 | GET | `/api/audio/file?path=` | — | le clip (`audio/wav`), chemin résolu **sous `$UH_HOME/uploads`** uniquement · `404` hors racine ou disparu · `400` extension non audio |
 | POST | `/api/artifacts/trash/empty` | — | `{action: empty_trash, removed, memory_forgotten}` — ne touche jamais un dossier de run ; vider la corbeille **oublie** aussi les entrées mémoire des fichiers qu'elle contenait (P1-13) |
+| GET | `/api/projects?session_id=` | — | `{ok, current, root, projects: [{path, name, label?, branch, porcelain, dirty, ahead, behind, last_commit, ok, reason, current}]}` — `porcelain` est la sortie **brute** de `git status --porcelain=v1 -b` : c'est elle que la Porte D (D-4) compare octet pour octet au terminal |
+| POST | `/api/projects/add` | `{path, label?}` | `{ok, project}` — refusé en 400 si le dossier n'est pas un dépôt (`git rev-parse --show-toplevel`) ou sort de `projects.root` |
+| POST | `/api/projects/switch` | `{path, session_id?}` | `{ok, workspace, session_id}` — le workspace est **par session** (`sessions.metadata["workspace"]`), donc aucune autre conversation ne bouge (D-5) ; 403 hors registre / `projects.root` |
+| GET | `/api/runs` | — | proxy de UHB `GET /runs` : `{ok, root, count, bytes, kept, recent, policy}` ; UHB arrêté ⇒ `{ok: false, reason, runs: []}` |
+| POST | `/api/runs` | `{action: close\|prune\|restore, run?, keep?, apply?, revision?}` | proxy de UHB `POST /runs` ; `prune` reste une **simulation** sans `apply: true` ; UH ne supprime jamais lui-même |
 | GET | `/api/memory` | — | `{entries: [{sha256, kind, path, bytes, source, session, message_id, format, width?, height?, bits?, channels?}], weight: {root, bytes, by_kind, entries}}` — ce que l'opérateur a gardé, en PNG lossless ou FLAC 24 bits (P1-13) |
 | GET | `/api/maintenance?session_id=` | — | `{ok, swept: {derived, stale, freed_bytes}, summary: {files, unmentioned, unmentioned_bytes, missing, stale_days}}` — purge des copies préparées et **rapport** des orphelins dans les deux sens (P1-12). Aucune suppression de fichier mentionné |
 | POST | `/api/uhb/mode` | `{mode: chat\|dev\|review\|observe}` | `{mode, changed, owned?, connected?}` · `400` mode inconnu ou UHB désactivé · `409` UHB démarré hors de UH (UH ne tue pas un processus qu'il ne possède pas) · `503` redémarrage impossible. Le mode est une propriété du PROCESSUS : le changer redémarre UHB, en `--mode <mode>` |
@@ -192,6 +197,9 @@ contract of the bundled one:
 ```
 app-banner
 attach  attachments  command-chips  composer  files  folder-hint  mic  mic-status
+project-add  project-path  projects-hint  projects-list  projects-refresh  projects-view
+runs-clean  runs-hint  runs-list  tab-projects
+plus-backdrop  plus-close  plus-filters  plus-import  plus-title
 plus-menu  plus-dictate  media-warning
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view

@@ -109,12 +109,48 @@
       <form id="composer" class="composer">
         <div class="plus-wrap">
           <button type="button" id="attach" class="icon-button" title="Ajouter des images, des fichiers, du son" aria-label="Ajouter des images ou des fichiers" aria-haspopup="true" aria-expanded="false">+</button>
-          <div id="plus-menu" class="plus-menu" role="menu" hidden>
-            <button type="button" class="plus-item" data-accept="image" role="menuitem">Images — .png .jpg .gif .svg .heic (jusqu'à 4K)</button>
-            <button type="button" class="plus-item" data-accept="video" role="menuitem">Vidéo — .mp4 (H.264 / H.265)</button>
-            <button type="button" class="plus-item" data-accept="audio" role="menuitem">Son — .mp3 .wav .flac .ogg</button>
-            <button type="button" class="plus-item" data-accept="document" role="menuitem">Documents — .pdf .csv .html .zip .txt .md .json</button>
-            <button type="button" class="plus-item" id="plus-dictate" role="menuitem">Dictée vocale</button>
+          <!-- Modale d'attachement (P3-16b) : le menu en bas a gauche empietait sur le
+               champ de saisie et coupait les libelles. Ici : fond assombri, titre, croix,
+               filtres, quatre familles, et fermeture automatique une fois les fichiers joints. -->
+          <div id="plus-backdrop" class="plus-backdrop" hidden></div>
+          <div id="plus-menu" class="plus-menu" role="dialog" aria-modal="true"
+               aria-labelledby="plus-title" hidden>
+            <div class="plus-head">
+              <strong id="plus-title">Joindre des fichiers</strong>
+              <button type="button" id="plus-close" class="plus-close" aria-label="Fermer">×</button>
+            </div>
+            <div id="plus-filters" class="plus-filters" role="tablist">
+              <button type="button" class="plus-filter active" data-filter="all" role="tab" aria-selected="true">Tous</button>
+              <button type="button" class="plus-filter" data-filter="image" role="tab" aria-selected="false">Images</button>
+              <button type="button" class="plus-filter" data-filter="document" role="tab" aria-selected="false">Documents</button>
+              <button type="button" class="plus-filter" data-filter="media" role="tab" aria-selected="false">Médias</button>
+            </div>
+            <div class="plus-items">
+              <button type="button" class="plus-item" data-accept="image" data-kind="image" role="menuitem">
+                <span class="plus-icon">🖼</span>
+                <span class="plus-label">Images</span>
+                <span class="plus-ext">.png .jpg .gif .svg .heic — jusqu'à 4K</span>
+              </button>
+              <button type="button" class="plus-item" data-accept="video" data-kind="media" role="menuitem">
+                <span class="plus-icon">🎬</span>
+                <span class="plus-label">Vidéo</span>
+                <span class="plus-ext">.mp4 — H.264 / H.265 (images clés extraites)</span>
+              </button>
+              <button type="button" class="plus-item" data-accept="audio" data-kind="media" role="menuitem">
+                <span class="plus-icon">🎵</span>
+                <span class="plus-label">Son</span>
+                <span class="plus-ext">.mp3 .wav .flac .ogg — transcrit si besoin</span>
+              </button>
+              <button type="button" class="plus-item" data-accept="document" data-kind="document" role="menuitem">
+                <span class="plus-icon">📄</span>
+                <span class="plus-label">Documents</span>
+                <span class="plus-ext">.pdf .csv .html .zip .txt .md .json</span>
+              </button>
+            </div>
+            <div class="plus-foot">
+              <button type="button" id="plus-import" class="plus-import">Importer depuis l'ordinateur</button>
+              <button type="button" class="plus-item plus-dictate-row" id="plus-dictate">🎙 Dicter le message</button>
+            </div>
           </div>
         </div>
         <p id="media-warning" class="media-warning" hidden></p>
@@ -144,19 +180,48 @@
         <button id="providers-close" class="icon-button" aria-label="Close">×</button>
       </header>
       <nav class="panel-tabs" role="tablist">
-        <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">Fournisseurs</button>
-        <button id="tab-local" class="panel-tab" role="tab" aria-selected="false" aria-controls="local-view">IA locale</button>
+        <!-- P3-16b : les panneaux sont groupes par usage, pas empiles par date d'ajout.
+             Projets | Decision | Outils & Connexions | Cerveau & Memoire | Modeles. -->
+        <button id="tab-projects" class="panel-tab" role="tab" aria-selected="false" aria-controls="projects-view">Projets</button>
+        <span class="tab-sep" aria-hidden="true"></span>
+        <button id="tab-decision" class="panel-tab" role="tab" aria-selected="false" aria-controls="decision-view">Décision</button>
+        <span class="tab-sep" aria-hidden="true"></span>
+        <button id="tab-tools" class="panel-tab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
         <button id="tab-conn" class="panel-tab" role="tab" aria-selected="false" aria-controls="conn-view">Connexions<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
-        <button id="tab-models" class="panel-tab" role="tab" aria-selected="false" aria-controls="models-view">Models</button>
+        <span class="tab-sep" aria-hidden="true"></span>
         <button id="tab-uhb" class="panel-tab" role="tab" aria-selected="false" aria-controls="uhb-view">Second brain</button>
         <button id="tab-memory" class="panel-tab" role="tab" aria-selected="false" aria-controls="memory-view">Memory</button>
-        <button id="tab-decision" class="panel-tab" role="tab" aria-selected="false" aria-controls="decision-view">Decision</button>
-        <button id="tab-role" class="panel-tab" role="tab" aria-selected="false" aria-controls="role-view">Caractère</button>
         <button id="tab-telemetry" class="panel-tab" role="tab" aria-selected="false" aria-controls="telemetry-view">Telemetry</button>
+        <span class="tab-sep" aria-hidden="true"></span>
+        <button id="tab-local" class="panel-tab" role="tab" aria-selected="false" aria-controls="local-view">IA locale</button>
+        <button id="tab-keys" class="panel-tab active" role="tab" aria-selected="true" aria-controls="keys-view">Fournisseurs</button>
+        <button id="tab-models" class="panel-tab" role="tab" aria-selected="false" aria-controls="models-view">Modèles</button>
+        <span class="tab-sep" aria-hidden="true"></span>
+        <button id="tab-role" class="panel-tab" role="tab" aria-selected="false" aria-controls="role-view">Caractère</button>
         <button id="tab-data" class="panel-tab" role="tab" aria-selected="false" aria-controls="data-view">Data</button>
-        <button id="tab-tools" class="panel-tab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
       </nav>
       <div class="rightbar-scroll">
+        <div id="projects-view" class="panel-view" role="tabpanel" aria-labelledby="tab-projects" hidden>
+          <!-- P3-16b : le cockpit affiche et pilote, UHB decide. Aucun bouton de ce
+               panneau ne supprime un fichier lui-meme : il envoie un geste a /runs. -->
+          <div class="projects-head">
+            <strong>Projets &amp; Git</strong>
+            <span id="projects-hint" class="projects-hint">chargement…</span>
+            <button id="projects-refresh" class="ghost" type="button">Actualiser</button>
+          </div>
+          <div id="projects-list" class="projects-list" aria-busy="false"></div>
+          <div class="projects-add">
+            <input id="project-path" class="projects-input" type="text" spellcheck="false"
+                   placeholder="Chemin d'un depot git" />
+            <button id="project-add" class="ghost" type="button">Ajouter</button>
+          </div>
+          <div class="runs-head">
+            <strong>Runs UHB</strong>
+            <span id="runs-hint" class="projects-hint">—</span>
+            <button id="runs-clean" class="ghost" type="button">Nettoyer…</button>
+          </div>
+          <div id="runs-list" class="runs-list" aria-busy="false"></div>
+        </div>
         <div id="tools-view" class="panel-view" role="tabpanel" aria-labelledby="tab-tools" hidden>
           <div class="panel-hint" id="tools-hint">catalogue lu depuis UHB — information, pas une autorisation</div>
           <!-- Gestion des Skills (P3-15) : une case cochée rend un Skill disponible

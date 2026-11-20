@@ -1122,7 +1122,7 @@ the fusion or the validation programme. They queue behind P1/P2 and never before
   `tests/e2e/test_p3_14_role.py` (3 cas Chromium : choix, rechargement, changement en cours de
   session, texte libre conservé).
 
-### P3-16 Cockpit Projects, Run Lifecycle & Extensions - TO OPEN (requested 2026-11-19)
+### P3-16 Cockpit Projects, Run Lifecycle & Extensions - a+b DELIVERED, c+d open (opened 2026-11-19, closed in part 2026-11-20)
 
 *Numbering note, written down so the trail stays readable:* the operator asked for this lot
 as « P3-14 », but **P3-14 is taken** (caractere & role per project, delivered 2026-11-18,
@@ -1130,6 +1130,26 @@ PR #27) and **P3-15 is in progress** (intent orchestration). The lot therefore c
 **P3-16** in this document while the branches keep the requested names
 (`feat/p3-14-runs-lifecycle` on UHB, `feat/p3-14-cockpit-projects` on UH); renaming is a
 two-command change if the operator prefers the opposite.
+
+**Status, measured 2026-11-20.**
+
+| Lot | State | Evidence |
+|---|---|---|
+| **P3-16a** runs lifecycle (UHB) | **delivered, in `main`** | `64dc06c` then `e21e63f`, `28d7bf8`, `39cc54b`; PR #20 merged as `a502787`; CI **12/12** (windows 3.10-3.13, macos 3.10-3.13, ubuntu 3.10-3.13) |
+| **P3-16b** cockpit projects (UH) | **delivered locally, not pushed** | `0d98c43`, `6600534`, `71535ea`, `874a10c` on `feat/p3-16-cockpit-projects`, ahead 4; the merge on `main` (`bdfb358`, PR #30) stops at `9b162e3`, so the attachment modal and the import block are **not on GitHub yet** |
+| **P3-16c** crons, files, git, infra | open | — |
+| **P3-16d** extensions manager + Gate D | open | — |
+
+Two defects the CI found in P3-16a, kept here because they are the kind that only a second
+environment reveals:
+
+- `tarfile.extractall(filter="data")` does not exist before Python 3.12 (backported to
+  3.10.12/3.11.4): macOS 3.10 was red while every local venv was 3.11.9. Restore now walks the
+  members one by one, validating names, member types and pre-existing symlinks itself - no
+  version branch, so the tested path is the only path.
+- `subprocess.run(..., text=True)` without `encoding=` decodes with the machine's codec: cp1252
+  on a Windows runner, UTF-8 in this checkout (`utf8_mode=1`), so the four Windows jobs read
+  `un résumé` as `un r?sum?`. Fixed in `_git` - the product's only path to git - and guarded.
 
 **Measured starting point (2026-11-19, `a37e039` UH / `aa286dd` UHB).** `~/.uhb/runs` holds
 **325 run directories, 5.2 MB**, the oldest from 16/11; each one is
@@ -1143,7 +1163,7 @@ UHB owns the **policy and the lifecycle** (purge, keep, compression, archive, cr
 UH only **shows and drives** (panels, buttons, statuses). A retention rule written in UH would
 be a defect, even if it worked.
 
-#### P3-16a (UHB) - run lifecycle and the « Cerveaux » archive
+#### P3-16a (UHB) - run lifecycle and the « Cerveaux » archive - **DONE 2026-11-20**
 
 - **Default: nothing piles up.** At the end of a turn whose run was not asked to be kept, the
   run directory is **deleted**; a TTL/quota safety net (e.g. 200 directories or 500 MB,
@@ -1160,7 +1180,7 @@ be a defect, even if it worked.
   matches the run's files; 50 consecutive runs leave a stable count; a killed run leaves no
   half-written directory (or is swept on the next start).
 
-#### P3-16b (UH) - projects and Git in the cockpit
+#### P3-16b (UH) - projects and Git in the cockpit - **DONE locally 2026-11-20, not pushed**
 
 - A **« Projets »** view: active projects with their path, current branch, a compact
   `git status` (clean / modified / ahead / behind), the last commit, a one-click workspace

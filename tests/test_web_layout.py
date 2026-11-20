@@ -731,7 +731,8 @@ def test_the_decision_view_exposes_the_execution_mode() -> None:
     assert "async function renderExecutionMode()" in script
     assert 'api("/api/uhb/mode"' in script
     # Labels are words a person uses, not the profile keys.
-    assert '"Discussion"' in script and '"Atelier"' in script
+    # 19/11 : le libelle porte le nom francais ET l'identifiant technique.
+    assert '"Discussion (chat)"' in script and '"Atelier (dev)"' in script
     assert "lecture seule" in script and "exécuter du code" in script
     # It is a sibling of the panel that renderDecision clears on every reload.
     assert "host.parentNode.insertBefore(card, host)" in script
@@ -772,10 +773,12 @@ def test_the_mode_is_visible_in_the_header_and_grantable_from_the_refusal() -> N
     assert "function refreshModeBadge()" in script and 'api("/api/uhb/status")' in script
     assert "function toggleModeFromBadge()" in script
     # Human labels, not the profile keys.
-    assert "Discussion : lecture seule" in script
+    # 19/11 : l'operateur a demande que l'en-tete nomme le mode francais ET son
+    # identifiant technique, « Atelier » seul laissant le modele parler de « mode dev ».
+    assert "Discussion (chat) : lecture seule" in script
     # The confinement is measured (counter-probe of 19/11), so the badge describes
     # it: the workshop runs code, and writes stay in the run directory.
-    assert "Atelier : exécute du code (dossier du run uniquement)" in script
+    assert "Atelier (dev) : exécute du code (dossier du run uniquement)" in script
     assert "portée non vérifiée" not in script, "the old caveat must not survive the proof"
     assert "peut exécuter du code et créer des fichiers" not in script, "no unproven promise"
     # The card answers the refusal event, and re-sends the same turn.

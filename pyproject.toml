@@ -45,6 +45,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pdf = ["pypdf>=5"]
 dev = [
     "pytest>=8",
     "build>=1",
