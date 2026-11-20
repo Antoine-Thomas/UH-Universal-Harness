@@ -1158,6 +1158,64 @@ def create_app(
             vram=uh_telemetry.vram_usage(),
         )
 
+    # -- tâches planifiées (P3-16c lot 4) ---------------------------------- #
+    # Ce que le web peut demander est une CLÉ du catalogue, jamais une commande : le
+    # module construit l'argv. Une clé inconnue est refusée en 400, avant tout effet.
+    @app.get("/api/schedules", dependencies=[Depends(require_token)])
+    async def schedules_list() -> dict:
+        from .. import schedule as uh_schedule
+
+        try:
+            data = await asyncio.to_thread(uh_schedule.listing)
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return {"ok": True, **data}
+
+    @app.post("/api/schedules", dependencies=[Depends(require_token)])
+    async def schedules_create(payload: dict) -> dict:
+        from .. import schedule as uh_schedule
+
+        body = payload or {}
+        try:
+            created = await asyncio.to_thread(
+                uh_schedule.create,
+                str(body.get("name") or ""),
+                str(body.get("command") or ""),
+                body.get("every_minutes"),
+                bool(body.get("enabled", True)),
+            )
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, **created}
+
+    @app.post("/api/schedules/{task_id}/toggle", dependencies=[Depends(require_token)])
+    async def schedules_toggle(task_id: str) -> dict:
+        from .. import schedule as uh_schedule
+
+        try:
+            return {"ok": True, **await asyncio.to_thread(uh_schedule.toggle, task_id)}
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/schedules/{task_id}/run", dependencies=[Depends(require_token)])
+    async def schedules_run(task_id: str) -> dict:
+        """Exécute une tâche tout de suite, par la même liste blanche que le déclencheur."""
+        from .. import schedule as uh_schedule
+
+        try:
+            return {"ok": True, **await asyncio.to_thread(uh_schedule.run_now, task_id)}
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.delete("/api/schedules/{task_id}", dependencies=[Depends(require_token)])
+    async def schedules_delete(task_id: str) -> dict:
+        from .. import schedule as uh_schedule
+
+        try:
+            return {"ok": True, **await asyncio.to_thread(uh_schedule.remove, task_id)}
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.get("/api/runs", dependencies=[Depends(require_token)])
     async def runs_status() -> dict:
         """Proxy of UHB ``GET /runs``: UH shows, UHB decides."""

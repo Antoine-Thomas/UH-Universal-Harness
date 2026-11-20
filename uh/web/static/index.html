@@ -197,8 +197,9 @@
         <button id="tab-role" class="panel-subtab" role="tab" aria-selected="false" aria-controls="role-view">Caractère</button>
         <button id="tab-tools" class="panel-subtab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
         <button id="tab-conn" class="panel-subtab" role="tab" aria-selected="false" aria-controls="conn-view" title="Serveurs MCP">MCP<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
-        <button id="tab-uhb" class="panel-subtab" role="tab" aria-selected="false" aria-controls="uhb-view">Second cerveau</button>
+        <button id="tab-uhb" class="panel-subtab" role="tab" aria-selected="false" aria-controls="uhb-view">UHB</button>
         <button id="tab-infra" class="panel-subtab" role="tab" aria-selected="false" aria-controls="infra-view">Infra</button>
+        <button id="tab-tasks" class="panel-subtab" role="tab" aria-selected="false" aria-controls="tasks-view">Tâches</button>
         <button id="tab-memory" class="panel-subtab" role="tab" aria-selected="false" aria-controls="memory-view">Mémoire</button>
         <button id="tab-telemetry" class="panel-subtab" role="tab" aria-selected="false" aria-controls="telemetry-view">Télémétrie</button>
         <button id="tab-data" class="panel-subtab" role="tab" aria-selected="false" aria-controls="data-view">Données</button>
@@ -339,6 +340,27 @@
           <div id="infra-disk" class="infra-block"></div>
           <div id="infra-install" class="infra-block"></div>
           <div id="infra-logs" class="infra-logs"></div>
+        </div>
+        <div id="tasks-view" class="panel-view" role="tabpanel" aria-labelledby="tab-tasks" hidden>
+          <!-- P3-16c lot 4 : la commande est une CLÉ du catalogue, jamais un texte libre.
+               Le nom n'est qu'une étiquette : il ne devient jamais une ligne de commande. -->
+          <div class="tasks-head">
+            <strong>Tâches planifiées</strong>
+            <span id="tasks-mode" class="projects-hint">—</span>
+            <button id="tasks-refresh" class="ghost" type="button">Actualiser</button>
+          </div>
+          <div id="tasks-hint" class="projects-hint"></div>
+          <form id="tasks-form" class="tasks-form">
+            <label for="task-name">Nom</label>
+            <input id="task-name" type="text" maxlength="60" placeholder="Diagnostic du matin" autocomplete="off">
+            <label for="task-command">Commande</label>
+            <select id="task-command"></select>
+            <label for="task-every">Toutes les (minutes)</label>
+            <input id="task-every" type="number" min="5" max="10080" value="60" step="5">
+            <button id="task-create" class="ghost-button" type="submit">Créer la tâche</button>
+          </form>
+          <div id="tasks-catalog" class="tasks-catalog"></div>
+          <ul id="tasks-list" class="tasks-list" aria-busy="false"></ul>
         </div>
         <div id="memory-view" class="panel-view" role="tabpanel" aria-labelledby="tab-memory" hidden>
           <!-- Le graphe appartient au cerveau, pas au panneau UHB : il a suivi le

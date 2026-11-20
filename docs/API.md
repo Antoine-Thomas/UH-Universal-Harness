@@ -84,6 +84,11 @@ come back", which nothing else in the product could.
 | POST | `/api/git/unstage` | `{path?, session_id?, files: [...]}` | `{ok, unstaged: [...], project}` — `git reset HEAD --` (repli `git rm --cached` sur un dépôt sans commit) ; mêmes bornes que `stage` |
 | POST | `/api/git/commit` | `{path?, session_id?, message}` | `{ok, sha, short, message, project}` — message **obligatoire** (`400` s'il est vide), les hooks du dépôt tournent (aucun `--no-verify`), et **aucune route ne pousse** |
 | GET | `/api/infra?log_lines=` | — | **Lecture seule.** `{ok, at, version, install, services, disk, logs, vram, alerts, read_only, actions_available: []}`. `services` : UH (uptime, port), UHB (état, mode, version, raison avec port et erreur système), Ollama (idem). `disk` : taille RÉELLE de `~/.uh` et `~/.uhb/runs` (parcours borné à 2 s, `complete: false` + raison si dépassé), espace libre. `logs` : dernières lignes de `uh-web.log` et `uhb.log`, bornées à 64 kio lues et 200 lignes, **jetons et en-têtes masqués**. `alerts` : `ok`/`warn`/`error` (UHB arrêté, Ollama muet, disque, VRAM, paquet installé au lieu du dépôt, code modifié). Aucune action : rien à arrêter, rien à relancer |
+| GET | `/api/schedules` | — | `{ok, tasks: [{id, name, command, every_minutes, enabled, mechanism, trigger_path, created, last_run, last_status, last_detail}], catalog: [{key, label, description, mutating}], mechanism, mechanism_label, platform, system_disabled, limits}` — le catalogue est la **liste blanche** : `doctor`, `dream`, `runs-prune` (simulation) |
+| POST | `/api/schedules` | `{name, command, every_minutes, enabled?}` | `{ok, task, trigger: {mechanism, path, detail}}` — `command` doit être une clé du catalogue, sinon `400` (`non autorisée`) ; cadence bornée à 5–10080 min, sinon `400` ; même nom = remplacement. Le déclencheur essaie le Planificateur Windows puis replie sur un `.vbs` Startup (`registre` si `UH_SCHEDULE_DISABLE_SYSTEM=1`), sans aucune élévation |
+| POST | `/api/schedules/{task_id}/toggle` | — | `{ok, task}` — activer installe le déclencheur, désactiver le retire ; `404` si l'id est inconnu |
+| POST | `/api/schedules/{task_id}/run` | — | `{ok, task, detail}` — exécute la tâche MAINTENANT par la même liste blanche, puis enregistre `last_run`/`last_status` ; `404` si inconnue |
+| DELETE | `/api/schedules/{task_id}` | — | `{ok, removed, triggers}` — retire le registre et **seulement** les déclencheurs `uh-schedule-<id>.vbs` que nous avons écrits ; `404` si inconnue |
 | GET | `/api/runs` | — | proxy de UHB `GET /runs` : `{ok, root, count, bytes, kept, recent, policy}` ; UHB arrêté ⇒ `{ok: false, reason, runs: []}` |
 | POST | `/api/runs` | `{action: close\|prune\|restore, run?, keep?, apply?, revision?}` | proxy de UHB `POST /runs` ; `prune` reste une **simulation** sans `apply: true` ; UH ne supprime jamais lui-même |
 | GET | `/api/memory` | — | `{entries: [{sha256, kind, path, bytes, source, session, message_id, format, width?, height?, bits?, channels?}], weight: {root, bytes, by_kind, entries}}` — ce que l'opérateur a gardé, en PNG lossless ou FLAC 24 bits (P1-13) |
@@ -217,6 +222,8 @@ git-log  git-hint  git-more  git-status  git-changes  git-diff  git-message  git
 git-commit-hint
 infra-view  infra-hint  infra-refresh  infra-alerts  infra-services  infra-disk
 infra-install  infra-logs  tab-infra
+tasks-view  tasks-mode  tasks-refresh  tasks-hint  tasks-form  task-name  task-command
+task-every  task-create  tasks-catalog  tasks-list  tab-tasks
 gauge-fill  gauge-label
 decision-panel  decision-view  hardware-card  help-open  input  keys-priority  keys-view
 role-custom  role-custom-save  role-label  role-panel  role-posture  role-select  role-view

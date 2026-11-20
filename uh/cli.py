@@ -2451,6 +2451,36 @@ def cmd_memory_show(_args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_schedule(args: argparse.Namespace) -> int:
+    """``uh schedule run <id>`` : le point d'entrée du déclencheur Windows, et rien d'autre.
+
+    Les tâches se créent depuis le cockpit ; cette commande se contente d'exécuter ce qui
+    est déjà enregistré, avec la même liste blanche. Elle n'accepte ni commande ni
+    argument : seulement un identifiant.
+    """
+    from . import schedule as uh_schedule
+
+    action = getattr(args, "schedule_command", None)
+    if action == "run":
+        return uh_schedule.run_by_id(str(args.task_id))
+    if action == "list":
+        data = uh_schedule.listing()
+        if not data["tasks"]:
+            print("aucune tâche enregistrée (voir le cockpit : Outils & Connexions → Tâches)")
+        for task in data["tasks"]:
+            state = "activée" if task.get("enabled") else "désactivée"
+            last = task.get("last_run") or "jamais"
+            status = task.get("last_status") or "—"
+            print(
+                f"{task['id']}  {task['name'][:28]:<28} {task['command']:<12} "
+                f"toutes les {task['every_minutes']:>5} min  {state:<10} dernier : {last} ({status})"
+            )
+        print(f"\nmécanisme : {data['mechanism_label']}")
+        return EXIT_OK
+    print("usage : uh schedule <run <id> | list>", file=sys.stderr)
+    return EXIT_USAGE
+
+
 def cmd_memory_migrate(args: argparse.Namespace) -> int:
     """One-shot, idempotent migration of the flat memory file into the store."""
     cfg = _load_config(args)
@@ -2901,6 +2931,14 @@ def build_parser() -> argparse.ArgumentParser:
     memory_sub.add_parser("show", help="print the flat memory file sections")
     memory_sub.add_parser("migrate", help="copy the flat memory file into a session (idempotent)")
 
+    # `uh schedule` : ce que le déclencheur Windows appelle, et rien de plus. Les tâches
+    # se créent depuis le cockpit ; la CLI les exécute pour le planificateur.
+    schedule_cmd = sub.add_parser("schedule", help="run one scheduled task (used by Windows)")
+    schedule_sub = schedule_cmd.add_subparsers(dest="schedule_command", metavar="<action>")
+    schedule_run = schedule_sub.add_parser("run", help="run one task by id, as the trigger does")
+    schedule_run.add_argument("task_id")
+    schedule_sub.add_parser("list", help="print the registered tasks")
+
     # keep direct handles so a missing action can print the right help
     parser._subparsers_by_name = sub._name_parser_map  # type: ignore[attr-defined]
     return parser
@@ -3018,6 +3056,8 @@ def main(argv: list[str] | None = None) -> int:
             if handler is None:
                 return _sub_help(parser, "memory")
             return handler(args)
+        if args.command == "schedule":
+            return cmd_schedule(args)
     except Exception as exc:  # noqa: BLE001 - last-resort guard: no traceback by default
         if getattr(args, "debug", False):
             raise

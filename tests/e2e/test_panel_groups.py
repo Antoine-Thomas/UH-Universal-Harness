@@ -71,7 +71,7 @@ def test_a_group_opens_its_sections(browser, server) -> None:
     try:
         open_panel(page)
         page.click("#group-tools")
-        assert visible_subtabs(page) == ["Outils", "MCP", "Second cerveau", "Infra"]
+        assert visible_subtabs(page) == ["Outils", "MCP", "UHB", "Infra", "Tâches"]
         page.click("#tab-conn")
         assert shown_views(page) == ["conn-view"], f"une section à la fois : {shown_views(page)}"
         page.click("#tab-uhb")

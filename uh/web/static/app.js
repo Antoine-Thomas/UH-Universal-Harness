@@ -4363,7 +4363,7 @@ function loadToolCatalog() {
 const TAB_GROUPS = {
   projects: { label: "Projets", leaves: ["projects", "files"] },
   decision: { label: "Décision", leaves: ["decision", "role"] },
-  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra"] },
+  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra", "tasks"] },
   brain: { label: "Cerveau & Mémoire", leaves: ["memory", "telemetry", "data"] },
   models: { label: "Modèles & Fournisseurs", leaves: ["keys", "models", "local"] },
 };
@@ -4422,6 +4422,7 @@ function showPanelTab(name) {
     ["projects", "projects-view"],
     ["files", "files-view"],
     ["infra", "infra-view"],
+    ["tasks", "tasks-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -4458,6 +4459,7 @@ function showPanelTab(name) {
   }
   if (name === "files") loadFs().catch(() => {});
   if (name === "infra") loadInfra().catch(() => {});
+  if (name === "tasks") loadSchedules().catch(() => {});
   if (name === "memory") {
     loadMemory().catch(() => {});
     // Le graphe a suivi la mémoire dans « Cerveau & Mémoire » : le charger ici évite
@@ -4764,6 +4766,9 @@ function wireProviders() {
   $("tab-files").addEventListener("click", () => showPanelTab("files"));
   $("tab-infra").addEventListener("click", () => showPanelTab("infra"));
   $("infra-refresh").addEventListener("click", () => loadInfra());
+  $("tab-tasks").addEventListener("click", () => showPanelTab("tasks"));
+  $("tasks-refresh").addEventListener("click", () => loadSchedules());
+  $("tasks-form").addEventListener("submit", (event) => createTask(event));
   $("files-refresh").addEventListener("click", () => loadFs(FS.path).catch(() => {}));
   $("files-attach").addEventListener("click", () => attachSelectedFile());
   $("git-more").addEventListener("click", async () => {
@@ -8005,7 +8010,165 @@ async function commitWork() {
   }
 }
 
-// --- supervision infra (P3-16c lot 3) -------------------------------------- //
+// --- tâches planifiées (P3-16c lot 4) ------------------------------------- //
+// La commande est une clé du catalogue lu depuis le serveur : le formulaire ne propose
+// que ce que UH sait faire, et le nom ne devient jamais une ligne de commande.
+let TASK_CATALOG = [];
+
+function taskModeLabel(data) {
+  const mode = String(data.mechanism_label || "—");
+  return data.system_disabled ? `${mode} · déclencheurs désactivés` : mode;
+}
+
+function renderTasks(data) {
+  const mode = $("tasks-mode");
+  if (mode) mode.textContent = taskModeLabel(data);
+
+  const select = $("task-command");
+  if (select) {
+    const previous = select.value;
+    select.textContent = "";
+    TASK_CATALOG = data.catalog || [];
+    for (const entry of TASK_CATALOG) {
+      const option = document.createElement("option");
+      option.value = entry.key;
+      option.textContent = entry.label;
+      select.appendChild(option);
+    }
+    if (previous) select.value = previous;
+  }
+
+  const catalog = $("tasks-catalog");
+  if (catalog) {
+    catalog.textContent = "";
+    for (const entry of TASK_CATALOG) {
+      const line = el("div", "tasks-catalog-line");
+      line.appendChild(el("code", "tasks-key", entry.key));
+      line.appendChild(el("span", "tasks-desc", entry.description));
+      if (entry.mutating) line.appendChild(el("span", "tasks-flag", "écrit"));
+      catalog.appendChild(line);
+    }
+  }
+
+  const list = $("tasks-list");
+  if (!list) return;
+  list.textContent = "";
+  const tasks = data.tasks || [];
+  if (!tasks.length) {
+    list.appendChild(el("li", "tasks-empty", "Aucune tâche. Choisis une commande du catalogue ci-dessus."));
+    return;
+  }
+  for (const task of tasks) {
+    const row = el("li", "task-row");
+    row.dataset.taskId = task.id;
+    row.dataset.enabled = task.enabled ? "1" : "0";
+
+    const head = el("div", "task-head");
+    head.appendChild(el("strong", "task-name", task.name));
+    head.appendChild(el("span", "task-flag" + (task.enabled ? " on" : ""), task.enabled ? "activée" : "désactivée"));
+    head.appendChild(el("span", "task-every", `toutes les ${task.every_minutes} min`));
+    row.appendChild(head);
+
+    const meta = el("div", "task-meta");
+    const commandLabel = (TASK_CATALOG.find((item) => item.key === task.command) || {}).label || task.command;
+    meta.textContent = `${commandLabel} · ${task.mechanism || "aucun déclencheur"}`;
+    row.appendChild(meta);
+
+    const last = el("div", "task-last");
+    last.dataset.role = "last";
+    last.textContent = task.last_run
+      ? `dernier passage : ${task.last_run} (${task.last_status || "—"})`
+      : "jamais lancée";
+    if (task.last_detail) last.title = task.last_detail;
+    row.appendChild(last);
+
+    const actions = el("div", "task-actions");
+    const toggle = el("button", "ghost", task.enabled ? "Désactiver" : "Activer");
+    toggle.type = "button";
+    toggle.dataset.action = "toggle";
+    toggle.addEventListener("click", () => taskAction(task.id, "toggle"));
+    const run = el("button", "ghost", "Lancer maintenant");
+    run.type = "button";
+    run.dataset.action = "run";
+    run.addEventListener("click", () => taskAction(task.id, "run"));
+    const kill = el("button", "ghost danger", "Supprimer");
+    kill.type = "button";
+    kill.dataset.action = "delete";
+    kill.addEventListener("click", () => taskAction(task.id, "delete"));
+    actions.append(toggle, run, kill);
+    row.appendChild(actions);
+    list.appendChild(row);
+  }
+}
+
+async function loadSchedules(options = {}) {
+  const hint = $("tasks-hint");
+  const quiet = Boolean(options.keepMessage);
+  // Un rechargement silencieux laisse le message de l'action visible : c'est la seule
+  // trace de ce qui vient de se passer (mesuré : « ok » disparaissait aussitôt).
+  if (hint && !quiet) hint.textContent = "chargement…";
+  try {
+    const data = await api("/api/schedules");
+    renderTasks(data);
+    if (hint && !quiet) hint.textContent = "";
+  } catch (error) {
+    if (hint) hint.textContent = `lecture impossible : ${error.message || error}`;
+  }
+}
+
+async function createTask(event) {
+  if (event) event.preventDefault();
+  const hint = $("tasks-hint");
+  const name = ($("task-name")?.value || "").trim();
+  const command = $("task-command")?.value || "";
+  const every = Number($("task-every")?.value || 0);
+  if (!name) {
+    if (hint) hint.textContent = "un nom est obligatoire";
+    return;
+  }
+  try {
+    const data = await api("/api/schedules", {
+      method: "POST",
+      body: JSON.stringify({ name, command, every_minutes: every }),
+    });
+    if (hint) {
+      hint.textContent = `tâche créée · déclencheur : ${data.trigger?.detail || "aucun"}`;
+    }
+    if ($("task-name")) $("task-name").value = "";
+    await loadSchedules({ keepMessage: true });
+  } catch (error) {
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+async function taskAction(taskId, action) {
+  const hint = $("tasks-hint");
+  try {
+    if (action === "delete") {
+      const row = document.querySelector(`.task-row[data-task-id="${taskId}"]`);
+      const name = row ? row.querySelector(".task-name")?.textContent : taskId;
+      if (!window.confirm(`Supprimer la tâche « ${name} » et son déclencheur ?`)) return;
+      await api(`/api/schedules/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+      if (hint) hint.textContent = `tâche supprimée : ${taskId}`;
+    } else if (action === "run") {
+      if (hint) hint.textContent = "exécution en cours…";
+      const data = await api(`/api/schedules/${encodeURIComponent(taskId)}/run`, { method: "POST" });
+      if (hint) {
+        // Le détail complet reste en infobulle sur la ligne (task-last) : dans l'en-tête
+        // il poussait le formulaire sous une sortie de commande de plusieurs lignes.
+        hint.textContent = `${taskId} : ${data.ok ? "ok" : "erreur"}`;
+      }
+    } else {
+      const data = await api(`/api/schedules/${encodeURIComponent(taskId)}/toggle`, { method: "POST" });
+      if (hint) hint.textContent = `tâche ${data.task?.enabled ? "activée" : "désactivée"}`;
+    }
+    await loadSchedules({ keepMessage: true });
+  } catch (error) {
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+
 // Lecture seule, et l'interface ne propose rien d'autre : pas de bouton d'arrêt, pas de
 // redémarrage. Ce que la vue montre vient de /api/infra, qui ne fait que lire.
 function infraUptime(seconds) {
