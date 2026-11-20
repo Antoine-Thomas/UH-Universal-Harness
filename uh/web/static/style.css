@@ -605,6 +605,12 @@ body {
   font-size: 10px; padding: 1px 7px; border-radius: 9px;
   border: 1px solid var(--border); color: var(--muted);
 }
+/* Le badge est dans une puce de section : il doit coûter le moins de largeur possible,
+   sinon « MCP Nouveau » prend 110 px à lui seul dans un panneau de 319. */
+.tab-badge {
+  margin-left: 4px; font-size: 9px; padding: 0 4px; border-radius: 7px;
+  border: 1px solid var(--border); color: var(--accent);
+}
 .badge.ok { color: var(--accent); border-color: var(--accent); }
 .badge.hl { color: var(--highlight); border-color: var(--highlight); }
 .badge.warn { color: var(--error); border-color: var(--error); }
@@ -1413,14 +1419,21 @@ select:focus-visible {
 /* P3-16b : les sections du groupe ouvert. Une seule ligne, jamais repliée sur trois :
    « ConnexionsNouveau » et les badges empilés venaient de boutons sans césure. */
 .panel-subtabs {
-  display: flex; flex-wrap: nowrap; gap: 6px; align-items: center;
-  padding: 8px 14px 0; overflow-x: auto; scrollbar-width: thin;
+  /* Cinq sections au maximum (Outils & Connexions). Elles doivent tenir sur une seule
+     ligne dans 319 px de panneau, quelle que soit la police : mesuré sur Linux où les
+     glyphes sont plus larges que sur Windows. `flex: 1 1 auto` les laisse se partager
+     la place au lieu de déborder, et `min-width: 0` autorise le rétrécissement. */
+  display: flex; flex-wrap: nowrap; gap: 4px; align-items: center;
+  padding: 8px 10px 0; overflow-x: auto; scrollbar-width: none;
   border-bottom: 1px solid var(--border); background: var(--panel);
 }
 .panel-subtabs[hidden] { display: none; }
 .panel-subtab {
-  flex: 0 0 auto; white-space: nowrap;
-  min-height: 26px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  /* Pas de croissance : une puce garde sa largeur naturelle, sinon « Git & runs » et
+     « Fichiers » s'étirent sur toute la barre. Elle peut seulement rétrécir. */
+  flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; text-align: center;
+  min-height: 26px; padding: 4px 5px; font-size: 11px; cursor: pointer;
   color: var(--muted); background: transparent;
   border: 1px solid var(--border); border-radius: 999px;
 }
@@ -1749,6 +1762,141 @@ body.modal-open { overflow: hidden; }
 .plus-dictate-row { flex-direction: row; align-items: center; gap: 6px; }
 @media (max-width: 640px) { .plus-items { grid-template-columns: 1fr; } }
 
+/* P3-16c lot 1 — explorateur de fichiers. Lecture seule : une liste dense, un aperçu
+   borné, et le refus du serveur affiché tel quel dans #files-hint. */
+.files-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
+.files-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; flex: 1; }
+.files-crumb {
+  border: 0; background: transparent; color: var(--muted);
+  font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 6px;
+  max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.files-crumb:hover { color: var(--text); background: var(--accent-soft); }
+.files-crumb.current { color: var(--text); font-weight: 600; }
+.files-crumb-sep { color: var(--muted); font-size: 11px; }
+.files-list { list-style: none; margin: 4px 0 0; padding: 0 8px 8px; overflow: auto; }
+.files-row { display: flex; align-items: center; gap: 8px; }
+.files-name {
+  flex: 1; min-width: 0; text-align: left; border: 0; background: transparent;
+  color: var(--text); font: inherit; font-size: 12.5px; padding: 5px 6px;
+  border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.files-name:hover, .files-name:focus-visible { background: var(--accent-soft); }
+.files-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.files-preview { margin: 6px 14px 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.files-preview[hidden] { display: none; }
+.files-preview-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.files-preview-head strong { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
+.files-preview-body { margin-top: 8px; max-height: 320px; overflow: auto; }
+.files-image { max-width: 100%; height: auto; border-radius: 6px; display: block; }
+.files-text {
+  margin: 0; padding: 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.18);
+  font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+}
+/* P3-16c lot 2 — journal, index, commit et numéro de tour. */
+.git-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
+.git-head strong { font-size: 12.5px; }
+.git-log, .git-changes { list-style: none; margin: 4px 0 0; padding: 0 8px; }
+.git-entry {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 8px;
+  padding: 5px 6px; border-bottom: 1px solid var(--border);
+}
+.git-sha { font-size: 11px; color: var(--accent); }
+.git-subject { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-meta { grid-column: 2; font-size: 11px; color: var(--muted); }
+.git-change { display: flex; align-items: center; gap: 6px; }
+.git-flag {
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.git-flag.staged { color: var(--accent); border-color: var(--accent); }
+.git-path {
+  flex: 1; min-width: 0; text-align: left; border: 0; background: transparent;
+  color: var(--text); font: inherit; font-size: 12px; padding: 3px 4px; border-radius: 6px;
+  cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.git-path:hover { background: var(--accent-soft); }
+.git-act { font-size: 11px; padding: 2px 8px; }
+.git-diff {
+  margin: 6px 14px 0; padding: 8px; max-height: 260px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 8px; background: rgba(0, 0, 0, 0.18);
+  font-size: 11px; line-height: 1.45; white-space: pre;
+}
+.git-diff[hidden] { display: none; }
+.git-empty { color: var(--muted); font-size: 12px; padding: 6px; }
+.git-commit { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px 14px; }
+.git-commit label { font-size: 11.5px; color: var(--muted); }
+.git-commit textarea {
+  width: 100%; resize: vertical; font: inherit; font-size: 12px; padding: 6px 8px;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.git-commit-row { display: flex; align-items: center; gap: 8px; }
+.git-commit-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Un tour commence ici : le badge est discret, mais il nomme ce que Télémétrie compte. */
+.turn-badge {
+  display: inline-block; margin: 0 0 4px; padding: 1px 8px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+}
+.msg.turn-start { border-top: 1px solid var(--border); }
+/* P3-16c lot 3 — supervision en lecture seule : une pastille, une raison, aucun bouton. */
+.infra-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
+.infra-head strong { font-size: 12.5px; }
+.infra-alerts { display: flex; flex-direction: column; gap: 4px; padding: 8px 14px 0; }
+.infra-alert {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); font-size: 12px;
+}
+.infra-alert.error { border-color: var(--error, #e5534b); }
+.infra-alert.warn { border-color: var(--warn, #d29922); }
+.infra-alert.ok { color: var(--muted); }
+.infra-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.infra-dot.ok { background: #3fb950; }
+.infra-dot.ko { background: var(--error, #e5534b); }
+.infra-services { list-style: none; margin: 6px 0 0; padding: 0 14px; }
+.infra-service {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.infra-service .infra-detail { color: var(--muted); }
+.infra-meta { color: var(--muted); font-size: 11px; }
+.infra-reason { color: var(--error, #e5534b); font-size: 11px; overflow-wrap: anywhere; }
+.infra-block { padding: 10px 14px 0; }
+.infra-line { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 2px 0; }
+.infra-name { color: var(--muted); min-width: 88px; }
+.infra-value { overflow-wrap: anywhere; }
+.infra-logs { padding: 10px 14px 14px; }
+.infra-log { margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.infra-log summary { cursor: pointer; font-size: 12px; }
+.infra-log-body {
+  margin: 6px 0 0; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word; color: var(--muted);
+}
+/* P3-16c lot 4 — tâches planifiées. La commande est une clé du catalogue, jamais un texte. */
+.tasks-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
+.tasks-head strong { font-size: 12.5px; }
+.tasks-form { display: flex; flex-direction: column; gap: 4px; padding: 8px 14px 0; }
+.tasks-form label { font-size: 11px; color: var(--muted); }
+.tasks-form input, .tasks-form select {
+  font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.tasks-form button { align-self: flex-start; margin-top: 4px; }
+.tasks-catalog { display: flex; flex-direction: column; gap: 2px; padding: 8px 14px 0; }
+.tasks-catalog-line { display: flex; gap: 6px; align-items: baseline; font-size: 11px; color: var(--muted); }
+.tasks-key { color: var(--accent); font-size: 11px; }
+.tasks-flag { font-size: 10px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); }
+.tasks-flag.on { color: var(--accent); border-color: var(--accent); }
+.tasks-list { list-style: none; margin: 6px 0 0; padding: 0 14px 14px; }
+.task-row { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
+.task-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.task-name { font-size: 12.5px; }
+.task-every { color: var(--muted); font-size: 11px; }
+.task-meta, .task-last { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.task-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.task-actions button { font-size: 11px; padding: 3px 8px; }
+.task-actions .danger { color: var(--error, #e5534b); border-color: var(--error, #e5534b); }
+.tasks-empty { color: var(--muted); font-size: 12px; padding: 6px 0; }
 .media-warning {
   display: flex;
   align-items: center;
@@ -1820,6 +1968,10 @@ body.modal-open { overflow: hidden; }
 .projects-head, .runs-head { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; }
 .projects-hint { color: var(--muted, #8a8f98); font-size: 12px; margin-left: auto; }
 .projects-list, .runs-list { display: flex; flex-direction: column; gap: 6px; }
+/* P3-16c lot 2 : chez un opérateur à 300+ runs, la liste poussait le journal Git et la
+   zone de commit hors de la colonne. Elle défile sur elle-même, elle ne pousse plus. */
+.runs-list { max-height: 220px; overflow-y: auto; padding-right: 2px; }
+.projects-list { max-height: 320px; overflow-y: auto; }
 .project-row { border: 1px solid var(--line, #2a2f39); border-radius: 8px; padding: 8px 10px; }
 .project-row.current { border-color: var(--accent, #4c9aff); }
 .project-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }

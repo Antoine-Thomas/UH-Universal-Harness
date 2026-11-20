@@ -55,6 +55,15 @@ def _protected_by_default() -> list[Path]:
     return [uh_home()]
 
 
+def protected_roots() -> list[Path]:
+    """Les racines protegees, pour ceux qui construisent un `FileToolset` a la main.
+
+    Le web s'en sert pour son explorateur : il doit refuser exactement ce que refusent
+    les outils, sans recopier la liste (une liste recopiee diverge au premier ajout).
+    """
+    return _protected_by_default()
+
+
 def build_toolsets(
     workspace: str | os.PathLike[str] | None = None,
     notify: Any = None,

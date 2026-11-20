@@ -192,11 +192,14 @@
       </nav>
       <div id="panel-pool" hidden>
         <button id="tab-projects" class="panel-subtab" role="tab" aria-selected="false" aria-controls="projects-view">Git &amp; runs</button>
+        <button id="tab-files" class="panel-subtab" role="tab" aria-selected="false" aria-controls="files-view">Fichiers</button>
         <button id="tab-decision" class="panel-subtab" role="tab" aria-selected="false" aria-controls="decision-view">Modes</button>
         <button id="tab-role" class="panel-subtab" role="tab" aria-selected="false" aria-controls="role-view">Caractère</button>
         <button id="tab-tools" class="panel-subtab" role="tab" aria-selected="false" aria-controls="tools-view">Outils</button>
         <button id="tab-conn" class="panel-subtab" role="tab" aria-selected="false" aria-controls="conn-view" title="Serveurs MCP">MCP<span id="conn-badge" class="tab-badge" hidden>Nouveau</span></button>
-        <button id="tab-uhb" class="panel-subtab" role="tab" aria-selected="false" aria-controls="uhb-view">Second cerveau</button>
+        <button id="tab-uhb" class="panel-subtab" role="tab" aria-selected="false" aria-controls="uhb-view">UHB</button>
+        <button id="tab-infra" class="panel-subtab" role="tab" aria-selected="false" aria-controls="infra-view">Infra</button>
+        <button id="tab-tasks" class="panel-subtab" role="tab" aria-selected="false" aria-controls="tasks-view">Tâches</button>
         <button id="tab-memory" class="panel-subtab" role="tab" aria-selected="false" aria-controls="memory-view">Mémoire</button>
         <button id="tab-telemetry" class="panel-subtab" role="tab" aria-selected="false" aria-controls="telemetry-view">Télémétrie</button>
         <button id="tab-data" class="panel-subtab" role="tab" aria-selected="false" aria-controls="data-view">Données</button>
@@ -226,6 +229,47 @@
             <button id="runs-clean" class="ghost" type="button">Nettoyer…</button>
           </div>
           <div id="runs-list" class="runs-list" aria-busy="false"></div>
+          <!-- P3-16c lot 2 : journal, index et commit bornés au dépôt ACTIF de cette
+               session. Aucun bouton push n'existe ici, et --no-verify n'est jamais passé. -->
+          <div class="git-head">
+            <strong>Journal</strong>
+            <span id="git-hint" class="projects-hint">—</span>
+            <button id="git-more" class="ghost" type="button" hidden>Plus</button>
+          </div>
+          <ul id="git-log" class="git-log" aria-busy="false"></ul>
+          <div class="git-head">
+            <strong>Modifications</strong>
+            <span id="git-status" class="projects-hint">—</span>
+          </div>
+          <ul id="git-changes" class="git-changes"></ul>
+          <pre id="git-diff" class="git-diff" hidden></pre>
+          <div class="git-commit">
+            <label for="git-message">Message de commit</label>
+            <textarea id="git-message" rows="2" placeholder="Ce que ce commit change, et pourquoi"></textarea>
+            <div class="git-commit-row">
+              <button id="git-commit" class="ghost-button" type="button" disabled>Committer</button>
+              <span id="git-commit-hint" class="projects-hint"></span>
+            </div>
+          </div>
+        </div>
+        <div id="files-view" class="panel-view" role="tabpanel" aria-labelledby="tab-files" hidden>
+          <!-- P3-16c lot 1 : lecture seule. Chaque chemin passe par la même porte que
+               les outils (FileToolset), donc ~/.uh, `..` et les liens sortants sont
+               refusés côté serveur, pas cachés par l'interface. -->
+          <div class="files-head">
+            <nav id="files-crumbs" class="files-crumbs" aria-label="Chemin"></nav>
+            <button id="files-refresh" class="ghost" type="button">Actualiser</button>
+          </div>
+          <div id="files-hint" class="projects-hint">chargement…</div>
+          <ul id="files-list" class="files-list" aria-busy="false"></ul>
+          <div id="files-preview" class="files-preview" hidden>
+            <div class="files-preview-head">
+              <strong id="files-preview-name"></strong>
+              <span id="files-preview-meta" class="files-meta"></span>
+              <button id="files-attach" class="ghost" type="button">Attacher au tour</button>
+            </div>
+            <div id="files-preview-body" class="files-preview-body"></div>
+          </div>
         </div>
         <div id="tools-view" class="panel-view" role="tabpanel" aria-labelledby="tab-tools" hidden>
           <div class="panel-hint" id="tools-hint">catalogue lu depuis UHB — information, pas une autorisation</div>
@@ -281,6 +325,42 @@
         </div>
         <div id="uhb-view" class="panel-view" role="tabpanel" aria-labelledby="tab-uhb" hidden>
           <div id="uhb-panel" class="uhb-panel"></div>
+        </div>
+        <div id="infra-view" class="panel-view" role="tabpanel" aria-labelledby="tab-infra" hidden>
+          <!-- P3-16c lot 3 : supervision en LECTURE SEULE. Aucun bouton d'arrêt, de
+               redémarrage ou de suppression : un processus qu'on n'a pas lancé n'est pas
+               à nous, et la vue ne doit pas donner le moyen de le croire. -->
+          <div class="infra-head">
+            <strong>Supervision</strong>
+            <span id="infra-hint" class="projects-hint">chargement…</span>
+            <button id="infra-refresh" class="ghost" type="button">Actualiser</button>
+          </div>
+          <div id="infra-alerts" class="infra-alerts"></div>
+          <ul id="infra-services" class="infra-services"></ul>
+          <div id="infra-disk" class="infra-block"></div>
+          <div id="infra-install" class="infra-block"></div>
+          <div id="infra-logs" class="infra-logs"></div>
+        </div>
+        <div id="tasks-view" class="panel-view" role="tabpanel" aria-labelledby="tab-tasks" hidden>
+          <!-- P3-16c lot 4 : la commande est une CLÉ du catalogue, jamais un texte libre.
+               Le nom n'est qu'une étiquette : il ne devient jamais une ligne de commande. -->
+          <div class="tasks-head">
+            <strong>Tâches planifiées</strong>
+            <span id="tasks-mode" class="projects-hint">—</span>
+            <button id="tasks-refresh" class="ghost" type="button">Actualiser</button>
+          </div>
+          <div id="tasks-hint" class="projects-hint"></div>
+          <form id="tasks-form" class="tasks-form">
+            <label for="task-name">Nom</label>
+            <input id="task-name" type="text" maxlength="60" placeholder="Diagnostic du matin" autocomplete="off">
+            <label for="task-command">Commande</label>
+            <select id="task-command"></select>
+            <label for="task-every">Toutes les (minutes)</label>
+            <input id="task-every" type="number" min="5" max="10080" value="60" step="5">
+            <button id="task-create" class="ghost-button" type="submit">Créer la tâche</button>
+          </form>
+          <div id="tasks-catalog" class="tasks-catalog"></div>
+          <ul id="tasks-list" class="tasks-list" aria-busy="false"></ul>
         </div>
         <div id="memory-view" class="panel-view" role="tabpanel" aria-labelledby="tab-memory" hidden>
           <!-- Le graphe appartient au cerveau, pas au panneau UHB : il a suivi le

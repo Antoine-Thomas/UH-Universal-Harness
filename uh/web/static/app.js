@@ -589,6 +589,7 @@ function renderHistory(messages) {
       else toolCard(message.name || "tool", null, message.content || "");
     } else {
       const box = appendMessage(role, message.content || "", message.id);
+      if (role === "user" && message.turn) turnBadge(box, message.turn);
       if (Array.isArray(message.artifacts) && message.artifacts.length) {
         drawArtifacts(box, message.artifacts);
         drawAudio(box, message.artifacts, { sessionId: state.sessionId });
@@ -1572,6 +1573,9 @@ async function openSession(id) {
   fillRoleSelect((data.session.metadata || {}).role || null);
   renderHistory(data.messages);
   updateGauge(data.messages);
+  // Le compteur local continue à partir de ce que le serveur a numéroté : un tour envoyé
+  // après un rechargement porte le bon numéro.
+  state.turns = Number(data.turns || 0);
   // A fresh read is the fix the header control performs: the stale flag it carried
   // belongs to the previous render, not to this one (P1-12).
   viewStale(false);
@@ -1596,6 +1600,9 @@ async function newSession() {
   const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
   state.sessionId = data.session.id;
   state.attachments = [];
+  // Une nouvelle session repart de zéro : sans ça, la première bulle héritait du numéro
+  // de tour de la session précédente (« Tour #7 » sur une conversation vide).
+  state.turns = 0;
   renderAttachments();
   $("messages").textContent = "";
   $("session-title").textContent = "(untitled)";
@@ -2026,10 +2033,14 @@ async function sendMessage(text) {
   const attachedList = state.attachments
     .map((item) => `${item.name} (${humanSize(item.size)}, ${kindLabel(item)})`)
     .join(", ");
-  appendMessage(
+  const userBubble = appendMessage(
     "user",
     attachments.length ? `${text}\n\n[fichier(s) joint(s) : ${attachedList}]` : text
   );
+  // Le tour qui vient d'être envoyé porte son numéro tout de suite : le serveur le
+  // confirmera au prochain rechargement, avec la même règle (un par message utilisateur).
+  state.turns = (state.turns || 0) + 1;
+  turnBadge(userBubble, state.turns);
   const assistant = appendMessage("assistant", "");
   // Held here instead of re-found later: `lastChild` stopped being the content
   // node once the Markdown swap ran, and `querySelector(".content")` returned
@@ -4353,9 +4364,9 @@ function loadToolCatalog() {
 // garde en mémoire la section où l'on était, pour qu'un aller-retour ne ramène pas
 // toujours à la première.
 const TAB_GROUPS = {
-  projects: { label: "Projets", leaves: ["projects"] },
+  projects: { label: "Projets", leaves: ["projects", "files"] },
   decision: { label: "Décision", leaves: ["decision", "role"] },
-  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb"] },
+  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra", "tasks"] },
   brain: { label: "Cerveau & Mémoire", leaves: ["memory", "telemetry", "data"] },
   models: { label: "Modèles & Fournisseurs", leaves: ["keys", "models", "local"] },
 };
@@ -4412,6 +4423,9 @@ function showPanelTab(name) {
     ["data", "data-view"],
     ["tools", "tools-view"],
     ["projects", "projects-view"],
+    ["files", "files-view"],
+    ["infra", "infra-view"],
+    ["tasks", "tasks-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -4440,6 +4454,15 @@ function showPanelTab(name) {
     loadToolCatalog().catch(() => {});
     loadSkillsManager().catch(() => {});
   }
+  // Le groupe ouvre la section : sans ce chargement, la liste restait vide jusqu'à
+  // « Actualiser » — le bouton d'onglet chargeait, le groupe non (mesuré par l'e2e Git).
+  if (name === "projects") {
+    loadProjects().catch(() => {});
+    loadRuns().catch(() => {});
+  }
+  if (name === "files") loadFs().catch(() => {});
+  if (name === "infra") loadInfra().catch(() => {});
+  if (name === "tasks") loadSchedules().catch(() => {});
   if (name === "memory") {
     loadMemory().catch(() => {});
     // Le graphe a suivi la mémoire dans « Cerveau & Mémoire » : le charger ici évite
@@ -4742,10 +4765,23 @@ function wireProviders() {
   $("quit-uh").addEventListener("click", quitUh);
   $("tab-data").addEventListener("click", () => showPanelTab("data"));
   $("tab-tools").addEventListener("click", () => showPanelTab("tools"));
-  $("tab-projects").addEventListener("click", () => {
-    showPanelTab("projects");
-    loadProjects();
-    loadRuns();
+  $("tab-projects").addEventListener("click", () => showPanelTab("projects"));
+  $("tab-files").addEventListener("click", () => showPanelTab("files"));
+  $("tab-infra").addEventListener("click", () => showPanelTab("infra"));
+  $("infra-refresh").addEventListener("click", () => loadInfra());
+  $("tab-tasks").addEventListener("click", () => showPanelTab("tasks"));
+  $("tasks-refresh").addEventListener("click", () => loadSchedules());
+  $("tasks-form").addEventListener("submit", (event) => createTask(event));
+  $("files-refresh").addEventListener("click", () => loadFs(FS.path).catch(() => {}));
+  $("files-attach").addEventListener("click", () => attachSelectedFile());
+  $("git-more").addEventListener("click", async () => {
+    GIT.offset += GIT.page;
+    await loadGitLog(true);
+  });
+  $("git-commit").addEventListener("click", () => commitWork());
+  $("git-message").addEventListener("input", () => {
+    const button = $("git-commit");
+    if (button) button.disabled = !(GIT.staged > 0 && $("git-message").value.trim());
   });
   // Ouverture : le groupe de la section par défaut est marqué et sa barre remplie,
   // sinon la colonne s'ouvre sur cinq onglets dont aucun n'est actif.
@@ -7528,6 +7564,10 @@ function renderProjects(data) {
     }
     list.append(row);
   }
+  // Les modifications affichées sont celles du dépôt ACTIF : c'est le seul où le serveur
+  // accepte d'indexer, donc le seul dont les boutons peuvent dire la vérité.
+  const current = projects.find((item) => item.current) || null;
+  if (current) renderGitChanges(current);
 }
 
 async function loadProjects() {
@@ -7536,6 +7576,8 @@ async function loadProjects() {
     const data = await api(`/api/projects${query}`);
     PROJECTS.data = data;
     renderProjects(data);
+    // Le journal suit la même lecture : un seul geste, deux panneaux cohérents.
+    await loadGitLog();
   } catch (error) {
     $("projects-hint").textContent = "lecture impossible : " + (error.message || error);
   }
@@ -7682,4 +7724,634 @@ async function cleanRuns() {
     say("nettoyage echoue : " + (error.message || error), "warn");
   }
   await loadRuns();
+}
+
+// --- explorateur de fichiers (P3-16c lot 1) -------------------------------- //
+// Lecture seule, et AUCUNE règle de chemin ici : le serveur décide, avec la même porte
+// que les outils (FileToolset). Un refus est affiché tel quel - le masquer ferait croire
+// que le dossier n'existe pas, ce qu'un explorateur ne doit jamais laisser croire.
+const FS = { path: "", root: "", parent: "", chain: [], entries: [], selected: null, selectedName: "" };
+
+function fsIcon(entry) {
+  if (entry.kind === "dir") return "📁";
+  const ext = String(entry.ext || "").toLowerCase();
+  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"].includes(ext)) return "🖼";
+  if (ext === ".pdf") return "📕";
+  if ([".md", ".markdown", ".txt", ".log"].includes(ext)) return "📄";
+  if ([".py", ".js", ".ts", ".json", ".toml", ".yaml", ".yml", ".sh", ".ps1", ".css", ".html"].includes(ext)) {
+    return "⌨";
+  }
+  return "·";
+}
+
+function renderFsCrumbs(data) {
+  const bar = $("files-crumbs");
+  if (!bar) return;
+  bar.textContent = "";
+  const chain = data.chain && data.chain.length ? data.chain : [{ name: "workspace", path: data.workspace }];
+  chain.forEach((step, index) => {
+    if (index) bar.appendChild(el("span", "files-crumb-sep", "›"));
+    const button = el("button", "files-crumb", step.name);
+    button.type = "button";
+    button.dataset.path = step.path;
+    if (index === chain.length - 1) button.classList.add("current");
+    button.addEventListener("click", () => loadFs(step.path));
+    bar.appendChild(button);
+  });
+}
+
+function renderFs(data) {
+  FS.path = data.path || "";
+  FS.root = data.workspace || "";
+  FS.parent = data.parent || "";
+  FS.chain = data.chain || [];
+  FS.entries = data.entries || [];
+  renderFsCrumbs(data);
+
+  const list = $("files-list");
+  if (!list) return;
+  list.textContent = "";
+  for (const entry of FS.entries) {
+    const row = el("li", "files-row");
+    const button = el("button", "files-name", `${fsIcon(entry)} ${entry.name}`);
+    button.type = "button";
+    button.dataset.path = entry.path || entry.name;
+    button.dataset.kind = entry.kind;
+    button.title = entry.kind === "dir" ? "ouvrir ce dossier" : "aperçu";
+    button.addEventListener("click", () => {
+      if (entry.kind === "dir") loadFs(button.dataset.path);
+      else openFsPreview(button.dataset.path);
+    });
+    row.appendChild(button);
+    if (entry.kind === "file") row.appendChild(el("span", "files-meta", humanSize(entry.size || 0)));
+    list.appendChild(row);
+  }
+  const hint = $("files-hint");
+  if (hint) {
+    hint.textContent = FS.entries.length
+      ? `${FS.entries.length} élément(s)${data.truncated ? ` sur ${data.total} — liste tronquée` : ""}`
+      : "dossier vide";
+  }
+}
+
+async function loadFs(path) {
+  const hint = $("files-hint");
+  if (hint) hint.textContent = "chargement…";
+  const query = path ? `?path=${encodeURIComponent(path)}` : "";
+  try {
+    const data = await api(`/api/fs/list${query}`);
+    renderFs(data);
+  } catch (error) {
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+    const list = $("files-list");
+    if (list) list.textContent = "";
+  }
+}
+
+async function openFsPreview(path) {
+  const panel = $("files-preview");
+  const body = $("files-preview-body");
+  if (!panel || !body) return;
+  panel.hidden = false;
+  body.textContent = "chargement…";
+  FS.selected = path;
+  try {
+    const data = await api(`/api/fs/preview?path=${encodeURIComponent(path)}`);
+    FS.selectedName = data.name || path;
+    $("files-preview-name").textContent = data.name || path;
+    $("files-preview-meta").textContent = `${humanSize(data.bytes || 0)} · ${data.kind}`;
+    body.textContent = "";
+    if (data.kind === "image") {
+      const img = el("img", "files-image");
+      img.src = data.data_url;
+      img.alt = data.name || "aperçu";
+      body.appendChild(img);
+    } else if (data.kind === "text") {
+      const pre = el("pre", "files-text", data.text || "");
+      body.appendChild(pre);
+      if (data.truncated) body.appendChild(el("p", "files-meta", "aperçu tronqué : le fichier est plus long"));
+    } else if (data.kind === "pdf") {
+      if (data.readable) {
+        body.appendChild(el("pre", "files-text", data.text || "(PDF sans texte extractible)"));
+      } else {
+        body.appendChild(el("p", "files-meta", `PDF non lu : ${data.reason}`));
+      }
+    } else {
+      body.appendChild(el("p", "files-meta", data.reason || "aperçu non pris en charge"));
+    }
+  } catch (error) {
+    body.textContent = `refusé : ${error.message || error}`;
+    $("files-preview-meta").textContent = "";
+  }
+}
+
+// --- git étendu (P3-16c lot 2) --------------------------------------------- //
+// Journal, index et commit, bornés au dépôt actif : le serveur refuse tout autre chemin
+// (403). Aucune fonction de push n'existe ici, et rien ne force les hooks.
+const GIT = { page: 30, offset: 0, commits: [], selected: "", staged: 0 };
+
+function gitStatusLetter(line) {
+  const code = line.slice(0, 2);
+  if (code === "??") return { letter: "?", staged: false, label: "non suivi" };
+  const staged = code[0] !== " " && code[0] !== "?";
+  const letters = { M: "modifié", A: "ajouté", D: "supprimé", R: "renommé", C: "copié", U: "conflit", T: "type" };
+  return {
+    letter: code.trim() || "?",
+    staged,
+    label: `${letters[code[0]] || "index"} / ${letters[code[1]] || "travail"}`,
+  };
+}
+
+function gitChangedFiles(project) {
+  const rows = [];
+  for (const line of String(project.porcelain || "").split("\n")) {
+    if (!line.trim() || line.startsWith("## ")) continue;
+    let path = line.slice(3).trim();
+    const arrow = path.indexOf(" -> ");
+    if (arrow >= 0) path = path.slice(arrow + 4);
+    rows.push({ path, ...gitStatusLetter(line) });
+  }
+  return rows;
+}
+
+function renderGitLog() {
+  const list = $("git-log");
+  if (!list) return;
+  list.textContent = "";
+  if (!GIT.commits.length) {
+    list.appendChild(el("li", "git-empty", "Aucun commit lisible pour ce dépôt."));
+  }
+  for (const commit of GIT.commits) {
+    const row = el("li", "git-entry");
+    const sha = el("code", "git-sha", commit.short);
+    sha.title = commit.sha;
+    const subject = el("span", "git-subject", commit.subject || "(sans message)");
+    const meta = el("span", "git-meta", `${commit.author || "?"} · ${String(commit.date || "").slice(0, 10)}`);
+    row.append(sha, subject, meta);
+    list.appendChild(row);
+  }
+  const hint = $("git-hint");
+  if (hint) hint.textContent = `${GIT.commits.length} commit(s) affiché(s)`;
+  const more = $("git-more");
+  if (more) more.hidden = false;
+}
+
+async function loadGitLog(append = false) {
+  const hint = $("git-hint");
+  if (hint && !append) hint.textContent = "chargement…";
+  const query = new URLSearchParams({ limit: String(GIT.page), offset: String(GIT.offset) });
+  if (state.sessionId) query.set("session_id", state.sessionId);
+  try {
+    const data = await api(`/api/git/log?${query.toString()}`);
+    GIT.commits = append ? [...GIT.commits, ...(data.commits || [])] : (data.commits || []);
+    renderGitLog();
+    const more = $("git-more");
+    if (more) more.hidden = !data.has_more;
+    if (hint) {
+      hint.textContent = data.reason
+        ? String(data.reason)
+        : `${GIT.commits.length} commit(s) affiché(s)`;
+    }
+  } catch (error) {
+    if (hint) hint.textContent = `journal refusé : ${error.message || error}`;
+  }
+}
+
+function renderGitChanges(project) {
+  const list = $("git-changes");
+  const status = $("git-status");
+  if (!list) return;
+  list.textContent = "";
+  const rows = gitChangedFiles(project);
+  GIT.staged = rows.filter((row) => row.staged).length;
+  if (!rows.length) {
+    list.appendChild(el("li", "git-empty", "Rien à indexer : l'arbre de travail est propre."));
+  }
+  for (const row of rows) {
+    const item = el("li", "git-change");
+    const badge = el(
+      "span",
+      `git-flag ${row.staged ? "staged" : "work"}`,
+      row.staged ? "index" : row.letter === "?" ? "non suivi" : "travail"
+    );
+    badge.title = row.label;
+    const name = el("button", "git-path", row.path);
+    name.type = "button";
+    name.title = "voir le diff";
+    name.addEventListener("click", () => openGitDiff(row.path, row.staged));
+    const action = el("button", "ghost git-act", row.staged ? "Retirer" : "Indexer");
+    action.type = "button";
+    action.dataset.action = row.staged ? "unstage" : "stage";
+    action.dataset.file = row.path;
+    action.addEventListener("click", () => indexFile(row.path, row.staged ? "unstage" : "stage"));
+    item.append(badge, name, action);
+    list.appendChild(item);
+  }
+  if (status) {
+    status.textContent = rows.length
+      ? `${GIT.staged} indexé(s) · ${rows.length - GIT.staged} en travail`
+      : "propre";
+  }
+  const button = $("git-commit");
+  const message = $("git-message");
+  if (button) button.disabled = !(GIT.staged > 0 && message && message.value.trim());
+}
+
+async function openGitDiff(file, staged) {
+  const pre = $("git-diff");
+  if (!pre) return;
+  pre.hidden = false;
+  pre.textContent = "chargement…";
+  GIT.selected = file;
+  const query = new URLSearchParams({ file, staged: staged ? "true" : "false" });
+  if (state.sessionId) query.set("session_id", state.sessionId);
+  try {
+    const data = await api(`/api/git/diff?${query.toString()}`);
+    pre.textContent = data.diff && data.diff.trim()
+      ? data.diff + (data.truncated ? "\n…[diff tronqué]" : "")
+      : "(aucune différence) — espaces de fin ignorés (--ignore-space-at-eol)";
+  } catch (error) {
+    pre.textContent = `diff refusé : ${error.message || error}`;
+  }
+}
+
+async function indexFile(file, action) {
+  const body = { files: [file] };
+  if (state.sessionId) body.session_id = state.sessionId;
+  try {
+    await api(`/api/git/${action}`, { method: "POST", body: JSON.stringify(body) });
+    await loadProjects();
+    await loadGitLog();
+  } catch (error) {
+    const hint = $("git-status");
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+async function commitWork() {
+  const message = $("git-message");
+  const hint = $("git-commit-hint");
+  const button = $("git-commit");
+  if (!message || !hint) return;
+  if (!message.value.trim()) {
+    hint.textContent = "un message est obligatoire";
+    return;
+  }
+  if (button) button.disabled = true;
+  hint.textContent = "commit en cours…";
+  const body = { message: message.value };
+  if (state.sessionId) body.session_id = state.sessionId;
+  try {
+    const data = await api("/api/git/commit", { method: "POST", body: JSON.stringify(body) });
+    hint.textContent = `commit ${data.short} créé`;
+    message.value = "";
+    await loadProjects();
+    GIT.offset = 0;
+    await loadGitLog();
+  } catch (error) {
+    hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+// --- tâches planifiées (P3-16c lot 4) ------------------------------------- //
+// La commande est une clé du catalogue lu depuis le serveur : le formulaire ne propose
+// que ce que UH sait faire, et le nom ne devient jamais une ligne de commande.
+let TASK_CATALOG = [];
+
+function taskModeLabel(data) {
+  const mode = String(data.mechanism_label || "—");
+  return data.system_disabled ? `${mode} · déclencheurs désactivés` : mode;
+}
+
+function renderTasks(data) {
+  const mode = $("tasks-mode");
+  if (mode) mode.textContent = taskModeLabel(data);
+
+  const select = $("task-command");
+  if (select) {
+    const previous = select.value;
+    select.textContent = "";
+    TASK_CATALOG = data.catalog || [];
+    for (const entry of TASK_CATALOG) {
+      const option = document.createElement("option");
+      option.value = entry.key;
+      option.textContent = entry.label;
+      select.appendChild(option);
+    }
+    if (previous) select.value = previous;
+  }
+
+  const catalog = $("tasks-catalog");
+  if (catalog) {
+    catalog.textContent = "";
+    for (const entry of TASK_CATALOG) {
+      const line = el("div", "tasks-catalog-line");
+      line.appendChild(el("code", "tasks-key", entry.key));
+      line.appendChild(el("span", "tasks-desc", entry.description));
+      if (entry.mutating) line.appendChild(el("span", "tasks-flag", "écrit"));
+      catalog.appendChild(line);
+    }
+  }
+
+  const list = $("tasks-list");
+  if (!list) return;
+  list.textContent = "";
+  const tasks = data.tasks || [];
+  if (!tasks.length) {
+    list.appendChild(el("li", "tasks-empty", "Aucune tâche. Choisis une commande du catalogue ci-dessus."));
+    return;
+  }
+  for (const task of tasks) {
+    const row = el("li", "task-row");
+    row.dataset.taskId = task.id;
+    row.dataset.enabled = task.enabled ? "1" : "0";
+
+    const head = el("div", "task-head");
+    head.appendChild(el("strong", "task-name", task.name));
+    head.appendChild(el("span", "task-flag" + (task.enabled ? " on" : ""), task.enabled ? "activée" : "désactivée"));
+    head.appendChild(el("span", "task-every", `toutes les ${task.every_minutes} min`));
+    row.appendChild(head);
+
+    const meta = el("div", "task-meta");
+    const commandLabel = (TASK_CATALOG.find((item) => item.key === task.command) || {}).label || task.command;
+    meta.textContent = `${commandLabel} · ${task.mechanism || "aucun déclencheur"}`;
+    row.appendChild(meta);
+
+    const last = el("div", "task-last");
+    last.dataset.role = "last";
+    last.textContent = task.last_run
+      ? `dernier passage : ${task.last_run} (${task.last_status || "—"})`
+      : "jamais lancée";
+    if (task.last_detail) last.title = task.last_detail;
+    row.appendChild(last);
+
+    const actions = el("div", "task-actions");
+    const toggle = el("button", "ghost", task.enabled ? "Désactiver" : "Activer");
+    toggle.type = "button";
+    toggle.dataset.action = "toggle";
+    toggle.addEventListener("click", () => taskAction(task.id, "toggle"));
+    const run = el("button", "ghost", "Lancer maintenant");
+    run.type = "button";
+    run.dataset.action = "run";
+    run.addEventListener("click", () => taskAction(task.id, "run"));
+    const kill = el("button", "ghost danger", "Supprimer");
+    kill.type = "button";
+    kill.dataset.action = "delete";
+    kill.addEventListener("click", () => taskAction(task.id, "delete"));
+    actions.append(toggle, run, kill);
+    row.appendChild(actions);
+    list.appendChild(row);
+  }
+}
+
+async function loadSchedules(options = {}) {
+  const hint = $("tasks-hint");
+  const quiet = Boolean(options.keepMessage);
+  // Un rechargement silencieux laisse le message de l'action visible : c'est la seule
+  // trace de ce qui vient de se passer (mesuré : « ok » disparaissait aussitôt).
+  if (hint && !quiet) hint.textContent = "chargement…";
+  try {
+    const data = await api("/api/schedules");
+    renderTasks(data);
+    if (hint && !quiet) hint.textContent = "";
+  } catch (error) {
+    if (hint) hint.textContent = `lecture impossible : ${error.message || error}`;
+  }
+}
+
+async function createTask(event) {
+  if (event) event.preventDefault();
+  const hint = $("tasks-hint");
+  const name = ($("task-name")?.value || "").trim();
+  const command = $("task-command")?.value || "";
+  const every = Number($("task-every")?.value || 0);
+  if (!name) {
+    if (hint) hint.textContent = "un nom est obligatoire";
+    return;
+  }
+  try {
+    const data = await api("/api/schedules", {
+      method: "POST",
+      body: JSON.stringify({ name, command, every_minutes: every }),
+    });
+    if (hint) {
+      hint.textContent = `tâche créée · déclencheur : ${data.trigger?.detail || "aucun"}`;
+    }
+    if ($("task-name")) $("task-name").value = "";
+    await loadSchedules({ keepMessage: true });
+  } catch (error) {
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+async function taskAction(taskId, action) {
+  const hint = $("tasks-hint");
+  try {
+    if (action === "delete") {
+      const row = document.querySelector(`.task-row[data-task-id="${taskId}"]`);
+      const name = row ? row.querySelector(".task-name")?.textContent : taskId;
+      if (!window.confirm(`Supprimer la tâche « ${name} » et son déclencheur ?`)) return;
+      await api(`/api/schedules/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+      if (hint) hint.textContent = `tâche supprimée : ${taskId}`;
+    } else if (action === "run") {
+      if (hint) hint.textContent = "exécution en cours…";
+      const data = await api(`/api/schedules/${encodeURIComponent(taskId)}/run`, { method: "POST" });
+      if (hint) {
+        // Le détail complet reste en infobulle sur la ligne (task-last) : dans l'en-tête
+        // il poussait le formulaire sous une sortie de commande de plusieurs lignes.
+        hint.textContent = `${taskId} : ${data.ok ? "ok" : "erreur"}`;
+      }
+    } else {
+      const data = await api(`/api/schedules/${encodeURIComponent(taskId)}/toggle`, { method: "POST" });
+      if (hint) hint.textContent = `tâche ${data.task?.enabled ? "activée" : "désactivée"}`;
+    }
+    await loadSchedules({ keepMessage: true });
+  } catch (error) {
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+
+// Lecture seule, et l'interface ne propose rien d'autre : pas de bouton d'arrêt, pas de
+// redémarrage. Ce que la vue montre vient de /api/infra, qui ne fait que lire.
+function infraUptime(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  if (total < 60) return `${total} s`;
+  if (total < 3600) return `${Math.floor(total / 60)} min`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return `${hours} h ${String(minutes).padStart(2, "0")} min`;
+}
+
+function renderInfra(data) {
+  const alerts = $("infra-alerts");
+  if (alerts) {
+    alerts.textContent = "";
+    for (const alert of data.alerts || []) {
+      const row = el("div", `infra-alert ${alert.level}`);
+      row.dataset.level = alert.level;
+      row.appendChild(el("span", "infra-dot"));
+      row.appendChild(el("strong", null, alert.label));
+      row.appendChild(el("span", "infra-detail", alert.detail || ""));
+      alerts.appendChild(row);
+    }
+  }
+
+  const services = $("infra-services");
+  if (services) {
+    services.textContent = "";
+    for (const service of data.services || []) {
+      const up = service.state === "up";
+      const row = el("li", `infra-service ${up ? "up" : "down"}`);
+      row.dataset.service = service.name;
+      row.dataset.state = service.state;
+      row.appendChild(el("span", `infra-dot ${up ? "ok" : "ko"}`));
+      row.appendChild(el("strong", null, service.name));
+      row.appendChild(el("span", "infra-detail", service.detail || ""));
+      if (service.uptime_s) row.appendChild(el("span", "infra-meta", `uptime ${infraUptime(service.uptime_s)}`));
+      if (!up && service.reason) row.appendChild(el("span", "infra-reason", service.reason));
+      services.appendChild(row);
+    }
+  }
+
+  const disk = $("infra-disk");
+  if (disk) {
+    disk.textContent = "";
+    disk.appendChild(el("div", "panel-label", "Tailles sur disque"));
+    for (const [label, value] of [
+      ["~/.uh", data.disk?.home],
+      ["~/.uhb/runs", data.disk?.runs],
+    ]) {
+      if (!value) continue;
+      const line = el("div", "infra-line");
+      line.appendChild(el("span", "infra-name", label));
+      line.appendChild(
+        el(
+          "span",
+          "infra-value",
+          value.exists
+            ? `${humanBytes(value.bytes)} · ${value.files} fichier(s)${value.complete ? "" : " · minimum"}`
+            : "absent"
+        )
+      );
+      if (value.reason) line.appendChild(el("span", "infra-reason", value.reason));
+      disk.appendChild(line);
+    }
+    const free = data.disk?.free || {};
+    if (typeof free.free_bytes === "number") {
+      const line = el("div", "infra-line");
+      line.appendChild(el("span", "infra-name", "disque libre"));
+      line.appendChild(
+        el("span", "infra-value", `${humanBytes(free.free_bytes)} sur ${humanBytes(free.total_bytes)} (${free.used_percent} % utilisé)`)
+      );
+      disk.appendChild(line);
+    }
+    if (data.vram) {
+      const line = el("div", "infra-line");
+      line.appendChild(el("span", "infra-name", "VRAM"));
+      line.appendChild(
+        el("span", "infra-value", `${data.vram.used_mb} / ${data.vram.total_mb} Mo (${data.vram.percent} %) · ${data.vram.name || "GPU"}`)
+      );
+      disk.appendChild(line);
+    }
+  }
+
+  const install = $("infra-install");
+  if (install) {
+    install.textContent = "";
+    install.appendChild(el("div", "panel-label", "Code servi"));
+    const info = data.install || {};
+    for (const [label, value] of [
+      ["origine", info.origin || "?"],
+      ["version", data.version || "?"],
+      ["commit", info.commit || "(aucun : paquet installé)"],
+      ["modifié", info.dirty ? "oui — les fichiers suivis diffèrent du commit" : "non"],
+      ["python", info.python || ""],
+    ]) {
+      if (!value) continue;
+      const line = el("div", "infra-line");
+      line.appendChild(el("span", "infra-name", label));
+      line.appendChild(el("span", "infra-value", String(value)));
+      install.appendChild(line);
+    }
+  }
+
+  const logs = $("infra-logs");
+  if (logs) {
+    logs.textContent = "";
+    logs.appendChild(el("div", "panel-label", "Fins de journal (masquées)"));
+    for (const log of data.logs || []) {
+      const details = document.createElement("details");
+      details.className = "infra-log";
+      details.dataset.name = log.name;
+      const summary = document.createElement("summary");
+      summary.textContent = log.exists
+        ? `${log.name} · ${log.returned} ligne(s) · ${humanBytes(log.bytes)}`
+        : `${log.name} · absent`;
+      details.appendChild(summary);
+      const pre = el("pre", "infra-log-body");
+      pre.textContent = log.exists
+        ? (log.lines || []).join("\n") || "(fichier vide)"
+        : String(log.reason || "absent");
+      details.appendChild(pre);
+      logs.appendChild(details);
+    }
+  }
+
+  const hint = $("infra-hint");
+  if (hint) {
+    const bad = (data.alerts || []).filter((a) => a.level !== "ok").length;
+    hint.textContent = bad ? `${bad} alerte(s) · ${data.at}` : `tout va bien · ${data.at}`;
+  }
+}
+
+async function loadInfra() {
+  const hint = $("infra-hint");
+  if (hint) hint.textContent = "chargement…";
+  try {
+    const data = await api("/api/infra?log_lines=20");
+    renderInfra(data);
+  } catch (error) {
+    if (hint) hint.textContent = `lecture impossible : ${error.message || error}`;
+  }
+}
+
+// Un tour = un message de l'utilisateur, exactement ce que Télémétrie compte. Le numero
+// vient du serveur au chargement, et du compteur local pour le tour qu'on vient d'envoyer.
+function turnBadge(box, turn) {
+  if (!box || !turn) return;
+  const badge = el("span", "turn-badge", `Tour #${turn}`);
+  badge.title = `tour ${turn} de cette conversation · compté comme « ${turn} tour(s) » dans Télémétrie`;
+  box.classList.add("turn-start");
+  box.prepend(badge);
+  return badge;
+}
+
+async function attachSelectedFile() {
+  const path = FS.selected;
+  if (!path) return;
+  const button = $("files-attach");
+  if (button) button.disabled = true;
+  try {
+    // Les octets repartent par l'upload existant : un seul chemin d'écriture, celui de
+    // la pièce jointe, avec ses limites et son nettoyage.
+    const response = await fetch(`/api/fs/raw?path=${encodeURIComponent(path)}`, {
+      credentials: "same-origin",
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    // Le nom vient du serveur : aucun séparateur de chemin n'est deviné ici.
+    const name = FS.selectedName || "fichier";
+    await uploadFile(new File([blob], name, { type: blob.type || "application/octet-stream" }));
+    const hint = $("files-hint");
+    if (hint) hint.textContent = `« ${name} » joint au prochain tour`;
+  } catch (error) {
+    const hint = $("files-hint");
+    if (hint) hint.textContent = `pièce jointe refusée : ${error.message || error}`;
+  } finally {
+    if (button) button.disabled = false;
+  }
 }

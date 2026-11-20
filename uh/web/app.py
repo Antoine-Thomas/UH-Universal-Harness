@@ -17,6 +17,7 @@ Security model (see ``docs/WEB_DESIGN.md``):
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
 import logging
@@ -30,7 +31,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Callable, Iterator, Optional
+from typing import TYPE_CHECKING, Annotated, Callable, Iterator, Optional
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
@@ -46,6 +47,9 @@ from ..providers import Provider, ProviderError
 from ..store import Store, display_id
 from ..toolsets import build_toolsets
 from .sse import frame
+
+if TYPE_CHECKING:  # pragma: no cover - annotations only
+    from ..toolsets.file import FileToolset
 
 STATIC_DIR = Path(__file__).parent / "static"
 #: The cookie is host-scoped, not port-scoped: with one name, two `uh web` on
@@ -327,6 +331,14 @@ def _git_commit(root: Path) -> str:
 
 
 def _git_dirty(root: Path) -> bool:
+    """Vrai seulement si un fichier SUIVI est modifié.
+
+    `git status --porcelain` liste aussi les fichiers non suivis (`??`), et les compter
+    faisait dire « modifié » au pied de page pour un fichier que personne n'avait ajouté.
+    Mesuré le 20/11 : `petit_prince.svg`, non suivi, suffisait à déclarer le dépôt
+    modifié alors que le code servi était celui du commit. Un fichier non suivi n'est pas
+    une modification du dépôt ; le panneau Projets les montre séparément.
+    """
     try:
         proc = subprocess.run(
             ("git", "-C", str(root), "status", "--porcelain"),
@@ -334,7 +346,16 @@ def _git_dirty(root: Path) -> bool:
         )
     except (OSError, subprocess.SubprocessError):
         return False
-    return bool(proc.stdout.strip())
+    for line in proc.stdout.splitlines():
+        if line.strip() and not line.startswith("??"):
+            return True
+    return False
+
+
+def _read_head(path: Path, limit: int) -> bytes:
+    """Les premiers octets d'un fichier : décider texte/binaire sans tout charger."""
+    with path.open("rb") as handle:
+        return handle.read(max(1, limit))
 
 
 def _uh_version_on(host: str, port: int, timeout: float = 1.5) -> Optional[str]:
@@ -444,6 +465,8 @@ def create_app(
             "store_path": cfg.resolved_store_path(),
         },
     )()
+    # La vue Infra affiche l'uptime de CE serveur : l'instant de départ, pas une estimation.
+    app.state.started_at = time.time()
 
     if provider_factory is None:
         from ..cli import _make_provider as provider_factory  # lazy: avoids a cycle
@@ -790,14 +813,30 @@ def create_app(
         session = _session_or_404(app, session_id)
         with _store(app) as store:
             rows = store.get_messages(session["id"], limit=limit)
+            # Le total vient d'un COUNT, pas des lignes rendues : une page de 200 messages
+            # ne doit pas faire croire que la session n'a que les tours qu'elle contient.
+            total_turns = store.turn_count(session["id"])
         kind, model = app.state.session_models.get(
             session["id"], (app.state.kind, app.state.model)
         )
+        # Un tour commence à chaque message de l'utilisateur - c'est ce que Télémétrie
+        # compte (une décision par tour envoyé). Le numéro est calculé ici, une seule fois :
+        # le fil et la télémétrie ne peuvent donc pas raconter deux histoires différentes.
+        # `get_messages(limit=...)` rend la FIN de la conversation : la numérotation reprend
+        # donc après les tours déjà écoulés, sinon la page afficherait « Tour #1 » au milieu.
+        in_page = sum(1 for row in rows if row.get("role") == "user")
+        turn = max(0, total_turns - in_page)
+        numbered: list[dict] = []
+        for row in rows:
+            if row.get("role") == "user":
+                turn += 1
+            numbered.append({**row, "turn": turn})
         return {
             "session": {**session, "short_id": display_id(session["id"])},
-            "messages": rows,
+            "messages": numbered,
             "provider": kind,
             "model": model,
+            "turns": total_turns,
         }
 
     @app.delete(
@@ -988,6 +1027,201 @@ def create_app(
             app.state.settings.workspace = target
         return {"ok": True, "workspace": str(target), "session_id": session_id}
 
+    # -- git, extended (P3-16c lot 2) -------------------------------------- #
+    # Le dépôt actif seulement : le chemin demandé doit être le workspace de CETTE
+    # session, et `projects.writable` exige en plus qu'il soit enregistré (ou sous
+    # projects.root). Les écritures ne peuvent donc pas viser un dépôt que l'interface
+    # n'affiche pas ; le journal et le diff, eux, restent lisibles.
+    def _active_workspace(app, session_id: str) -> Path:
+        workspace = app.state.settings.workspace
+        if session_id:
+            session = _session_or_404(app, session_id)
+            workspace = (session.get("metadata") or {}).get("workspace") or workspace
+        return Path(workspace).expanduser().resolve()
+
+    def _git_target(app, raw_path: str, session_id: str) -> Path:
+        from .. import projects as uh_projects
+
+        active = _active_workspace(app, session_id)
+        requested = Path(raw_path).expanduser().resolve() if str(raw_path or "").strip() else active
+        if requested != active:
+            raise HTTPException(
+                status_code=403,
+                detail=f"ce n'est pas le dépôt actif de cette conversation ({active})",
+            )
+        try:
+            return uh_projects.writable(active)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    @app.get("/api/git/log", dependencies=[Depends(require_token)])
+    async def git_log(path: str = "", session_id: str = "", limit: int = 30, offset: int = 0) -> dict:
+        from .. import projects as uh_projects
+
+        root = _active_workspace(app, session_id)
+        requested = Path(path).expanduser().resolve() if str(path or "").strip() else root
+        if requested != root:
+            raise HTTPException(status_code=403, detail="ce n'est pas le dépôt actif de cette conversation")
+        try:
+            return await asyncio.to_thread(uh_projects.log, root, limit, offset)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/git/diff", dependencies=[Depends(require_token)])
+    async def git_diff(path: str = "", session_id: str = "", file: str = "", staged: bool = False) -> dict:
+        from .. import projects as uh_projects
+
+        root = _active_workspace(app, session_id)
+        requested = Path(path).expanduser().resolve() if str(path or "").strip() else root
+        if requested != root:
+            raise HTTPException(status_code=403, detail="ce n'est pas le dépôt actif de cette conversation")
+        try:
+            return await asyncio.to_thread(uh_projects.diff, root, file, staged)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/git/stage", dependencies=[Depends(require_token)])
+    async def git_stage(payload: dict) -> dict:
+        from .. import projects as uh_projects
+
+        body = payload or {}
+        root = _git_target(app, str(body.get("path") or ""), str(body.get("session_id") or ""))
+        files = body.get("files") or ([body["file"]] if body.get("file") else [])
+        try:
+            return await asyncio.to_thread(uh_projects.stage, root, files)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/git/unstage", dependencies=[Depends(require_token)])
+    async def git_unstage(payload: dict) -> dict:
+        from .. import projects as uh_projects
+
+        body = payload or {}
+        root = _git_target(app, str(body.get("path") or ""), str(body.get("session_id") or ""))
+        files = body.get("files") or ([body["file"]] if body.get("file") else [])
+        try:
+            return await asyncio.to_thread(uh_projects.unstage, root, files)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/git/commit", dependencies=[Depends(require_token)])
+    async def git_commit(payload: dict) -> dict:
+        """Un commit et rien de plus : pas de push, pas de ``--no-verify``.
+
+        Le message est obligatoire et les hooks du dépôt tournent : un hook qui refuse
+        est rapporté tel quel, jamais contourné.
+        """
+        from .. import projects as uh_projects
+
+        body = payload or {}
+        root = _git_target(app, str(body.get("path") or ""), str(body.get("session_id") or ""))
+        message = str(body.get("message") or "")
+        if not message.strip():
+            raise HTTPException(status_code=400, detail="un message de commit est obligatoire")
+        try:
+            return await asyncio.to_thread(uh_projects.commit, root, message)
+        except uh_projects.ProjectsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # -- infra (P3-16c lot 3) ---------------------------------------------- #
+    # Lecture seule, par construction : `uh/infra.py` n'a aucune action, et cette route
+    # ne fait que composer un instantané. Aucun arrêt, aucun redémarrage, aucun kill.
+    @app.get("/api/infra", dependencies=[Depends(require_token)])
+    async def infra_state(log_lines: int = 20) -> dict:
+        from .. import artifacts as uh_artifacts
+        from .. import infra as uh_infra
+        from .. import ollama_spawn
+        from .. import telemetry as uh_telemetry
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        payload: Optional[dict] = None
+        if url:
+            try:
+                payload = await asyncio.to_thread(lambda: Uhbtoolset(url, timeout=1.0).status())
+            except Exception as exc:  # noqa: BLE001 - une sonde ne casse jamais la vue
+                payload = {"error": f"sonde impossible : {type(exc).__name__}"}
+        ollama_url = ollama_spawn.url()
+        try:
+            ollama_up = bool(await asyncio.to_thread(ollama_spawn.is_up))
+        except Exception:  # noqa: BLE001
+            ollama_up = False
+        home = uh_config.uh_home()
+        return await asyncio.to_thread(
+            uh_infra.collect,
+            version=__version__,
+            port=int(app.state.settings.port),
+            started_at=float(getattr(app.state, "started_at", 0.0)),
+            install=_install_info(),
+            uhb_url=url,
+            uhb_status=payload,
+            ollama_url=ollama_url,
+            ollama_up=ollama_up,
+            home=home,
+            runs_root=uh_artifacts.runs_root(),
+            log_paths=[turnlog.log_path(), ollama_spawn.log_path()],
+            log_lines=log_lines,
+            vram=uh_telemetry.vram_usage(),
+        )
+
+    # -- tâches planifiées (P3-16c lot 4) ---------------------------------- #
+    # Ce que le web peut demander est une CLÉ du catalogue, jamais une commande : le
+    # module construit l'argv. Une clé inconnue est refusée en 400, avant tout effet.
+    @app.get("/api/schedules", dependencies=[Depends(require_token)])
+    async def schedules_list() -> dict:
+        from .. import schedule as uh_schedule
+
+        try:
+            data = await asyncio.to_thread(uh_schedule.listing)
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return {"ok": True, **data}
+
+    @app.post("/api/schedules", dependencies=[Depends(require_token)])
+    async def schedules_create(payload: dict) -> dict:
+        from .. import schedule as uh_schedule
+
+        body = payload or {}
+        try:
+            created = await asyncio.to_thread(
+                uh_schedule.create,
+                str(body.get("name") or ""),
+                str(body.get("command") or ""),
+                body.get("every_minutes"),
+                bool(body.get("enabled", True)),
+            )
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, **created}
+
+    @app.post("/api/schedules/{task_id}/toggle", dependencies=[Depends(require_token)])
+    async def schedules_toggle(task_id: str) -> dict:
+        from .. import schedule as uh_schedule
+
+        try:
+            return {"ok": True, **await asyncio.to_thread(uh_schedule.toggle, task_id)}
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/schedules/{task_id}/run", dependencies=[Depends(require_token)])
+    async def schedules_run(task_id: str) -> dict:
+        """Exécute une tâche tout de suite, par la même liste blanche que le déclencheur."""
+        from .. import schedule as uh_schedule
+
+        try:
+            return {"ok": True, **await asyncio.to_thread(uh_schedule.run_now, task_id)}
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.delete("/api/schedules/{task_id}", dependencies=[Depends(require_token)])
+    async def schedules_delete(task_id: str) -> dict:
+        from .. import schedule as uh_schedule
+
+        try:
+            return {"ok": True, **await asyncio.to_thread(uh_schedule.remove, task_id)}
+        except uh_schedule.ScheduleError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.get("/api/runs", dependencies=[Depends(require_token)])
     async def runs_status() -> dict:
         """Proxy of UHB ``GET /runs``: UH shows, UHB decides."""
@@ -1049,6 +1283,205 @@ def create_app(
 
         candidates = uh_caps.vision_candidates()
         return {"candidates": candidates[:24], "total": len(candidates)}
+
+    # -- files / explorateur (P3-16c lot 1) -------------------------------- #
+    # Lecture seule, et une seule porte : `FileToolset.resolve_read` décide. Une route qui
+    # aurait sa propre logique de chemins finirait par diverger de la sandbox des outils -
+    # c'est précisément le défaut que la revue de sécurité a fermé sur `~/.uh`. Tout ce qui
+    # est refusé par les outils est donc refusé ici, avec le même 403 et le même texte.
+    fs_text_bytes = 200_000
+    fs_text_max = 1_000_000
+    fs_image_max = 8 * 1024 * 1024
+    fs_list_max = 1_000
+
+    def _fs_tool(app) -> "FileToolset":
+        from ..toolsets import protected_roots as uh_protected_roots
+        from ..toolsets.file import FileToolset
+
+        return FileToolset(
+            workspace=app.state.settings.workspace,
+            protected_roots=uh_protected_roots(),
+        )
+
+    def _fs_target(app, raw: str) -> Path:
+        """Le chemin demandé, ou l'exception qui dit pourquoi il est refusé."""
+        text = str(raw or "").strip()
+        if not text:
+            # L'explorateur s'ouvre sur le workspace : c'est la seule racine garantie.
+            text = str(_fs_workspace(app))
+        tool = _fs_tool(app)
+        target, error = tool.resolve_read(text)
+        if target is None or error:
+            message = str((error or {}).get("error") or "refused")
+            # `_resolve` préfixe ses refus par "refused" ; le reste est un usage invalide
+            # (chemin vide) et non une tentative d'évasion.
+            refused = message.startswith("refused")
+            raise HTTPException(status_code=403 if refused else 400, detail=message)
+        return target
+
+    def _fs_workspace(app) -> Path:
+        return Path(app.state.settings.workspace).expanduser().resolve()
+
+    @app.get("/api/fs/list", dependencies=[Depends(require_token)])
+    async def fs_list(path: str = "", limit: int = 400) -> dict:
+        """Le contenu d'un dossier autorisé. Aucun octet de fichier ici, seulement des noms."""
+        target = _fs_target(app, path)
+        if not target.is_dir():
+            raise HTTPException(status_code=400, detail=f"pas un dossier : {target}")
+        try:
+            children = list(target.iterdir())
+        except OSError as exc:
+            raise HTTPException(status_code=403, detail=f"illisible : {exc}") from exc
+        entries: list[dict] = []
+        for child in children:
+            try:
+                info = child.stat()
+            except OSError:
+                continue  # un lien mort ou un fichier verrouillé n'empêche pas le listing
+            is_dir = child.is_dir()
+            entries.append(
+                {
+                    "name": child.name,
+                    "path": str(child),
+                    "kind": "dir" if is_dir else "file",
+                    "size": 0 if is_dir else info.st_size,
+                    "mtime": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(info.st_mtime)),
+                    "ext": child.suffix.lower(),
+                }
+            )
+        entries.sort(key=lambda item: (item["kind"] != "dir", item["name"].lower()))
+        cap = max(1, min(int(limit or 400), fs_list_max))
+        workspace = _fs_workspace(app)
+        parent = ""
+        chain: list[dict] = [{"name": "workspace", "path": str(workspace)}]
+        try:
+            relative = target.relative_to(workspace)
+        except ValueError:
+            # Une racine de lecture (uploads) n'est pas sous le workspace : on n'invente
+            # pas de fil d'Ariane qui remonterait par un parent interdit.
+            relative = None
+        if relative is not None:
+            walked = workspace
+            for part in relative.parts:
+                walked = walked / part
+                chain.append({"name": part, "path": str(walked)})
+        if target != workspace:
+            # On ne propose de remonter que dans le workspace : ailleurs, le parent est
+            # justement ce que les outils refusent.
+            if target.parent == workspace or target.parent.is_relative_to(workspace):
+                parent = str(target.parent)
+        return {
+            "path": str(target),
+            "name": target.name,
+            "workspace": str(workspace),
+            "parent": parent,
+            "chain": chain,
+            "entries": entries[:cap],
+            "total": len(entries),
+            "truncated": len(entries) > cap,
+        }
+
+    @app.get("/api/fs/stat", dependencies=[Depends(require_token)])
+    async def fs_stat(path: str = "") -> dict:
+        target = _fs_target(app, path)
+        try:
+            info = target.stat()
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail=f"introuvable : {exc}") from exc
+        is_dir = target.is_dir()
+        return {
+            "path": str(target),
+            "name": target.name,
+            "kind": "dir" if is_dir else "file",
+            "size": 0 if is_dir else info.st_size,
+            "mtime": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(info.st_mtime)),
+            "ext": target.suffix.lower(),
+            "symlink": target.is_symlink(),
+        }
+
+    @app.get("/api/fs/preview", dependencies=[Depends(require_token)])
+    async def fs_preview(path: str = "", max_bytes: int = 0) -> dict:
+        """Un aperçu borné : du texte tronqué, une image en data URL, un PDF lu si possible."""
+        target = _fs_target(app, path)
+        if not target.is_file():
+            raise HTTPException(status_code=400, detail=f"pas un fichier : {target}")
+        try:
+            size = target.stat().st_size
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail=f"introuvable : {exc}") from exc
+        ext = target.suffix.lower()
+
+        from .. import media as uh_media
+
+        if ext in uh_media.IMAGE_SUFFIXES:
+            if size > fs_image_max:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"image trop lourde pour l'aperçu ({size} o, maximum {fs_image_max} o)",
+                )
+            mimes = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+                ".bmp": "image/bmp",
+                ".svg": "image/svg+xml",
+            }
+            data = await asyncio.to_thread(target.read_bytes)
+            return {
+                "kind": "image",
+                "name": target.name,
+                "bytes": size,
+                "data_url": f"data:{mimes.get(ext, 'application/octet-stream')};base64,"
+                + base64.b64encode(data).decode("ascii"),
+            }
+
+        if ext == ".pdf":
+            tool = _fs_tool(app)
+            answer = await asyncio.to_thread(tool.read_pdf, str(target), "1-5")
+            if answer.get("error"):
+                # pypdf absent, ou PDF protégé : on le dit, on ne prétend pas avoir lu.
+                return {"kind": "pdf", "name": target.name, "bytes": size, "readable": False,
+                        "reason": str(answer["error"])}
+            return {"kind": "pdf", "name": target.name, "bytes": size, "readable": True,
+                    "text": str(answer.get("text") or ""), "truncated": bool(answer.get("truncated"))}
+
+        cap = max(1, min(int(max_bytes or fs_text_bytes), fs_text_max))
+        head = await asyncio.to_thread(_read_head, target, cap)
+        if b"\x00" in head:
+            return {"kind": "binary", "name": target.name, "bytes": size,
+                    "reason": "aperçu non pris en charge pour ce format binaire"}
+        return {
+            "kind": "text",
+            "name": target.name,
+            "bytes": size,
+            "text": head.decode("utf-8", "replace"),
+            "truncated": size > len(head),
+        }
+
+    @app.get("/api/fs/raw", dependencies=[Depends(require_token)])
+    async def fs_raw(path: str = "") -> FileResponse:
+        """Les octets bruts, pour « Attacher au tour » : ils repartent vers l'upload existant.
+
+        Toujours servi en `application/octet-stream` et en pièce jointe : un SVG ouvert
+        directement dans l'onglet serait du script servi depuis notre propre origine.
+        """
+        target = _fs_target(app, path)
+        if not target.is_file():
+            raise HTTPException(status_code=400, detail=f"pas un fichier : {target}")
+        size = target.stat().st_size
+        if size > attachments.MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"fichier trop lourd : la limite est de "
+                    f"{attachments.human_size(attachments.MAX_BYTES)} par pièce jointe."
+                ),
+            )
+        return FileResponse(
+            str(target), media_type="application/octet-stream", filename=target.name
+        )
 
     # -- audio ------------------------------------------------------------- #
     # P1-15. Every audio path is its own route, and the package they use is
