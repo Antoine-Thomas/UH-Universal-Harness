@@ -605,11 +605,15 @@ body {
   font-size: 10px; padding: 1px 7px; border-radius: 9px;
   border: 1px solid var(--border); color: var(--muted);
 }
-/* Le badge est dans une puce de section : il doit coûter le moins de largeur possible,
-   sinon « MCP Nouveau » prend 110 px à lui seul dans un panneau de 319. */
+/* Le badge est dans une puce de section : il doit coûter le moins de largeur possible.
+   « Nouveau » écrit en toutes lettres coûtait ~60 px, ce qui faisait passer la barre à
+   trois rangées dans 319 px (mesuré en CI, polices Linux). C'est donc une pastille ; le
+   mot reste dans le DOM (lecteurs d'écran, `hidden` piloté par le script). */
 .tab-badge {
-  margin-left: 4px; font-size: 9px; padding: 0 4px; border-radius: 7px;
-  border: 1px solid var(--border); color: var(--accent);
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-left: 4px; vertical-align: middle;
+  background: var(--accent); border: 0; padding: 0; overflow: hidden;
+  text-indent: -9999px; white-space: nowrap;
 }
 .badge.ok { color: var(--accent); border-color: var(--accent); }
 .badge.hl { color: var(--highlight); border-color: var(--highlight); }
@@ -1433,11 +1437,14 @@ select:focus-visible {
 .panel-subtabs[hidden] { display: none; }
 .panel-subtab {
   /* Pas de croissance : une puce garde sa largeur naturelle, sinon « Git & runs » et
-     « Fichiers » s'étirent sur toute la barre. Elle peut seulement rétrécir. */
+     « Fichiers » s'étirent sur toute la barre. Elle peut seulement rétrécir.
+     Hauteur volontairement basse (`line-height: 16px`) : sur deux rangées, la barre doit
+     rester sous 60 px même avec les métriques de police de Linux (mesuré : 63 px en CI
+     avec `line-height: 18px`). */
   flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; text-align: center;
-  min-height: 22px; padding: 2px 5px; font-size: 11px; cursor: pointer;
-  line-height: 18px;
+  min-height: 20px; padding: 1px 5px; font-size: 11px; cursor: pointer;
+  line-height: 16px;
   color: var(--muted); background: transparent;
   border: 1px solid var(--border); border-radius: 999px;
 }

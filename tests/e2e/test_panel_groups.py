@@ -119,7 +119,13 @@ def test_the_memory_graph_is_in_the_brain_not_in_uhb(browser, server) -> None:
 
 
 def test_the_badge_stays_on_one_line(browser, server) -> None:
-    """« ConnexionsNouveau » collé, badge sur trois lignes : on mesure la hauteur."""
+    """La barre des sections : deux rangées compactes au plus, jamais de débordement.
+
+    Six sections (Outils & Connexions) ne tiennent pas sur une ligne dans 319 px avec les
+    polices de Linux : deux rangées sont admises à condition qu'elles restent compactes.
+    Trois rangées mesureraient ~78 px, d'où le plafond de 60 px - il refuse la troisième
+    rangée, il n'autorise pas une barre qui pousse le contenu hors du panneau.
+    """
     context, page = open_app(browser, server)
     try:
         open_panel(page)
@@ -129,7 +135,9 @@ def test_the_badge_stays_on_one_line(browser, server) -> None:
             """el => ({ height: el.getBoundingClientRect().height,
                         scrollWidth: el.scrollWidth, clientWidth: el.clientWidth })""",
         )
-        assert bar["height"] <= 60, f"la barre des sections tient sur une ligne : {bar}"
+        assert bar["height"] <= 60, f"deux rangées compactes au plus (trois ≈ 78 px) : {bar}"
+        # La puce MCP elle-même reste sur UNE ligne malgré son badge (pastille de 6 px,
+        # mesurée à 20 px de haut) : si elle se repliait, cette hauteur doublerait.
         conn = page.eval_on_selector("#tab-conn", "el => el.getBoundingClientRect().height")
         assert conn <= 40, f"le bouton reste sur une ligne malgré son badge : {conn}"
         assert bar["scrollWidth"] <= bar["clientWidth"] + 8, "pas de débordement horizontal"
