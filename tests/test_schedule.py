@@ -374,6 +374,19 @@ def test_a_new_task_announces_its_next_run_before_any_run() -> None:
 
 def test_running_a_task_moves_its_next_run() -> None:
     task = uh_schedule.create("Diagnostic", "doctor", 60)["task"]
+    # On vieillit la création de deux heures avant de mesurer. Sans cela, sur un runner
+    # rapide le passage tombe dans la MÊME seconde que la création : les deux « prochaine
+    # exécution » sont alors légitimement égales, et l'assertion échouait sans que le
+    # comportement soit faux (mesuré en CI macOS et Ubuntu, 7 jobs). L'assertion reste la
+    # même ; c'est la mise en scène qui ne dépend plus de la granularité de l'horloge.
+    data = uh_schedule.load_registry()
+    for item in data["tasks"]:
+        if item["id"] == task["id"]:
+            item["created"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 7200)
+            )
+    uh_schedule.save_registry(data)
+
     avant = next(i for i in uh_schedule.listing()["tasks"] if i["id"] == task["id"])["next_run"]
     uh_schedule.run_now(task["id"])
     apres = next(i for i in uh_schedule.listing()["tasks"] if i["id"] == task["id"])
