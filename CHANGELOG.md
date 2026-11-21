@@ -31,6 +31,10 @@ Conventions worth knowing:
   Router), hors 401/402/403, avec la bascule dite dans le fil. Un modèle choisi pour une
   conversation reste seul.
 
+### Changed
+
+- **Interface : lisibilité et accessibilité (WCAG AA).** Panneau Décision en français clair (métriques techniques dans un détail repliable) ; réglages booléens en vrais interrupteurs (`role="switch"`, 34 px) ; erreurs lisibles avec bouton d'action (Nouvelle session, Recharger, Autoriser l'outil), plus aucun code HTTP brut ; cartes d'outils à quatre états (en cours, terminé, refusé, erreur) avec `aria-busy` ; images bornées (320 px, chargement, bouton Ouvrir) ; état du second cerveau en quatre états (icône + texte + couleur) ; contrastes des bordures de contrôles, focus visible partout, piège de focus dans les modales, zones `aria-live` pour les notices système. Aucune logique backend modifiée ; CSP inchangée.
+
 ## [1.9.0] — 2026-11-19 *(non publiée : le tag suit la fusion)*
 
 **Quatre lots et cinq correctifs de stabilisation, tous mesurés dans l'interface.**

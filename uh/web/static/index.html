@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="fr" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -57,7 +57,7 @@
                 title="Mode d'exécution du second cerveau : cliquez pour changer"
                 aria-label="Mode d'exécution">
           <span class="mode-badge-dot" aria-hidden="true"></span>
-          <span id="mode-badge-label">mode…</span>
+          <span id="mode-badge-label">Second cerveau : vérification…</span>
         </button>
         <select id="model-select" name="model" class="model-select" aria-label="Modèle"></select>
         <button id="model-advanced" class="ghost model-advanced" title="Voir tous les modèles installés">Avancé</button>
@@ -81,7 +81,7 @@
         <button id="stop" class="stop" disabled>Arrêter</button>
       </header>
 
-      <div id="remote-banner" class="warning remote" hidden></div>
+      <div id="remote-banner" class="warning remote" role="status" aria-live="polite" hidden></div>
       <!-- Non-destructive notices: a stale token or a failed boot explains itself
            here instead of replacing the document (the transcript must survive). -->
       <div id="app-banner" class="warning app-banner" role="alert" hidden></div>
@@ -91,17 +91,17 @@
            good (localStorage). Static element: the content is built in app.js. -->
       <div id="setup-banner" class="setup-banner" role="status" hidden></div>
 
-      <div id="terminal-warning" class="warning" hidden>
+      <div id="terminal-warning" class="warning" role="status" aria-live="polite" hidden>
         Terminal toolset is ENABLED: the model can run shell commands in the workspace.
       </div>
-      <div id="version-warning" class="warning" hidden></div>
+      <div id="version-warning" class="warning" role="status" aria-live="polite" hidden></div>
 
       <section id="messages" class="messages" aria-live="polite"></section>
 
       <div id="command-chips" class="command-chips" role="toolbar" aria-label="Commands"></div>
 
-      <div id="skill-badge" class="skill-badge" hidden></div>
-      <div id="llm-badge" class="skill-badge llm-badge" hidden></div>
+      <div id="skill-badge" class="skill-badge" aria-live="polite" hidden></div>
+      <div id="llm-badge" class="skill-badge llm-badge" aria-live="polite" hidden></div>
 
       <div id="attachments" class="attachments" aria-live="polite"></div>
       <p id="mic-status" class="mic-status" aria-live="polite" hidden></p>

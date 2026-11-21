@@ -809,3 +809,185 @@ def test_no_tool_can_change_the_execution_mode() -> None:
         assert "uhb_set_mode" not in text and "uhb/mode" not in text
     agent = (ROOT / "uh" / "agent.py").read_text(encoding="utf-8")
     assert "/api/uhb/mode" not in agent, "the loop must not grant itself execution"
+
+
+# --------------------------------------------------------------------------- #
+# UI/UX and accessibility contract (no browser in the suite: the sources are checked)
+# --------------------------------------------------------------------------- #
+
+
+def _luminance(colour: str) -> float:
+    colour = colour.lstrip("#")
+    if len(colour) == 3:
+        colour = "".join(ch * 2 for ch in colour)
+    channels = [int(colour[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def _contrast(a: str, b: str) -> float:
+    hi, lo = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _token(block: str, name: str) -> str:
+    match = re.search(rf"{re.escape(name)}:\s*(#[0-9a-fA-F]{{3,6}})", block)
+    assert match, f"{name} missing"
+    return re.findall(rf"{re.escape(name)}:\s*(#[0-9a-fA-F]{{3,6}})", block)[-1]
+
+
+def _theme_blocks() -> tuple[str, str]:
+    css = CSS.read_text(encoding="utf-8")
+    root = re.findall(r":root\s*\{(.*?)\}", css, re.S)
+    dark = re.findall(r'html\[data-theme="dark"\]\s*\{(.*?)\}', css, re.S)
+    return "\n".join(root), "\n".join(dark)
+
+
+@KEEP
+def test_the_csp_stays_strict_in_the_static_files() -> None:
+    """No inline style or handler, no CDN, no third-party host: the CSP forbids them."""
+    html = INDEX.read_text(encoding="utf-8")
+    script = APP.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+
+    assert "<style" not in html and 'style="' not in html
+    assert not re.search(r"\son[a-z]+=\"", html), "an inline handler is blocked by the CSP"
+    assert not re.search(r'setAttribute\(\s*["\']style["\']', script)
+    assert ".cssText" not in script
+    assert not re.search(r"<[a-z]+[^>]*\sstyle=", script), "a style attribute built from JS"
+    for text in (html, css):
+        assert not re.search(r"https?://(?!www\.w3\.org)[^\s\"')]+\.(js|css|woff2?)", text)
+
+
+@KEEP
+def test_the_brand_colours_are_the_official_ones() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    root, _dark = _theme_blocks()
+
+    assert _token(root, "--brand-ink").lower() == "#284543"
+    assert _token(root, "--brand-gold").lower() == "#fdc502"
+    assert "--highlight: #fdc502" in css
+
+
+@KEEP
+def test_interactive_borders_and_text_reach_wcag_aa_in_both_themes() -> None:
+    root, dark = _theme_blocks()
+    light_page, light_panel = "#eef6f5", "#ffffff"
+    dark_page, dark_panel = "#1c302e", "#284543"
+
+    for surface in (light_page, light_panel):
+        assert _contrast(_token(root, "--control-border"), surface) >= 3.0
+        assert _contrast(_token(root, "--link"), surface) >= 4.5
+        assert _contrast(_token(root, "--muted"), surface) >= 4.5
+    for surface in (dark_page, dark_panel):
+        assert _contrast(_token(dark, "--control-border"), surface) >= 3.0
+        assert _contrast(_token(dark, "--link"), surface) >= 4.5
+        assert _contrast(_token(dark, "--muted"), surface) >= 4.5
+    assert _contrast(_token(root, "--on-accent"), _token(root, "--accent")) >= 4.5
+    assert (
+        _contrast(_token(dark, "--brand-gold"), dark_panel) >= 3.0
+        if "--brand-gold" in dark
+        else True
+    )
+    assert _contrast("#fdc502", "#284543") >= 4.5, "gold focus ring on the ink colour"
+
+
+@KEEP
+def test_every_css_variable_in_use_is_defined() -> None:
+    """`var(--line)` and `var(--fg-dim)` once styled a picture border with nothing."""
+    css = CSS.read_text(encoding="utf-8")
+    defined = set(re.findall(r"(--[a-zA-Z0-9-]+)\s*:", css))
+    used = re.findall(r"var\((--[a-zA-Z0-9-]+)(?!\s*,)\s*\)", css)
+    missing = sorted({name for name in used if name not in defined})
+
+    assert not missing, f"undefined CSS variables: {missing}"
+
+
+@KEEP
+def test_booleans_are_switches_and_the_decision_panel_speaks_french() -> None:
+    script = APP.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+
+    rows = script[
+        script.index("function renderLlmRows") : script.index("async function loadLlmPanel")
+    ]
+    assert 'type = "checkbox"' not in rows, "a bare 13 px checkbox for a setting"
+    assert 'setAttribute("role", "switch")' in rows and "aria-checked" in rows
+    assert re.search(r"\.llm-switch\s*\{[^}]*min-height:\s*34px", css)
+
+    decision = script[
+        script.index("function renderDecision") : script.index("// A plan UHB would give now")
+    ]
+    # The raw wording survives only as a tooltip (`.title`), never as visible text.
+    for jargon in ("no uhb_route call", "no chain", "decisionBlock('Prompt'"):
+        for line in decision.splitlines():
+            if jargon in line:
+                assert ".title" in line or line.strip().startswith("//"), line
+    assert "Détails techniques" in decision, "the metrics belong in a collapsible detail"
+    assert "Le second cerveau (UHB) n'a pas été consulté" in decision
+
+
+@KEEP
+def test_no_raw_http_code_is_shown_and_errors_offer_an_action() -> None:
+    script = APP.read_text(encoding="utf-8")
+
+    assert "`HTTP ${" not in script, "a raw status code must go through httpErrorText"
+    assert "function humanizeError" in script and "function decorateError" in script
+    for label in ("Nouvelle session", "Autoriser l'outil", "Recharger"):
+        assert f'"{label}"' in script, label
+    assert "WinError" in script, "the Windows socket errors are translated too"
+
+
+@KEEP
+def test_tool_cards_have_four_distinct_states() -> None:
+    script = APP.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+
+    for name in ("loading", "success", "refused", "error"):
+        assert f'[data-state="{name}"]' in css, name
+        assert f"{name}:" in script[script.index("const TOOL_STATE_TEXT") :][:300], name
+    assert 'aria-busy", String(toolState === "loading")' in script
+    assert "TOOL_SLOW_MS = 3000" in script, "a text hint after three seconds"
+    assert "Changer de mode" in script and "Mode lecture seule (chat)" in script
+
+
+@KEEP
+def test_image_artifacts_are_bounded_lazy_and_openable() -> None:
+    script = APP.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+
+    assert re.search(
+        r"\.tool-artifact-img\s*\{[^}]*max-width:\s*100%[^}]*max-height:\s*320px", css, re.S
+    )
+    assert 'img.loading = "lazy"' in script
+    assert "function artifactOpen" in script and "tool-artifact.loading" in css
+
+
+@KEEP
+def test_the_uhb_status_has_four_states_with_icon_and_words() -> None:
+    script = APP.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+
+    block = script[
+        script.index("const UHB_STATES") : script.index("async function toggleModeFromBadge")
+    ]
+    for expected in ("Mode Dev", "Mode Chat", "Dégradé", "Hors ligne"):
+        assert expected in block, expected
+    assert block.count("icon:") == 4, "each state carries an icon, never a colour alone"
+    for state in ("degraded", "offline"):
+        assert f".mode-badge.{state}" in css
+    assert "setInterval" in script[script.index("refreshModeBadge().catch") :][:400]
+
+
+@KEEP
+def test_system_notices_are_live_regions_and_modals_trap_the_focus() -> None:
+    html = INDEX.read_text(encoding="utf-8")
+    script = APP.read_text(encoding="utf-8")
+
+    for ident in ("remote-banner", "terminal-warning", "version-warning", "model-note"):
+        tag = re.search(rf'<div id="{ident}"[^>]*>|<span id="{ident}"[^>]*>', html)
+        assert tag and ("aria-live" in tag.group(0) or 'role="status"' in tag.group(0)), ident
+    assert '<html lang="fr"' in html
+    assert "function installModalAccessibility" in script
+    assert 'setAttribute("aria-modal", "true")' in script
+    assert re.search(r":focus-visible\s*\{", CSS.read_text(encoding="utf-8"))
