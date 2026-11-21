@@ -172,23 +172,24 @@ de 216 Mo à 155 ko, `~/.uh/memory` à 0 entrée, `config.toml` restauré à l'o
 
 **Porte C** : à ta main. Aucun push n'a été fait.
 
-## Porte D - cockpit, runs and extensions (a venir, NON COMMENCE)
+## Porte D - cockpit, runs and extensions (`DONE`, 2026-11-21)
 
 Ouvre avec le lot **P3-16** (`docs/ROADMAP_UH_V2.md`), ferme avant **P4-1**. Une ligne ne
 passe a `DONE` que sur une preuve rejouable : un test du depot, un chiffre mesure, ou une
-capture datee. Statut global au 2026-11-19 : **NON COMMENCE**.
+capture datee. Statut global au 2026-11-21 : **DONE** - releve ci-dessous, chaque ligne
+rejouee ce jour-la sur le code de `main` (`bfd37fa`).
 
 | ID | Critere | Sous-lot | Preuve exigee | Etat |
 |---|---|---|---|---|
-| D-1 | Un run non garde ne laisse **aucun** dossier dans `~/.uhb/runs` | P3-16a | comptage avant/apres sur 20 runs : `ls -1 ~/.uhb/runs \| wc -l` identique ; plus aucun dossier de plus de 7 jours | `NON COMMENCE` |
-| D-2 | Un run garde est compresse et archive dans un **depot Git dedie** | P3-16a | `git -C ~/.uhb/brain-runs.git log --oneline` montre un commit par run garde, `--stat` egal aux fichiers produits ; le run est restaurable a l'identique (SHA-256 du manifeste) | `NON COMMENCE` |
-| D-3 | Le filet de securite TTL/quota fonctionne sans intervention | P3-16a | quota depasse volontairement (N dossiers) : les plus anciens sont purges, les gardes sont epargnes | `NON COMMENCE` |
-| D-4 | Le panneau Projets affiche l'etat Git **exact** | P3-16b | `git status --porcelain` du terminal et la ligne du panneau identiques octet pour octet, sur 3 depots (propre / modifie / en avance) | `NON COMMENCE` |
-| D-5 | La bascule de workspace se fait sans redemarrage | P3-16b | changement de projet dans l'UI, tour envoye dans le nouveau workspace, chemin du fichier produit verifie sur disque | `NON COMMENCE` |
-| D-6 | Un cron est declenchable a la main depuis l'UI, avec sa sortie | P3-16c | declenchement, sortie affichee, prochaine execution recalculee, journal du planificateur coherent | `NON COMMENCE` |
-| D-7 | L'etat Infra dit **injoignable** sans casser le panneau | P3-16c | un service arrete volontairement (RAG, MARI ou Ollama) : sa ligne passe a `injoignable`, les autres restent vertes, aucun panneau vide | `NON COMMENCE` |
-| D-8 | Une extension s'active et se diagnostique a chaud | P3-16d | activation d'un serveur MCP et d'un skill sans redemarrage, appel de test reussi, refus explique quand la config est fausse | `NON COMMENCE` |
-| D-9 | La campagne complete est verte | P3-16d | suite UH + suite UHB vertes, ruff et mypy propres, `node --check` sur les fichiers de l'interface, et les lignes D-1 a D-8 rejouees d'affilee | `NON COMMENCE` |
+| D-1 | Un run non garde ne laisse **aucun** dossier dans `~/.uhb/runs` | P3-16a | comptage avant/apres sur 20 runs : `ls -1 ~/.uhb/runs \| wc -l` identique ; plus aucun dossier de plus de 7 jours | `DONE` |
+| D-2 | Un run garde est compresse et archive dans un **depot Git dedie** | P3-16a | `git -C ~/.uhb/brain-runs.git log --oneline` montre un commit par run garde, `--stat` egal aux fichiers produits ; le run est restaurable a l'identique (SHA-256 du manifeste) | `DONE` |
+| D-3 | Le filet de securite TTL/quota fonctionne sans intervention | P3-16a | quota depasse volontairement (N dossiers) : les plus anciens sont purges, les gardes sont epargnes | `DONE` |
+| D-4 | Le panneau Projets affiche l'etat Git **exact** | P3-16b | `git status --porcelain` du terminal et la ligne du panneau identiques octet pour octet, sur 3 depots (propre / modifie / en avance) | `DONE` |
+| D-5 | La bascule de workspace se fait sans redemarrage | P3-16b | changement de projet dans l'UI, tour envoye dans le nouveau workspace, chemin du fichier produit verifie sur disque | `DONE` |
+| D-6 | Un cron est declenchable a la main depuis l'UI, avec sa sortie | P3-16c | declenchement, sortie affichee, prochaine execution recalculee, journal du planificateur coherent | `DONE` |
+| D-7 | L'etat Infra dit **injoignable** sans casser le panneau | P3-16c | un service arrete volontairement (RAG, MARI ou Ollama) : sa ligne passe a `injoignable`, les autres restent vertes, aucun panneau vide | `DONE` |
+| D-8 | Une extension s'active et se diagnostique a chaud | P3-16d | activation d'un serveur MCP et d'un skill sans redemarrage, appel de test reussi, refus explique quand la config est fausse | `DONE` |
+| D-9 | La campagne complete est verte | P3-16d | suite UH + suite UHB vertes, ruff et mypy propres, `node --check` sur les fichiers de l'interface, et les lignes D-1 a D-8 rejouees d'affilee | `DONE` |
 
 **Ce que la Porte D ne remplace pas.** Les Portes A et B restent valables telles quelles :
 D verifie ce que P3-16 ajoute, pas ce qui a deja ete prouve. Une regression sur une ligne de A
@@ -198,6 +199,42 @@ ou de B pendant P3-16 est une regression, pas une « nouvelle preuve a refaire �
 UHB (il possede la politique) ; D-4 a D-7 sont mesures dans l'interface UH (elle affiche et
 pilote) ; D-8 et D-9 croisent les deux. Une ligne D-1 prouvee par un test UH serait un
 contresens.
+
+### Releve du 2026-11-21 (`main` = `bfd37fa`)
+
+Une seule session, les neuf lignes rejouees d'affilee. Les chiffres ci-dessous sont les
+sorties brutes des scripts de mesure (`scratch/porteD_uhb_d1_d3.py`,
+`scratch/porteD_cockpit_4678.py`, `scratch/porteD_d5.py`), pas des resumes.
+
+| ID | Mesure | Sortie exacte |
+|---|---|---|
+| D-1 | 20 runs crees puis clos dans une racine isolee | `avant = 0 / apres = 0`, actions `['purged']`, **0 dossier survivant** sur 20 |
+| D-1 (reel) | `~/.uhb/runs` | **381** dossiers, **0** de plus de 7 jours (`find -mtime +7 \\| wc -l`) |
+| D-2 | run garde archive | `action=archived`, bundle `sha256=17f4aa4ea507529c…`, commit `bb9c6a5`, dossier supprime, journal a **1** entree |
+| D-2 (reel) | depot reel `~/.uhb/brain-runs.git` | **1** commit : `keep run-20261120-232455-908f9e (mode=dev, 0 files, 2289 B)` |
+| D-2 | restauration | 3 fichiers compares, **2 identiques** ; seul `manifest.json` differe : il gagne `archived`, `archive_sha`, `archive_commit` (c'est l'archive qui s'y declare) |
+| D-3 | TTL puis quota | `avant = 7 / apres = 2`, **5 expires**, **2 gardes epargnes**, 1155 octets liberes |
+| D-3 (reel) | `uhb runs prune` (a blanc) | 381 runs, 0 protege, **181 candidats**, 3 185 221 B recuperables, tri du plus ancien au plus recent |
+| D-4 | trois depots, porcelain du panneau vs terminal | propre / modifie / en avance : **identique = True** les trois fois ; `branche/ahead/dirty` = `('main',0,0)`, `('main',0,2)`, `('main',1,0)` |
+| D-5 | bascule puis tour reel | bascule `{"ok": true}` ; tour `qwen3:8b` **HTTP 200 en 87 s** ; `preuve_d5.txt` = `porte-d` dans B, **absent de A** ; `git status B` = `['?? preuve_d5.txt']` |
+| D-6 | tache interne lancee depuis l'API | jamais lancee : `next_run = 14:55:54` ; apres lancement `last_run = 14:40:54`, `status = ok` ; **second passage** `14:40:58` -> `next_run = 14:55:58` (recalcul sur le dernier passage) ; journal : `mecanisme = registre`, 1 tache |
+| D-7 | RAG volontairement injoignable (`UH_RAG_URL` sur un port ferme) | **7 services** listes, RAG `state=down` raison **`port 1 : TimeoutError: timed out`**, encore `up` : `UH, Ollama, SiYuan, MARI` ; `actions_available = []` |
+| D-8 | serveur MCP minimal `mini` | inventaire `[('mini','idle',True)]` ; bascule off `ok=True, hot=True, enabled=False` ; epreuve pendant l'extinction **`1 outil(s) liste(s)`** ; reactivation `ok=True` |
+| D-9 | suite UH | `1978 passed, 2 skipped`, `ruff : All checks passed!`, `mypy : no issues found in 85 source files` |
+| D-9 | suite UHB (venv du depot) | **`426 passed, 9 skipped`** en 20,02 s |
+| D-9 | `node --check` sur les fichiers de l'interface | aucun message : tous passent |
+
+**Deux observations notees pendant la campagne, hors perimetre, non corrigees ici.**
+
+1. `uhb.runs.write_manifest()` reecrit `created` a chaque appel et **remplace** le manifeste
+   au lieu de le fusionner : archiver un run garde lui redonne l'heure d'archivage comme
+   heure de creation, et les cles non repassees (`summary`, `files`, `session`) disparaissent
+   du manifeste vivant. Le bundle, lui, est fidele : le contenu restaure est identique.
+   A traiter cote UHB, avec son propre test.
+2. L'epreuve `POST /api/extensions/.../test` **demarre** le serveur MCP meme lorsque
+   l'extension est eteinte - c'est voulu (diagnostiquer une extension ne suppose pas de
+   l'allumer pour les tours), mais cela signifie que « eteint » se lit dans `build_toolsets`
+   et dans l'inventaire, pas dans le resultat de l'epreuve.
 
 ## What is missing to be able to say "proven"
 
