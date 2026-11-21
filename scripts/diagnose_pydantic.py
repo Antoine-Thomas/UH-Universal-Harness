@@ -45,10 +45,25 @@ SUBJECT = "pydantic"
 #: Packages whose presence on the interpreter is worth naming in the report:
 #: the ones a shared AI stack installs, and the ones that pull the subject.
 INTERESTING = (
-    "uh-harness", "uhb", "fastapi", "starlette", "uvicorn", "pydantic",
-    "pydantic-core", "pydantic-settings", "gradio", "litellm", "openai",
-    "mcp", "mcp-types", "google-genai", "google-antigravity", "mixpanel",
-    "posthog", "transformers", "albumentations",
+    "uh-harness",
+    "uhb",
+    "fastapi",
+    "starlette",
+    "uvicorn",
+    "pydantic",
+    "pydantic-core",
+    "pydantic-settings",
+    "gradio",
+    "litellm",
+    "openai",
+    "mcp",
+    "mcp-types",
+    "google-genai",
+    "google-antigravity",
+    "mixpanel",
+    "posthog",
+    "transformers",
+    "albumentations",
 )
 
 
@@ -114,7 +129,9 @@ def constraints(found: Dict[str, str]) -> List[Dict[str, Any]]:
     return rows
 
 
-def feasible_interval(rows: List[Dict[str, Any]], current: str, universe: List[str]) -> Dict[str, Any]:
+def feasible_interval(
+    rows: List[Dict[str, Any]], current: str, universe: List[str]
+) -> Dict[str, Any]:
     """Versions of the subject that satisfy every ACTIVE constraint at once."""
     if SpecifierSet is None or Version is None:
         return {"error": "packaging absent: interval not computable"}
@@ -219,7 +236,8 @@ def clean_venvs() -> List[Dict[str, Any]]:
                 "spec": spec,
                 "install_ok": install.returncode == 0,
                 "install_tail": [
-                    line for line in (install.stdout + install.stderr).splitlines()
+                    line
+                    for line in (install.stdout + install.stderr).splitlines()
                     if re.search(r"error|conflict|incompatible", line, re.I)
                 ][-4:],
                 "pip_check_clean": check.returncode == 0,
@@ -261,7 +279,9 @@ def report(as_json: bool, clean: bool) -> int:
     if as_json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        print(f"interpréteur : {payload['interpreter']}  (Python {payload['python']}, pip {payload['pip']})")
+        print(
+            f"interpréteur : {payload['interpreter']}  (Python {payload['python']}, pip {payload['pip']})"
+        )
         print(f"{SUBJECT:<14} : {payload['subject_installed']}")
         print("installés      : " + ", ".join(f"{k} {v}" for k, v in interesting.items()))
         print()
@@ -275,9 +295,13 @@ def report(as_json: bool, clean: bool) -> int:
             for row in payload["inactive_constraints"]:
                 print(f"  - {row['package']:<22} {row['requirement']}   [{row['reason']}]")
         print()
-        print(f"Intervalle satisfaisant TOUTES les contraintes actives : {interval.get('combined')}")
+        print(
+            f"Intervalle satisfaisant TOUTES les contraintes actives : {interval.get('combined')}"
+        )
         print(f"  version installée satisfait : {interval.get('current_satisfies')}")
-        print(f"  versions publiées compatibles : {interval.get('allowed_count')}  ex. {interval.get('allowed_versions')}")
+        print(
+            f"  versions publiées compatibles : {interval.get('allowed_count')}  ex. {interval.get('allowed_versions')}"
+        )
         print()
         print(f"pip check : {'OK' if check['clean'] else 'CONFLITS'}")
         for line in check["lines"]:
@@ -285,8 +309,10 @@ def report(as_json: bool, clean: bool) -> int:
         if clean:
             print()
             for entry in payload["clean"]:
-                print(f"venv neuf [{entry['venv']}] {entry['spec']} -> install {'OK' if entry['install_ok'] else 'ECHEC'}, "
-                      f"pip check {'propre' if entry['pip_check_clean'] else 'conflits'}")
+                print(
+                    f"venv neuf [{entry['venv']}] {entry['spec']} -> install {'OK' if entry['install_ok'] else 'ECHEC'}, "
+                    f"pip check {'propre' if entry['pip_check_clean'] else 'conflits'}"
+                )
                 for line in entry["probe"]:
                     print(f"    {line}")
                 for line in entry["pip_check"]:
@@ -297,7 +323,9 @@ def report(as_json: bool, clean: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--clean", action="store_true", help="créer deux venvs jetables et les tester")
+    parser.add_argument(
+        "--clean", action="store_true", help="créer deux venvs jetables et les tester"
+    )
     parser.add_argument("--json", action="store_true", help="sortie lisible par une machine")
     args = parser.parse_args()
     return report(args.json, args.clean)

@@ -507,7 +507,7 @@ def test_the_model_choice_is_remembered_by_the_browser_too() -> None:
     assert "storeModelChoice(" in script, "the switch must write the pair"
     assert "storedModelChoice()" in script, "and the boot must read it back"
     assert "state.modelRestored" in script, "one restore attempt, never a loop"
-    assert 'result.persisted === false' in script, "a refused config write is shown"
+    assert "result.persisted === false" in script, "a refused config write is shown"
 
 
 @KEEP
@@ -522,18 +522,21 @@ def test_the_providers_panel_is_loaded_once_and_stays_isolated() -> None:
     script = APP.read_text(encoding="utf-8")
     loader = script.split("function loadProviders() {", 1)[1].split("\n// Remote access", 1)[0]
 
-    assert "if (state.providersPromise) return state.providersPromise" in loader, \
+    assert "if (state.providersPromise) return state.providersPromise" in loader, (
         "one in-flight promise, shared by every entry point"
+    )
     assert "state.providersPromise = run" in loader
     assert 'setAttribute("aria-busy"' in loader, "a loading state the interface can observe"
-    assert "loadRouterSettings().catch(" in loader, \
+    assert "loadRouterSettings().catch(" in loader, (
         "the router settings must not be able to fail the provider list"
-    assert "renderRouterSettings(await api(" not in loader, \
+    )
+    assert "renderRouterSettings(await api(" not in loader, (
         "that ordering is the wipe: settings inside the list's chain"
-    settings = script.split("async function loadRouterSettings() {", 1)[1].split(
-        "\n}\n", 1)[0]
-    assert "try {" in settings and "catch (error)" in settings, \
+    )
+    settings = script.split("async function loadRouterSettings() {", 1)[1].split("\n}\n", 1)[0]
+    assert "try {" in settings and "catch (error)" in settings, (
         "the settings load owns its failure, in its own box"
+    )
 
 
 @KEEP
@@ -554,12 +557,15 @@ def test_the_transcript_reconciliation_ignores_system_bubbles() -> None:
     )[0]
 
     assert 'classList.contains("system")' in bubbles, "system bubbles are not messages"
-    assert 'classList.contains("failed")' in bubbles, "the client-drawn error bubble is not one either"
+    assert 'classList.contains("failed")' in bubbles, (
+        "the client-drawn error bubble is not one either"
+    )
     assert '!== "system"' in stored, "stored system rows are excluded on both sides"
     assert "threadBubbles()" in body, "the count comes from the filtered bubbles"
     assert "storedMessages(wanted)" in body, "the store side comes from the filtered read"
-    assert "const stored = data.messages || [];" not in script, \
+    assert "const stored = data.messages || [];" not in script, (
         "that is the version that counted the interface's own notices"
+    )
 
 
 @KEEP
@@ -582,8 +588,9 @@ def test_the_transcript_notice_lives_in_the_header_not_in_the_thread() -> None:
     assert "viewStale(desynced);" in body, "l'état périmé passe par le contrôle d'en-tête"
     assert 'id="view-stale"' in markup and "Actualiser la vue" in markup
     assert ".view-stale[hidden]" in style, "un contrôle caché doit vraiment disparaître"
-    assert "openSession(state.sessionId)" in script.split("function wireViewStale()", 1)[1], \
+    assert "openSession(state.sessionId)" in script.split("function wireViewStale()", 1)[1], (
         "le bouton recharge la session qu'il nomme"
+    )
 
 
 @KEEP
@@ -623,9 +630,7 @@ def test_the_decision_view_follows_the_session_that_is_open() -> None:
     ever, even with a session full of recorded turns in front of it.
     """
     script = APP.read_text(encoding="utf-8")
-    body = script.split("async function openSession(id) {", 1)[1].split(
-        "\nasync function ", 1
-    )[0]
+    body = script.split("async function openSession(id) {", 1)[1].split("\nasync function ", 1)[0]
 
     assert 'state.activeTab === "decision"' in body, "opening a session reloads the view"
     assert "loadDecision()" in body
@@ -658,11 +663,12 @@ def test_the_tools_panel_shows_uhbs_catalogue_and_keeps_no_copy_of_it() -> None:
     """One catalogue, in UHB. A list of tool names here would be a second truth."""
     page = INDEX.read_text(encoding="utf-8")
     assert 'id="tab-tools"' in page and 'id="tools-view"' in page
-    assert 'id="tools-list"' in page and 'aria-busy' in page
+    assert 'id="tools-list"' in page and "aria-busy" in page
 
     script = APP.read_text(encoding="utf-8")
-    body = script.split("function catalogCard(entry) {", 1)[1].split(
-        "\nfunction showPanelTab(", 1)[0]
+    body = script.split("function catalogCard(entry) {", 1)[1].split("\nfunction showPanelTab(", 1)[
+        0
+    ]
     # The catalogue is data: no name of a real tool appears in this file.
     for name in ("execute_code", "read_file", "write_file", "search_files"):
         assert name not in script, f"{name} is hardcoded in the interface"
@@ -753,8 +759,8 @@ def test_the_artifact_toolbar_speaks_french_with_icons() -> None:
     for label in ("Garder", "Utile", "Pas utile", "Télécharger", "Corbeille"):
         assert f'"{label}"' in script, f"the toolbar offers {label}"
     assert "👍" not in script and "👎" not in script, "no emoji as a button face"
-    assert 'ARTIFACT_ICONS' in script and 'createElementNS("http://www.w3.org/2000/svg"' in script
-    assert 'link.download =' in script, "the image can actually be saved"
+    assert "ARTIFACT_ICONS" in script and 'createElementNS("http://www.w3.org/2000/svg"' in script
+    assert "link.download =" in script, "the image can actually be saved"
     assert 'setAttribute("aria-label", title)' in script, "every icon button is named"
 
 

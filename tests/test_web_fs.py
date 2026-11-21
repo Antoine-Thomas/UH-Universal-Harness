@@ -51,7 +51,9 @@ def home(tmp_path: Path) -> Path:
     """Le faux ~/.uh : c'est lui qui ne doit jamais sortir."""
     uh_home = tmp_path / "home"
     uh_home.mkdir(parents=True)
-    (uh_home / "keys.toml").write_text("[[providers]]\nkey = 'secret-ne-sort-pas'\n", encoding="utf-8")
+    (uh_home / "keys.toml").write_text(
+        "[[providers]]\nkey = 'secret-ne-sort-pas'\n", encoding="utf-8"
+    )
     (uh_home / "web-token").write_text("jeton", encoding="utf-8")
     return uh_home
 
@@ -102,7 +104,9 @@ def test_the_configuration_folder_is_refused(app, home: Path) -> None:
             preview = await http.get(
                 "/api/fs/preview", params={"path": str(home / "keys.toml")}, headers=AUTH
             )
-            raw = await http.get("/api/fs/raw", params={"path": str(home / "keys.toml")}, headers=AUTH)
+            raw = await http.get(
+                "/api/fs/raw", params={"path": str(home / "keys.toml")}, headers=AUTH
+            )
             stat = await http.get("/api/fs/stat", params={"path": str(home)}, headers=AUTH)
             return listed, preview, raw, stat
 
@@ -130,7 +134,9 @@ def test_a_dotdot_escape_is_resolved_then_refused(app, workspace: Path, home: Pa
     assert "keys.toml" in detail, "le refus nomme le chemin visé"
 
 
-def test_a_symlink_that_leaves_the_workspace_is_refused(app, workspace: Path, tmp_path: Path) -> None:
+def test_a_symlink_that_leaves_the_workspace_is_refused(
+    app, workspace: Path, tmp_path: Path
+) -> None:
     outside = tmp_path / "dehors.txt"
     outside.write_text("hors perimetre", encoding="utf-8")
     link = workspace / "raccourci.txt"
@@ -170,7 +176,9 @@ def test_the_workspace_listing_dirs_first(app, workspace: Path) -> None:
 def test_listing_a_subfolder_offers_the_way_back(app, workspace: Path) -> None:
     async def go():
         async with client(app) as http:
-            return await http.get("/api/fs/list", params={"path": str(workspace / "sous")}, headers=AUTH)
+            return await http.get(
+                "/api/fs/list", params={"path": str(workspace / "sous")}, headers=AUTH
+            )
 
     body = run(go()).json()
     assert body["parent"] == str(workspace.resolve())

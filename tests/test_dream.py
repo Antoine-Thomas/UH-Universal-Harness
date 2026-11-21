@@ -60,9 +60,11 @@ def test_dream_journal_append_read(tmp_path: Path) -> None:
         "docs/note1.md",
         "docs/note2.md",
     }
-    assert all(set(entry) == {
-        "timestamp", "type", "path", "before_hash", "after_hash", "bytes_delta", "reason"
-    } for entry in entries)
+    assert all(
+        set(entry)
+        == {"timestamp", "type", "path", "before_hash", "after_hash", "bytes_delta", "reason"}
+        for entry in entries
+    )
     # One JSON object per line, not an array.
     lines = journal.file_for().read_text(encoding="utf-8").splitlines()
     assert len(lines) == 3
@@ -149,7 +151,7 @@ def test_dream_rollback_creates_backup_before_restore(workspace: Path) -> None:
     snapshots = dream.list_snapshots()
     assert len(snapshots) == 2, "the undo of the undo must exist"
     safety = [item for item in snapshots if item["id"] != first.name][0]
-    safety_tree = (dream.dreams_dir() / safety["id"] / "tree")
+    safety_tree = dream.dreams_dir() / safety["id"] / "tree"
     contents = {path.read_text(encoding="utf-8") for path in safety_tree.iterdir()}
     assert any("REECRIT" in text for text in contents), "the pre-rollback state is kept"
 

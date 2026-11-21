@@ -174,33 +174,25 @@ def template_list() -> List[Dict[str, Any]]:
 def template(ident: str) -> Template:
     found = TEMPLATES.get((ident or "").strip().lower())
     if found is None:
-        raise CloudError(
-            f"unknown template '{ident}'; known: {', '.join(sorted(TEMPLATES))}"
-        )
+        raise CloudError(f"unknown template '{ident}'; known: {', '.join(sorted(TEMPLATES))}")
     return found
 
 
 def check_name(name: str) -> str:
     value = (name or "").strip().lower()
     if not _NAME.match(value):
-        raise CloudError(
-            "name must be lowercase letters, digits, '-' or '_' (max 32)"
-        )
+        raise CloudError("name must be lowercase letters, digits, '-' or '_' (max 32)")
     return value
 
 
-def build(
-    ident: str, name: str, fields: Dict[str, str]
-) -> tuple[Dict[str, Any], Dict[str, str]]:
+def build(ident: str, name: str, fields: Dict[str, str]) -> tuple[Dict[str, Any], Dict[str, str]]:
     """Validate a form into a server entry plus its secret half."""
     spec = template(ident)
     entry_name = check_name(name)
     values = {str(key): str(value).strip() for key, value in (fields or {}).items()}
 
     missing = [
-        item.key
-        for item in spec.fields
-        if item.required and not values.get(item.key, "").strip()
+        item.key for item in spec.fields if item.required and not values.get(item.key, "").strip()
     ]
     if missing:
         raise CloudError("missing value(s): " + ", ".join(missing))
@@ -214,9 +206,7 @@ def build(
         if not item.secret and values.get(item.key)
     }
     secret = {
-        item.key: values[item.key]
-        for item in spec.fields
-        if item.secret and values.get(item.key)
+        item.key: values[item.key] for item in spec.fields if item.secret and values.get(item.key)
     }
     args = [str(arg) for arg in spec.args]
     # A field can be part of the command line (`{{REPO_PATH}}`): the filesystem
@@ -285,7 +275,11 @@ def _split_blocks(text: str) -> tuple[str, List[str], str]:
         stripped = line.strip()
         if stripped.startswith("[[mcp.servers]]") and start is None:
             start = index
-        elif start is not None and stripped.startswith("[") and not stripped.startswith("[[mcp.servers]]"):
+        elif (
+            start is not None
+            and stripped.startswith("[")
+            and not stripped.startswith("[[mcp.servers]]")
+        ):
             end = index
             break
     if start is None:
@@ -302,7 +296,7 @@ def add_server(entry: Dict[str, Any], *, config_path: Optional[Path] = None) -> 
     path = config_path or (uh_home() / "config.toml")
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     head, blocks, tail = _split_blocks(text)
-    wanted = f'name = {_quote(entry["name"])}'
+    wanted = f"name = {_quote(entry['name'])}"
     kept = [block for block in blocks if wanted not in block]
     kept.append(_entry_block(entry))
     body = "\n".join(block.rstrip() + "\n" for block in kept)
@@ -517,7 +511,6 @@ def connect(
     }
 
 
-
 SECRET_HINTS = ("TOKEN", "SECRET", "KEY", "PASSWORD", "CREDENTIAL", "PASS")
 
 
@@ -569,7 +562,6 @@ def connect_custom(
         "config": str(config_path or (uh_home() / "config.toml")),
         "secrets": sorted(secret),
     }
-
 
 
 HTTP_NOTE = (
@@ -671,7 +663,9 @@ def pending_http_servers(*, config_path: Optional[Path] = None) -> List[Dict[str
     return rows
 
 
-def upload_plan(server: str, tool: str, path: Path, *, bucket: str = "", key: str = "") -> Dict[str, Any]:
+def upload_plan(
+    server: str, tool: str, path: Path, *, bucket: str = "", key: str = ""
+) -> Dict[str, Any]:
     """Store one file with the cloud server's own upload tool.
 
     The bucket comes from the server's own ``S3_BUCKET`` when the operator set one

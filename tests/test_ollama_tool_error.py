@@ -21,13 +21,7 @@ from uh.providers.ollama import OllamaProvider
 
 URL = "http://127.0.0.1:11434"
 BODY = json.dumps(
-    {
-        "error": {
-            "message": (
-                "registry.ollama.ai/library/tinyllama:latest does not support tools"
-            )
-        }
-    }
+    {"error": {"message": ("registry.ollama.ai/library/tinyllama:latest does not support tools")}}
 )
 CLEAN = (
     "model 'tinyllama:latest' does not support tool calling; "
@@ -86,9 +80,7 @@ def test_a_streamed_call_raises_the_clean_message(monkeypatch) -> None:
 def test_the_classified_reason_carries_the_hint() -> None:
     error = OllamaProvider("tinyllama:latest", base_url_override=URL)._http_error(400, BODY)
 
-    assert error.reason == (
-        "400 error: model 'tinyllama:latest' does not support tool calling"
-    )
+    assert error.reason == ("400 error: model 'tinyllama:latest' does not support tool calling")
 
 
 def test_another_400_keeps_its_body() -> None:

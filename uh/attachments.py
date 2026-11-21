@@ -146,7 +146,7 @@ def _pdf_text(path: Path) -> tuple[str, str]:
         # Jamais « lu » quand ce n'est pas lu : le message dit quoi installer.
         return "", (
             "lecteur PDF absent : installer l'extra avec "
-            "pip install \"uh-harness[pdf]\" (ou pip install pypdf), "
+            'pip install "uh-harness[pdf]" (ou pip install pypdf), '
             "sinon convertir le document en texte"
         )
     try:
@@ -294,9 +294,7 @@ def media_for(paths: Iterable[str], session_id: str) -> dict:
     if len(images) > MAX_IMAGES_PER_TURN:
         total = len(images)
         step = total / float(MAX_IMAGES_PER_TURN)
-        images = [
-            images[min(total - 1, int(index * step))] for index in range(MAX_IMAGES_PER_TURN)
-        ]
+        images = [images[min(total - 1, int(index * step))] for index in range(MAX_IMAGES_PER_TURN)]
         omitted = total - len(images)
     return {"images": images, "items": prepared, "omitted": omitted}
 

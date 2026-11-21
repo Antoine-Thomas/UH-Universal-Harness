@@ -137,7 +137,7 @@ def outside_root(text: str, server: str) -> Optional[Dict[str, Any]]:
     message = (
         f"« {requested} » est hors des racines autorisées du serveur '{server}' "
         f"({', '.join(allowed) or 'aucune'}). Rien n'a été lu ni écrit. "
-        f"Élargis le root dans ~/.uh/config.toml : [[mcp.servers]] name = \"{server}\", "
+        f'Élargis le root dans ~/.uh/config.toml : [[mcp.servers]] name = "{server}", '
         "l'argument de chemin de la commande."
     )
     return {
@@ -232,13 +232,15 @@ def _parse_server(raw: Any, index: int) -> ServerConfig:
 
     args = _as_text_list(raw.get("args", []))
     if args is None:
-        raise MCPError(f"mcp.servers[{name}]: 'args' must be a list of strings",
-                       kind="configuration")
+        raise MCPError(
+            f"mcp.servers[{name}]: 'args' must be a list of strings", kind="configuration"
+        )
     allow_raw = raw.get("allow")
     allow = _as_text_list(allow_raw) if allow_raw is not None else None
     if allow_raw is not None and allow is None:
-        raise MCPError(f"mcp.servers[{name}]: 'allow' must be a list of strings",
-                       kind="configuration")
+        raise MCPError(
+            f"mcp.servers[{name}]: 'allow' must be a list of strings", kind="configuration"
+        )
 
     cwd = raw.get("cwd")
     if cwd is not None and not isinstance(cwd, str):
@@ -248,13 +250,15 @@ def _parse_server(raw: Any, index: int) -> ServerConfig:
     if not isinstance(env_raw, dict) or not all(
         isinstance(key, str) and isinstance(value, str) for key, value in env_raw.items()
     ):
-        raise MCPError(f"mcp.servers[{name}]: 'env' must be a table of strings",
-                       kind="configuration")
+        raise MCPError(
+            f"mcp.servers[{name}]: 'env' must be a table of strings", kind="configuration"
+        )
 
     timeout_raw = raw.get("timeout", DEFAULT_TIMEOUT)
     if isinstance(timeout_raw, bool) or not isinstance(timeout_raw, (int, float)):
-        raise MCPError(f"mcp.servers[{name}]: 'timeout' must be a number of seconds",
-                       kind="configuration")
+        raise MCPError(
+            f"mcp.servers[{name}]: 'timeout' must be a number of seconds", kind="configuration"
+        )
     if timeout_raw <= 0:
         raise MCPError(f"mcp.servers[{name}]: 'timeout' must be positive", kind="configuration")
 
@@ -418,8 +422,9 @@ def _render(result: Dict[str, Any]) -> Tuple[str, Optional[Any]]:
                 data = item.get("data") or ""
                 mime = str(item.get("mimeType") or "unknown").split(";")[0].strip()
                 index = sum(1 for part in parts if part.startswith("[image")) + 1
-                parts.append(f"[{kind}: {mime}, {len(str(data))} base64 characters, "
-                             f"artefact {index}]")
+                parts.append(
+                    f"[{kind}: {mime}, {len(str(data))} base64 characters, artefact {index}]"
+                )
             elif kind == "resource":
                 resource = item.get("resource") or {}
                 uri = resource.get("uri") if isinstance(resource, dict) else None
@@ -490,8 +495,7 @@ class Client:
             self._process = subprocess.Popen(argv, **kwargs)  # noqa: S603 - the user's config
         except (OSError, ValueError) as exc:
             raise MCPError(
-                f"MCP server '{self.config.name}': cannot start {self.config.command!r} "
-                f"({exc})",
+                f"MCP server '{self.config.name}': cannot start {self.config.command!r} ({exc})",
                 kind="configuration",
             ) from exc
 
@@ -567,11 +571,13 @@ class Client:
                         dropped += len(chunk)
                         break
                     dropped += len(chunk)
-                self._lines.put(MCPError(
-                    f"MCP server '{self.config.name}' answered {dropped} bytes for one "
-                    f"message (limit {MAX_MESSAGE_BYTES})",
-                    kind="protocol",
-                ))
+                self._lines.put(
+                    MCPError(
+                        f"MCP server '{self.config.name}' answered {dropped} bytes for one "
+                        f"message (limit {MAX_MESSAGE_BYTES})",
+                        kind="protocol",
+                    )
+                )
                 continue
             line = raw.strip()
             if line:
@@ -613,7 +619,9 @@ class Client:
         process = self._process
         if process is None or process.stdin is None:
             raise MCPError(f"MCP server '{self.config.name}' is not running", kind="transport")
-        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+        data = (
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+        )
         with self._write_lock:
             try:
                 process.stdin.write(data)
@@ -633,7 +641,10 @@ class Client:
         self._write(payload)
 
     def _request(
-        self, method: str, params: Optional[Dict[str, Any]] = None, *,
+        self,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         limit = timeout if timeout is not None else self.config.timeout
@@ -652,8 +663,7 @@ class Client:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise MCPError(
-                    f"MCP server '{self.config.name}' did not answer {method} within "
-                    f"{limit:.0f}s",
+                    f"MCP server '{self.config.name}' did not answer {method} within {limit:.0f}s",
                     kind="timeout",
                     stderr=self.stderr_tail(),
                 )
@@ -858,7 +868,7 @@ class Toolset:
         if raw is None:
             return {
                 "error": f"unknown MCP tool '{name}'; known: "
-                         f"{', '.join(sorted(self._by_exposed)) or 'none'}",
+                f"{', '.join(sorted(self._by_exposed)) or 'none'}",
                 "kind": "invalid_request",
             }
         try:

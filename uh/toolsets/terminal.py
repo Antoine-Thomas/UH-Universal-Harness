@@ -96,7 +96,10 @@ BLACKLIST: tuple[tuple[str, str], ...] = (
     (r"\bmkfs(?:\.\w+)?\b", "filesystem formatting"),
     (r"\bformat\s+[a-zA-Z]:", "Windows drive formatting"),
     (r"\bdd\b[^\n]*\bof=/dev/", "raw disk write"),
-    (r"\bdel\s+(?:/[a-zA-Z]\s+)*/[fsq][a-zA-Z]*(?:\s+/[a-zA-Z]+)*\s+[a-zA-Z]:", "Windows mass deletion"),
+    (
+        r"\bdel\s+(?:/[a-zA-Z]\s+)*/[fsq][a-zA-Z]*(?:\s+/[a-zA-Z]+)*\s+[a-zA-Z]:",
+        "Windows mass deletion",
+    ),
     (r"\brd\s+/s\s+(?:/q\s+)?[a-zA-Z]:", "Windows recursive directory removal of a drive"),
     (r"\b(?:shutdown|reboot|halt|poweroff)\b", "machine shutdown or reboot"),
     (r":\(\)\s*\{.*:\|:&.*\}\s*;\s*:", "fork bomb"),
@@ -335,7 +338,9 @@ class TerminalToolset:
         self.workspace = (
             Path(workspace).expanduser().resolve() if workspace else default_workspace()
         )
-        self.allowed = list(allowed) if allowed is not None else sandbox.allowed_paths(self.workspace)
+        self.allowed = (
+            list(allowed) if allowed is not None else sandbox.allowed_paths(self.workspace)
+        )
 
     def set_workspace(self, workspace: str | os.PathLike[str]) -> None:
         """Move the shell's cwd and the write whitelist with it."""

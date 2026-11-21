@@ -75,7 +75,9 @@ def test_the_run_button_runs_and_shows_the_output(browser, home_d6, monkeypatch)
         assert dernier.startswith("dernier passage : "), dernier
         assert "ok" in dernier, dernier
         detail = page.get_attribute(ligne + " .task-last", "title") or ""
-        assert "doctor" in detail, f"la sortie de la commande doit revenir dans la ligne : {detail!r}"
+        assert "doctor" in detail, (
+            f"la sortie de la commande doit revenir dans la ligne : {detail!r}"
+        )
         assert "prochaine : " in page.inner_text(ligne + " .task-next")
     finally:
         context.close()

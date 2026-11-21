@@ -169,7 +169,11 @@ def _split_call(call: Any) -> tuple[str, str, dict]:
     call_id = str(call.get("id") or "")
     function = call.get("function")
     if isinstance(function, dict):
-        return call_id, str(function.get("name") or ""), _coerce_arguments(function.get("arguments"))
+        return (
+            call_id,
+            str(function.get("name") or ""),
+            _coerce_arguments(function.get("arguments")),
+        )
     return call_id, str(call.get("name") or ""), _coerce_arguments(call.get("arguments"))
 
 
@@ -333,8 +337,7 @@ def _execute(
     if toolset is None:
         refused = True
         payload: dict = {
-            "error": f"tool '{name}' is not available in this mode. "
-                     f"Available: {sorted(index)}",
+            "error": f"tool '{name}' is not available in this mode. Available: {sorted(index)}",
             "type": "forbidden",
             "tool": name,
             "reason": "unknown_tool",
@@ -522,7 +525,9 @@ def run_turn(
 
     from .providers import take_drops
 
-    history: List[dict] = [dict(message) if isinstance(message, dict) else message for message in messages]
+    history: List[dict] = [
+        dict(message) if isinstance(message, dict) else message for message in messages
+    ]
     index = _tool_index(toolsets)
     definitions = _tool_definitions(toolsets)
     if not offer_tools:

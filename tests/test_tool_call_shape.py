@@ -14,8 +14,13 @@ from uh.providers.omnirouter import _merge_tool_call_fragments, _normalise_tool_
 
 # --- forme des appels (statique) ------------------------------------------------
 def test_openai_shape_keeps_id_type_and_string_arguments() -> None:
-    raw = [{"id": "call_abc", "type": "function",
-            "function": {"name": "read_file", "arguments": '{"path": "a.txt"}'}}]
+    raw = [
+        {
+            "id": "call_abc",
+            "type": "function",
+            "function": {"name": "read_file", "arguments": '{"path": "a.txt"}'},
+        }
+    ]
     calls = _normalise_tool_calls(raw)
     assert calls[0]["id"] == "call_abc"
     assert calls[0]["type"] == "function"
@@ -32,7 +37,9 @@ def test_ollama_shape_gets_an_id_and_a_string_arguments() -> None:
 
 
 def test_existing_call_id_is_never_overwritten() -> None:
-    calls = _normalise_tool_calls([{"id": "call_pvmwtqkn", "function": {"name": "f", "arguments": {}}}])
+    calls = _normalise_tool_calls(
+        [{"id": "call_pvmwtqkn", "function": {"name": "f", "arguments": {}}}]
+    )
     assert calls[0]["id"] == "call_pvmwtqkn"
 
 
@@ -50,7 +57,9 @@ def test_ensure_call_ids_adds_type_without_touching_ids() -> None:
 
 def test_streaming_fragments_merge_into_one_call() -> None:
     fragments: dict = {}
-    _merge_tool_call_fragments(fragments, [{"index": 0, "function": {"name": "exec", "arguments": '{"a"'}}])
+    _merge_tool_call_fragments(
+        fragments, [{"index": 0, "function": {"name": "exec", "arguments": '{"a"'}}]
+    )
     _merge_tool_call_fragments(fragments, [{"index": 0, "function": {"arguments": ": 1}"}}])
     assert len(fragments) == 1
     only = fragments[0]
@@ -62,8 +71,13 @@ def test_streaming_fragments_merge_into_one_call() -> None:
 
 def test_streaming_distinct_indexes_stay_ordered() -> None:
     fragments: dict = {}
-    _merge_tool_call_fragments(fragments, [{"index": 0, "function": {"name": "a", "arguments": "{}"}},
-                                           {"index": 1, "function": {"name": "b", "arguments": "{}"}}])
+    _merge_tool_call_fragments(
+        fragments,
+        [
+            {"index": 0, "function": {"name": "a", "arguments": "{}"}},
+            {"index": 1, "function": {"name": "b", "arguments": "{}"}},
+        ],
+    )
     assert [fragments[0]["function"]["name"], fragments[1]["function"]["name"]] == ["a", "b"]
 
 
@@ -81,7 +95,11 @@ def test_reasoning_stays_separate_from_content() -> None:
     payload.name = "ollama"
     payload._record_meta = lambda **kwargs: None  # type: ignore[attr-defined]
     data = {"message": {"content": "voici", "thinking": "je reflechis"}, "eval_count": 3}
-    built = OllamaProvider._payload_from_message(payload, data) if hasattr(OllamaProvider, "_payload_from_message") else None
+    built = (
+        OllamaProvider._payload_from_message(payload, data)
+        if hasattr(OllamaProvider, "_payload_from_message")
+        else None
+    )
     if built is None:  # la construction est inline : on verifie le contrat autrement
         assert "thinking" in data["message"]
         return

@@ -191,7 +191,13 @@ def total_ram_gb() -> float:
 def _run(command: list[str], timeout: float = 3.0) -> str:
     try:
         completed = subprocess.run(
-            command, capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=timeout, check=False, errors="replace"
+            command,
+            capture_output=True,
+            text=True,
+            encoding=locale.getpreferredencoding(False),
+            timeout=timeout,
+            check=False,
+            errors="replace",
         )
     except (OSError, subprocess.SubprocessError):
         return ""

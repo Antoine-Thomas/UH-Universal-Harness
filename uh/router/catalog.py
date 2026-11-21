@@ -83,9 +83,7 @@ def _spec(name: str, raw: Any, source: Path) -> ProviderSpec:
 
     discover = str(raw.get("discover") or "")
     if not models and not discover:
-        raise CatalogError(
-            f"{source}: providers.{name} has neither models nor a discover endpoint"
-        )
+        raise CatalogError(f"{source}: providers.{name} has neither models nor a discover endpoint")
 
     return ProviderSpec(
         name=name,

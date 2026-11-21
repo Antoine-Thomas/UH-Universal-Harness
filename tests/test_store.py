@@ -53,7 +53,9 @@ def test_messages_roundtrip_and_updated_at(tmp_path: Path) -> None:
                 "tool_calls": [{"function": {"name": "read_file", "arguments": {"path": "a"}}}],
             },
         )
-        store.append_message(session_id, {"role": "tool", "name": "read_file", "content": '{"ok":1}'})
+        store.append_message(
+            session_id, {"role": "tool", "name": "read_file", "content": '{"ok":1}'}
+        )
 
         messages = store.get_messages(session_id)
         assert [m["role"] for m in messages] == ["user", "assistant", "tool"]
@@ -248,7 +250,9 @@ def test_delete_one_message_keeps_the_rest_and_cleans_the_index(tmp_path: Path) 
         assert store.delete_message("autre-session", first) is False, "scoped by session"
 
 
-def test_a_database_from_before_the_tool_call_id_column_is_upgraded_in_place(tmp_path: Path) -> None:
+def test_a_database_from_before_the_tool_call_id_column_is_upgraded_in_place(
+    tmp_path: Path,
+) -> None:
     """A session recorded by 0.1.x must open in 0.2 without losing a message.
 
     `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so the column has

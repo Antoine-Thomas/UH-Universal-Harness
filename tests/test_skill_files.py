@@ -27,7 +27,10 @@ def make(name: str = "mon-skill") -> str:
 def test_update_rewrites_the_file(home) -> None:
     name = make()
     result = skills.update(
-        name=name, title="Nouveau titre", description="autre", instructions="Nouvelles instructions."
+        name=name,
+        title="Nouveau titre",
+        description="autre",
+        instructions="Nouvelles instructions.",
     )
     assert result["title"] == "Nouveau titre"
     again = skills.read_skill(name)

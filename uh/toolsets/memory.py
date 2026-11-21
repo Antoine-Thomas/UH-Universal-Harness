@@ -171,8 +171,12 @@ class MemoryToolset:
         if len(body) > MAX_CONTENT_CHARS:
             return {"error": f"content too large ({len(body)} chars > {MAX_CONTENT_CHARS})"}
 
-        existing = self.path.read_text(encoding="utf-8", errors="replace") if self.path.exists() else ""
-        sections, order = parse(existing) if existing else ({name: "" for name in SECTIONS}, list(SECTIONS))
+        existing = (
+            self.path.read_text(encoding="utf-8", errors="replace") if self.path.exists() else ""
+        )
+        sections, order = (
+            parse(existing) if existing else ({name: "" for name in SECTIONS}, list(SECTIONS))
+        )
         sections[canonical] = body
         created = not self.path.exists()
 

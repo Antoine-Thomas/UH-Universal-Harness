@@ -179,9 +179,9 @@ def list_backups(home: Optional[Path] = None) -> List[Dict[str, Any]]:
             {
                 "name": path.name,
                 "bytes": stat.st_size,
-                "modified": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(
-                    timespec="seconds"
-                ),
+                "modified": datetime.fromtimestamp(stat.st_mtime)
+                .astimezone()
+                .isoformat(timespec="seconds"),
             }
         )
     return found
@@ -243,9 +243,11 @@ def inspect(path: Path) -> Dict[str, Any]:
     # At least one thing UH recognises: a zip of holiday photos is not a backup,
     # but a home that never got a database (skills and dreams only) is one.
     entries = {"uh.db", "MEMORY.md", "config.toml"} & set(clean)
-    folders = [prefix for prefix in ("dreams/", "skills/", "uploads/") if any(
-        name.startswith(prefix) for name in clean
-    )]
+    folders = [
+        prefix
+        for prefix in ("dreams/", "skills/", "uploads/")
+        if any(name.startswith(prefix) for name in clean)
+    ]
     if not entries and not folders:
         raise BackupError(
             "this archive holds no UH data: no uh.db, MEMORY.md, config.toml, "

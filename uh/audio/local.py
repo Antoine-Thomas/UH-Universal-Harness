@@ -24,9 +24,7 @@ XTTS_VENV = Path.home() / ".uhb" / "xtts"
 PIPER_DIR = Path(os.environ.get("UH_HOME") or (Path.home() / ".uh")) / "bin"
 #: Existing installs this machine already owns, in the order they are tried after
 #: the canonical one. Reusing a provisioned XTTS beats downloading 1.8 GB again.
-XTTS_CANDIDATES = (
-    Path.home() / "xtts2_api" / ".pixi" / "envs" / "default" / "python.exe",
-)
+XTTS_CANDIDATES = (Path.home() / "xtts2_api" / ".pixi" / "envs" / "default" / "python.exe",)
 XTTS_MODEL_HINTS = (
     Path.home() / ".uhb" / "xtts" / "models" / "XTTS_2.0.2",
     Path.home() / "xtts2_api" / "models" / "XTTS_2.0.2",
@@ -104,7 +102,13 @@ def xtts_speak(text: str, reference_wav: Optional[Path] = None) -> bytes:
         if model_dir:
             env["UH_XTTS_MODEL_DIR"] = model_dir
         proc = subprocess.run(
-            args, capture_output=True, text=True, encoding="utf-8", timeout=900, check=False, env=env,
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=900,
+            check=False,
+            env=env,
         )
         if proc.returncode != 0 or not out.is_file():
             raise RuntimeError(f"xtts a échoué : {(proc.stderr or proc.stdout)[-300:]}")
@@ -137,8 +141,12 @@ def piper_speak(text: str) -> bytes:
         out = Path(folder) / "out.wav"
         proc = subprocess.run(
             [binary, "--model", str(voice), "--output_file", str(out)],
-            input=text, capture_output=True, text=True, encoding="utf-8",
-            timeout=300, check=False,
+            input=text,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=300,
+            check=False,
         )
         if proc.returncode != 0 or not out.is_file():
             raise RuntimeError(f"piper a échoué : {(proc.stderr or '')[-300:]}")

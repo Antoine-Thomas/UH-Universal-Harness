@@ -80,7 +80,9 @@ def _yaml_block(lines: List[tuple[int, str]], index: int, indent: int) -> tuple[
         if text.startswith("- "):
             break
         if "\t" in raw:
-            raise MCPImportError(f"ligne {number}: les tabulations sont refusées, utilise des espaces")
+            raise MCPImportError(
+                f"ligne {number}: les tabulations sont refusées, utilise des espaces"
+            )
         key, separator, rest = text.partition(":")
         if not separator or not key.strip():
             raise MCPImportError(f"ligne {number}: 'clé: valeur' attendu")
@@ -189,12 +191,17 @@ def servers(payload: Any) -> List[Dict[str, Any]]:
 
     pairs: List[tuple[str, Any]] = []
     if isinstance(payload, list):
-        pairs = [(str(item.get("name") or f"serveur-{index + 1}"), item) for index, item in enumerate(payload)]
+        pairs = [
+            (str(item.get("name") or f"serveur-{index + 1}"), item)
+            for index, item in enumerate(payload)
+        ]
     elif isinstance(payload, dict):
         if _looks_like_server(payload):
             pairs = [(str(payload.get("name") or "serveur"), payload)]
         else:
-            pairs = [(str(name), entry) for name, entry in payload.items() if isinstance(entry, dict)]
+            pairs = [
+                (str(name), entry) for name, entry in payload.items() if isinstance(entry, dict)
+            ]
     if not pairs:
         raise MCPImportError("aucun serveur trouvé dans le fichier")
     if len(pairs) > 20:

@@ -26,9 +26,9 @@ def test_the_install_guide_names_the_one_door_per_subject() -> None:
 
 def test_the_install_guide_carries_the_pip_ceilings() -> None:
     section = INSTALL.split("## Pip conflicts")[1].split("\n## ")[0]
-    assert 'tomlkit<0.15.0' in section
-    assert 'importlib-metadata<9.0' in section
-    assert 'openai<3.0.0' in section
+    assert "tomlkit<0.15.0" in section
+    assert "importlib-metadata<9.0" in section
+    assert "openai<3.0.0" in section
     # The range measured on the machine that raised the conflict, not the old
     # `pydantic<2.12` ceiling: that one contradicted every constraint it named.
     assert "pydantic>=2.12.5,<3" in section

@@ -137,9 +137,9 @@ def _entry(path: Path, origin: str) -> Optional[Dict[str, Any]]:
         "native": origin == "native",
         "path": str(path),
         "bytes": stat.st_size,
-        "modified": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(
-            timespec="seconds"
-        ),
+        "modified": datetime.fromtimestamp(stat.st_mtime)
+        .astimezone()
+        .isoformat(timespec="seconds"),
     }
 
 
@@ -206,9 +206,7 @@ def create(
         raise SkillError("a skill needs instructions: a title alone teaches nothing")
     stem = (name or _slug(clean_title)).strip().lower()
     if not NAME.match(stem):
-        raise SkillError(
-            "the name becomes a file name: lowercase letters, digits, - and _ only"
-        )
+        raise SkillError("the name becomes a file name: lowercase letters, digits, - and _ only")
     folder = user_dir(home)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{stem}.md"
@@ -289,7 +287,9 @@ def delete(name: str, home: Optional[Path] = None) -> Dict[str, Any]:
     return {"name": stem, "deleted": True}
 
 
-def duplicate(name: str, *, new_name: Optional[str] = None, home: Optional[Path] = None) -> Dict[str, Any]:
+def duplicate(
+    name: str, *, new_name: Optional[str] = None, home: Optional[Path] = None
+) -> Dict[str, Any]:
     """Copy a user skill under a new name. The copy is independent from then on."""
     source = read_skill(name, home) or {}
     if not source or str(source.get("origin")) != "user":
@@ -388,7 +388,7 @@ def duplicate_groups(
         if first["name"] in seen:
             continue
         group = [first]
-        for other in entries[index + 1:]:
+        for other in entries[index + 1 :]:
             if other["name"] in seen:
                 continue
             left_title = str(first["title"]).strip().lower()
@@ -399,7 +399,9 @@ def duplicate_groups(
             if left_description and right_description:
                 # Two empty descriptions are "identical" to difflib and would merge
                 # every undocumented skill into one. Only compare what exists.
-                ratio = max(ratio, SequenceMatcher(None, left_description, right_description).ratio())
+                ratio = max(
+                    ratio, SequenceMatcher(None, left_description, right_description).ratio()
+                )
             if ratio >= threshold:
                 group.append(other)
                 seen.add(other["name"])
@@ -437,7 +439,9 @@ def compress(
             source = folder / f"{name}.md"
             if not source.is_file():
                 continue
-            parts.append(f"\n\n## Merged from {name}\n\n{source.read_text(encoding='utf-8').strip()}")
+            parts.append(
+                f"\n\n## Merged from {name}\n\n{source.read_text(encoding='utf-8').strip()}"
+            )
             pending.append(source)
         target.write_text("\n".join(parts) + "\n", encoding="utf-8")
         if pending:

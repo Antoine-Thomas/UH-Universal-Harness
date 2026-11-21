@@ -29,11 +29,9 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, url: str, **extra: 
     monkeypatch.setenv("UH_HOME", str(tmp_path))
     lines = ["[[mcp.servers]]", 'name = "positron"', 'transport = "http"', f'url = "{url}"']
     if extra.get("allow"):
-        lines.append(
-            "allow = [" + ", ".join(f'"{item}"' for item in extra["allow"]) + "]"
-        )
+        lines.append("allow = [" + ", ".join(f'"{item}"' for item in extra["allow"]) + "]")
     if extra.get("token"):
-        lines.append('insecure = true')
+        lines.append("insecure = true")
     (tmp_path / "config.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
     if extra.get("token"):
         from uh import mcp_cloud

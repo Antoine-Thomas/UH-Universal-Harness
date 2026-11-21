@@ -41,7 +41,9 @@ def test_the_catalog_is_shown_and_no_free_text_command_exists(browser, server_no
     try:
         open_tasks(page)
         page.wait_for_selector("#tasks-catalog .tasks-catalog-line", timeout=20000)
-        keys = page.eval_on_selector_all("#tasks-catalog .tasks-key", "els => els.map(e => e.textContent.trim())")
+        keys = page.eval_on_selector_all(
+            "#tasks-catalog .tasks-key", "els => els.map(e => e.textContent.trim())"
+        )
         assert keys == ["doctor", "dream", "runs-prune"], keys
         # La commande est un <select> rempli par le serveur : pas de champ libre.
         assert page.eval_on_selector("#task-command", "el => el.tagName") == "SELECT"
@@ -66,7 +68,9 @@ def test_create_run_toggle_delete_from_the_panel(browser, server_no_triggers) ->
         page.click("#task-create")
         page.wait_for_selector("#tasks-list .task-row", timeout=20000)
         row = "#tasks-list .task-row"
-        assert page.eval_on_selector(f"{row} .task-name", "el => el.textContent") == "e2e diagnostic"
+        assert (
+            page.eval_on_selector(f"{row} .task-name", "el => el.textContent") == "e2e diagnostic"
+        )
         assert "activée" in page.eval_on_selector(f"{row} .task-flag", "el => el.textContent")
         assert "15 min" in page.eval_on_selector(f"{row} .task-every", "el => el.textContent")
         assert page.eval_on_selector(f"{row} .task-last", "el => el.textContent") == "jamais lancée"
@@ -92,7 +96,11 @@ def test_create_run_toggle_delete_from_the_panel(browser, server_no_triggers) ->
         )
         page.click(f"{row} button[data-action='delete']")
         page.wait_for_selector("#tasks-list .tasks-empty", timeout=20000)
-        assert page.eval_on_selector("#tasks-list", "el => el.innerText").strip().startswith("Aucune tâche")
+        assert (
+            page.eval_on_selector("#tasks-list", "el => el.innerText")
+            .strip()
+            .startswith("Aucune tâche")
+        )
     finally:
         context.close()
 
@@ -117,7 +125,9 @@ def test_the_registry_survives_a_reload(browser, server_no_triggers) -> None:
     try:
         open_tasks(page)
         page.wait_for_selector("#tasks-list .task-row", timeout=20000)
-        names = page.eval_on_selector_all("#tasks-list .task-name", "els => els.map(e => e.textContent)")
+        names = page.eval_on_selector_all(
+            "#tasks-list .task-name", "els => els.map(e => e.textContent)"
+        )
         assert "persistante" in names, names
         registry = (server_no_triggers.home / "schedules.json").read_text(encoding="utf-8")
         assert "persistante" in registry

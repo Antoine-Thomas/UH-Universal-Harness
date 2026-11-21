@@ -80,7 +80,7 @@ def test_the_first_launch_is_a_banner_not_a_wall() -> None:
     assert "maybeOpenSetup" not in APP_JS, "the blocking setup modal is gone"
     start = APP_JS.index("async function showSetupBanner(")
     body = APP_JS[start : start + 2500]
-    assert 'banner.hidden = false' in body
+    assert "banner.hidden = false" in body
     assert "modal-backdrop" not in body, "a banner is not a modal"
     assert "localStorage.setItem(SETUP_DISMISSED" in body, "« Plus tard » is remembered"
     boot = APP_JS[APP_JS.index("async function boot(") :][:6000]
@@ -94,7 +94,7 @@ def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     # P3-16b: five groups by usage - Projets | Decision | Outils & Connexions |
     # Cerveau & Memoire | Modeles & Fournisseurs - and the sections live inside them.
     groups = [
-        ('group-projects', "Projets"),
+        ("group-projects", "Projets"),
         ("group-decision", "Décision"),
         ("group-tools", "Outils &amp; Connexions"),
         ("group-brain", "Cerveau &amp; Mémoire"),
@@ -108,8 +108,24 @@ def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     assert positions == sorted(positions), "l'ordre des groupes est celui du strip"
     # Each section is declared once, in the pool that showPanelTab fills.
     pool = html[html.index('id="panel-pool"') : html.index('id="panel-subtabs"')]
-    for leaf in ("projects", "files", "decision", "role", "tools", "conn", "uhb", "infra", "tasks", "extensions",
-                 "memory", "telemetry", "data", "keys", "models", "local"):
+    for leaf in (
+        "projects",
+        "files",
+        "decision",
+        "role",
+        "tools",
+        "conn",
+        "uhb",
+        "infra",
+        "tasks",
+        "extensions",
+        "memory",
+        "telemetry",
+        "data",
+        "keys",
+        "models",
+        "local",
+    ):
         assert f'id="tab-{leaf}"' in pool, f"section {leaf} absente du réservoir"
     assert html.index('id="panel-subtabs"') > html.index('id="panel-pool"')
     # The groups a section belongs to are declared in the script, and every section
@@ -132,12 +148,14 @@ def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     # twice, and a tab nobody can name is a tab nobody opens.
     assert 'id="tab-providers"' not in html
     assert 'id="providers-view"' not in html
-    assert 'id="providers-list"' in html and html.index('id="keys-view"') < html.index('id="providers-list"')
+    assert 'id="providers-list"' in html and html.index('id="keys-view"') < html.index(
+        'id="providers-list"'
+    )
     assert 'providers: "keys"' in APP_JS, "an old ?panel=providers link still lands"
     assert 'id="local-view"' in html and 'id="local-panel"' in html
     assert '"local"' in APP_JS.split("const PANEL_TABS = new Set([")[1].split("])")[0]
     assert 'showPanelTab("local")' in APP_JS
-    assert 'loadLocalPanel().catch' in APP_JS
+    assert "loadLocalPanel().catch" in APP_JS
 
 
 def test_the_local_ai_panel_installs_nothing_behind_your_back() -> None:
@@ -154,7 +172,6 @@ def test_the_local_ai_panel_installs_nothing_behind_your_back() -> None:
     assert "127.0.0.1:8080" in body, "TGI local is detected, not installed"
     assert "/api/models/pull" in body
     assert 'showPanelTab("keys")' in body
-
 
 
 def first_call_present() -> bool:
@@ -211,7 +228,9 @@ def test_the_model_menu_carries_the_provider_and_a_badge() -> None:
     assert 'api("/api/model"' in body
     # A refused switch puts the selector back: nothing changed server-side.
     assert "select.value = `${current.provider}/${current.id}`" in body
-    assert 'id="model-note"' in (ROOT / "uh" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'id="model-note"' in (ROOT / "uh" / "web" / "static" / "index.html").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_every_provider_card_can_be_cloned() -> None:
@@ -232,7 +251,7 @@ def test_the_telemetry_panel_shows_the_evaluation_table() -> None:
 
 def test_the_local_models_have_no_second_button() -> None:
     """The row is the action; "Utiliser" was a third way to say the same thing."""
-    start = APP_JS.index("const list = el(\"div\", \"local-models\");")
+    start = APP_JS.index('const list = el("div", "local-models");')
     body = APP_JS[start : start + 2400]
     assert '"Utiliser"' not in body.replace("Utiliser ${name}", "")
     assert "local-model-pick" in body
@@ -267,7 +286,7 @@ def test_the_model_menu_separates_api_from_local() -> None:
     assert '["API (cloud)", apiChoices]' in body, "cloud models are their own group, first"
     assert '["Local (Ollama)", localChoices]' in body, "local models are the second group"
     assert "Number(b.size || 0) - Number(a.size || 0)" in body, "local models sort by weight"
-    assert "replace(\"API · \", \"\")" in body, "the provider is shown next to the id"
+    assert 'replace("API · ", "")' in body, "the provider is shown next to the id"
     assert "Go" in body, "a local line carries its size"
 
 

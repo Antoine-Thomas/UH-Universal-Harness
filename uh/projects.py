@@ -356,21 +356,36 @@ def log(path: str | Path, limit: int = 30, offset: int = 0) -> Dict[str, Any]:
     wanted = max(1, min(int(limit or 30), 200))
     skip = max(0, int(offset or 0))
     try:
-        proc = _git(root, "log", f"--max-count={wanted + 1}", f"--skip={skip}", f"--pretty={LOG_FIELDS}")
+        proc = _git(
+            root, "log", f"--max-count={wanted + 1}", f"--skip={skip}", f"--pretty={LOG_FIELDS}"
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ProjectsError(f"git log a échoué : {type(exc).__name__}") from exc
     if proc.returncode != 0:
         # Un dépôt sans commit : ce n'est pas une erreur, c'est un journal vide.
         reason = (proc.stderr or "").strip()
-        return {"ok": True, "commits": [], "limit": wanted, "offset": skip,
-                "has_more": False, "reason": reason[:200]}
+        return {
+            "ok": True,
+            "commits": [],
+            "limit": wanted,
+            "offset": skip,
+            "has_more": False,
+            "reason": reason[:200],
+        }
     commits: List[Dict[str, str]] = []
     for line in proc.stdout.splitlines():
         parts = line.split("\x1f")
         if len(parts) != 5:
             continue
-        commits.append({"sha": parts[0], "short": parts[1], "author": parts[2],
-                        "date": parts[3], "subject": parts[4]})
+        commits.append(
+            {
+                "sha": parts[0],
+                "short": parts[1],
+                "author": parts[2],
+                "date": parts[3],
+                "subject": parts[4],
+            }
+        )
     return {
         "ok": True,
         "commits": commits[:wanted],
@@ -449,7 +464,9 @@ def commit(path: str | Path, message: str) -> Dict[str, Any]:
     if not text:
         raise ProjectsError("un message de commit est obligatoire")
     if len(text) > COMMIT_MAX_CHARS:
-        raise ProjectsError(f"message trop long ({len(text)} caractères, maximum {COMMIT_MAX_CHARS})")
+        raise ProjectsError(
+            f"message trop long ({len(text)} caractères, maximum {COMMIT_MAX_CHARS})"
+        )
     try:
         proc = _git(root, "commit", "-m", text)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -464,7 +481,6 @@ def commit(path: str | Path, message: str) -> Dict[str, Any]:
         "message": text,
         "project": describe(root),
     }
-
 
 
 __all__ = [

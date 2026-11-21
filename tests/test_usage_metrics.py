@@ -165,7 +165,9 @@ def test_omnirouter_blocking_reads_model_and_usage(monkeypatch) -> None:
     monkeypatch.setattr(
         httpx,
         "post",
-        lambda *a, **k: type("R", (), {"status_code": 200, "text": "", "json": lambda s: payload})(),
+        lambda *a, **k: type(
+            "R", (), {"status_code": 200, "text": "", "json": lambda s: payload}
+        )(),
     )
 
     provider = OmniRouterProvider(model="auto/best-free", base_url=URL, api_key="k")
@@ -186,7 +188,9 @@ def test_ollama_blocking_reads_its_own_counters(monkeypatch) -> None:
     monkeypatch.setattr(
         httpx,
         "post",
-        lambda *a, **k: type("R", (), {"status_code": 200, "text": "", "json": lambda s: payload})(),
+        lambda *a, **k: type(
+            "R", (), {"status_code": 200, "text": "", "json": lambda s: payload}
+        )(),
     )
 
     provider = OllamaProvider("tinyllama:latest", base_url_override="http://127.0.0.1:11434")

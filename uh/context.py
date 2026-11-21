@@ -167,9 +167,7 @@ def _show_context(model: str, timeout: float) -> Optional[int]:
     import httpx
 
     try:
-        response = httpx.post(
-            f"{_ollama_base()}/api/show", json={"model": model}, timeout=timeout
-        )
+        response = httpx.post(f"{_ollama_base()}/api/show", json={"model": model}, timeout=timeout)
     except Exception:  # noqa: BLE001 - Ollama down is a normal state
         return None
     if response.status_code != 200:
@@ -261,9 +259,7 @@ def _first_line(message: dict, limit: int = 140) -> str:
 
 def condense(messages: Sequence[dict], limit: int = 1200) -> str:
     """Deterministic stand-in for a model summary: role + first line, most recent last."""
-    lines = [
-        f"[summary of {len(messages)} earlier messages, condensed without a model call]"
-    ]
+    lines = [f"[summary of {len(messages)} earlier messages, condensed without a model call]"]
     for message in messages:
         role = str(message.get("role") or "?")
         lines.append(f"- {role}: {_first_line(message)}")
@@ -471,9 +467,7 @@ class ContextManager:
                     tail.remove(longest)
                     continue
                 keep = max(80, min(len(content) // 2, len(content) - 40))
-                longest["content"] = content[:keep] + TRUNCATION.format(
-                    omitted=len(content) - keep
-                )
+                longest["content"] = content[:keep] + TRUNCATION.format(omitted=len(content) - keep)
             if tail:
                 return systems + tail
         return systems

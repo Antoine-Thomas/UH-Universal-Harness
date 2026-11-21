@@ -27,9 +27,7 @@ def no_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def test_an_explicit_environment_wins(
-    monkeypatch: pytest.MonkeyPatch, no_env: None
-) -> None:
+def test_an_explicit_environment_wins(monkeypatch: pytest.MonkeyPatch, no_env: None) -> None:
     monkeypatch.setenv("UH_OMNIROUTER_API_KEY", "from-env")
     monkeypatch.setattr(uh_keys, "get_provider", lambda name: {"key": "from-store"})
     monkeypatch.setattr(om, "_dotenv", lambda: {"OMNIROUTE_API_KEY": "from-file"})
@@ -47,9 +45,7 @@ def test_the_key_typed_in_the_panel_beats_the_gateways_file(
     assert om.resolve_api_key() == "from-store"
 
 
-def test_the_dotenv_is_the_last_resort(
-    monkeypatch: pytest.MonkeyPatch, no_env: None
-) -> None:
+def test_the_dotenv_is_the_last_resort(monkeypatch: pytest.MonkeyPatch, no_env: None) -> None:
     monkeypatch.setattr(uh_keys, "get_provider", lambda name: None)
     monkeypatch.setattr(om, "_dotenv", lambda: {"OMNIROUTE_API_KEY": "from-file"})
 

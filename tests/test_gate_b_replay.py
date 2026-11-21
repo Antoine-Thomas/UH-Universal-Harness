@@ -36,9 +36,15 @@ class StubProvider:
 def make_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
     (tmp_path / "home").mkdir(parents=True, exist_ok=True)
-    return create_app(token=TOKEN, port=8765, host="127.0.0.1", workspace=tmp_path,
-                      provider_factory=lambda kind, model: StubProvider(),
-                      kind="stub", model="stub:1b")
+    return create_app(
+        token=TOKEN,
+        port=8765,
+        host="127.0.0.1",
+        workspace=tmp_path,
+        provider_factory=lambda kind, model: StubProvider(),
+        kind="stub",
+        model="stub:1b",
+    )
 
 
 def post_mode(app, headers: dict) -> int:

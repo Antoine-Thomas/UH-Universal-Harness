@@ -81,7 +81,7 @@ def test_the_role_is_appended_to_the_prompt_and_says_what_it_cannot_do() -> None
     with_role = system_message(Path("."), "", chosen)["content"]
 
     assert with_role.startswith(base), "le prompt de base doit rester intact, octet pour octet"
-    assert with_role[len(base):] == roles.prompt_block(chosen)
+    assert with_role[len(base) :] == roles.prompt_block(chosen)
     assert "Auditeur sécurité" in with_role
     assert "never changes which tools" in with_role
 
@@ -129,9 +129,13 @@ def _snapshot(home: Path, workspace: Path) -> dict:
 def test_a_role_changes_no_skill_no_tool_and_no_mcp(tmp_path, monkeypatch) -> None:
     home = tmp_path / "home"
     (home / "skills" / "audit").mkdir(parents=True)
-    (home / "skills" / "audit" / "SKILL.md").write_text("---\nname: audit\n---\nAudit.\n", encoding="utf-8")
+    (home / "skills" / "audit" / "SKILL.md").write_text(
+        "---\nname: audit\n---\nAudit.\n", encoding="utf-8"
+    )
     (home / "skills" / "audit" / "references").mkdir()
-    (home / "skills" / "audit" / "references" / "rules.md").write_text("Regles.\n", encoding="utf-8")
+    (home / "skills" / "audit" / "references" / "rules.md").write_text(
+        "Regles.\n", encoding="utf-8"
+    )
     (home / "config.toml").write_text(HOME_CONFIG, encoding="utf-8")
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -151,7 +155,9 @@ def test_a_role_changes_no_skill_no_tool_and_no_mcp(tmp_path, monkeypatch) -> No
 
     assert "Domotique / Home Assistant" in prompt, "la voix, elle, change"
     assert after["skills"] == before["skills"], "aucun fichier de skill ne bouge (octet pour octet)"
-    assert after["config"] == before["config"], "la configuration MCP est intacte (octet pour octet)"
+    assert after["config"] == before["config"], (
+        "la configuration MCP est intacte (octet pour octet)"
+    )
     assert after["toolsets"] == before["toolsets"], "la liste des toolsets actifs est identique"
     assert after["schemas"] == before["schemas"], "les schemas d'outils sont identiques"
 

@@ -112,5 +112,7 @@ class HuggingFaceProvider(OmniRouterProvider):
             )
         # The parent resolves nothing of its own when both are given: it stores
         # exactly what it is handed.
-        super().__init__(model=model or DEFAULT_MODEL, base_url=resolved, api_key=key, timeout=timeout)
+        super().__init__(
+            model=model or DEFAULT_MODEL, base_url=resolved, api_key=key, timeout=timeout
+        )
         self.local = local

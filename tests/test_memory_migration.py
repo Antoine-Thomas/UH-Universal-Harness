@@ -26,9 +26,9 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _produce_real_memory_file(home: Path) -> Path:
     """Write through the toolset, exactly as the agent would - no hand-made fixture."""
     toolset = MemoryToolset()  # UH_HOME is patched: writes $UH_HOME/MEMORY.md
-    assert toolset.call("memory_write", {"section": "Notes", "content": "- le chat aime le clavier"})[
-        "path"
-    ]
+    assert toolset.call(
+        "memory_write", {"section": "Notes", "content": "- le chat aime le clavier"}
+    )["path"]
     toolset.call("memory_write", {"section": "Preferences", "content": "- reponses en francais"})
     path = memory_path()
     assert path.is_file()

@@ -137,7 +137,6 @@ def retry_transport(
     raise AssertionError("unreachable: the loop returns or raises")
 
 
-
 def request_messages(
     messages: List[dict], wire: str = "openai", tools: Optional[List[dict]] = None
 ) -> List[dict]:

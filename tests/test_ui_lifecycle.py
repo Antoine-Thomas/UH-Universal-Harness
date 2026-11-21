@@ -93,7 +93,7 @@ def test_one_instance_per_port() -> None:
     assert '"/healthz"' in source
     assert "_uh_version_on(" in source
     assert "sert déjà UH" in source
-    assert "port_fallback=bool(getattr(args, \"port_fallback\", False))" in cli
+    assert 'port_fallback=bool(getattr(args, "port_fallback", False))' in cli
     assert "--quit-existing" in cli and "--rotate-token" in cli
 
 
@@ -111,7 +111,10 @@ def test_an_orphan_uhb_can_be_stopped_by_its_pid_file(tmp_path, monkeypatch) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     # A pid that exists but is not a UHB (this test process): checking the command
     # line is what stops a recycled pid from costing an unrelated process.
-    path.write_text('{"pid": %d, "url": "http://127.0.0.1:8101", "origin": "test"}' % __import__("os").getpid(), encoding="utf-8")
+    path.write_text(
+        '{"pid": %d, "url": "http://127.0.0.1:8101", "origin": "test"}' % __import__("os").getpid(),
+        encoding="utf-8",
+    )
 
     assert uhb_spawn.stop_recorded(timeout=3) is False
     assert not path.exists(), "a stale record is cleaned up, not retried forever"

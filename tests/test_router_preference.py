@@ -18,7 +18,15 @@ def _chain_kinds(monkeypatch: pytest.MonkeyPatch, *, ollama_up: bool, prefer: st
     # what it needs.
     monkeypatch.setenv("UH_OMNIROUTER_URL", "http://127.0.0.1:20128")
     monkeypatch.setattr(cli, "list_models", lambda: [{"name": "qwen3:8b"}] if ollama_up else [])
-    monkeypatch.setattr(cli, "_make_provider", lambda kind, model: providers.OllamaProvider("qwen3:8b") if kind == "ollama" else providers.OmniRouterProvider("auto/best-free"))
+    monkeypatch.setattr(
+        cli,
+        "_make_provider",
+        lambda kind, model: (
+            providers.OllamaProvider("qwen3:8b")
+            if kind == "ollama"
+            else providers.OmniRouterProvider("auto/best-free")
+        ),
+    )
     monkeypatch.setattr(cli, "_cloudflare_entry", lambda: None)
     monkeypatch.setattr(cli, "_deepseek_entry", lambda: None)
     monkeypatch.setattr(cli, "_router_entry_if_configured", lambda: None)
@@ -77,15 +85,21 @@ def test_a_local_failure_falls_back_without_failing_the_pass(
             return dict(self._usage)
 
         def chat(self, messages, tools):
-            return {"content": '{"duplicates": [], "orphans": [], "inconsistencies": [], "ideas": []}'}
+            return {
+                "content": '{"duplicates": [], "orphans": [], "inconsistencies": [], "ideas": []}'
+            }
 
     engine = DreamScheduler(
         config=DreamConfig(output_dir=tmp_path, sources=("siyuan",)),
         provider=FlakyLocal(),
         uhb_url="http://127.0.0.1:8101",
-        client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(
-            200, json={"complexity": "standard", "blocks": [{"type": "p", "content": "x"}]}
-        ))),
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(
+                    200, json={"complexity": "standard", "blocks": [{"type": "p", "content": "x"}]}
+                )
+            )
+        ),
     )
 
     report = engine.run_once()

@@ -141,4 +141,13 @@ def speech(
     return audio
 
 
-__all__ = ["BASE_URL", "KEY_ENV", "STT_MODEL", "TTS_MODEL", "VoxtralError", "health", "speech", "transcribe"]
+__all__ = [
+    "BASE_URL",
+    "KEY_ENV",
+    "STT_MODEL",
+    "TTS_MODEL",
+    "VoxtralError",
+    "health",
+    "speech",
+    "transcribe",
+]

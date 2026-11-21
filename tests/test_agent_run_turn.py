@@ -26,7 +26,11 @@ class ScriptedProvider:
 
 
 def tool_call(name: str, **arguments) -> dict:
-    return {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": name, "arguments": arguments}}]}
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
+    }
 
 
 def test_tool_call_then_final_answer(tmp_path: Path) -> None:
@@ -57,7 +61,9 @@ def test_tool_definitions_are_sent_to_provider(tmp_path: Path) -> None:
             seen["tools"] = tools
             return {"role": "assistant", "content": "ok"}
 
-    run_turn([{"role": "user", "content": "hi"}], Recorder(), {"file": FileToolset(workspace=tmp_path)})
+    run_turn(
+        [{"role": "user", "content": "hi"}], Recorder(), {"file": FileToolset(workspace=tmp_path)}
+    )
 
     names = [tool["function"]["name"] for tool in seen["tools"]]
     assert {"read_file", "write_file", "patch", "search_files"} <= set(names)
@@ -131,7 +137,9 @@ def test_sandbox_error_is_reported_not_raised(tmp_path: Path) -> None:
     )
 
     history = run_turn(
-        [{"role": "user", "content": "escape"}], provider, {"file": FileToolset(workspace=workspace)}
+        [{"role": "user", "content": "escape"}],
+        provider,
+        {"file": FileToolset(workspace=workspace)},
     )
 
     payload = json.loads(history[2]["content"])
@@ -233,7 +241,9 @@ def test_a_model_that_keeps_writing_code_is_bounded_to_two_nudges() -> None:
     assert len(provider.calls) == 3, "the first answer plus exactly two relances"
     assert len(notices) == 1 and "execute_code" in notices[0]
     assert "2 relances" in notices[0], "the notice says how many attempts were made"
-    assert last_assistant_message(history)["content"].startswith("```bash"), "the answer still reaches the user"
+    assert last_assistant_message(history)["content"].startswith("```bash"), (
+        "the answer still reaches the user"
+    )
     assert sum(1 for call in provider.calls[1:] if call[-1]["role"] == "system") == 2
 
 
@@ -257,6 +267,7 @@ def test_a_truncated_answer_says_so_and_keeps_the_history_clean(tmp_path: Path) 
     transcript - the next provider payload gets the three keys every backend
     accepts, nothing more.
     """
+
     class Cutting:
         def __init__(self) -> None:
             self.calls: list[list[dict]] = []

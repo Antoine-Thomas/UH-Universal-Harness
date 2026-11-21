@@ -71,9 +71,26 @@ def _to_flac(source: Path, target: Path) -> Dict[str, Any]:
     import subprocess
 
     proc = subprocess.run(
-        [binary, "-y", "-i", str(source), "-c:a", "flac", "-sample_fmt", "s32",
-         "-ar", "48000", "-ac", "2", str(target)],
-        capture_output=True, text=True, encoding="utf-8", timeout=180, check=False,
+        [
+            binary,
+            "-y",
+            "-i",
+            str(source),
+            "-c:a",
+            "flac",
+            "-sample_fmt",
+            "s32",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            str(target),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=180,
+        check=False,
     )
     if proc.returncode != 0 or not target.is_file():
         raise MemoryError(f"ffmpeg a refusé la conversion : {proc.stderr[-160:]}")
@@ -212,4 +229,14 @@ def weight() -> Dict[str, Any]:
     return {"root": str(root), "bytes": total, "by_kind": by_kind, "entries": len(entries())}
 
 
-__all__ = ["INDEX_FILE", "MEMORY_DIR", "MemoryError", "drop_for", "entries", "index_path", "keep", "memory_root", "weight"]
+__all__ = [
+    "INDEX_FILE",
+    "MEMORY_DIR",
+    "MemoryError",
+    "drop_for",
+    "entries",
+    "index_path",
+    "keep",
+    "memory_root",
+    "weight",
+]

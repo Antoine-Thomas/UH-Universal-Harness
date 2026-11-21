@@ -63,10 +63,16 @@ def test_ollama_maps_max_tokens_to_num_predict() -> None:
 def test_ollama_sends_its_options_and_nothing_unsupported(monkeypatch) -> None:
     seen = capture(
         monkeypatch,
-        {"message": {"role": "assistant", "content": "ok"}, "prompt_eval_count": 1, "eval_count": 1},
+        {
+            "message": {"role": "assistant", "content": "ok"},
+            "prompt_eval_count": 1,
+            "eval_count": 1,
+        },
     )
     provider = OllamaProvider(model="qwen3:8b")
-    provider.set_params({"temperature": 0.2, "top_p": 0.9, "max_tokens": 256, "reasoning_effort": "high"})
+    provider.set_params(
+        {"temperature": 0.2, "top_p": 0.9, "max_tokens": 256, "reasoning_effort": "high"}
+    )
 
     provider.chat([{"role": "user", "content": "salut"}], [])
 
@@ -80,7 +86,11 @@ def test_ollama_sends_its_options_and_nothing_unsupported(monkeypatch) -> None:
 def test_ollama_without_params_sends_no_options(monkeypatch) -> None:
     seen = capture(
         monkeypatch,
-        {"message": {"role": "assistant", "content": "ok"}, "prompt_eval_count": 1, "eval_count": 1},
+        {
+            "message": {"role": "assistant", "content": "ok"},
+            "prompt_eval_count": 1,
+            "eval_count": 1,
+        },
     )
     provider = OllamaProvider(model="qwen3:8b")
 

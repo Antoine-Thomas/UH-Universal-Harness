@@ -149,7 +149,9 @@ def make_server(tmp_path: Path):
         workspace: Path | None = None,
         extra_env: dict[str, str] | None = None,
     ) -> Server:
-        server = Server(tmp_path / name, port or free_port(), workspace=workspace, extra_env=extra_env)
+        server = Server(
+            tmp_path / name, port or free_port(), workspace=workspace, extra_env=extra_env
+        )
         started.append(server)
         return server.start()
 

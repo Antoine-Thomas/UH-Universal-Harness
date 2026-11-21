@@ -35,8 +35,7 @@ class FakeToolset:
 
     def __init__(self, names: tuple[str, ...]) -> None:
         self.tools = [
-            {"type": "function", "function": {"name": name, "parameters": {}}}
-            for name in names
+            {"type": "function", "function": {"name": name, "parameters": {}}} for name in names
         ]
         self.called: list[str] = []
 
@@ -166,8 +165,10 @@ def _toolset_in_chat_mode(approver=None) -> uhb_mod.Uhbtoolset:
         return httpx.Response(200, json=_catalogue_chat_mode())
 
     return uhb_mod.Uhbtoolset(
-        URL, client=httpx.Client(transport=httpx.MockTransport(handler)),
-        discover=True, approver=approver,
+        URL,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        discover=True,
+        approver=approver,
     )
 
 
@@ -189,8 +190,13 @@ def test_a_withheld_uh_tool_explains_itself(tmp_path: Path, monkeypatch) -> None
 def test_the_frame_that_builds_the_card_is_keyed_on_mode_forbidden() -> None:
     """The link between the tool result and the browser's « Autoriser » card."""
     content = json.dumps(
-        {"error": "…", "type": "forbidden", "tool": "write_file",
-         "reason": "mode_forbidden", "mode": "chat"}
+        {
+            "error": "…",
+            "type": "forbidden",
+            "tool": "write_file",
+            "reason": "mode_forbidden",
+            "mode": "chat",
+        }
     )
 
     frame = mode_gate.mode_refused_frame("write_file", content)
@@ -201,9 +207,11 @@ def test_the_frame_that_builds_the_card_is_keyed_on_mode_forbidden() -> None:
     )
     # A payload that says mode_forbidden but is not JSON still earns the card:
     # the sentence is the signal, the mode is the detail.
-    assert mode_gate.mode_refused_frame(
-        "x", "mode_forbidden (le mode refuse)"
-    ) == {"type": "mode_refused", "tool": "x", "mode": "chat"}
+    assert mode_gate.mode_refused_frame("x", "mode_forbidden (le mode refuse)") == {
+        "type": "mode_refused",
+        "tool": "x",
+        "mode": "chat",
+    }
 
 
 def test_a_mode_forbidden_tool_is_named_with_its_mode() -> None:

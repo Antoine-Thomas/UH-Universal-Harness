@@ -253,6 +253,7 @@ class Console:
 # session state
 # --------------------------------------------------------------------------- #
 
+
 def intent_routing_enabled() -> bool:
     """``UH_INTENT_ROUTING=1`` turns on automatic capability selection (off by default).
 
@@ -808,9 +809,7 @@ class ChatSession:
             # message followed by silence (point 1).
             if produced:
                 if self._end_notice:
-                    produced = list(produced) + [
-                        {"role": "system", "content": self._end_notice}
-                    ]
+                    produced = list(produced) + [{"role": "system", "content": self._end_notice}]
                 try:
                     self._persist(produced)
                 except StoreError as exc:
@@ -936,9 +935,7 @@ class ChatSession:
         partial = "".join(chunks).strip()
         if not partial:
             return
-        self.history.append(
-            {"role": "assistant", "content": f"{partial}\n\n{PARTIAL_MARK}"}
-        )
+        self.history.append({"role": "assistant", "content": f"{partial}\n\n{PARTIAL_MARK}"})
 
     def _route_snapshot(self) -> Optional[dict]:
         """The UHB plan on the toolset before a turn (identity, not equality).
@@ -1039,16 +1036,16 @@ class ChatSession:
         if reported:
             for key in self.total_usage:
                 self.total_usage[key] += turn[key]
-        self.last_real_model = getattr(self.provider, "last_real_model", None) or self.last_real_model
+        self.last_real_model = (
+            getattr(self.provider, "last_real_model", None) or self.last_real_model
+        )
 
     def usage_summary(self) -> str:
         """``1234 tok (in 312 / out 922)``, or an explicit "not reported"."""
         if not self.last_usage:
             return "tokens non rapportés"
         usage = self.last_usage
-        return (
-            f"{usage['total']} tok (in {usage['prompt']} / out {usage['completion']})"
-        )
+        return f"{usage['total']} tok (in {usage['prompt']} / out {usage['completion']})"
 
     def usage_line(self) -> str:
         """The dim line printed after every turn: who answered, at what cost."""
@@ -1085,7 +1082,10 @@ class ChatSession:
         )
 
     def _run_into(
-        self, chunks: list[str], on_token, extra: list[dict] | None = None,
+        self,
+        chunks: list[str],
+        on_token,
+        extra: list[dict] | None = None,
         images: Optional[List[str]] = None,
     ) -> int:
         """One ``run_turn`` pass over the current history (+ optional nudge)."""
@@ -1146,7 +1146,11 @@ class ChatSession:
             if message.get("role") == "assistant" and message.get("tool_calls"):
                 for call in message["tool_calls"]:
                     function = call.get("function") or {}
-                    self._emit("tool_call", name=function.get("name", ""), args=_coerce_arguments(function.get("arguments")))
+                    self._emit(
+                        "tool_call",
+                        name=function.get("name", ""),
+                        args=_coerce_arguments(function.get("arguments")),
+                    )
             if message.get("role") == "tool":
                 self.console.errout(_tool_activity(message))
                 self._emit(
@@ -1164,7 +1168,7 @@ class ChatSession:
             return
         if streamed:
             self.console.out("")
-            remainder = content[len(streamed):] if content.startswith(streamed) else content
+            remainder = content[len(streamed) :] if content.startswith(streamed) else content
             if remainder:
                 self.console.out(remainder)
             return
@@ -1211,9 +1215,7 @@ class ChatSession:
             raise ValueError(f"not a directory: {target}")
         resolved = target.resolve()
         if sandbox.is_system_directory(resolved):
-            raise ValueError(
-                f"refused: {resolved} is a system directory; pick a project directory"
-            )
+            raise ValueError(f"refused: {resolved} is a system directory; pick a project directory")
 
         self.workspace = resolved
         moved: list[str] = []
@@ -1261,7 +1263,9 @@ class ChatSession:
             return f"'{token}' is ambiguous ({len(matches)} sessions); use a longer id"
         session = matches[0]
         self.session_id = session["id"]
-        self.history[:] = [system_message(self.workspace, role=self.role)] + self._stored_messages(session["id"])
+        self.history[:] = [system_message(self.workspace, role=self.role)] + self._stored_messages(
+            session["id"]
+        )
         return f"resumed {display_id(self.session_id)} ({len(self.history) - 1} messages)"
 
     def sessions_text(self) -> str:
@@ -1283,7 +1287,9 @@ class ChatSession:
         if self.store is None or self.session_id is None:
             return "no stored session to title yet (send a message first)"
         title = text.strip()[:120]
-        self.store.conn.execute("UPDATE sessions SET title = ? WHERE id = ?", (title, self.session_id))
+        self.store.conn.execute(
+            "UPDATE sessions SET title = ? WHERE id = ?", (title, self.session_id)
+        )
         self.store.conn.commit()
         return f"title set to '{title}'"
 

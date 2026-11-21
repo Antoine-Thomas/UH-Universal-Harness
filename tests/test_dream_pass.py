@@ -28,7 +28,11 @@ class FakeProvider:
                 "orphans": ["une note sans lien entrant"],
                 "inconsistencies": [],
                 "ideas": [
-                    {"title": "Fusionner les notes RAG", "why": "deux versions", "source": "siyuan"},
+                    {
+                        "title": "Fusionner les notes RAG",
+                        "why": "deux versions",
+                        "source": "siyuan",
+                    },
                 ],
             }
         )
@@ -53,7 +57,9 @@ class ForbiddenProvider(FakeProvider):
         raise AssertionError("a dry run must never call a model")
 
 
-def router(requests: List[tuple], *, blocks: int = 3, rag_chunks: int = 4893, route: dict | None = None):
+def router(
+    requests: List[tuple], *, blocks: int = 3, rag_chunks: int = 4893, route: dict | None = None
+):
     """A fake UHB: records every request, answers the three routes a pass uses."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -65,15 +71,20 @@ def router(requests: List[tuple], *, blocks: int = 3, rag_chunks: int = 4893, ro
                     "count": blocks,
                     "path": "/",
                     "blocks": [
-                        {"id": f"b{index}", "type": "p", "hpath": "/veille",
-                         "content": f"note numero {index} sur les routeurs"}
+                        {
+                            "id": f"b{index}",
+                            "type": "p",
+                            "hpath": "/veille",
+                            "content": f"note numero {index} sur les routeurs",
+                        }
                         for index in range(blocks)
                     ],
                 },
             )
         if request.url.path == "/rag/status":
             return httpx.Response(
-                200, json={"built": True, "source": "service", "chunks": rag_chunks, "service": True}
+                200,
+                json={"built": True, "source": "service", "chunks": rag_chunks, "service": True},
             )
         if request.url.path == "/route":
             return httpx.Response(
@@ -122,19 +133,28 @@ def test_dream_pass_reads_siyuan_and_rag(passes: Path) -> None:
 def test_dream_never_writes_to_siyuan(passes: Path) -> None:
     seen: List[tuple] = []
     engine = DreamScheduler(
-        config=DreamConfig(output_dir=passes), provider=FakeProvider(), uhb_url=UHB, client=router(seen)
+        config=DreamConfig(output_dir=passes),
+        provider=FakeProvider(),
+        uhb_url=UHB,
+        client=router(seen),
     )
 
     engine.run_once()
 
-    writes = [entry for entry in seen if entry[0] in ("POST", "PUT", "PATCH", "DELETE")
-              and entry[1] != "/route"]
+    writes = [
+        entry
+        for entry in seen
+        if entry[0] in ("POST", "PUT", "PATCH", "DELETE") and entry[1] != "/route"
+    ]
     assert writes == [], "the sources are read-only: /route is a plan, not a write"
 
 
 def test_dream_pass_writes_to_passes_dir(passes: Path) -> None:
     engine = DreamScheduler(
-        config=DreamConfig(output_dir=passes), provider=FakeProvider(), uhb_url=UHB, client=router([])
+        config=DreamConfig(output_dir=passes),
+        provider=FakeProvider(),
+        uhb_url=UHB,
+        client=router([]),
     )
 
     report = engine.run_once()
@@ -205,7 +225,9 @@ def test_dream_wall_time_stops_the_pass(passes: Path) -> None:
 
 def test_without_uhb_the_pass_says_so_and_never_pretends(passes: Path) -> None:
     """The shipped skills are local, but a pass without UHB must not read as 'ok'."""
-    engine = DreamScheduler(config=DreamConfig(output_dir=passes), provider=FakeProvider(), uhb_url="")
+    engine = DreamScheduler(
+        config=DreamConfig(output_dir=passes), provider=FakeProvider(), uhb_url=""
+    )
 
     report = engine.run_once()
 
@@ -295,8 +317,19 @@ def test_the_classification_prompt_carries_content_not_just_counts(passes: Path)
             seen.append(json.loads(request.content))
             return httpx.Response(200, json={"complexity": "standard", "mode": "chat"})
         if request.url.path == "/siyuan/blocks":
-            return httpx.Response(200, json={"count": 1, "blocks": [
-                {"type": "p", "content": "un paragraphe sur les routeurs de modeles", "hpath": "/veille"}]})
+            return httpx.Response(
+                200,
+                json={
+                    "count": 1,
+                    "blocks": [
+                        {
+                            "type": "p",
+                            "content": "un paragraphe sur les routeurs de modeles",
+                            "hpath": "/veille",
+                        }
+                    ],
+                },
+            )
         return httpx.Response(200, json={"built": True, "chunks": 3, "source": "service"})
 
     engine = DreamScheduler(
@@ -309,7 +342,9 @@ def test_the_classification_prompt_carries_content_not_just_counts(passes: Path)
     engine.run_once()
 
     assert seen, "UHB must be consulted before spending a token"
-    assert "routeurs de modeles" in seen[0]["prompt"], "the classifier reads the content, not the receipt"
+    assert "routeurs de modeles" in seen[0]["prompt"], (
+        "the classifier reads the content, not the receipt"
+    )
 
 
 def test_the_model_is_called_with_an_explicit_empty_tool_list(passes: Path) -> None:
@@ -322,7 +357,9 @@ def test_the_model_is_called_with_an_explicit_empty_tool_list(passes: Path) -> N
 
         def chat(self, messages, tools):
             calls.append((messages, tools))
-            return {"content": '{"duplicates": [], "orphans": [], "inconsistencies": [], "ideas": []}'}
+            return {
+                "content": '{"duplicates": [], "orphans": [], "inconsistencies": [], "ideas": []}'
+            }
 
     engine = DreamScheduler(
         config=DreamConfig(output_dir=passes), provider=Strict(), uhb_url=UHB, client=router([])

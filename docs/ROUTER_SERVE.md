@@ -72,10 +72,14 @@ client = OpenAI(
     base_url="http://127.0.0.1:8780/v1",
     api_key=open(os.path.expanduser("~/.uh/router-token")).read().strip(),
 )
-print(client.chat.completions.create(
-    model="auto",
-    messages=[{"role": "user", "content": "dis bonjour"}],
-).choices[0].message.content)
+print(
+    client.chat.completions.create(
+        model="auto",
+        messages=[{"role": "user", "content": "dis bonjour"}],
+    )
+    .choices[0]
+    .message.content
+)
 ```
 
 ## Verified with the real SDK

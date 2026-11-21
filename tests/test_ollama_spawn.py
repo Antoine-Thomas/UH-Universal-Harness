@@ -131,7 +131,9 @@ def test_without_the_flag_no_ollama_is_started(
     from uh import cli, dream_pass
 
     monkeypatch.setenv("UH_HOME", str(tmp_path / "uh-home"))
-    monkeypatch.setattr(ollama_spawn, "ensure", lambda *a, **k: pytest.fail("not asked, not started"))
+    monkeypatch.setattr(
+        ollama_spawn, "ensure", lambda *a, **k: pytest.fail("not asked, not started")
+    )
 
     class Report:
         status = "ok"
@@ -146,8 +148,10 @@ def test_without_the_flag_no_ollama_is_started(
         def render(self) -> str:
             return "# pass"
 
-    monkeypatch.setattr(dream_pass, "DreamScheduler", lambda **kw: type(
-        "S", (), {"run_once": lambda self, dry_run=False: Report()}
-    )())
+    monkeypatch.setattr(
+        dream_pass,
+        "DreamScheduler",
+        lambda **kw: type("S", (), {"run_once": lambda self, dry_run=False: Report()})(),
+    )
 
     assert cli.main(["dream", "--now", "--no-write"]) == 0

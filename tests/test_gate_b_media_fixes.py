@@ -54,10 +54,29 @@ def test_a_video_sends_frames_and_keeps_the_soundtrack_apart(tmp_path: Path) -> 
 
     clip = tmp_path / "clip.mp4"
     subprocess.run(
-        [media.ffmpeg_path(), "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=1",
-         "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264",
-         "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(clip)],
-        capture_output=True, check=False, timeout=120,
+        [
+            media.ffmpeg_path(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=160x120:rate=10:duration=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(clip),
+        ],
+        capture_output=True,
+        check=False,
+        timeout=120,
     )
     if not clip.is_file():
         pytest.skip("ffmpeg cannot build this clip here")
@@ -80,10 +99,29 @@ def test_the_soundtrack_is_still_extracted(tmp_path: Path) -> None:
 
     clip = tmp_path / "sound.mp4"
     subprocess.run(
-        [media.ffmpeg_path(), "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=1",
-         "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264",
-         "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(clip)],
-        capture_output=True, check=False, timeout=120,
+        [
+            media.ffmpeg_path(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=160x120:rate=10:duration=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(clip),
+        ],
+        capture_output=True,
+        check=False,
+        timeout=120,
     )
     if not clip.is_file():
         pytest.skip("ffmpeg cannot build this clip here")

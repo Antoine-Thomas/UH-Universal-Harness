@@ -18,7 +18,9 @@ from uh.web import app as web_app
 APP = Path(__file__).resolve().parents[1] / "uh" / "web" / "app.py"
 
 
-def test_close_many_closes_every_run_with_its_own_keep_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_many_closes_every_run_with_its_own_keep_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     seen: list[tuple[str, bool]] = []
     monkeypatch.setattr(
         uhb_runs, "close", lambda run, keep, summary="": seen.append((run, keep)) or {"ok": True}

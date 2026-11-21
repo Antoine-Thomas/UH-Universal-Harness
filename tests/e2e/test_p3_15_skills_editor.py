@@ -50,7 +50,9 @@ def test_creating_a_skill_then_checking_it(make_server, browser, tmp_path: Path)
     context, page = open_panel(browser, server)
     try:
         create_skill(page, "savoir-test", "Savoir de test", "Verifie toujours par le calcul.")
-        expect(row(page, "savoir-test").locator(".skill-name")).to_have_text("Savoir de test", timeout=10000)
+        expect(row(page, "savoir-test").locator(".skill-name")).to_have_text(
+            "Savoir de test", timeout=10000
+        )
         box = row(page, "savoir-test").locator("input.skill-toggle")
         expect(box).to_be_checked()
         box.uncheck()
@@ -68,11 +70,15 @@ def test_editing_a_skill_and_reading_it_back(make_server, browser, tmp_path: Pat
         create_skill(page, "savoir-edite", "Titre initial", "Instructions initiales.")
         row(page, "savoir-edite").locator("button.skill-action", has_text="Modifier").click()
         expect(page.locator("#skill-editor")).to_be_visible(timeout=10000)
-        expect(page.locator("#skill-instructions")).to_have_value("Instructions initiales.", timeout=10000)
+        expect(page.locator("#skill-instructions")).to_have_value(
+            "Instructions initiales.", timeout=10000
+        )
         page.fill("#skill-title", "Titre modifie")
         page.fill("#skill-instructions", "Instructions modifiees par le test.")
         page.click("#skill-save")
-        expect(row(page, "savoir-edite").locator(".skill-name")).to_have_text("Titre modifie", timeout=20000)
+        expect(row(page, "savoir-edite").locator(".skill-name")).to_have_text(
+            "Titre modifie", timeout=20000
+        )
 
         # Relecture apres rechargement : le contenu sauvegarde est bien celui-la.
         page.reload(wait_until="domcontentloaded")
@@ -85,7 +91,9 @@ def test_editing_a_skill_and_reading_it_back(make_server, browser, tmp_path: Pat
         context.close()
 
 
-def test_duplicating_a_skill_leaves_the_original_untouched(make_server, browser, tmp_path: Path) -> None:
+def test_duplicating_a_skill_leaves_the_original_untouched(
+    make_server, browser, tmp_path: Path
+) -> None:
     server = make_server("home")
     context, page = open_panel(browser, server)
     try:
@@ -95,7 +103,9 @@ def test_duplicating_a_skill_leaves_the_original_untouched(make_server, browser,
         expect(copy).to_be_visible(timeout=20000)
         expect(row(page, "savoir-copie").locator(".skill-name")).to_have_text("Original")
         copy.locator("button.skill-action", has_text="Modifier").click()
-        expect(page.locator("#skill-instructions")).to_have_value("Contenu original.", timeout=10000)
+        expect(page.locator("#skill-instructions")).to_have_value(
+            "Contenu original.", timeout=10000
+        )
     finally:
         context.close()
 
@@ -130,7 +140,10 @@ def test_importing_a_markdown_skill_and_refusing_a_bad_file(
     )
     # Refus attendu : un nom qui ne peut pas devenir un identifiant de Skill.
     bad = tmp_path / "Mauvais Nom.md"
-    bad.write_text(chr(10).join(["# Mauvais", "", "> d", "", "## Instructions", "", "Fais ceci.", ""]), encoding="utf-8")
+    bad.write_text(
+        chr(10).join(["# Mauvais", "", "> d", "", "## Instructions", "", "Fais ceci.", ""]),
+        encoding="utf-8",
+    )
     try:
         page.locator("#skill-file").set_input_files(str(good))
         expect(row(page, "savoir-importe")).to_be_visible(timeout=20000)

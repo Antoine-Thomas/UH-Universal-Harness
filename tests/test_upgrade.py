@@ -98,8 +98,13 @@ def test_inside_a_venv_the_command_is_pip_install_upgrade(
     # disk, because the cached wheel or a half-replaced install is the problem.
     install = [command for command in seen if "install" in command][0]
     assert install[1:] == [
-        "-m", "pip", "install", "--force-reinstall", "--no-cache-dir",
-        "--upgrade", "uh-harness",
+        "-m",
+        "pip",
+        "install",
+        "--force-reinstall",
+        "--no-cache-dir",
+        "--upgrade",
+        "uh-harness",
     ]
     assert "--user" not in install
     assert "already up to date (installed 1.0.0, running 1.0.0)" in capsys.readouterr().out
@@ -208,6 +213,7 @@ def test_upgrade_is_wired_into_the_parser(monkeypatch: pytest.MonkeyPatch) -> No
     assert seen and seen[0].dry_run is True  # type: ignore[attr-defined]
     assert seen[0].restart is False  # type: ignore[attr-defined]
 
+
 def test_no_clean_is_the_old_plain_upgrade(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -222,6 +228,7 @@ def test_no_clean_is_the_old_plain_upgrade(
     assert seen == [seen[0]], "no cache purge, no taskkill: one command only"
     assert "--force-reinstall" not in seen[0]
     assert "pip cache purged" not in capsys.readouterr().out
+
 
 def test_a_failed_upgrade_names_the_manual_procedure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

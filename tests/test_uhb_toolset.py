@@ -177,8 +177,7 @@ def test_an_http_error_is_reported_with_its_code() -> None:
 def test_a_403_is_a_forbidden_refusal_carrying_uhbs_reason() -> None:
     """UHB is the authority: its 403 reaches the model in the same vocabulary the
     loop uses when it refuses a tool it was never offered."""
-    payload = {"error": {"message": "mode 'chat' does not allow execute_code",
-                         "type": "forbidden"}}
+    payload = {"error": {"message": "mode 'chat' does not allow execute_code", "type": "forbidden"}}
     toolset = uhb_mod.Uhbtoolset(URL, client=answer(payload, status=403))
 
     result = toolset.call("uhb_status", {})
@@ -217,13 +216,22 @@ def test_the_catalogue_adds_the_tools_this_file_does_not_name() -> None:
     """UH transports what UHB catalogs: no second list of tool names here."""
     catalogue = {
         "tools": [
-            {"name": "desktop_open_url", "description": "Open a URL.",
-             "parameters": {"type": "object", "properties": {"url": {"type": "string"}},
-                            "required": ["url"]},
-             "execution_type": "in_process"},
-            {"name": "execute_code", "description": "Run code.",
-             "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
-             "execution_type": "subprocess"},
+            {
+                "name": "desktop_open_url",
+                "description": "Open a URL.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"url": {"type": "string"}},
+                    "required": ["url"],
+                },
+                "execution_type": "in_process",
+            },
+            {
+                "name": "execute_code",
+                "description": "Run code.",
+                "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
+                "execution_type": "subprocess",
+            },
         ]
     }
     posted: list[tuple[str, dict]] = []
@@ -347,9 +355,7 @@ def test_toolset_is_absent_when_uhb_does_not_answer(
     assert "uhb:" not in "\n".join(describe_toolsets(toolsets))
 
 
-def test_toolset_is_built_when_uhb_answers(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_toolset_is_built_when_uhb_answers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The four built-ins, plus whatever the catalogue published.
 
     Discovery is what depends on the machine: a live UHB publishes its own
@@ -434,8 +440,11 @@ CATALOG = {
         {
             "name": "execute_code",
             "description": "Execute Python code in the authorized workspace.",
-            "parameters": {"type": "object", "properties": {"code": {"type": "string"}},
-                           "required": ["code"]},
+            "parameters": {
+                "type": "object",
+                "properties": {"code": {"type": "string"}},
+                "required": ["code"],
+            },
             "category": "code",
             "execution_type": "subprocess",
             "version": "1",
@@ -443,8 +452,12 @@ CATALOG = {
             "required_permissions": [],
             "compatible_modes": ["dev"],
             "available": False,
-            "reason": {"code": "not_in_mode", "mode": "chat", "available_in": ["dev"],
-                       "hint": "the current mode does not declare this tool"},
+            "reason": {
+                "code": "not_in_mode",
+                "mode": "chat",
+                "available_in": ["dev"],
+                "hint": "the current mode does not declare this tool",
+            },
         }
     ],
     "count": 1,
@@ -482,8 +495,13 @@ def test_describe_tools_details_one_name_and_forwards_the_mode() -> None:
 
 
 def test_an_unknown_tool_from_uhb_stays_a_structured_tool_error() -> None:
-    payload = {"error": {"message": "unknown tool 'nope'; known: execute_code",
-                         "type": "not_found", "hint": "GET /tools lists every name"}}
+    payload = {
+        "error": {
+            "message": "unknown tool 'nope'; known: execute_code",
+            "type": "not_found",
+            "hint": "GET /tools lists every name",
+        }
+    }
     toolset = uhb_mod.Uhbtoolset(URL, client=answer(payload, status=404))
 
     result = toolset.call("describe_tools", {"name": "nope"})
@@ -499,10 +517,16 @@ def test_an_unknown_tool_from_uhb_stays_a_structured_tool_error() -> None:
 def _catalogue_with_execute() -> dict:
     return {
         "tools": [
-            {"name": "execute_code", "description": "Run Python.",
-             "parameters": {"type": "object", "properties": {"code": {"type": "string"}},
-                            "required": ["code"]},
-             "execution_type": "subprocess"},
+            {
+                "name": "execute_code",
+                "description": "Run Python.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"code": {"type": "string"}},
+                    "required": ["code"],
+                },
+                "execution_type": "subprocess",
+            },
         ]
     }
 
@@ -510,7 +534,8 @@ def _catalogue_with_execute() -> dict:
 def test_execute_code_is_not_offered_without_the_switch(monkeypatch) -> None:
     monkeypatch.delenv(uhb_mod.EXECUTE_ENV, raising=False)
     toolset = uhb_mod.Uhbtoolset(
-        URL, client=client_for(lambda request: httpx.Response(200, json=_catalogue_with_execute())),
+        URL,
+        client=client_for(lambda request: httpx.Response(200, json=_catalogue_with_execute())),
         discover=True,
     )
 
@@ -525,8 +550,9 @@ def test_execute_code_is_offered_with_the_switch_and_goes_to_its_own_route(monke
         if request.method == "GET":
             return httpx.Response(200, json=_catalogue_with_execute())
         if request.url.path == "/tools/approvals":
-            return httpx.Response(200, json={"approval_id": "nonce-route",
-                                             "tool": "execute_code", "expires_in": 120})
+            return httpx.Response(
+                200, json={"approval_id": "nonce-route", "tool": "execute_code", "expires_in": 120}
+            )
         posted.append((str(request.url), json.loads(request.content or b"{}")))
         return httpx.Response(200, json={"ok": True, "stdout": "4\n", "exit_code": 0})
 
@@ -546,15 +572,16 @@ def test_execute_code_is_offered_with_the_switch_and_goes_to_its_own_route(monke
 def test_a_refusal_from_uhb_keeps_its_type_and_message(monkeypatch) -> None:
     """UH keeps no whitelist: the 403 comes from the mode, and it is shown as such."""
     monkeypatch.setenv(uhb_mod.EXECUTE_ENV, "1")
-    refusal = {"error": {"message": "mode 'chat' does not allow execute_code",
-                         "type": "forbidden"}}
+    refusal = {"error": {"message": "mode 'chat' does not allow execute_code", "type": "forbidden"}}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
             return httpx.Response(200, json=_catalogue_with_execute())
         if request.url.path == "/tools/approvals":
-            return httpx.Response(200, json={"approval_id": "nonce-refused",
-                                             "tool": "execute_code", "expires_in": 120})
+            return httpx.Response(
+                200,
+                json={"approval_id": "nonce-refused", "tool": "execute_code", "expires_in": 120},
+            )
         return httpx.Response(403, json=refusal)
 
     toolset = uhb_mod.Uhbtoolset(
@@ -579,7 +606,9 @@ def test_a_refusal_caused_by_the_mode_is_marked_as_such() -> None:
     from uh.toolsets import uhb as toolset
 
     body = {"error": "mode 'chat' has no tool 'execute_code'"}
-    response = httpx.Response(403, json=body, request=httpx.Request("POST", "http://127.0.0.1:8101/tools/execute"))
+    response = httpx.Response(
+        403, json=body, request=httpx.Request("POST", "http://127.0.0.1:8101/tools/execute")
+    )
 
     payload = toolset._failure(response)
 

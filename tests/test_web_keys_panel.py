@@ -187,9 +187,7 @@ def test_cloudflare_empty_submission_is_not_a_400(
 
     async def scenario():
         async with client(app) as http:
-            response = await http.post(
-                "/api/providers/cloudflare/config", json={}, headers=AUTH
-            )
+            response = await http.post("/api/providers/cloudflare/config", json={}, headers=AUTH)
             assert response.status_code == 200
             assert response.json() == {}
 
@@ -283,7 +281,7 @@ def test_omniroute_import_copies_the_gateway_configuration(
 ) -> None:
     dotenv = tmp_path / "omniroute.env"
     dotenv.write_text(
-        "BASE_URL=http://127.0.0.1:20128\n" f"OMNIROUTE_API_KEY={OMNI_KEY}\n",
+        f"BASE_URL=http://127.0.0.1:20128\nOMNIROUTE_API_KEY={OMNI_KEY}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("UH_OMNIROUTER_CONFIG", str(dotenv))
@@ -296,9 +294,7 @@ def test_omniroute_import_copies_the_gateway_configuration(
             assert state["omniroute"]["has_key"] is True
             assert state["omniroute"]["base_url"] == "http://127.0.0.1:20128"
 
-            response = await http.post(
-                "/api/providers/omniroute/import", headers=AUTH
-            )
+            response = await http.post("/api/providers/omniroute/import", headers=AUTH)
             assert response.status_code == 200
             body = response.json()
             assert body["imported"] is True and body["name"] == "omnirouter"

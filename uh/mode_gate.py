@@ -145,9 +145,7 @@ class ReadOnlyToolset:
         return explain(name) if callable(explain) else None
 
 
-def read_only_view(
-    toolsets: Dict[str, Any], mode: str = ""
-) -> Tuple[Dict[str, Any], List[str]]:
+def read_only_view(toolsets: Dict[str, Any], mode: str = "") -> Tuple[Dict[str, Any], List[str]]:
     """The read-only subset of ``toolsets``, and the tools it withheld.
 
     A toolset whose tools are all withheld is dropped: an empty toolset is still a

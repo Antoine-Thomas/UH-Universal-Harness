@@ -137,9 +137,7 @@ def test_cli_add_requires_fields(home: Path, capsys: pytest.CaptureFixture[str])
     assert "--base-url and --model are required" in capsys.readouterr().err
 
 
-def test_doctor_reports_key_presence_only(
-    home: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_doctor_reports_key_presence_only(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     cli.main(["doctor"])
     assert "keys" in capsys.readouterr().out
 

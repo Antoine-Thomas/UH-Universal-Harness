@@ -71,9 +71,22 @@ def _ffmpeg_available() -> bool:
 def test_a_video_becomes_keyframes_and_reports_its_codec(tmp_path: Path) -> None:
     clip = tmp_path / "clip.mp4"
     subprocess.run(
-        [media.ffmpeg_path(), "-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10:duration=1",
-         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)],
-        capture_output=True, check=False, timeout=120,
+        [
+            media.ffmpeg_path(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x240:rate=10:duration=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(clip),
+        ],
+        capture_output=True,
+        check=False,
+        timeout=120,
     )
     if not clip.is_file():
         pytest.skip("ffmpeg cannot encode libx264 here")
@@ -93,10 +106,29 @@ def test_a_video_becomes_keyframes_and_reports_its_codec(tmp_path: Path) -> None
 def test_the_soundtrack_is_extracted_when_there_is_one(tmp_path: Path) -> None:
     clip = tmp_path / "with-sound.mp4"
     subprocess.run(
-        [media.ffmpeg_path(), "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=1",
-         "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264",
-         "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(clip)],
-        capture_output=True, check=False, timeout=120,
+        [
+            media.ffmpeg_path(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=160x120:rate=10:duration=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(clip),
+        ],
+        capture_output=True,
+        check=False,
+        timeout=120,
     )
     if not clip.is_file():
         pytest.skip("ffmpeg cannot build an mp4 with sound here")

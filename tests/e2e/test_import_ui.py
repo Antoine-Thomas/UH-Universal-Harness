@@ -1,6 +1,6 @@
 """Bloc Import, prouvé à l'écran : la pastille dit quoi, et le refus parle français.
 
-    pytest -o addopts="" -m e2e tests/e2e/test_import_ui.py -q
+pytest -o addopts="" -m e2e tests/e2e/test_import_ui.py -q
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ def test_a_text_file_becomes_a_readable_chip(browser, server, tmp_path: Path) ->
         assert page.locator(".attachment").count() == 0, "la croix retire la pastille"
     finally:
         context.close()
+
 
 # NOTE: le refus 413 est verifie au niveau de la route (tests/test_import_block.py) et
 # non par un aller-retour HTTP ici : deux tentatives ont echoue sur la plomberie d'auth

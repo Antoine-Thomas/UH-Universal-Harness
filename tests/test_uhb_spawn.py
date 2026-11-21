@@ -387,9 +387,7 @@ def _session(tmp_path: Path) -> uh_console.ChatSession:
     )
 
 
-def test_slash_web_reports_the_started_uhb(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_slash_web_reports_the_started_uhb(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from uh.web import embedded
 
     class FakeServer:
@@ -449,15 +447,11 @@ def test_a_real_child_is_killed_and_leaves_no_orphan(tmp_path: Path) -> None:
     import time
 
     log = tmp_path / "child.log"
-    process = uhb_spawn._spawn(
-        [sys.executable, "-c", "import time; time.sleep(30)"], tmp_path, log
-    )
+    process = uhb_spawn._spawn([sys.executable, "-c", "import time; time.sleep(30)"], tmp_path, log)
     try:
         assert process.poll() is None, "the child must be alive right after the spawn"
         assert process.pid in uhb_spawn._JOBS, "the child is in the kill-on-close job"
-        child = uhb_spawn.Spawned(
-            process=process, url=URL, log=log, checkout=tmp_path
-        )
+        child = uhb_spawn.Spawned(process=process, url=URL, log=log, checkout=tmp_path)
         child.stop(timeout=5.0)
         assert process.pid not in uhb_spawn._JOBS, "the job handle is closed with the child"
         deadline = time.monotonic() + 5.0

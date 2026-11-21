@@ -59,7 +59,9 @@ def status() -> Dict[str, Any]:
 
 
 def close(run: str, keep: bool, summary: str = "") -> Dict[str, Any]:
-    return _call("POST", "/runs", {"action": "close", "run": run, "keep": bool(keep), "summary": summary})
+    return _call(
+        "POST", "/runs", {"action": "close", "run": run, "keep": bool(keep), "summary": summary}
+    )
 
 
 def prune(apply: bool = False) -> Dict[str, Any]:

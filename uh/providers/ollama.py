@@ -115,7 +115,9 @@ class OllamaProvider(Provider):
         }
         if tools:
             payload["tools"] = tools
-        options = chat_options(getattr(self, "request_params", {}) or {}, model=str(self.model or ""))
+        options = chat_options(
+            getattr(self, "request_params", {}) or {}, model=str(self.model or "")
+        )
         if options:
             payload["options"] = options
 
@@ -195,9 +197,7 @@ class OllamaProvider(Provider):
                 "POST", f"{self.base_url}/api/chat", json=payload, timeout=self.timeout
             ) as response:
                 if response.status_code != 200:
-                    raise self._http_error(
-                        response.status_code, "".join(response.iter_text())
-                    )
+                    raise self._http_error(response.status_code, "".join(response.iter_text()))
                 for line in response.iter_lines():
                     event = _parse_ndjson(line)
                     if event is None:
@@ -261,7 +261,9 @@ class OllamaProvider(Provider):
 # --------------------------------------------------------------------------- #
 # discovery and pull
 # --------------------------------------------------------------------------- #
-def list_models(base_url_override: str | None = None, timeout: float = DISCOVERY_TIMEOUT) -> List[dict]:
+def list_models(
+    base_url_override: str | None = None, timeout: float = DISCOVERY_TIMEOUT
+) -> List[dict]:
     """Return ``[{"name", "size", "modified_at"}]`` from ``GET /api/tags``."""
     root = (base_url_override or base_url()).rstrip("/")
     try:

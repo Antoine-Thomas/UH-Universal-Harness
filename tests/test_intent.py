@@ -174,6 +174,7 @@ def test_filtering_keeps_only_the_selection() -> None:
     assert "uhb" in kept
     assert len(kept) < len(CATALOG), "offrir tout le catalogue est precisement le defaut"
 
+
 def test_describe_speaks_to_a_non_developer() -> None:
     selection = intent.select("fais un graphique de ces données", CATALOG, skills=SKILLS)
     line = intent.describe(selection)

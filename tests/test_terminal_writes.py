@@ -31,7 +31,9 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # ~ must resolve inside the fake home too: Path.expanduser() goes through
     # os.path.expanduser, which reads HOME/USERPROFILE and ignores Path.home().
     monkeypatch.setattr(
-        os.path, "expanduser", lambda value: str(root) + value[1:] if value.startswith("~") else value
+        os.path,
+        "expanduser",
+        lambda value: str(root) + value[1:] if value.startswith("~") else value,
     )
 
     def fake_expanduser(self: Path) -> Path:
@@ -172,9 +174,7 @@ def test_deletions_inside_the_sandbox_are_not_refused(
         f"truncate -s 0 {SYSTEM_TARGET}/conf",
     ],
 )
-def test_deletions_outside_the_sandbox_are_refused(
-    toolset: TerminalToolset, command: str
-) -> None:
+def test_deletions_outside_the_sandbox_are_refused(toolset: TerminalToolset, command: str) -> None:
     refusal = check_writes(command, toolset.workspace, toolset.allowed)
 
     assert refusal is not None, command
@@ -228,7 +228,9 @@ def test_a_refused_command_never_reaches_the_shell(
     assert not target.exists()
 
 
-def test_the_blacklist_still_wins(toolset: TerminalToolset, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_blacklist_still_wins(
+    toolset: TerminalToolset, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(terminal_mod.subprocess, "run", lambda *a, **k: pytest.fail("spawned"))
     result = toolset.terminal("rm -rf /")
     assert "blacklist" in result["error"]

@@ -27,7 +27,9 @@ CANARY = "sk-uhe2e-CANARY-7f31d0"
 PROVIDER = "deepseek"
 
 
-def test_a_key_never_reaches_the_dom_and_can_be_deleted(tmp_path: Path, server: Server, browser) -> None:
+def test_a_key_never_reaches_the_dom_and_can_be_deleted(
+    tmp_path: Path, server: Server, browser
+) -> None:
     auth = {"Authorization": f"Bearer {server.token()}"}
     added = httpx.post(
         f"{server.base}/api/providers/{PROVIDER}/keys",
@@ -46,7 +48,17 @@ def test_a_key_never_reaches_the_dom_and_can_be_deleted(tmp_path: Path, server: 
     )
 
     # Every panel: a hint could leak in the one nobody opens.
-    for tab in ("keys", "local", "models", "uhb", "memory", "decision", "telemetry", "conn", "data"):
+    for tab in (
+        "keys",
+        "local",
+        "models",
+        "uhb",
+        "memory",
+        "decision",
+        "telemetry",
+        "conn",
+        "data",
+    ):
         page.evaluate(f"document.getElementById('tab-{tab}').click()")
         page.wait_for_timeout(400)
     page.evaluate("document.getElementById('tab-keys').click()")

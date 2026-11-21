@@ -61,7 +61,7 @@ def test_the_skills_are_shipped_in_the_wheel() -> None:
 
     root = Path(__file__).resolve().parents[1]
     pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'skills_native/*.md' in pyproject
+    assert "skills_native/*.md" in pyproject
 
 
 def test_a_coding_skill_can_be_attached_to_a_turn() -> None:

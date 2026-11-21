@@ -130,7 +130,9 @@ def test_creating_a_task_writes_the_registry(isolated_schedule: Path) -> None:
     assert task["id"].startswith("sch-")
     assert task["enabled"] is True
     assert task["every_minutes"] == 60
-    assert created["trigger"]["mechanism"] == "registre", "déclencheurs désactivés par l'environnement"
+    assert created["trigger"]["mechanism"] == "registre", (
+        "déclencheurs désactivés par l'environnement"
+    )
     registry = json.loads(uh_schedule.registry_path().read_text(encoding="utf-8"))
     assert len(registry["tasks"]) == 1
     assert registry["tasks"][0]["name"] == "Diagnostic du matin"
@@ -148,7 +150,9 @@ def test_the_same_name_replaces_the_previous_task(isolated_schedule: Path) -> No
 # --------------------------------------------------------------------------- #
 # le repli Windows
 # --------------------------------------------------------------------------- #
-def test_the_startup_fallback_writes_a_vbs(isolated_schedule: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_startup_fallback_writes_a_vbs(
+    isolated_schedule: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("UH_SCHEDULE_DISABLE_SYSTEM", raising=False)
     monkeypatch.setattr(uh_schedule, "_install_schtasks", lambda task: False)
     created = uh_schedule.create("Diagnostic", "doctor", 15)
@@ -194,7 +198,9 @@ def test_schtasks_is_tried_first_and_a_refusal_falls_back(monkeypatch: pytest.Mo
     assert created["trigger"]["mechanism"] == "startup"
 
 
-def test_deleting_a_task_removes_its_script(isolated_schedule: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_deleting_a_task_removes_its_script(
+    isolated_schedule: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("UH_SCHEDULE_DISABLE_SYSTEM", raising=False)
     monkeypatch.setattr(uh_schedule, "_install_schtasks", lambda task: False)
     task = uh_schedule.create("Diagnostic", "doctor", 15)["task"]
@@ -382,9 +388,7 @@ def test_running_a_task_moves_its_next_run() -> None:
     data = uh_schedule.load_registry()
     for item in data["tasks"]:
         if item["id"] == task["id"]:
-            item["created"] = time.strftime(
-                "%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 7200)
-            )
+            item["created"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 7200))
     uh_schedule.save_registry(data)
 
     avant = next(i for i in uh_schedule.listing()["tasks"] if i["id"] == task["id"])["next_run"]
@@ -418,9 +422,13 @@ def test_the_listing_publishes_the_server_clock() -> None:
     apres = time.time()
     format_serveur = "%Y-%m-%dT%H:%M:%S"
     instant = time.mktime(time.strptime(corps["now"], format_serveur))
-    assert avant - 1 <= instant <= apres + 1, "l'horloge publiée est celle du serveur, pas une constante"
+    assert avant - 1 <= instant <= apres + 1, (
+        "l'horloge publiée est celle du serveur, pas une constante"
+    )
     dernier = next(i for i in corps["tasks"] if i["id"] == task["id"])["last_run"]
-    assert len(dernier) == len(corps["now"]), "même format que les horodatages : comparable tel quel"
+    assert len(dernier) == len(corps["now"]), (
+        "même format que les horodatages : comparable tel quel"
+    )
 
 
 def test_the_route_publishes_the_server_clock(app) -> None:

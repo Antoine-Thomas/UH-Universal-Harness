@@ -104,7 +104,7 @@ def test_the_two_thumbs_are_mutually_exclusive_in_the_page() -> None:
     assert "figure.dataset.vote" in APP_JS
     assert 'current === vote ? "none" : vote' in APP_JS, "clicking the active thumb retracts"
     assert 'setAttribute("aria-pressed"' in APP_JS, "state is announced, not only coloured"
-    assert "node.classList.toggle(\"voted\", active)" in APP_JS
+    assert 'node.classList.toggle("voted", active)' in APP_JS
 
 
 # --------------------------------------------------------------------------- #
@@ -128,7 +128,7 @@ def test_the_notes_that_produced_the_glued_words_are_gone() -> None:
 # --------------------------------------------------------------------------- #
 def test_the_vote_label_does_not_claim_the_model_learns_yet() -> None:
     assert 'const VOTE_NOTE = "noté (pas encore utilisé pour s\'améliorer)"' in APP_JS
-    assert "say(figure, wanted === \"none\" ? \"vote retiré\" : VOTE_NOTE)" in APP_JS
+    assert 'say(figure, wanted === "none" ? "vote retiré" : VOTE_NOTE)' in APP_JS
 
 
 # --------------------------------------------------------------------------- #
@@ -168,4 +168,4 @@ def test_the_page_renders_one_value_in_the_footer_the_header_and_the_tab() -> No
     assert "markLocalModelTab()" in APP_JS
     assert '.local-model-name.served::after { content: " · a répondu"' in STYLE
     # The header is updated from the same call, not from a second source.
-    assert 'label.title = `${version} · fournisseur : ${provider} · ${tail}`' in APP_JS
+    assert "label.title = `${version} · fournisseur : ${provider} · ${tail}`" in APP_JS

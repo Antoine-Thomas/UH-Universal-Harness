@@ -60,7 +60,9 @@ def test_a_missing_skill_is_never_silently_reenabled(tmp_path) -> None:
     skill_prefs.set_enabled("disparu", "user", False, home=tmp_path)
     assert "user:disparu" in skill_prefs.disabled(home=tmp_path)
     listing = [{"name": "python", "origin": "native"}]
-    assert [entry["name"] for entry in skill_prefs.enabled_only(listing, home=tmp_path)] == ["python"]
+    assert [entry["name"] for entry in skill_prefs.enabled_only(listing, home=tmp_path)] == [
+        "python"
+    ]
 
 
 def test_ids_are_origin_and_name_never_a_path(tmp_path) -> None:
@@ -95,9 +97,7 @@ def test_setting_the_same_state_twice_is_idempotent(tmp_path) -> None:
     assert first["disabled"] == second["disabled"] == ["native:python"]
 
 
-def test_the_router_listing_hides_disabled_skills(
-    tmp_path, monkeypatch
-) -> None:
+def test_the_router_listing_hides_disabled_skills(tmp_path, monkeypatch) -> None:
     """The seam the turn actually uses, not a copy of it."""
     from uh.console import _skill_listing
 

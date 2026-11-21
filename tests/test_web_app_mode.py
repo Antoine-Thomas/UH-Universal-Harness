@@ -102,9 +102,12 @@ def test_a_browser_that_refuses_to_start_is_a_fallback(tmp_path: Path) -> None:
     def explode(argv: list[str]) -> None:
         raise OSError("cannot execute")
 
-    assert browser.open_app_window(
-        URL, finder=lambda: binary, spawn=explode, profile_dir=tmp_path / "p"
-    ) is False
+    assert (
+        browser.open_app_window(
+            URL, finder=lambda: binary, spawn=explode, profile_dir=tmp_path / "p"
+        )
+        is False
+    )
 
 
 def test_the_cli_passes_app_mode_to_the_server(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -237,9 +237,21 @@ def seconds_of(path: Path) -> float:
         if ffprobe:
             try:
                 out = subprocess.run(
-                    [ffprobe, "-v", "error", "-show_entries", "format=duration",
-                     "-of", "default=nw=1:nk=1", str(path)],
-                    capture_output=True, text=True, encoding="utf-8", timeout=20, check=False,
+                    [
+                        ffprobe,
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "format=duration",
+                        "-of",
+                        "default=nw=1:nk=1",
+                        str(path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=20,
+                    check=False,
                 )
                 return round(float(out.stdout.strip() or 0), 2)
             except (OSError, ValueError, subprocess.SubprocessError):
@@ -276,8 +288,9 @@ def reference(path: Path, *, engine: str, kind: str = "speech") -> Dict[str, Any
 # --------------------------------------------------------------------------- #
 # the chain
 # --------------------------------------------------------------------------- #
-def transcribe(data: bytes, *, filename: str = "clip.wav", language: str = "fr",
-               session_id: str = "audio") -> Dict[str, Any]:
+def transcribe(
+    data: bytes, *, filename: str = "clip.wav", language: str = "fr", session_id: str = "audio"
+) -> Dict[str, Any]:
     """Speech to text, first engine that answers wins; the refusal says why not."""
     if not data:
         raise AudioUnavailable("aucun son reçu")
@@ -309,8 +322,13 @@ def transcribe(data: bytes, *, filename: str = "clip.wav", language: str = "fr",
     raise AudioUnavailable("aucun moteur de dictée disponible — " + " | ".join(attempts))
 
 
-def speak(text: str, *, voice: Optional[str] = None, session_id: str = "audio",
-          reference_wav: Optional[Path] = None) -> Dict[str, Any]:
+def speak(
+    text: str,
+    *,
+    voice: Optional[str] = None,
+    session_id: str = "audio",
+    reference_wav: Optional[Path] = None,
+) -> Dict[str, Any]:
     """Text to a WAV file, first engine that answers wins.
 
     ``voice`` is a saved Voxtral voice id (paid accounts only). ``reference_wav`` is
@@ -354,9 +372,7 @@ def speak(text: str, *, voice: Optional[str] = None, session_id: str = "audio",
     else:
         attempts.append("piper : binaire absent")
 
-    raise AudioUnavailable(
-        "aucun moteur de voix disponible : " + " | ".join(attempts)
-    )
+    raise AudioUnavailable("aucun moteur de voix disponible : " + " | ".join(attempts))
 
 
 def to_flac24(source: Path, target: Optional[Path] = None) -> Path:
@@ -371,9 +387,26 @@ def to_flac24(source: Path, target: Optional[Path] = None) -> Path:
         raise AudioUnavailable("ffmpeg absent : conversion FLAC impossible (aucun repli 16 bits)")
     out = target or source.with_suffix(".flac")
     proc = subprocess.run(
-        [binary, "-y", "-i", str(source), "-c:a", "flac", "-sample_fmt", "s32",
-         "-ar", "48000", "-ac", "2", str(out)],
-        capture_output=True, text=True, encoding="utf-8", timeout=120, check=False,
+        [
+            binary,
+            "-y",
+            "-i",
+            str(source),
+            "-c:a",
+            "flac",
+            "-sample_fmt",
+            "s32",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+        check=False,
     )
     if proc.returncode != 0 or not out.is_file():
         raise AudioUnavailable(f"ffmpeg a refusé la conversion : {proc.stderr[-200:]}")

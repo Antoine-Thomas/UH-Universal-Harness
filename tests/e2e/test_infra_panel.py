@@ -130,9 +130,12 @@ def test_every_roadmap_service_is_shown_and_a_dead_one_stays_visible(browser, ma
         assert rag["state"] == "down", rag
         assert "port" in rag["text"].lower(), rag["text"]
         # Les autres lignes gardent leur propre état : le panneau n'est pas vidé.
-        assert page.eval_on_selector(
-            "#infra-services .infra-service[data-service='UH']", "el => el.dataset.state"
-        ) == "up"
+        assert (
+            page.eval_on_selector(
+                "#infra-services .infra-service[data-service='UH']", "el => el.dataset.state"
+            )
+            == "up"
+        )
         alerts = page.eval_on_selector_all(
             "#infra-alerts .infra-alert", "els => els.map(e => [e.dataset.level, e.innerText])"
         )

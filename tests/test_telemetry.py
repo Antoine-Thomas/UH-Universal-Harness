@@ -247,7 +247,9 @@ def test_the_memory_probe_returns_a_shape_or_none() -> None:
 def test_the_snapshot_always_has_its_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """The two slow probes are replaced: the shape is what this pins."""
     monkeypatch.setattr(telemetry, "cpu_percent", lambda sample=0.12: 12.5)
-    monkeypatch.setattr(telemetry, "memory_usage", lambda: {"total_gb": 32.0, "used_gb": 8.0, "percent": 25.0})
+    monkeypatch.setattr(
+        telemetry, "memory_usage", lambda: {"total_gb": 32.0, "used_gb": 8.0, "percent": 25.0}
+    )
     monkeypatch.setattr(telemetry, "vram_usage", lambda ttl=5.0: None)
 
     found = telemetry.system_snapshot()

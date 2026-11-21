@@ -93,8 +93,7 @@ ADVICE = {
     "et que le port est le bon.",
     "incompatible": "L'adresse répond, mais pas comme un serveur MCP. Vérifie qu'il "
     "s'agit bien de l'URL MCP (souvent /mcp ou /sse) et non de l'interface web de l'outil.",
-    "invalid": "L'adresse enregistrée n'est plus acceptée : corrige-la dans "
-    "« Connexions ».",
+    "invalid": "L'adresse enregistrée n'est plus acceptée : corrige-la dans « Connexions ».",
     "timeout": "Le serveur n'a pas répondu dans le délai. Il est peut-être occupé : "
     "réessaie, ou augmente le délai dans config.toml.",
     "disconnected": "La connexion s'est coupée. UH réessaie tout seul, puis te le dira.",
@@ -280,14 +279,12 @@ class HTTPClient:
             )
         if response.status_code in {401, 403}:
             raise MCPError(
-                f"le serveur '{self.server.name}' a refusé le jeton "
-                f"(HTTP {response.status_code})",
+                f"le serveur '{self.server.name}' a refusé le jeton (HTTP {response.status_code})",
                 kind="auth",
             )
         if response.status_code == 404:
             raise MCPError(
-                f"le serveur '{self.server.name}' ne connaît pas {self.endpoint} "
-                "(HTTP 404)",
+                f"le serveur '{self.server.name}' ne connaît pas {self.endpoint} (HTTP 404)",
                 kind="incompatible",
             )
         if response.status_code >= 500:
@@ -426,7 +423,11 @@ class HTTPClient:
 
     # -- json-rpc ---------------------------------------------------------- #
     def _request(
-        self, method: str, params: Optional[Dict[str, Any]] = None, *, timeout: Optional[float] = None
+        self,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         limit = timeout if timeout is not None else self.server.timeout
         with self._lock:

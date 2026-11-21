@@ -54,7 +54,9 @@ def test_no_consumer_waits_for_a_frame_nobody_emits() -> None:
 def test_each_helper_frame_really_has_a_producer() -> None:
     for name, (relative, marker) in HELPER_FRAMES.items():
         source = (ROOT / relative).read_text(encoding="utf-8")
-        assert marker in source, f"{name} is listed as a helper frame but {relative} has no {marker}"
+        assert marker in source, (
+            f"{name} is listed as a helper frame but {relative} has no {marker}"
+        )
         assert name in _handled(), f"{name} is emitted but the page does not handle it"
 
 
@@ -89,9 +91,17 @@ def test_the_ids_the_page_uses_exist_or_are_created_by_it() -> None:
 
 
 def test_the_documented_ids_are_the_ones_the_page_has() -> None:
-    documented = set(re.findall(r"\b([a-z0-9]+(?:-[a-z0-9]+)+)\b", API_DOC.split("## Element ids")[1].split("```")[1]))
+    documented = set(
+        re.findall(
+            r"\b([a-z0-9]+(?:-[a-z0-9]+)+)\b", API_DOC.split("## Element ids")[1].split("```")[1]
+        )
+    )
     page = set(re.findall(r'id="([a-z0-9\-]+)"', HTML)) | set(re.findall(r'id="([a-z0-9\-]+)"', JS))
-    missing = sorted(name for name in documented if name not in page and "pane" not in name and "tab-" not in name)
+    missing = sorted(
+        name
+        for name in documented
+        if name not in page and "pane" not in name and "tab-" not in name
+    )
     assert missing == [], f"documented ids missing from the interface: {missing}"
 
 
@@ -123,7 +133,7 @@ class _FakeCapture:
 def test_the_media_warning_is_hidden_until_a_file_needs_it() -> None:
     """No attachments, no banner: the composer stays quiet on a plain text turn."""
     assert 'id="media-warning"' in HTML and "hidden" in HTML.split('id="media-warning"')[1][:40]
-    assert "if (!kinds.length) {\n    mediaWarning(\"\");" in JS
+    assert 'if (!kinds.length) {\n    mediaWarning("");' in JS
 
 
 def test_an_audio_player_only_ever_comes_from_a_real_clip() -> None:
@@ -144,7 +154,7 @@ def test_the_locks_the_relay_paid_for_are_still_wired() -> None:
     assert "read_only_view" in CONSOLE
     assert "host not allowed" in APP and "origin not allowed" in APP
     assert "is_loopback_bind" in APP
-    uhb = (ROOT / ".." / "UHB-Universal-Harness-Backend" / "uhb" / "tools" / "execute.py")
+    uhb = ROOT / ".." / "UHB-Universal-Harness-Backend" / "uhb" / "tools" / "execute.py"
     if uhb.is_file():
         assert "addaudithook" in uhb.read_text(encoding="utf-8")
     for path in (ROOT / "uh" / "agent.py", *sorted((ROOT / "uh" / "providers").glob("*.py"))):

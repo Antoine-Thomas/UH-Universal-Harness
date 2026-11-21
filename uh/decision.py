@@ -128,13 +128,24 @@ def _empty(reason: str, session_id: Optional[str]) -> Dict[str, Any]:
         "available": False,
         "reason": reason,
         "turn": {"duration_ms": None, "average_ms": None, "turns": 0},
-        "prompt": {"complexity": None, "mode": None, "reason": "", "source": "unavailable",
-                   "note": NOT_ROUTED},
+        "prompt": {
+            "complexity": None,
+            "mode": None,
+            "reason": "",
+            "source": "unavailable",
+            "note": NOT_ROUTED,
+        },
         "model": {"provider": None, "model": None, "served": None, "substituted": False},
         "chain": [],
         "usage": {"prompt": 0, "completion": 0, "total": 0, "reported": False},
-        "context": {"budget": None, "summarised_exchanges": 0, "kept_exchanges": 0,
-                    "summary": "", "mode": "none", "payload_tokens": 0},
+        "context": {
+            "budget": None,
+            "summarised_exchanges": 0,
+            "kept_exchanges": 0,
+            "summary": "",
+            "mode": "none",
+            "payload_tokens": 0,
+        },
         "uhb_consulted": False,
         "turns": [],
     }
@@ -182,8 +193,9 @@ def payload(store: Any, session_id: str) -> Dict[str, Any]:
             "chosen": last.get("chosen"),
         },
         "chain": list(last.get("chain") or []),
-        "usage": dict(last.get("usage") or {"prompt": 0, "completion": 0, "total": 0,
-                                            "reported": False}),
+        "usage": dict(
+            last.get("usage") or {"prompt": 0, "completion": 0, "total": 0, "reported": False}
+        ),
         "context": {
             "budget": last.get("budget"),
             "summarised_exchanges": int(last.get("summarised_exchanges") or 0),
@@ -195,9 +207,11 @@ def payload(store: Any, session_id: str) -> Dict[str, Any]:
         "uhb_consulted": consulted,
         "tool_calls": int(last.get("tool_calls") or 0),
         "turns": [
-            {"duration_ms": int(item.get("duration_ms") or 0),
-             "provider": item.get("provider"),
-             "model": item.get("model")}
+            {
+                "duration_ms": int(item.get("duration_ms") or 0),
+                "provider": item.get("provider"),
+                "model": item.get("model"),
+            }
             for item in reversed(window)
         ],
     }

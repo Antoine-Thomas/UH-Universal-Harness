@@ -220,7 +220,12 @@ def test_a_row_read_from_sqlite_gets_type_function_on_the_way_out() -> None:
     ``422 messages[N]: missing field 'type'`` otherwise.
     """
     stored = json.dumps(
-        [{"id": "call_ray9", "function": {"index": 0, "name": "execute_code", "arguments": {"code": "print(1)"}}}]
+        [
+            {
+                "id": "call_ray9",
+                "function": {"index": 0, "name": "execute_code", "arguments": {"code": "print(1)"}},
+            }
+        ]
     )
     history_from_db = [
         {"role": "user", "content": "dessine"},
@@ -253,7 +258,12 @@ def test_a_call_to_a_tool_the_request_does_not_declare_is_dropped() -> None:
                 }
             ],
         },
-        {"role": "tool", "tool_call_id": "call_ghost", "name": "mcp__positron__execute_code", "content": "{}"},
+        {
+            "role": "tool",
+            "tool_call_id": "call_ghost",
+            "name": "mcp__positron__execute_code",
+            "content": "{}",
+        },
     ]
     tools = [{"type": "function", "function": {"name": "execute_code", "parameters": {}}}]
 
@@ -294,10 +304,16 @@ def test_a_dropped_call_is_recorded_with_its_reason_and_cleared() -> None:
         "role": "assistant",
         "content": "",
         "tool_calls": [
-            {"id": "c9", "type": "function", "function": {"name": "mcp__positron__execute_code", "arguments": "{}"}}
+            {
+                "id": "c9",
+                "type": "function",
+                "function": {"name": "mcp__positron__execute_code", "arguments": "{}"},
+            }
         ],
     }
-    request_messages([ghost], wire="openai", tools=[{"type": "function", "function": {"name": "execute_code"}}])
+    request_messages(
+        [ghost], wire="openai", tools=[{"type": "function", "function": {"name": "execute_code"}}]
+    )
 
     assert take_drops() == [
         {"tool": "mcp__positron__execute_code", "reason": "outil non déclaré dans request.tools"}

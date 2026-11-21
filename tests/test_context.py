@@ -192,9 +192,7 @@ def test_the_first_assistant_message_is_kept_for_voice() -> None:
     prepared = manager.prepare(messages)
 
     assert prepared[2] == messages[2], "the first answer sets the voice"
-    assert any(
-        item["role"] == "system" and "summary" in str(item["content"]) for item in prepared
-    )
+    assert any(item["role"] == "system" and "summary" in str(item["content"]) for item in prepared)
 
 
 def test_a_long_tool_result_is_truncated_before_anything_is_summarised() -> None:
@@ -410,7 +408,9 @@ def test_snapshot_says_when_a_summary_was_used() -> None:
 
 def test_snapshot_never_claims_a_summary_that_was_dropped() -> None:
     """A budget so small that even the summary cannot fit: mode is "trim"."""
-    manager = context.ContextManager(budget_tokens=20, summarizer=lambda messages: "un resume " * 20)
+    manager = context.ContextManager(
+        budget_tokens=20, summarizer=lambda messages: "un resume " * 20
+    )
     messages = [{"role": "user", "content": "q" * 200}, {"role": "assistant", "content": "a" * 200}]
     for index in range(6):
         messages.append({"role": "user", "content": f"question {index} " + "x" * 60})

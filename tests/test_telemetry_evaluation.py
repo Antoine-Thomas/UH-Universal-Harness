@@ -40,8 +40,12 @@ def session(*decisions: Dict[str, Any]) -> Dict[str, Any]:
 
 def test_two_turns_of_one_model_are_averaged() -> None:
     payload = telemetry.model_breakdown(
-        [session(decision("ollama", "lfm3", duration_ms=2000, tokens=100, tools=1),
-                 decision("ollama", "lfm3", duration_ms=4000, tokens=300, tools=0))]
+        [
+            session(
+                decision("ollama", "lfm3", duration_ms=2000, tokens=100, tools=1),
+                decision("ollama", "lfm3", duration_ms=4000, tokens=300, tools=0),
+            )
+        ]
     )
 
     (row,) = payload["models"]

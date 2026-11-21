@@ -59,10 +59,19 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
-        self._answer(200, {"tools": [
-            {"name": "execute_code", "description": "run python",
-             "parameters": EXECUTE_SCHEMA, "execution_type": "subprocess"},
-        ]})
+        self._answer(
+            200,
+            {
+                "tools": [
+                    {
+                        "name": "execute_code",
+                        "description": "run python",
+                        "parameters": EXECUTE_SCHEMA,
+                        "execution_type": "subprocess",
+                    },
+                ]
+            },
+        )
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
         length = int(self.headers.get("Content-Length") or 0)
@@ -76,8 +85,9 @@ class _Handler(BaseHTTPRequestHandler):
             if _Handler.approvals_status != 200:
                 self._answer(_Handler.approvals_status, {"error": {"message": "no"}})
                 return
-            self._answer(200, {"approval_id": "nonce-from-uhb", "tool": "execute_code",
-                               "expires_in": 120})
+            self._answer(
+                200, {"approval_id": "nonce-from-uhb", "tool": "execute_code", "expires_in": 120}
+            )
             return
         self._answer(200, RESULT)
 

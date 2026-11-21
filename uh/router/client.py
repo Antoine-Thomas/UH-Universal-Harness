@@ -154,7 +154,9 @@ def chat_completion(
     try:
         with httpx.Client(timeout=timeout, transport=transport) as client:
             if not streaming:
-                response = client.post(url, json=_body(model, messages, tools, False), headers=headers)
+                response = client.post(
+                    url, json=_body(model, messages, tools, False), headers=headers
+                )
                 if response.status_code >= 400:
                     raise _http_error(response)
                 payload = response.json()

@@ -77,7 +77,12 @@ def test_non_streaming_success() -> None:
         return httpx.Response(200, json={"choices": [{"message": {"content": "bonjour"}}]})
 
     message = chat_completion(
-        SPEC, "test-key", "m", [{"role": "user", "content": "hi"}], [], transport=httpx.MockTransport(handler)
+        SPEC,
+        "test-key",
+        "m",
+        [{"role": "user", "content": "hi"}],
+        [],
+        transport=httpx.MockTransport(handler),
     )
     assert message == {"role": "assistant", "content": "bonjour", "tool_calls": []}
 
@@ -111,9 +116,25 @@ def test_streaming_collects_tokens_and_tool_calls() -> None:
     body = _sse(
         {"choices": [{"delta": {"content": "bon"}}]},
         {"choices": [{"delta": {"content": "jour"}}]},
-        {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "c1", "function": {"name": "read_file"}}]}}]},
-        {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"path"'}}]}}]},
-        {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": ': "a.txt"}'}}]}}]},
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [{"index": 0, "id": "c1", "function": {"name": "read_file"}}]
+                    }
+                }
+            ]
+        },
+        {
+            "choices": [
+                {"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"path"'}}]}}
+            ]
+        },
+        {
+            "choices": [
+                {"delta": {"tool_calls": [{"index": 0, "function": {"arguments": ': "a.txt"}'}}]}}
+            ]
+        },
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -131,21 +152,34 @@ def test_streaming_collects_tokens_and_tool_calls() -> None:
     )
     assert "".join(seen) == "bonjour"
     assert message["content"] == "bonjour"
-    assert message["tool_calls"][0]["function"] == {"name": "read_file", "arguments": '{"path": "a.txt"}'}
+    assert message["tool_calls"][0]["function"] == {
+        "name": "read_file",
+        "arguments": '{"path": "a.txt"}',
+    }
 
 
 def test_mid_stream_error_is_flagged_as_emitted() -> None:
     body = _sse(
         {"choices": [{"delta": {"content": "debut"}}]},
-        {"error": {"code": 429, "message": "rate limited"}, "choices": [{"delta": {}, "finish_reason": "error"}]},
+        {
+            "error": {"code": 429, "message": "rate limited"},
+            "choices": [{"delta": {}, "finish_reason": "error"}],
+        },
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
 
     with pytest.raises(RouterError) as excinfo:
-        chat_completion(SPEC, "k", "m", [], [], on_token=lambda piece: None,
-                        transport=httpx.MockTransport(handler))
+        chat_completion(
+            SPEC,
+            "k",
+            "m",
+            [],
+            [],
+            on_token=lambda piece: None,
+            transport=httpx.MockTransport(handler),
+        )
     assert excinfo.value.kind == "rate_limit"
     assert excinfo.value.emitted is True
 
@@ -171,7 +205,9 @@ def test_priority_order_and_key_rotation() -> None:
 
 
 def test_round_robin_rotates_providers() -> None:
-    pool = Pool({"a": ["k1"], "b": ["k2"]}, order=["a", "b"], strategy="round-robin", clock=_clock().now)
+    pool = Pool(
+        {"a": ["k1"], "b": ["k2"]}, order=["a", "b"], strategy="round-robin", clock=_clock().now
+    )
     first = [name for name, _ in pool.candidates()]
     second = [name for name, _ in pool.candidates()]
     assert first != second
@@ -218,11 +254,15 @@ def _provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, handler, **kwargs
     cfg = kwargs.pop("cfg", Cfg(allow_remote=True, remote_consent=TODAY))
     catalog = {
         "a": ProviderSpec(
-            name="a", base_url="https://a.test/v1", verified="verified",
+            name="a",
+            base_url="https://a.test/v1",
+            verified="verified",
             models=(ModelSpec("ma", tools=True),),
         ),
         "b": ProviderSpec(
-            name="b", base_url="https://b.test/v1", verified="verified",
+            name="b",
+            base_url="https://b.test/v1",
+            verified="verified",
             models=(ModelSpec("mb", tools=True),),
         ),
     }
@@ -237,7 +277,9 @@ def _provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, handler, **kwargs
     )
 
 
-def test_local_only_refuses_before_any_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_local_only_refuses_before_any_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     calls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -251,27 +293,40 @@ def test_local_only_refuses_before_any_call(tmp_path: Path, monkeypatch: pytest.
 
 
 def test_consent_required_off_tty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    provider = _provider(tmp_path, monkeypatch, lambda request: httpx.Response(200), cfg=Cfg(allow_remote=True))
+    provider = _provider(
+        tmp_path, monkeypatch, lambda request: httpx.Response(200), cfg=Cfg(allow_remote=True)
+    )
     with pytest.raises(ProviderError, match="consent"):
         provider.chat([{"role": "user", "content": "hi"}], [])
 
 
-def test_falls_back_and_traces_the_real_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_falls_back_and_traces_the_real_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if "a.test" in str(request.url):
-            return httpx.Response(429, json={"error": {"message": "slow down"}}, headers={"retry-after": "5"})
+            return httpx.Response(
+                429, json={"error": {"message": "slow down"}}, headers={"retry-after": "5"}
+            )
         return httpx.Response(200, json={"choices": [{"message": {"content": "depuis b"}}]})
 
     provider = _provider(tmp_path, monkeypatch, handler)
     message = provider.chat([{"role": "user", "content": "hi"}], [])
     assert message["content"] == "depuis b"
-    assert provider.last_trace == {"provider": "b", "model": "mb", "strategy": "priority", "ok": True}
+    assert provider.last_trace == {
+        "provider": "b",
+        "model": "mb",
+        "strategy": "priority",
+        "ok": True,
+    }
     rows = {row["provider"]: row for row in provider.status_rows()}
     assert rows["a"]["available"] is False  # cooled down after the 429
     assert rows["a"]["last_error"].startswith("rate_limit")
 
 
-def test_everything_failing_reports_the_kinds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_everything_failing_reports_the_kinds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"error": {"message": "down"}})
 
@@ -281,10 +336,15 @@ def test_everything_failing_reports_the_kinds(tmp_path: Path, monkeypatch: pytes
     assert "server" in str(excinfo.value)
 
 
-def test_stream_break_after_output_is_not_retried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stream_break_after_output_is_not_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     body = _sse(
         {"choices": [{"delta": {"content": "debut"}}]},
-        {"error": {"code": 500, "message": "boom"}, "choices": [{"delta": {}, "finish_reason": "error"}]},
+        {
+            "error": {"code": 500, "message": "boom"},
+            "choices": [{"delta": {}, "finish_reason": "error"}],
+        },
     )
     hits: list[str] = []
 
@@ -359,7 +419,9 @@ def test_discovery_reads_supported_parameters() -> None:
     }
 
 
-def test_tools_filter_uses_discovered_capability(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tools_filter_uses_discovered_capability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     payload = {
         "data": [
             {"id": "vendor/sans-outils:free", "supported_parameters": ["temperature"]},
@@ -390,7 +452,9 @@ def test_tools_filter_uses_discovered_capability(tmp_path: Path, monkeypatch: py
         stdin=io.StringIO(),
         stream=io.StringIO(),
     )
-    provider.chat([{"role": "user", "content": "hi"}], [{"type": "function", "function": {"name": "f"}}])
+    provider.chat(
+        [{"role": "user", "content": "hi"}], [{"type": "function", "function": {"name": "f"}}]
+    )
     assert seen == ["vendor/avec-outils:free"]  # le modele sans outils n'est jamais choisi
 
 
@@ -421,7 +485,9 @@ def test_provider_without_tool_capable_model_is_skipped(
         stream=io.StringIO(),
     )
     with pytest.raises(ProviderError, match="no tool-capable model"):
-        provider.chat([{"role": "user", "content": "hi"}], [{"type": "function", "function": {"name": "f"}}])
+        provider.chat(
+            [{"role": "user", "content": "hi"}], [{"type": "function", "function": {"name": "f"}}]
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -431,11 +497,15 @@ def _partial_provider(tmp_path, monkeypatch, handler, **cfg_values):
     monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
     catalog = {
         "sur": ProviderSpec(
-            name="sur", base_url="https://sur.test/v1", verified="verified",
+            name="sur",
+            base_url="https://sur.test/v1",
+            verified="verified",
             models=(ModelSpec("m1", tools=True),),
         ),
         "douteux": ProviderSpec(
-            name="douteux", base_url="https://douteux.test/v1", verified="partial",
+            name="douteux",
+            base_url="https://douteux.test/v1",
+            verified="partial",
             models=(ModelSpec("m2", tools=True),),
         ),
     }
@@ -449,7 +519,9 @@ def _partial_provider(tmp_path, monkeypatch, handler, **cfg_values):
     )
 
 
-def test_partial_provider_is_labelled_and_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_partial_provider_is_labelled_and_excluded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     hits: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -467,7 +539,9 @@ def test_partial_provider_is_labelled_and_excluded(tmp_path: Path, monkeypatch: 
     assert "douteux.test" not in hits  # jamais contacte sans opt-in
 
 
-def test_partial_provider_after_explicit_opt_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_partial_provider_after_explicit_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if "sur.test" in request.url.host:
             return httpx.Response(500, json={"error": {"message": "down"}})

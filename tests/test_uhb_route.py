@@ -240,12 +240,18 @@ def test_a_route_decision_reaches_the_history_as_a_tool_message() -> None:
                             "type": "function",
                             "function": {
                                 "name": "uhb_route",
-                                "arguments": json.dumps({"prompt": "corrige le bug", "mode": "dev"}),
+                                "arguments": json.dumps(
+                                    {"prompt": "corrige le bug", "mode": "dev"}
+                                ),
                             },
                         }
                     ],
                 }
-            return {"role": "assistant", "content": "UHB choisirait deepseek-flash.", "tool_calls": []}
+            return {
+                "role": "assistant",
+                "content": "UHB choisirait deepseek-flash.",
+                "tool_calls": [],
+            }
 
     history = run_turn(
         [{"role": "user", "content": "que ferait UHB ?"}],

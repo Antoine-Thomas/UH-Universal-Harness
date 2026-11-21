@@ -207,9 +207,7 @@ def test_the_budget_exhausted_turn_stores_a_readable_notice(
 # --------------------------------------------------------------------------- #
 # a plain empty answer, and a provider that dies
 # --------------------------------------------------------------------------- #
-def test_an_empty_answer_is_not_silence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_an_empty_answer_is_not_silence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     session = _session(tmp_path, monkeypatch, EmptyAnswer())
 
     assert session.run_text("question") == 0

@@ -81,9 +81,7 @@ def test_non_ascii_output_does_not_raise(tmp_path: Path) -> None:
     assert "accents" in result.stdout
 
 
-def test_the_spawned_cli_never_points_at_the_real_uh_home(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_the_spawned_cli_never_points_at_the_real_uh_home(monkeypatch, tmp_path: Path) -> None:
     """A guard: `uh doctor` on the real ~/.uh checkpoints and deletes its WAL."""
     seen: dict = {}
 

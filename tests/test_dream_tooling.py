@@ -42,14 +42,26 @@ class RecordingProvider:
 def router(route: dict | None = None) -> httpx.Client:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/siyuan/blocks":
-            return httpx.Response(200, json={"count": 1, "blocks": [
-                {"id": "b0", "type": "p", "hpath": "/x", "content": "note sur les serveurs MCP"}
-            ]})
+            return httpx.Response(
+                200,
+                json={
+                    "count": 1,
+                    "blocks": [
+                        {
+                            "id": "b0",
+                            "type": "p",
+                            "hpath": "/x",
+                            "content": "note sur les serveurs MCP",
+                        }
+                    ],
+                },
+            )
         if request.url.path == "/rag/status":
             return httpx.Response(200, json={"built": True, "source": "service", "chunks": 12})
         if request.url.path == "/route":
             return httpx.Response(
-                200, json=route or {"mode": "chat", "complexity": "standard", "reason": "two sources"}
+                200,
+                json=route or {"mode": "chat", "complexity": "standard", "reason": "two sources"},
             )
         return httpx.Response(404, json={"error": {"message": "not found"}})
 
@@ -254,7 +266,11 @@ def test_the_report_lists_the_workflows_under_a_clear_heading(
     home: Path, tmp_path: Path, fake_mcp: mcp.ServerConfig
 ) -> None:
     provider = RecordingProvider(
-        answer(workflows=[{"title": "Audit", "why": "doublons", "tools": ["mcp__filesystem__read_file"]}])
+        answer(
+            workflows=[
+                {"title": "Audit", "why": "doublons", "tools": ["mcp__filesystem__read_file"]}
+            ]
+        )
     )
     engine = DreamScheduler(
         config=DreamConfig(sources=("mcp",), output_dir=tmp_path / "passes"),

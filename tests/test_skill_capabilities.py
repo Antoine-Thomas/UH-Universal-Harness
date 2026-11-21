@@ -12,10 +12,28 @@ from uh.intent import select, turn_toolsets
 
 L = chr(10)
 FULL = (
-    "# Graphiques" + L + L + "> Generer des graphiques." + L + L
-    + "## Capacites" + L + "- file" + L + "- uhb" + L + L
-    + "## Instructions" + L + L + "Analyse les donnees puis produis un PNG." + L + L
-    + "## Notes" + L + "Garde cette section."
+    "# Graphiques"
+    + L
+    + L
+    + "> Generer des graphiques."
+    + L
+    + L
+    + "## Capacites"
+    + L
+    + "- file"
+    + L
+    + "- uhb"
+    + L
+    + L
+    + "## Instructions"
+    + L
+    + L
+    + "Analyse les donnees puis produis un PNG."
+    + L
+    + L
+    + "## Notes"
+    + L
+    + "Garde cette section."
 )
 
 
@@ -34,7 +52,11 @@ def test_a_declared_capability_is_read() -> None:
 def test_an_unknown_capability_is_kept_verbatim_and_ignored_by_routing() -> None:
     text = "## Capacites" + L + "- fantome" + L + "- file"
     assert skills.parse_capabilities(text) == ["fantome", "file"]
-    selection = select("fais un graphique de ces donnees", catalog={"file": object()}, skills=[entry(capabilities=["fantome"])])
+    selection = select(
+        "fais un graphique de ces donnees",
+        catalog={"file": object()},
+        skills=[entry(capabilities=["fantome"])],
+    )
     assert "fantome" not in selection.toolsets
     assert "ignorees" in selection.reason
 
@@ -66,7 +88,9 @@ def test_other_sections_are_preserved() -> None:
 
 # 5bis. Une Skill historique sans section garde ses instructions telles quelles
 def test_a_historical_skill_is_untouched() -> None:
-    assert skills.parse("# P" + L + L + "## Instructions" + L + "Fais X.")["instructions"] == "Fais X."
+    assert (
+        skills.parse("# P" + L + L + "## Instructions" + L + "Fais X.")["instructions"] == "Fais X."
+    )
 
 
 # 6. Skill desactivee : aucune contribution au routage
@@ -78,14 +102,20 @@ def test_a_disabled_skill_does_not_contribute() -> None:
     """
     disabled = select("fais un graphique de ces donnees", catalog={"file": object()}, skills=[])
     assert disabled.skill is None
-    enabled = select("fais un graphique de ces donnees", catalog={"file": object()}, skills=[entry()])
+    enabled = select(
+        "fais un graphique de ces donnees", catalog={"file": object()}, skills=[entry()]
+    )
     assert enabled.skill is not None
     assert "file" in enabled.toolsets
 
 
 # 7. Selection contextuelle correcte : la demande pertinente selectionne le toolset
 def test_a_relevant_request_selects_the_right_toolset() -> None:
-    selection = select("fais un graphique de ces donnees", catalog={"file": object(), "web_search": object()}, skills=[entry()])
+    selection = select(
+        "fais un graphique de ces donnees",
+        catalog={"file": object(), "web_search": object()},
+        skills=[entry()],
+    )
     assert "file" in selection.toolsets
 
 
@@ -97,7 +127,11 @@ def test_ordinary_conversation_selects_nothing(prompt: str) -> None:
 
 # 9. Intersection stricte : aucun toolset fantome ne sort du routeur
 def test_no_ghost_toolset_survives_the_intersection() -> None:
-    selection = select("fais un graphique avec uhb", catalog={"file": object()}, skills=[entry(capabilities=["uhb", "positron"])])
+    selection = select(
+        "fais un graphique avec uhb",
+        catalog={"file": object()},
+        skills=[entry(capabilities=["uhb", "positron"])],
+    )
     assert "uhb" not in selection.toolsets
     available = turn_toolsets({"file": object()}, selection, enabled=True)
     assert set(available) <= {"file"}

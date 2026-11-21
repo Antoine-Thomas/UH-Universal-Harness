@@ -41,7 +41,9 @@ class ScriptedProvider:
             return {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{"function": {"name": self.tool, "arguments": {"command": "echo hi"}}}],
+                "tool_calls": [
+                    {"function": {"name": self.tool, "arguments": {"command": "echo hi"}}}
+                ],
             }
         for token in ("bon", "jour"):
             if on_token is not None:
@@ -189,7 +191,7 @@ def test_security_headers_and_no_inline_script(
             assert 'src="/static/app.js' in html, "the module is still served from /static"
             # The rule is "no inline script", not "one file": a second external
             # module is still governed by script-src 'self'.
-            assert "<script>" not in html and "<script type=\"text/javascript\">" not in html
+            assert "<script>" not in html and '<script type="text/javascript">' not in html
             import re as _re
 
             for tag in _re.findall(r"<script[^>]*>", html):
@@ -236,7 +238,9 @@ def test_sessions_crud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     async def scenario():
         async with client(app) as http:
-            created = (await http.post("/api/sessions", json={"title": "hello"}, headers=AUTH)).json()
+            created = (
+                await http.post("/api/sessions", json={"title": "hello"}, headers=AUTH)
+            ).json()
             session_id = created["session"]["id"]
             assert created["session"]["short_id"] == display_id(session_id)
 
@@ -244,7 +248,9 @@ def test_sessions_crud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
             assert [s["id"] for s in listing["sessions"]] == [session_id]
 
             renamed = (
-                await http.patch(f"/api/sessions/{session_id}", json={"title": "renamed"}, headers=AUTH)
+                await http.patch(
+                    f"/api/sessions/{session_id}", json={"title": "renamed"}, headers=AUTH
+                )
             ).json()
             assert renamed["title"] == "renamed"
 
@@ -294,7 +300,10 @@ def test_chat_streams_tokens_and_persists(tmp_path: Path, monkeypatch: pytest.Mo
             assert names.count("token") == 2
             assert "answer" in names
             assert names[-1] == "done"
-            assert "".join(data.get("text", "") for name, data in frames if name == "token") == "bonjour"
+            assert (
+                "".join(data.get("text", "") for name, data in frames if name == "token")
+                == "bonjour"
+            )
 
             messages = (await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)).json()
             roles = [m["role"] for m in messages["messages"]]
@@ -314,7 +323,9 @@ def test_tool_events_and_terminal_disabled_by_default(
             status = (await http.get("/api/status", headers=AUTH)).json()
             assert status["terminal"] is False
 
-            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
+            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()[
+                "session"
+            ]["id"]
             response = await http.post(
                 f"/api/sessions/{session_id}/chat", json={"message": "ls"}, headers=AUTH
             )
@@ -342,7 +353,9 @@ def test_terminal_can_be_enabled_explicitly(
         async with client(app) as http:
             status = (await http.get("/api/status", headers=AUTH)).json()
             assert status["terminal"] is True
-            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
+            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()[
+                "session"
+            ]["id"]
             response = await http.post(
                 f"/api/sessions/{session_id}/chat",
                 json={"message": "echo hi"},
@@ -359,7 +372,9 @@ def test_stop_without_a_running_turn(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     async def scenario():
         async with client(app) as http:
-            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
+            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()[
+                "session"
+            ]["id"]
             payload = (await http.post(f"/api/sessions/{session_id}/stop", headers=AUTH)).json()
             assert payload["stopped"] is False
 
@@ -378,7 +393,9 @@ def test_the_turn_total_does_not_depend_on_the_page_size(
 
     async def scenario():
         async with client(app) as http:
-            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
+            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()[
+                "session"
+            ]["id"]
             for index in range(5):
                 await http.post(
                     f"/api/sessions/{session_id}/chat",
@@ -413,11 +430,13 @@ def test_search_returns_snippets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     async def scenario():
         async with client(app) as http:
-            session_id = (await http.post("/api/sessions", json={"title": "find me"}, headers=AUTH)).json()[
-                "session"
-            ]["id"]
+            session_id = (
+                await http.post("/api/sessions", json={"title": "find me"}, headers=AUTH)
+            ).json()["session"]["id"]
             await http.post(
-                f"/api/sessions/{session_id}/chat", json={"message": "le clavier est bleu"}, headers=AUTH
+                f"/api/sessions/{session_id}/chat",
+                json={"message": "le clavier est bleu"},
+                headers=AUTH,
             )
             hits = (await http.get("/api/search?q=clavier", headers=AUTH)).json()["hits"]
             assert hits and "clavier" in hits[0]["snippet"]
@@ -452,9 +471,7 @@ def test_models_and_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     run(scenario())
 
 
-def test_no_provider_key_is_ever_returned(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_no_provider_key_is_ever_returned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = make_app(tmp_path, monkeypatch)
     secret = "test-key-not-a-real-secret"
     keys_mod.add_provider("groq", "https://api.groq.com/openai/v1", "llama", secret)
@@ -473,7 +490,9 @@ def test_chat_without_message_is_400(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     async def scenario():
         async with client(app) as http:
-            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
+            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()[
+                "session"
+            ]["id"]
             response = await http.post(
                 f"/api/sessions/{session_id}/chat", json={"message": "  "}, headers=AUTH
             )
@@ -489,8 +508,12 @@ def test_session_model_override_is_per_session(
 
     async def scenario():
         async with client(app) as http:
-            first = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
-            second = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
+            first = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"][
+                "id"
+            ]
+            second = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"][
+                "id"
+            ]
 
             await http.post(
                 "/api/model",
@@ -505,7 +528,9 @@ def test_session_model_override_is_per_session(
     run(scenario())
 
 
-def test_folders_are_metadata_on_the_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_folders_are_metadata_on_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     app = make_app(tmp_path, monkeypatch)
 
     async def scenario():
@@ -526,9 +551,7 @@ def test_folders_are_metadata_on_the_session(tmp_path: Path, monkeypatch: pytest
             assert listing["sessions"][0]["metadata"]["folder"] == "Projets"
 
             unfiled = (
-                await http.patch(
-                    f"/api/sessions/{session_id}", json={"folder": ""}, headers=AUTH
-                )
+                await http.patch(f"/api/sessions/{session_id}", json={"folder": ""}, headers=AUTH)
             ).json()
             assert unfiled["folder"] == ""
             assert "folder" not in unfiled["session"]["metadata"]
@@ -548,7 +571,9 @@ def test_patch_refuses_an_empty_body(tmp_path: Path, monkeypatch: pytest.MonkeyP
             assert unknown.status_code == 404
 
 
-def test_a_deleted_session_takes_its_messages_with_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_deleted_session_takes_its_messages_with_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """What the trash icon in the sidebar relies on: no orphan rows to reload."""
     app = make_app(tmp_path, monkeypatch)
 
@@ -565,9 +590,9 @@ def test_a_deleted_session_takes_its_messages_with_it(tmp_path: Path, monkeypatc
                 "messages"
             ]
 
-            assert (
-                await http.delete(f"/api/sessions/{session_id}", headers=AUTH)
-            ).json()["deleted"] is True
+            assert (await http.delete(f"/api/sessions/{session_id}", headers=AUTH)).json()[
+                "deleted"
+            ] is True
 
             assert (
                 await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
@@ -586,7 +611,9 @@ def test_folders_can_be_listed_renamed_and_deleted(
         async with client(app) as http:
             made = []
             for title in ("a", "b", "c"):
-                created = (await http.post("/api/sessions", json={"title": title}, headers=AUTH)).json()
+                created = (
+                    await http.post("/api/sessions", json={"title": title}, headers=AUTH)
+                ).json()
                 made.append(created["session"]["id"])
             await http.patch(f"/api/sessions/{made[0]}", json={"folder": "Projets"}, headers=AUTH)
             await http.patch(f"/api/sessions/{made[1]}", json={"folder": "Projets"}, headers=AUTH)
@@ -608,11 +635,15 @@ def test_folders_can_be_listed_renamed_and_deleted(
 
             cleared = (await http.delete("/api/folders/Autre", headers=AUTH)).json()
             assert cleared == {"deleted": "Autre", "unfiled": 1}
-            assert [f["name"] for f in (await http.get("/api/folders", headers=AUTH)).json()["folders"]] == [
-                "Maison"
-            ]
+            assert [
+                f["name"] for f in (await http.get("/api/folders", headers=AUTH)).json()["folders"]
+            ] == ["Maison"]
             after = (await http.get("/api/sessions", headers=AUTH)).json()["sessions"]
-            assert sorted((s["metadata"].get("folder") or "") for s in after) == ["", "Maison", "Maison"]
+            assert sorted((s["metadata"].get("folder") or "") for s in after) == [
+                "",
+                "Maison",
+                "Maison",
+            ]
             assert len(after) == 3, "deleting a folder must never delete a session"
 
     run(scenario())
@@ -627,7 +658,9 @@ def test_folder_routes_refuse_what_they_cannot_represent(
         async with client(app) as http:
             created = (await http.post("/api/sessions", json={"title": "t"}, headers=AUTH)).json()
             session_id = created["session"]["id"]
-            await http.patch(f"/api/sessions/{session_id}", json={"folder": "Projets"}, headers=AUTH)
+            await http.patch(
+                f"/api/sessions/{session_id}", json={"folder": "Projets"}, headers=AUTH
+            )
 
             empty = await http.patch("/api/folders/Projets", json={"name": "  "}, headers=AUTH)
             assert empty.status_code == 400
@@ -671,14 +704,12 @@ def test_delete_one_message_through_the_api(
             assert body["deleted"] == doomed
             assert body["remaining"] == len(messages) - 1
 
-            after = (
-                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
-            ).json()["messages"]
+            after = (await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)).json()[
+                "messages"
+            ]
             assert [m["id"] for m in after] == [m["id"] for m in messages[:-1]]
 
-            again = await http.delete(
-                f"/api/sessions/{session_id}/messages/{doomed}", headers=AUTH
-            )
+            again = await http.delete(f"/api/sessions/{session_id}/messages/{doomed}", headers=AUTH)
             assert again.status_code == 404, "deleting twice is a not-found, not a crash"
             unknown_session = await http.delete(
                 f"/api/sessions/nope/messages/{doomed}", headers=AUTH
@@ -800,9 +831,9 @@ def test_chat_injects_a_small_attachment_and_references_a_big_one(
             )
             assert reply.status_code == 200
 
-            stored = (
-                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
-            ).json()["messages"]
+            stored = (await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)).json()[
+                "messages"
+            ]
             user = next(m for m in stored if m["role"] == "user")
             assert "CONTENU-INJECTE" in user["content"]
             assert "[inlined]" in user["content"]
@@ -867,9 +898,7 @@ def test_deleting_a_session_removes_its_uploads(
     run(scenario())
 
 
-def test_capabilities_reports_the_machine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_capabilities_reports_the_machine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from uh import hardware
 
     found = hardware.HardwareProfile(
@@ -953,9 +982,7 @@ def test_uhb_status_reports_absence_without_a_connection(
     run(scenario())
 
 
-def test_uhb_status_is_proxied_through_uh(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_uhb_status_is_proxied_through_uh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The browser asks UH; only UH speaks to UHB on loopback."""
     from uh.toolsets import uhb as uhb_mod
 
@@ -1043,9 +1070,9 @@ def test_a_slash_command_in_the_web_chat_runs_the_registry(
             assert "active toolsets" in reply.text
             assert provider.calls == 0, "a command is not a prompt"
 
-            stored = (
-                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
-            ).json()["messages"]
+            stored = (await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)).json()[
+                "messages"
+            ]
             assert stored == [], "a command does not become a stored turn"
 
     run(scenario())
@@ -1151,9 +1178,7 @@ def test_memory_search_covers_the_wiki_and_the_sessions(
                 headers=AUTH,
             )
 
-            data = (
-                await http.get("/api/memory/search?q=recherche", headers=AUTH)
-            ).json()
+            data = (await http.get("/api/memory/search?q=recherche", headers=AUTH)).json()
             kinds = {hit["kind"] for hit in data["hits"]}
             assert kinds == {"wiki", "session"}, kinds
 
@@ -1203,9 +1228,7 @@ def test_a_turn_records_a_decision_for_the_panel(
                 f"/api/sessions/{session_id}/chat", json={"message": "bonjour"}, headers=AUTH
             )
 
-            data = (
-                await http.get(f"/api/sessions/{session_id}/decision", headers=AUTH)
-            ).json()
+            data = (await http.get(f"/api/sessions/{session_id}/decision", headers=AUTH)).json()
             assert data["available"] is True
             assert data["model"]["model"]
             assert data["turn"]["duration_ms"] >= 0
@@ -1285,9 +1308,7 @@ def test_rag_reload_keeps_the_409_and_its_hint(
     run(scenario())
 
 
-def test_rag_reload_without_uhb_is_a_502(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rag_reload_without_uhb_is_a_502(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from uh.toolsets import uhb as uhb_mod
 
     monkeypatch.setattr(uhb_mod, "resolve_url", lambda: None)
@@ -1311,9 +1332,11 @@ def test_siyuan_blocks_are_proxied(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         seen["url"] = str(request.url)
         return httpx.Response(
             200,
-            json={"count": 1, "path": "veille", "blocks": [
-                {"id": "a", "type": "h", "hpath": "/veille", "content": "Titre"}
-            ]},
+            json={
+                "count": 1,
+                "path": "veille",
+                "blocks": [{"id": "a", "type": "h", "hpath": "/veille", "content": "Titre"}],
+            },
         )
 
     monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
@@ -1339,13 +1362,20 @@ def test_siyuan_blocks_are_proxied(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     ],
 )
 def test_siyuan_blocks_map_their_failures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, upstream: int, expected: int, kind: str, fragment: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    upstream: int,
+    expected: int,
+    kind: str,
+    fragment: str,
 ) -> None:
     from uh.toolsets import uhb as uhb_mod
 
     monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
     _uhb_transport(
-        lambda request: httpx.Response(upstream, json={"error": {"message": "SiYuan is not reachable at http://x"}})
+        lambda request: httpx.Response(
+            upstream, json={"error": {"message": "SiYuan is not reachable at http://x"}}
+        )
     )
     app = make_app(tmp_path, monkeypatch)
 
@@ -1370,8 +1400,13 @@ def test_the_rag_state_comes_from_uhb_when_it_answers(
     _uhb_transport(
         lambda request: httpx.Response(
             200,
-            json={"built": True, "source": "service", "chunks": 4893, "index_bytes": 0,
-                  "service": True},
+            json={
+                "built": True,
+                "source": "service",
+                "chunks": 4893,
+                "index_bytes": 0,
+                "service": True,
+            },
         )
     )
     app = make_app(tmp_path, monkeypatch)
@@ -1391,7 +1426,9 @@ def test_a_dead_uhb_leaves_the_local_disk_view(
     from uh.toolsets import uhb as uhb_mod
 
     monkeypatch.setattr(uhb_mod, "resolve_url", lambda: "http://127.0.0.1:8101")
-    _uhb_transport(lambda request: (_ for _ in ()).throw(httpx.ConnectError("refused", request=request)))
+    _uhb_transport(
+        lambda request: (_ for _ in ()).throw(httpx.ConnectError("refused", request=request))
+    )
     app = make_app(tmp_path, monkeypatch)
 
     async def scenario():
@@ -1409,11 +1446,25 @@ def test_a_dead_uhb_leaves_the_local_disk_view(
 def test_the_boost_route_is_always_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from uh import ollama_spawn
 
-    monkeypatch.setattr(ollama_spawn, "status", lambda: {
-        "installed": False, "running": False, "models": [], "boost": "unavailable",
-        "reason": "Ollama is not installed", "optional": True, "url": "http://127.0.0.1:11434",
-        "savings": {"local_passes": 0, "passes_logged": 3, "tokens_saved_estimate": 0, "basis": "0 of 3"},
-    })
+    monkeypatch.setattr(
+        ollama_spawn,
+        "status",
+        lambda: {
+            "installed": False,
+            "running": False,
+            "models": [],
+            "boost": "unavailable",
+            "reason": "Ollama is not installed",
+            "optional": True,
+            "url": "http://127.0.0.1:11434",
+            "savings": {
+                "local_passes": 0,
+                "passes_logged": 3,
+                "tokens_saved_estimate": 0,
+                "basis": "0 of 3",
+            },
+        },
+    )
     app = make_app(tmp_path, monkeypatch)
 
     async def scenario():
@@ -1495,8 +1546,13 @@ def test_the_tools_catalog_endpoint_passes_uhbs_answer_through(
 
     def fake_describe(self, name="", mode=""):
         sent.append((name, mode))
-        entry = {"name": "execute_code", "available": True, "reason": None,
-                 "parameters": {"type": "object"}, "compatible_modes": ["dev"]}
+        entry = {
+            "name": "execute_code",
+            "available": True,
+            "reason": None,
+            "parameters": {"type": "object"},
+            "compatible_modes": ["dev"],
+        }
         if name:
             return {"tool": entry, "count": 1, "mode": "dev"}
         return {"tools": [entry], "count": 1, "mode": "dev"}
@@ -1517,7 +1573,9 @@ def test_the_tools_catalog_endpoint_passes_uhbs_answer_through(
     assert sent == [("", "dev"), ("execute_code", "")]
 
 
-def test_the_turn_journal_records_the_tool_but_never_its_payload(tmp_path: Path, monkeypatch) -> None:
+def test_the_turn_journal_records_the_tool_but_never_its_payload(
+    tmp_path: Path, monkeypatch
+) -> None:
     """UH's journal must not become the place a snippet or a secret leaks.
 
     UH does not execute anything, but it does log the turn: the tool name, its
@@ -1540,10 +1598,19 @@ def test_the_turn_journal_records_the_tool_but_never_its_payload(tmp_path: Path,
     class Provider:
         def __init__(self) -> None:
             self.replies = [
-                {"role": "assistant", "content": "", "tool_calls": [
-                    {"id": "call_x", "function": {"name": "read_file",
-                                                  "arguments": {"path": f"{marker}.txt"}}},
-                ]},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_x",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": {"path": f"{marker}.txt"},
+                            },
+                        },
+                    ],
+                },
                 {"role": "assistant", "content": "je ne l'ai pas lu"},
             ]
 
@@ -1554,8 +1621,12 @@ def test_the_turn_journal_records_the_tool_but_never_its_payload(tmp_path: Path,
 
     async def scenario():
         async with client(app) as http:
-            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()["session"]["id"]
-            await http.post(f"/api/sessions/{session_id}/chat", json={"message": "lis"}, headers=AUTH)
+            session_id = (await http.post("/api/sessions", json={}, headers=AUTH)).json()[
+                "session"
+            ]["id"]
+            await http.post(
+                f"/api/sessions/{session_id}/chat", json={"message": "lis"}, headers=AUTH
+            )
 
     run(scenario())
 

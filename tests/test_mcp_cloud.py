@@ -60,7 +60,9 @@ def test_secrets_are_not_in_config_toml(tmp_path: Path, monkeypatch: pytest.Monk
     assert "shhh-secret" in secrets
 
 
-def test_the_entry_is_read_back_by_the_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_entry_is_read_back_by_the_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A panel that says "connected" on unparsable TOML is a lie: read it back."""
     monkeypatch.setenv("UH_HOME", str(tmp_path))
     mcp_cloud.connect(
@@ -168,6 +170,7 @@ def test_a_bad_name_is_refused_before_anything_is_written(
 
     assert not (tmp_path / "config.toml").exists()
 
+
 def test_the_self_repair_template_cannot_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -202,6 +205,7 @@ def test_the_self_repair_server_cannot_see_the_secrets(
     config = (tmp_path / "config.toml").read_text(encoding="utf-8")
     assert str(tmp_path / mcp_cloud.SECRETS_FILE) not in config
     assert "keys.toml" not in config
+
 
 def test_a_custom_server_splits_secrets_from_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -252,6 +256,7 @@ def test_a_custom_server_keeps_the_servers_already_there(
     text = config.read_text(encoding="utf-8")
     assert "# hand-written" in text
     assert text.count("[[mcp.servers]]") == 2
+
 
 def test_an_http_server_is_recorded_and_not_started(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

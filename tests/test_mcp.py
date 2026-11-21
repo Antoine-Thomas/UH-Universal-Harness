@@ -19,7 +19,7 @@ import pytest
 from uh import config as uh_config
 from uh import mcp
 
-FAKE_SERVER = r'''
+FAKE_SERVER = r"""
 import json
 import os
 import sys
@@ -90,7 +90,7 @@ for line in sys.stdin:
         else:
             send({"jsonrpc": "2.0", "id": request_id, "error": {
                 "code": -32601, "message": "no such tool"}})
-'''
+"""
 
 
 @pytest.fixture(autouse=True)

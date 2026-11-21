@@ -326,12 +326,18 @@ def list_snapshots() -> List[dict]:
 def _find_snapshot(snapshot_id: Optional[str]) -> Path:
     folder = dreams_dir()
     if snapshot_id:
-        wanted = snapshot_id if snapshot_id.startswith(SNAPSHOT_PREFIX) else f"{SNAPSHOT_PREFIX}{snapshot_id}"
+        wanted = (
+            snapshot_id
+            if snapshot_id.startswith(SNAPSHOT_PREFIX)
+            else f"{SNAPSHOT_PREFIX}{snapshot_id}"
+        )
         candidate = folder / wanted
         if not candidate.is_dir():
             raise DreamError(f"unknown snapshot: {snapshot_id}")
         return candidate
-    available = [path for path in sorted(folder.glob(f"{SNAPSHOT_PREFIX}*"), reverse=True) if path.is_dir()]
+    available = [
+        path for path in sorted(folder.glob(f"{SNAPSHOT_PREFIX}*"), reverse=True) if path.is_dir()
+    ]
     if not available:
         raise DreamError(f"no snapshot in {folder}: run `uh dream --snapshot` first")
     return available[0]

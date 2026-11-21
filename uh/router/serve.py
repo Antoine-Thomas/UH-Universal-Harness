@@ -212,9 +212,7 @@ def _chunk(text: str, model: str, completion_id: str, done: bool = False) -> str
         "object": "chat.completion.chunk",
         "created": int(time.time()),
         "model": model,
-        "choices": [
-            {"index": 0, "delta": delta, "finish_reason": "stop" if done else None}
-        ],
+        "choices": [{"index": 0, "delta": delta, "finish_reason": "stop" if done else None}],
     }
     return f"data: {json.dumps(payload)}\n\n"
 
@@ -279,13 +277,17 @@ def create_router_app(
         # Cookie auth is deliberately unsupported: a browser page cannot be
         # tricked into calling this server on the user's behalf.
         if not _authorised(request):
-            return _error(401, "missing or invalid bearer token", "invalid_request_error", "invalid_api_key")
+            return _error(
+                401, "missing or invalid bearer token", "invalid_request_error", "invalid_api_key"
+            )
 
         length = request.headers.get("content-length")
         if length is not None:
             try:
                 if int(length) > app.state.max_body:
-                    return _error(413, "request body too large", "invalid_request_error", "body_too_large")
+                    return _error(
+                        413, "request body too large", "invalid_request_error", "body_too_large"
+                    )
             except ValueError:
                 return _error(400, "invalid content-length", "invalid_request_error", "bad_request")
 
@@ -313,7 +315,9 @@ def create_router_app(
 
         with app.state.lock:
             if app.state.in_flight >= app.state.max_concurrency:
-                return _error(429, "too many concurrent requests", "rate_limit_error", "too_many_requests")
+                return _error(
+                    429, "too many concurrent requests", "rate_limit_error", "too_many_requests"
+                )
             app.state.in_flight += 1
         try:
             response = await call_next(request)
@@ -360,12 +364,14 @@ def create_router_app(
                         name = str(entry["name"])
                         if name not in seen:
                             seen.add(name)
-                            rows.append({"id": name, "object": "model", "owned_by": kind, "tools": True})
+                            rows.append(
+                                {"id": name, "object": "model", "owned_by": kind, "tools": True}
+                            )
                 except ProviderError:
                     continue
             else:
                 state_rows = getattr(provider, "status_rows", None)
-                for row in (state_rows() if callable(state_rows) else []):
+                for row in state_rows() if callable(state_rows) else []:
                     for model in row.get("models") or []:
                         model_id = model.get("id") if isinstance(model, dict) else str(model)
                         if model_id and model_id not in seen:
@@ -375,7 +381,9 @@ def create_router_app(
                                     "id": model_id,
                                     "object": "model",
                                     "owned_by": row.get("provider", kind),
-                                    "tools": bool(model.get("tools")) if isinstance(model, dict) else False,
+                                    "tools": bool(model.get("tools"))
+                                    if isinstance(model, dict)
+                                    else False,
                                 }
                             )
         return {"object": "list", "data": rows}
@@ -395,10 +403,14 @@ def create_router_app(
 
         messages = payload.get("messages")
         if not isinstance(messages, list) or not messages:
-            return _error(400, "'messages' must be a non-empty array", "invalid_request_error", "bad_request")
+            return _error(
+                400, "'messages' must be a non-empty array", "invalid_request_error", "bad_request"
+            )
         for message in messages:
             if not isinstance(message, dict) or "role" not in message:
-                return _error(400, "each message needs a 'role'", "invalid_request_error", "bad_request")
+                return _error(
+                    400, "each message needs a 'role'", "invalid_request_error", "bad_request"
+                )
 
         tools = payload.get("tools") or []
         if not isinstance(tools, list):

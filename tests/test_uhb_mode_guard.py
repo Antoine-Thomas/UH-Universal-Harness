@@ -57,7 +57,9 @@ def post(app, *, headers=None, cookies=None, json_body=None):
     async def run():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url=BASE, cookies=cookies) as http:
-            return await http.request("POST", MODE, headers=headers, json=json_body or {"mode": "dev"})
+            return await http.request(
+                "POST", MODE, headers=headers, json=json_body or {"mode": "dev"}
+            )
 
     return asyncio.run(run())
 
@@ -177,8 +179,13 @@ def test_no_tool_can_reach_the_mode_route() -> None:
     root = Path(__file__).resolve().parents[1]
     forbidden = ("/api/uhb/mode", "api/uhb/mode")
     offenders: list[str] = []
-    for folder in (root / "uh" / "toolsets", root / "uh" / "mcp.py", root / "uh" / "mcp_http.py",
-                   root / "uh" / "agent.py", root / "uh" / "providers"):
+    for folder in (
+        root / "uh" / "toolsets",
+        root / "uh" / "mcp.py",
+        root / "uh" / "mcp_http.py",
+        root / "uh" / "agent.py",
+        root / "uh" / "providers",
+    ):
         paths = [folder] if folder.is_file() else list(folder.rglob("*.py"))
         for path in paths:
             text = path.read_text(encoding="utf-8", errors="replace")
