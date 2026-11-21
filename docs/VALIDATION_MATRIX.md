@@ -210,9 +210,9 @@ sorties brutes des scripts de mesure (`scratch/porteD_uhb_d1_d3.py`,
 |---|---|---|
 | D-1 | 20 runs crees puis clos dans une racine isolee | `avant = 0 / apres = 0`, actions `['purged']`, **0 dossier survivant** sur 20 |
 | D-1 (reel) | `~/.uhb/runs` | **381** dossiers, **0** de plus de 7 jours (`find -mtime +7 \\| wc -l`) |
-| D-2 | run garde archive | `action=archived`, bundle `sha256=17f4aa4ea507529c…`, commit `bb9c6a5`, dossier supprime, journal a **1** entree |
+| D-2 | run garde archive | `action=archived`, bundle `sha256=17f4aa4ea507529c…`, commit `44c97c3`, dossier supprime, journal a **1** entree |
 | D-2 (reel) | depot reel `~/.uhb/brain-runs.git` | **1** commit : `keep run-20261120-232455-908f9e (mode=dev, 0 files, 2289 B)` |
-| D-2 | restauration | 3 fichiers compares, **2 identiques** ; seul `manifest.json` differe : il gagne `archived`, `archive_sha`, `archive_commit` (c'est l'archive qui s'y declare) |
+| D-2 | restauration | 3 fichiers compares, **3 identiques**, ecart `[]` - `manifest.json` compris (meme SHA-256). Voir le complement ci-dessous : la premiere mesure donnait 2 sur 3 et a conduit a un correctif UHB |
 | D-3 | TTL puis quota | `avant = 7 / apres = 2`, **5 expires**, **2 gardes epargnes**, 1155 octets liberes |
 | D-3 (reel) | `uhb runs prune` (a blanc) | 381 runs, 0 protege, **181 candidats**, 3 185 221 B recuperables, tri du plus ancien au plus recent |
 | D-4 | trois depots, porcelain du panneau vs terminal | propre / modifie / en avance : **identique = True** les trois fois ; `branche/ahead/dirty` = `('main',0,0)`, `('main',0,2)`, `('main',1,0)` |
@@ -220,21 +220,44 @@ sorties brutes des scripts de mesure (`scratch/porteD_uhb_d1_d3.py`,
 | D-6 | tache interne lancee depuis l'API | jamais lancee : `next_run = 14:55:54` ; apres lancement `last_run = 14:40:54`, `status = ok` ; **second passage** `14:40:58` -> `next_run = 14:55:58` (recalcul sur le dernier passage) ; journal : `mecanisme = registre`, 1 tache |
 | D-7 | RAG volontairement injoignable (`UH_RAG_URL` sur un port ferme) | **7 services** listes, RAG `state=down` raison **`port 1 : TimeoutError: timed out`**, encore `up` : `UH, Ollama, SiYuan, MARI` ; `actions_available = []` |
 | D-8 | serveur MCP minimal `mini` | inventaire `[('mini','idle',True)]` ; bascule off `ok=True, hot=True, enabled=False` ; epreuve pendant l'extinction **`1 outil(s) liste(s)`** ; reactivation `ok=True` |
-| D-9 | suite UH | `1978 passed, 2 skipped`, `ruff : All checks passed!`, `mypy : no issues found in 85 source files` |
-| D-9 | suite UHB (venv du depot) | **`426 passed, 9 skipped`** en 20,02 s |
+| D-9 | suite UH | `1981 passed, 2 skipped, 74 deselected` en 376,57 s, `ruff : All checks passed!`, `mypy : no issues found in 85 source files` |
+| D-9 | suite UHB (venv du depot) | **`429 passed, 9 skipped`** en 22,08 s (426 avant le correctif du manifeste) |
 | D-9 | `node --check` sur les fichiers de l'interface | aucun message : tous passent |
 
-**Deux observations notees pendant la campagne, hors perimetre, non corrigees ici.**
+**Ce que la campagne a trouve, et ce qu'il en est advenu.**
 
-1. `uhb.runs.write_manifest()` reecrit `created` a chaque appel et **remplace** le manifeste
-   au lieu de le fusionner : archiver un run garde lui redonne l'heure d'archivage comme
-   heure de creation, et les cles non repassees (`summary`, `files`, `session`) disparaissent
-   du manifeste vivant. Le bundle, lui, est fidele : le contenu restaure est identique.
-   A traiter cote UHB, avec son propre test.
+1. `uhb.runs.write_manifest()` reecrivait `created` a chaque appel et **remplacait** le
+   manifeste au lieu de le fusionner ; `archive()` puis `restore()` le reecrivaient tous les
+   deux. Un run garde « naissait » donc au moment de son archivage, et le manifeste restaure
+   n'etait plus celui qui avait ete archive. **Corrige** cote UHB (PR #21, `3ea361d`) : fusion
+   des cles, `created` preserve, manifeste d'origine conserve a cote du bundle dans le depot
+   (`run-manifest.json`), et `* -text` dans l'arbre d'archive pour que git ne convertisse
+   plus les fins de ligne. D-2 se mesure desormais **3 sur 3**, SHA-256 du manifeste compris.
 2. L'epreuve `POST /api/extensions/.../test` **demarre** le serveur MCP meme lorsque
    l'extension est eteinte - c'est voulu (diagnostiquer une extension ne suppose pas de
    l'allumer pour les tours), mais cela signifie que « eteint » se lit dans `build_toolsets`
    et dans l'inventaire, pas dans le resultat de l'epreuve.
+
+### Complement du 2026-11-21 (soir) : les preuves d'interface de D-6 et D-8
+
+Les deux criteres parlent du cockpit, pas de la route : ils se prouvent en cliquant.
+Mesures prises sur `main` cote UH (`c00be4d`) et cote UHB (`3ea361d`, apres la fusion de la
+PR #21 qui corrige le manifeste).
+
+| ID | Mesure | Sortie exacte |
+|---|---|---|
+| D-2 | restauration champ par champ (apres correctif UHB) | SHA-256 avant/restaure **identiques** (`654101a01a71819d…`), octets identiques, et `created`, `session`, `keep`, `mode`, `summary`, `run` egaux deux a deux |
+| D-6 | bouton « Lancer maintenant » clique dans le panneau Taches | etat de depart `jamais lancee`, puis `#tasks-hint` = `<id> : ok`, ligne `dernier passage : … (ok)`, `title` de la ligne contenant la sortie de `doctor`, `prochaine : …` ; `tests/e2e/test_p3_16_tasks_extensions_ui.py`, **3 executions consecutives, 3 fois vert** |
+| D-8 | entree `[[mcp.servers]]` sans `command`, ecrite avant le demarrage | ligne rendue `data-state="broken"`, « cassée », detail `configuration refusee avant tout demarrage`, raison **`mcp.servers[casse]: 'command' is required`** ; compte `{total: 1, enabled: 0, broken: 1}` |
+| D-8 | entree bien formee mais **binaire inexistant**, bouton « Tester » | `#extensions-hint` = **`fantome : refuse · binaire introuvable : … 'C:/…/nexistepas.exe' ([WinError 2] …)`** ; la ligne reste listee (une epreuve qui echoue n'efface rien) |
+| D-8 | meme chemin, teste unitairement | `tests/test_extensions.py::test_a_malformed_mcp_entry_is_listed_broken_with_its_reason` ; **controle negatif** : avec l'ancien code, `AttributeError: 'str' object has no attribute 'get'` (extensions.py:192) - l'inventaire entier tombait |
+
+Ce que D-8 a revele au passage : `mcp.status()` publie ses refus sous forme de **phrases**,
+et `uh.extensions._mcp_entries()` les lisait comme des dictionnaires. Une seule entree MCP
+mal ecrite suffisait donc a faire tomber tout le panneau Extensions, au lieu d'afficher une
+ligne cassée avec sa raison - exactement le chemin que le critere demande. Corrige dans le
+meme lot : les deux formes sont acceptees, et une entree refusee est nommee d'apres
+`mcp.servers[<cle>]` quand la phrase la porte.
 
 ## What is missing to be able to say "proven"
 
