@@ -7,9 +7,12 @@ chaîne du source : c'est la règle du projet, un test qui lit le code ne prouve
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 import pytest
+
+import uh.schedule as uh_schedule
 
 pytestmark = pytest.mark.e2e
 
@@ -113,36 +116,60 @@ def test_the_composer_gives_its_whole_width_to_the_field(browser, server_no_trig
         context.close()
 
 
-def test_the_tasks_panel_writes_dates_in_french(browser, server_no_triggers) -> None:
-    """`next_run` et `last_run` sont lisibles : jamais l'ISO brut dans l'interface."""
+def test_the_tasks_panel_writes_dates_in_french(browser, server_no_triggers, monkeypatch) -> None:
+    """`next_run` et `last_run` sont lisibles : jamais l'ISO brut dans l'interface.
+
+    Le registre est semé directement (trois tâches avec des derniers passages connus)
+    plutôt qu'en lançant `doctor` : on éprouve ici le RENDU des dates, et faire tourner un
+    diagnostic pour obtenir un horodatage coûtait une minute de CI pour rien - c'est ce
+    qui a rapproché la suite E2E Windows de son plafond de 15 minutes.
+    """
+    monkeypatch.setenv("UH_HOME", str(server_no_triggers.home))
+    maintenant = time.time()
+
+    def horodatage(secondes_avant: float) -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(maintenant - secondes_avant))
+
+    data = uh_schedule.load_registry()
+    data["tasks"] = [
+        {
+            "id": "t-date-aujourdhui", "name": "aujourd'hui", "command": "doctor",
+            "every_minutes": 15, "enabled": True, "created": horodatage(7200),
+            "last_run": horodatage(3600), "last_status": "ok",
+        },
+        {
+            "id": "t-date-hier", "name": "hier", "command": "doctor",
+            "every_minutes": 60, "enabled": True, "created": horodatage(172800),
+            "last_run": horodatage(86400 + 7200), "last_status": "ok",
+        },
+        {
+            "id": "t-date-mois", "name": "mois", "command": "doctor",
+            "every_minutes": 60, "enabled": True, "created": horodatage(3456000),
+            "last_run": horodatage(3456000), "last_status": "ok",
+        },
+    ]
+    uh_schedule.save_registry(data)
+
     context, page = open_app(browser, server_no_triggers)
     try:
         if page.eval_on_selector("#providers-panel", "el => el.classList.contains('collapsed')"):
             page.click("#providers-open")
         page.click("#group-tools")
         page.click("#tab-tasks")
-        page.wait_for_selector("#tasks-catalog .tasks-catalog-line", timeout=20000)
-
-        page.fill("#task-name", "date lisible")
-        page.select_option("#task-command", "doctor")
-        page.fill("#task-every", "15")
-        page.click("#task-create")
-        page.wait_for_selector("#tasks-list .task-row", timeout=20000)
-
-        page.click("#tasks-list .task-row button[data-action='run']")
         page.wait_for_function(
-            """() => {
-                const ligne = document.querySelector('#tasks-list .task-row .task-last');
-                return ligne && ligne.textContent.includes('dernier passage');
-            }""",
-            timeout=90000,
+            "() => document.querySelectorAll('#tasks-list .task-row').length >= 3", timeout=20000
         )
         texte = page.eval_on_selector("#tasks-list", "el => el.innerText")
         assert not re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", texte), (
             f"date ISO brute affichée : {texte}"
         )
-        assert re.search(
-            r"Aujourd'hui \d{2}:\d{2}|Hier \d{2}:\d{2}|\d{1,2} [a-zéû]+\. \d{2}:\d{2}", texte
-        ), f"aucune date lisible en français : {texte}"
+        assert re.search(r"Aujourd'hui \d{2}:\d{2}", texte), f"pas de « Aujourd'hui » : {texte}"
+        assert re.search(r"Hier \d{2}:\d{2}", texte), f"pas de « Hier » : {texte}"
+        assert re.search(r"\d{1,2} [a-zéû]+\. \d{2}:\d{2}", texte), (
+            f"pas de date au format « 12 oct. 03:25 » : {texte}"
+        )
+        # Les deux champs sont rendus par le même formateur : dernier passage ET prochaine.
+        assert texte.count("dernier passage :") == 3, texte
+        assert texte.count("prochaine :") == 3, texte
     finally:
         context.close()
