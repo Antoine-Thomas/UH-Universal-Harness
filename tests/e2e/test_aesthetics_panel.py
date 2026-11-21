@@ -7,7 +7,7 @@ chaîne du source : c'est la règle du projet, un test qui lit le code ne prouve
 from __future__ import annotations
 
 import re
-import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -125,27 +125,33 @@ def test_the_tasks_panel_writes_dates_in_french(browser, server_no_triggers, mon
     qui a rapproché la suite E2E Windows de son plafond de 15 minutes.
     """
     monkeypatch.setenv("UH_HOME", str(server_no_triggers.home))
-    maintenant = time.time()
 
-    def horodatage(secondes_avant: float) -> str:
-        return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(maintenant - secondes_avant))
+    # Ancrage calendaire : les dates sont posées à une heure FIXE d'un jour donné du serveur
+    # (« aujourd'hui 00:05 », « hier 00:05 », « il y a 40 jours 12:00 ») au lieu de
+    # « maintenant moins N secondes ». Une suite lancée entre 00:00 et 01:00 faisait
+    # basculer « aujourd'hui 00:30 » en « hier », et le test échouait selon l'heure du run.
+    def jour(decalage: int, heure: int = 0, minute: int = 5) -> str:
+        base = datetime.now() + timedelta(days=decalage)
+        return base.replace(hour=heure, minute=minute, second=0, microsecond=0).strftime(
+            "%Y-%m-%dT%H:%M:%S"
+        )
 
     data = uh_schedule.load_registry()
     data["tasks"] = [
         {
             "id": "t-date-aujourdhui", "name": "aujourd'hui", "command": "doctor",
-            "every_minutes": 15, "enabled": True, "created": horodatage(7200),
-            "last_run": horodatage(3600), "last_status": "ok",
+            "every_minutes": 15, "enabled": True, "created": jour(-1, 12),
+            "last_run": jour(0), "last_status": "ok",
         },
         {
             "id": "t-date-hier", "name": "hier", "command": "doctor",
-            "every_minutes": 60, "enabled": True, "created": horodatage(172800),
-            "last_run": horodatage(86400 + 7200), "last_status": "ok",
+            "every_minutes": 60, "enabled": True, "created": jour(-2, 12),
+            "last_run": jour(-1), "last_status": "ok",
         },
         {
             "id": "t-date-mois", "name": "mois", "command": "doctor",
-            "every_minutes": 60, "enabled": True, "created": horodatage(3456000),
-            "last_run": horodatage(3456000), "last_status": "ok",
+            "every_minutes": 60, "enabled": True, "created": jour(-41, 12),
+            "last_run": jour(-40, 12), "last_status": "ok",
         },
     ]
     uh_schedule.save_registry(data)
@@ -171,5 +177,58 @@ def test_the_tasks_panel_writes_dates_in_french(browser, server_no_triggers, mon
         # Les deux champs sont rendus par le même formateur : dernier passage ET prochaine.
         assert texte.count("dernier passage :") == 3, texte
         assert texte.count("prochaine :") == 3, texte
+    finally:
+        context.close()
+
+
+def test_the_day_is_the_servers_day_not_the_browsers(
+    browser, server_no_triggers, monkeypatch
+) -> None:
+    """Un passage d'aujourd'hui reste « Aujourd'hui » même consulté d'un autre fuseau.
+
+    Le serveur écrit ses horodatages naïfs dans SON heure locale et publie désormais `now`.
+    Comparés au calendrier du navigateur, ces mêmes horodatages basculaient en « Hier » dès
+    que le poste était déjà un autre jour - le cas de toute consultation à distance. Le test
+    place donc le navigateur dans un fuseau réellement décalé d'un jour (le navigateur doit
+    être dans un autre jour que le serveur, et on le vérifie) : sans cette précaution, les
+    deux calendriers coïncident et le défaut resterait invisible.
+    """
+    monkeypatch.setenv("UH_HOME", str(server_no_triggers.home))
+    serveur = datetime.now()
+    passage = serveur.replace(hour=0, minute=5, second=0, microsecond=0).strftime(
+        "%Y-%m-%dT%H:%M:%S"
+    )
+    data = uh_schedule.load_registry()
+    data["tasks"] = [
+        {
+            "id": "t-fuseau", "name": "fuseau", "command": "doctor", "every_minutes": 60,
+            "enabled": True, "created": passage, "last_run": passage, "last_status": "ok",
+        }
+    ]
+    uh_schedule.save_registry(data)
+
+    # +14 tant que le serveur est assez avancé dans la journée, -11 sinon : dans les deux
+    # cas, le navigateur est de l'autre côté de minuit par rapport au serveur.
+    fuseau = "Pacific/Kiritimati" if serveur.hour >= 11 else "Pacific/Midway"
+
+    context, page = open_app(browser, server_no_triggers, timezone_id=fuseau)
+    try:
+        jour_navigateur = page.evaluate("() => new Date().toLocaleDateString('sv-SE')")
+        assert jour_navigateur != serveur.strftime("%Y-%m-%d"), (
+            f"le navigateur ({fuseau}) devait être un autre jour que le serveur : "
+            f"{jour_navigateur} vs {serveur:%Y-%m-%d}"
+        )
+        if page.eval_on_selector("#providers-panel", "el => el.classList.contains('collapsed')"):
+            page.click("#providers-open")
+        page.click("#group-tools")
+        page.click("#tab-tasks")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#tasks-list .task-row').length >= 1", timeout=20000
+        )
+        texte = page.eval_on_selector("#tasks-list", "el => el.innerText")
+        assert "Aujourd'hui 00:05" in texte, (
+            f"« Aujourd'hui » doit suivre l'horloge du serveur, pas celle du poste : {texte}"
+        )
+        assert "Hier 00:05" not in texte, f"un passage du jour affiché comme « Hier » : {texte}"
     finally:
         context.close()

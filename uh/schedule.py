@@ -377,6 +377,11 @@ def listing() -> Dict[str, Any]:
         "mechanism_label": labels.get(mechanism, mechanism),
         "platform": "windows" if _windows() else "autre",
         "system_disabled": _system_disabled(),
+        # L'horloge du SERVEUR, dans le même format naïf que les horodatages ci-dessus.
+        # L'interface s'en sert pour dire « Aujourd'hui » et « Hier » : sans elle, un
+        # navigateur dans un autre fuseau lit 00:30 comme « hier » alors que le serveur
+        # vient de l'écrire aujourd'hui.
+        "now": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "limits": {"min_every": MIN_EVERY, "max_every": MAX_EVERY, "name_limit": NAME_LIMIT},
     }
 
