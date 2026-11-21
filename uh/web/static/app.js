@@ -8209,7 +8209,7 @@ function taskModeLabel(data) {
 const MOIS_COURTS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août",
                      "sept.", "oct.", "nov.", "déc."];
 
-function frenchMoment(iso) {
+function frenchMoment(iso, horlogeServeur) {
   // « AAAA-MM-JJTHH:MM:SS » (heure locale du serveur) -> « Aujourd'hui 03:25 »,
   // « Hier 22:10 » ou « 21 nov. 03:25 ». L'ISO brut n'apparaît plus dans l'interface :
   // il reste lisible par une machine, pas par un opérateur. Un format inconnu est rendu
@@ -8220,7 +8220,15 @@ function frenchMoment(iso) {
   if (!m) return texte;
   const [, annee, mois, jour, heure, minute] = m;
   const moment = new Date(Number(annee), Number(mois) - 1, Number(jour), Number(heure), Number(minute));
-  const maintenant = new Date();
+  // La référence est l'horloge du SERVEUR, celle qui a écrit les horodatages : elle arrive
+  // dans le même format naïf, donc sur le même calendrier. Comparer au fuseau du poste
+  // faisait basculer un passage de 00:30 en « Hier » dès qu'on consultait depuis un autre
+  // fuseau horaire. Le navigateur ne sert plus que de repli quand le serveur n'envoie rien.
+  const horloge = String(horlogeServeur || "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  const maintenant = horloge
+    ? new Date(Number(horloge[1]), Number(horloge[2]) - 1, Number(horloge[3]),
+               Number(horloge[4]), Number(horloge[5]))
+    : new Date();
   const cle = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
   const hhmm = `${heure}:${minute}`;
   if (cle(moment) === cle(maintenant)) return `Aujourd'hui ${hhmm}`;
@@ -8233,6 +8241,10 @@ function frenchMoment(iso) {
 function renderTasks(data) {
   const mode = $("tasks-mode");
   if (mode) mode.textContent = taskModeLabel(data);
+
+  // L'horloge du serveur arrive avec la liste : « Aujourd'hui » et « Hier » se calculent
+  // sur SON calendrier, celui qui a écrit les horodatages, jamais sur le fuseau du poste.
+  const horloge = data.now || null;
 
   const select = $("task-command");
   if (select) {
@@ -8287,7 +8299,7 @@ function renderTasks(data) {
     const last = el("div", "task-last");
     last.dataset.role = "last";
     last.textContent = task.last_run
-      ? `dernier passage : ${frenchMoment(task.last_run)} (${task.last_status || "—"})`
+      ? `dernier passage : ${frenchMoment(task.last_run, horloge)} (${task.last_status || "—"})`
       : "jamais lancée";
     if (task.last_detail) last.title = task.last_detail;
     row.appendChild(last);
@@ -8297,7 +8309,7 @@ function renderTasks(data) {
     const next = el("div", "task-next");
     next.dataset.role = "next";
     next.textContent = task.next_run
-      ? `prochaine : ${frenchMoment(task.next_run)}`
+      ? `prochaine : ${frenchMoment(task.next_run, horloge)}`
       : `prochaine : aucune (${task.next_reason || "—"})`;
     row.appendChild(next);
 

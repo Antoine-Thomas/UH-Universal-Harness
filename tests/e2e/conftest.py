@@ -173,9 +173,15 @@ def browser():
             instance.close()
 
 
-def open_app(browser, server: Server):
-    """A page on the app, with its own cookie jar, waiting for the composer."""
-    context = browser.new_context()
+def open_app(browser, server: Server, *, timezone_id: str | None = None):
+    """A page on the app, with its own cookie jar, waiting for the composer.
+
+    ``timezone_id`` place le NAVIGATEUR dans un autre fuseau que le serveur. C'est la seule
+    façon de distinguer « aujourd'hui » calculé sur l'horloge du serveur de « aujourd'hui »
+    calculé sur celle du poste : sans cela, les deux calendriers coïncident et le défaut
+    reste invisible.
+    """
+    context = browser.new_context(timezone_id=timezone_id) if timezone_id else browser.new_context()
     page = context.new_page()
     page.goto(server.url, wait_until="domcontentloaded")
     page.wait_for_selector("#input", timeout=30000)

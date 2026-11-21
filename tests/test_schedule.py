@@ -401,3 +401,35 @@ def test_a_disabled_task_announces_no_next_run_and_says_why() -> None:
     entry = next(i for i in uh_schedule.listing()["tasks"] if i["id"] == task["id"])
     assert entry["next_run"] == ""
     assert entry["next_reason"] == "désactivée"
+
+
+def test_the_listing_publishes_the_server_clock() -> None:
+    """`now` sort du serveur, dans le même format que les horodatages qu'il écrit.
+
+    Sans cette horloge, l'interface compare « aujourd'hui » au calendrier du NAVIGATEUR :
+    consultée depuis un autre fuseau, une tâche passée à 00:30 heure serveur s'affiche
+    « Hier 00:30 ». Le format doit donc être identique à `last_run`, sinon la comparaison
+    n'a pas lieu et le libellé retombe sur la date brute.
+    """
+    task = uh_schedule.create("Diagnostic", "doctor", 60)["task"]
+    uh_schedule.run_now(task["id"])
+    avant = time.time()
+    corps = uh_schedule.listing()
+    apres = time.time()
+    format_serveur = "%Y-%m-%dT%H:%M:%S"
+    instant = time.mktime(time.strptime(corps["now"], format_serveur))
+    assert avant - 1 <= instant <= apres + 1, "l'horloge publiée est celle du serveur, pas une constante"
+    dernier = next(i for i in corps["tasks"] if i["id"] == task["id"])["last_run"]
+    assert len(dernier) == len(corps["now"]), "même format que les horodatages : comparable tel quel"
+
+
+def test_the_route_publishes_the_server_clock(app) -> None:
+    async def go():
+        async with client(app) as http:
+            return await http.get("/api/schedules", headers=AUTH)
+
+    body = run(go()).json()
+    assert body["ok"] is True
+    assert body["now"], "la route doit livrer l'horloge du serveur avec la liste"
+    instant = time.mktime(time.strptime(body["now"], "%Y-%m-%dT%H:%M:%S"))
+    assert abs(instant - time.time()) < 5, "et c'est bien l'heure courante du serveur"
