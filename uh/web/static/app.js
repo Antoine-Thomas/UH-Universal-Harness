@@ -4193,16 +4193,36 @@ async function setSkillEnabled(skill, enabled) {
 }
 
 async function setAllSkills(enabled) {
+  const cibles = SKILL_STATE.skills.filter((skill) => Boolean(skill.enabled) !== enabled);
+  if (!cibles.length) {
+    skillsHint(enabled ? "tous déjà activés" : "tous déjà désactivés");
+    return;
+  }
   SKILL_STATE.busy = true;
-  skillsHint(enabled ? "activation…" : "désactivation…");
+  skillsHint(
+    enabled ? `activation de ${cibles.length} skill(s)…` : `désactivation de ${cibles.length} skill(s)…`,
+  );
   try {
-    for (const skill of SKILL_STATE.skills) {
-      if (Boolean(skill.enabled) === enabled) continue;
-      await setSkillEnabled(skill, enabled);
+    // En parallèle, et sans s'arrêter au premier refus : douze PATCH en série dépassaient
+    // le délai d'attente sur un runner chargé, et une erreur au milieu de la boucle
+    // laissait la moitié des lignes « éteintes » sans un mot (mesuré deux fois sur
+    // `e2e / windows-latest`).
+    const resultats = await Promise.allSettled(
+      cibles.map((skill) => setSkillEnabled(skill, enabled)),
+    );
+    const echecs = cibles.filter((_, index) => resultats[index].status === "rejected");
+    renderSkills({ skills: SKILL_STATE.skills });
+    if (echecs.length) {
+      const motif = resultats.find((item) => item.status === "rejected");
+      const raison = motif && motif.reason ? motif.reason.message || String(motif.reason) : "";
+      skillsHint(
+        `${echecs.length} skill(s) inchangé(s) : ${echecs.map((skill) => skill.name).join(", ")}${raison ? " — " + raison : ""}`,
+      );
+    } else {
+      skillsHint(enabled ? `${cibles.length} skill(s) activé(s)` : `${cibles.length} skill(s) désactivé(s)`);
     }
   } finally {
     SKILL_STATE.busy = false;
-    renderSkills({ skills: SKILL_STATE.skills });
   }
 }
 
