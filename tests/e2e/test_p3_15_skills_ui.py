@@ -86,6 +86,10 @@ def test_disabling_everything_then_reenabling(make_server, browser, tmp_path: Pa
         expect(page.locator("#skills-manager .skill-row.off").first).to_be_visible(timeout=15000)
 
         page.click("#skills-enable-all")
+        # La ligne d'état n'affiche le total qu'une fois TOUS les PATCH retombés : attendre
+        # le DOM seul laissait la course ouverte sur un runner chargé (mesuré en CI
+        # Windows, où la moitié des lignes restait « éteinte »).
+        expect(page.locator("#skills-hint")).to_contain_text("activé", timeout=30000)
         expect(page.locator("#skills-manager .skill-toggle").first).to_be_checked(timeout=20000)
         expect(page.locator("#skills-manager .skill-row.off")).to_have_count(0, timeout=15000)
     finally:

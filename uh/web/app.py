@@ -1222,6 +1222,51 @@ def create_app(
         except uh_schedule.ScheduleError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    # -- gestionnaire d'extensions (P3-16d / D-8) -------------------------- #
+    # Une seule vue pour trois familles. Ce qui décide de l'état vit dans `uh/extensions.py`
+    # (MCP, UHB) et `uh/skill_prefs.py` (skills) : cette route ne fait que rassembler.
+    @app.get("/api/extensions", dependencies=[Depends(require_token)])
+    async def extensions_list() -> dict:
+        from .. import extensions as uh_extensions
+
+        try:
+            data = await asyncio.to_thread(uh_extensions.inventory)
+        except uh_extensions.ExtensionsError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return {"ok": True, **data}
+
+    @app.patch("/api/extensions/{kind}/{name}/enabled", dependencies=[Depends(require_token)])
+    async def extensions_set_enabled(kind: str, name: str, payload: dict) -> dict:
+        """Allume ou éteint une extension — l'effet est au tour suivant, sans redémarrage."""
+        from .. import extensions as uh_extensions
+
+        body = payload or {}
+        enabled = body.get("enabled")
+        if not isinstance(enabled, bool):
+            raise HTTPException(status_code=400, detail="enabled doit être true ou false")
+        try:
+            result = await asyncio.to_thread(uh_extensions.set_enabled, kind, name, enabled)
+        except uh_extensions.ExtensionsError as exc:
+            message = str(exc)
+            raise HTTPException(
+                status_code=404 if "inconnue" in message else 400, detail=message
+            ) from exc
+        return {"ok": True, **result, "hot": True}
+
+    @app.post("/api/extensions/{kind}/{name}/test", dependencies=[Depends(require_token)])
+    async def extensions_test(kind: str, name: str) -> dict:
+        """Éprouve une extension maintenant. Tester une extension éteinte est permis."""
+        from .. import extensions as uh_extensions
+
+        try:
+            report = await asyncio.to_thread(uh_extensions.test, kind, name)
+        except uh_extensions.ExtensionsError as exc:
+            message = str(exc)
+            raise HTTPException(
+                status_code=404 if "inconnue" in message else 400, detail=message
+            ) from exc
+        return {"ok": True, **report}
+
     @app.get("/api/runs", dependencies=[Depends(require_token)])
     async def runs_status() -> dict:
         """Proxy of UHB ``GET /runs``: UH shows, UHB decides."""

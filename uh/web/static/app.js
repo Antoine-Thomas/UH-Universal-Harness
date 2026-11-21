@@ -4192,17 +4192,55 @@ async function setSkillEnabled(skill, enabled) {
   }
 }
 
-async function setAllSkills(enabled) {
+//: Chaîne des opérations groupées : deux clics rapprochés (« tout éteindre » puis « tout
+//: rallumer ») ne doivent pas s'entrelacer. Sans elle, la seconde boucle lisait un état
+//: encore en cours et chaque réponse tardive de la première ré-éteignait ce que la seconde
+//: venait d'allumer — mesuré : le compteur de lignes éteintes montait de 1 à 10 en CI, et
+//: 6 essais sur 6 finissaient sur un état croisé (6 ou 18 lignes éteintes au lieu de 0).
+let SKILLS_BULK = Promise.resolve();
+
+function setAllSkills(enabled) {
+  const operation = SKILLS_BULK.then(() => runAllSkills(enabled));
+  // La chaîne doit rester utilisable même si une opération échoue ; l'erreur, elle, remonte
+  // à l'appelant par `operation`.
+  SKILLS_BULK = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return operation;
+}
+
+async function runAllSkills(enabled) {
+  const cibles = SKILL_STATE.skills.filter((skill) => Boolean(skill.enabled) !== enabled);
+  if (!cibles.length) {
+    skillsHint(enabled ? "tous déjà activés" : "tous déjà désactivés");
+    return;
+  }
   SKILL_STATE.busy = true;
-  skillsHint(enabled ? "activation…" : "désactivation…");
+  skillsHint(
+    enabled ? `activation de ${cibles.length} skill(s)…` : `désactivation de ${cibles.length} skill(s)…`,
+  );
   try {
-    for (const skill of SKILL_STATE.skills) {
-      if (Boolean(skill.enabled) === enabled) continue;
-      await setSkillEnabled(skill, enabled);
+    // En parallèle, et sans s'arrêter au premier refus : douze PATCH en série dépassaient
+    // le délai d'attente sur un runner chargé, et une erreur au milieu de la boucle
+    // laissait la moitié des lignes « éteintes » sans un mot (mesuré deux fois sur
+    // `e2e / windows-latest`).
+    const resultats = await Promise.allSettled(
+      cibles.map((skill) => setSkillEnabled(skill, enabled)),
+    );
+    const echecs = cibles.filter((_, index) => resultats[index].status === "rejected");
+    renderSkills({ skills: SKILL_STATE.skills });
+    if (echecs.length) {
+      const motif = resultats.find((item) => item.status === "rejected");
+      const raison = motif && motif.reason ? motif.reason.message || String(motif.reason) : "";
+      skillsHint(
+        `${echecs.length} skill(s) inchangé(s) : ${echecs.map((skill) => skill.name).join(", ")}${raison ? " — " + raison : ""}`,
+      );
+    } else {
+      skillsHint(enabled ? `${cibles.length} skill(s) activé(s)` : `${cibles.length} skill(s) désactivé(s)`);
     }
   } finally {
     SKILL_STATE.busy = false;
-    renderSkills({ skills: SKILL_STATE.skills });
   }
 }
 
@@ -4366,7 +4404,7 @@ function loadToolCatalog() {
 const TAB_GROUPS = {
   projects: { label: "Projets", leaves: ["projects", "files"] },
   decision: { label: "Décision", leaves: ["decision", "role"] },
-  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra", "tasks"] },
+  tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra", "tasks", "extensions"] },
   brain: { label: "Cerveau & Mémoire", leaves: ["memory", "telemetry", "data"] },
   models: { label: "Modèles & Fournisseurs", leaves: ["keys", "models", "local"] },
 };
@@ -4426,6 +4464,7 @@ function showPanelTab(name) {
     ["files", "files-view"],
     ["infra", "infra-view"],
     ["tasks", "tasks-view"],
+    ["extensions", "extensions-view"],
   ]) {
     const active = tab === name;
     $(`tab-${tab}`).classList.toggle("active", active);
@@ -4463,6 +4502,7 @@ function showPanelTab(name) {
   if (name === "files") loadFs().catch(() => {});
   if (name === "infra") loadInfra().catch(() => {});
   if (name === "tasks") loadSchedules().catch(() => {});
+  if (name === "extensions") loadExtensions().catch(() => {});
   if (name === "memory") {
     loadMemory().catch(() => {});
     // Le graphe a suivi la mémoire dans « Cerveau & Mémoire » : le charger ici évite
@@ -4575,9 +4615,22 @@ async function patchRole(role) {
     method: "PATCH",
     body: JSON.stringify({ role }),
   });
-  fillRoleSelect(data.role || null);
+  const applied = data.role || null;
+  // `role` peut être un identifiant (preset de l'en-tête) ou un objet (texte libre) :
+  // on compare des identifiants, jamais des représentations d'objet.
+  const asked = role && typeof role === "object" ? String(role.id || "") : String(role || "");
+  // Le serveur peut répondre sans rôle (preset refusé, session remplacée entre-temps).
+  // Repeindre « Aucun rôle » laisserait croire que l'opérateur l'a demandé : on le dit,
+  // et on garde son choix à l'écran pour qu'il puisse réessayer. Mesuré en CI Windows,
+  // où cette réponse est arrivée sans que rien ne soit affiché.
+  if (asked && (!applied || String(applied.id) !== asked)) {
+    modelNote("rôle non enregistré par le serveur — réessaie ou recharge la page", "warn");
+    paintRoleSelection();
+    return;
+  }
+  fillRoleSelect(applied);
   paintRoleSelection();
-  modelNote(`Rôle : ${roleLabel(data.role)}`, "ok");
+  modelNote(`Rôle : ${roleLabel(applied)}`, "ok");
 }
 
 async function loadRolePanel() {
@@ -4772,6 +4825,8 @@ function wireProviders() {
   $("tab-tasks").addEventListener("click", () => showPanelTab("tasks"));
   $("tasks-refresh").addEventListener("click", () => loadSchedules());
   $("tasks-form").addEventListener("submit", (event) => createTask(event));
+  $("tab-extensions").addEventListener("click", () => showPanelTab("extensions"));
+  $("extensions-refresh").addEventListener("click", () => loadExtensions());
   $("files-refresh").addEventListener("click", () => loadFs(FS.path).catch(() => {}));
   $("files-attach").addEventListener("click", () => attachSelectedFile());
   $("git-more").addEventListener("click", async () => {
@@ -8013,6 +8068,117 @@ async function commitWork() {
   }
 }
 
+// --- gestionnaire d'extensions (P3-16d / D-8) ----------------------------- //
+// Trois familles, une vue. Ce que le serveur décide (activé/éteint, cassé, raison) est
+// affiché tel quel : l'interface ne devine ni un état ni un diagnostic.
+const EXTENSION_LABELS = { mcp: "Serveurs MCP", skills: "Skills", uhb: "Outils du second cerveau" };
+
+function extensionRow(entry) {
+  const row = el("div", "extension-row");
+  row.dataset.kind = entry.kind;
+  row.dataset.name = entry.name;
+  row.dataset.state = entry.state || "";
+  row.dataset.enabled = entry.enabled ? "1" : "0";
+
+  const head = el("div", "extension-head");
+  head.appendChild(el("strong", "extension-name", entry.name));
+  head.appendChild(el("span", "task-flag" + (entry.enabled ? " on" : ""), entry.enabled ? "activée" : "éteinte"));
+  if (entry.state === "broken" || entry.state === "failed") {
+    head.appendChild(el("span", "extension-broken", "cassée"));
+  }
+  row.appendChild(head);
+
+  const detail = el("div", "extension-detail");
+  detail.textContent = entry.detail || "";
+  row.appendChild(detail);
+  if (entry.reason) {
+    const reason = el("div", "extension-reason");
+    reason.textContent = entry.reason;
+    row.appendChild(reason);
+  }
+
+  const actions = el("div", "task-actions");
+  const toggle = el("button", "ghost", entry.enabled ? "Désactiver" : "Activer");
+  toggle.type = "button";
+  toggle.dataset.action = "toggle";
+  toggle.addEventListener("click", () => extensionAction(entry.kind, entry.name, "toggle", entry.enabled));
+  const probe = el("button", "ghost", "Tester");
+  probe.type = "button";
+  probe.dataset.action = "test";
+  probe.addEventListener("click", () => extensionAction(entry.kind, entry.name, "test", entry.enabled));
+  actions.appendChild(toggle);
+  actions.appendChild(probe);
+  row.appendChild(actions);
+  return row;
+}
+
+function renderExtensions(data) {
+  const mode = $("extensions-mode");
+  if (mode) {
+    const counts = data.counts || {};
+    const total = Object.values(counts).reduce((sum, item) => sum + (item.total || 0), 0);
+    const enabled = Object.values(counts).reduce((sum, item) => sum + (item.enabled || 0), 0);
+    const broken = Object.values(counts).reduce((sum, item) => sum + (item.broken || 0), 0);
+    mode.textContent = `${enabled}/${total} active(s)${broken ? ` · ${broken} cassée(s)` : ""}`;
+  }
+  const box = $("extensions-groups");
+  if (!box) return;
+  box.textContent = "";
+  for (const kind of data.kinds || ["mcp", "skills", "uhb"]) {
+    const entries = (data.groups || {})[kind] || [];
+    const group = el("section", "extension-group");
+    group.dataset.kind = kind;
+    const title = el("div", "extension-group-title");
+    title.textContent = `${EXTENSION_LABELS[kind] || kind} (${entries.length})`;
+    group.appendChild(title);
+    if (!entries.length) {
+      group.appendChild(el("div", "tasks-empty", "rien de configuré dans cette famille"));
+    }
+    for (const entry of entries) group.appendChild(extensionRow(entry));
+    box.appendChild(group);
+  }
+}
+
+async function loadExtensions(options = {}) {
+  const hint = $("extensions-hint");
+  const quiet = Boolean(options.keepMessage);
+  // Un rechargement après action ne doit pas effacer la ligne qui vient de dire ce qui
+  // s'est passé : mesuré, le message disparaissait aussitôt affiché.
+  if (hint && !quiet) hint.textContent = "chargement…";
+  try {
+    const data = await api("/api/extensions");
+    renderExtensions(data);
+    if (hint && !quiet) hint.textContent = "";
+  } catch (error) {
+    if (hint) hint.textContent = `lecture impossible : ${error.message || error}`;
+  }
+}
+
+async function extensionAction(kind, name, action, wasEnabled) {
+  const hint = $("extensions-hint");
+  try {
+    if (action === "test") {
+      if (hint) hint.textContent = `épreuve de ${name}…`;
+      const data = await api(`/api/extensions/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/test`, {
+        method: "POST",
+      });
+      if (hint) hint.textContent = `${name} : ${data.ok ? "ok" : "refusé"} · ${data.detail || ""}`;
+      return;
+    }
+    const data = await api(`/api/extensions/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/enabled`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: !wasEnabled }),
+    });
+    if (hint) {
+      hint.textContent = `${name} ${data.enabled ? "activée" : "éteinte"} — effet au tour suivant, sans redémarrage`;
+    }
+    await loadExtensions({ keepMessage: true });
+  } catch (error) {
+    if (hint) hint.textContent = `refusé : ${error.message || error}`;
+  }
+}
+
+
 // --- tâches planifiées (P3-16c lot 4) ------------------------------------- //
 // La commande est une clé du catalogue lu depuis le serveur : le formulaire ne propose
 // que ce que UH sait faire, et le nom ne devient jamais une ligne de commande.
@@ -8084,6 +8250,15 @@ function renderTasks(data) {
       : "jamais lancée";
     if (task.last_detail) last.title = task.last_detail;
     row.appendChild(last);
+
+    // D-6 : la prochaine exécution est calculée côté serveur (dernier passage + cadence).
+    // Une tâche éteinte n'en a pas, et le dit plutôt que d'afficher une heure trompeuse.
+    const next = el("div", "task-next");
+    next.dataset.role = "next";
+    next.textContent = task.next_run
+      ? `prochaine : ${task.next_run}`
+      : `prochaine : aucune (${task.next_reason || "—"})`;
+    row.appendChild(next);
 
     const actions = el("div", "task-actions");
     const toggle = el("button", "ghost", task.enabled ? "Désactiver" : "Activer");

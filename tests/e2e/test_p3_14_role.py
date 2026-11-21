@@ -46,7 +46,18 @@ def test_a_preset_chosen_in_the_header_survives_a_reload(
     context, page = open_app(browser, server)
     try:
         expect(page.locator("#role-select option")).to_have_count(8, timeout=20000)
-        page.locator("#role-select").select_option("analyste")
+        # `to_have_value` lit le DOM, pas le serveur : sans attendre la réponse du PATCH,
+        # `reload()` partait avant l'enregistrement et la page relisait l'ancien rôle
+        # (observé sur `e2e / windows-latest`, sous charge). On attend la réponse, et on
+        # vérifie qu'elle a bien enregistré ce preset.
+        with page.expect_response(
+            lambda response: response.request.method == "PATCH"
+            and "/api/sessions/" in response.url
+        ) as patched:
+            page.locator("#role-select").select_option("analyste")
+        assert patched.value.ok, patched.value.status
+        assert (patched.value.json().get("role") or {}).get("id") == "analyste"
+
         expect(page.locator("#role-select")).to_have_value("analyste", timeout=15000)
         expect(page.locator("#role-select option:checked")).to_have_text("Analyste de données")
 
@@ -57,7 +68,14 @@ def test_a_preset_chosen_in_the_header_survives_a_reload(
 
         # Mid-conversation change: the second choice replaces the first on the same
         # session, and the reload keeps the latest one.
-        page.locator("#role-select").select_option("vision")
+        with page.expect_response(
+            lambda response: response.request.method == "PATCH"
+            and "/api/sessions/" in response.url
+        ) as changed:
+            page.locator("#role-select").select_option("vision")
+        assert changed.value.ok, changed.value.status
+        assert (changed.value.json().get("role") or {}).get("id") == "vision"
+
         expect(page.locator("#role-select")).to_have_value("vision", timeout=15000)
         page.reload(wait_until="domcontentloaded")
         expect(page.locator("#input")).to_be_visible(timeout=30000)
@@ -100,7 +118,14 @@ def test_a_free_text_role_is_kept_and_shown_in_the_header(
         page.click("#role-panel .role-option[data-role='custom']")
         page.fill("#role-label", "Architecte de la maison")
         page.fill("#role-posture", "Réponds comme un architecte du bâtiment : surfaces, budget.")
-        page.click("#role-custom-save")
+        # Même règle que pour les presets : attendre l'enregistrement, pas seulement le DOM.
+        with page.expect_response(
+            lambda response: response.request.method == "PATCH"
+            and "/api/sessions/" in response.url
+        ) as saved:
+            page.click("#role-custom-save")
+        assert saved.value.ok, saved.value.status
+        assert (saved.value.json().get("role") or {}).get("id") == "custom"
         expect(page.locator("#role-select")).to_have_value("custom", timeout=15000)
         expect(page.locator("#role-select option:checked")).to_have_text("Architecte de la maison")
 
@@ -112,5 +137,35 @@ def test_a_free_text_role_is_kept_and_shown_in_the_header(
         expect(page.locator("#role-select option:checked")).to_have_text(
             "Architecte de la maison"
         ), "le libelle libre revient apres rechargement"
+    finally:
+        context.close()
+
+
+def test_a_role_the_server_did_not_store_is_said_out_loud(make_server, browser) -> None:
+    """Un 200 sans rôle ne doit pas être repeint en « Aucun rôle », en silence.
+
+    Observé en CI Windows : la sélection revenait à « Aucun rôle » sans un mot, ce qui
+    laisse croire que l'opérateur n'a rien demandé. Une réponse qui ne contient pas le
+    rôle demandé est une incohérence à dire - et le choix reste à l'écran pour réessayer.
+    """
+    server = make_server("home")
+    context, page = open_app(browser, server)
+    try:
+        expect(page.locator("#role-select option")).to_have_count(8, timeout=20000)
+
+        def answer_without_role(route):
+            if route.request.method == "PATCH":
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"id":"x","title":"t","folder":"","role":null}',
+                )
+            else:
+                route.continue_()
+
+        page.route("**/api/sessions/*", answer_without_role)
+        page.locator("#role-select").select_option("analyste")
+        expect(page.locator("#role-select")).to_have_value("analyste", timeout=15000)
+        expect(page.locator("#model-note")).to_contain_text("non enregistré", timeout=15000)
     finally:
         context.close()

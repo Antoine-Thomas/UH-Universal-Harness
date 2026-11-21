@@ -200,6 +200,7 @@
         <button id="tab-uhb" class="panel-subtab" role="tab" aria-selected="false" aria-controls="uhb-view">UHB</button>
         <button id="tab-infra" class="panel-subtab" role="tab" aria-selected="false" aria-controls="infra-view">Infra</button>
         <button id="tab-tasks" class="panel-subtab" role="tab" aria-selected="false" aria-controls="tasks-view">Tâches</button>
+        <button id="tab-extensions" class="panel-subtab" role="tab" aria-selected="false" aria-controls="extensions-view">Extensions</button>
         <button id="tab-memory" class="panel-subtab" role="tab" aria-selected="false" aria-controls="memory-view">Mémoire</button>
         <button id="tab-telemetry" class="panel-subtab" role="tab" aria-selected="false" aria-controls="telemetry-view">Télémétrie</button>
         <button id="tab-data" class="panel-subtab" role="tab" aria-selected="false" aria-controls="data-view">Données</button>
@@ -361,6 +362,18 @@
           </form>
           <div id="tasks-catalog" class="tasks-catalog"></div>
           <ul id="tasks-list" class="tasks-list" aria-busy="false"></ul>
+        </div>
+        <div id="extensions-view" class="panel-view" role="tabpanel" aria-labelledby="tab-extensions" hidden>
+          <!-- P3-16d / D-8 : MCP, skills et outils du second cerveau dans une seule vue.
+               Éteindre retire l'extension de ce que le modèle reçoit AU TOUR SUIVANT :
+               la liste d'outils est reconstruite à chaque tour, rien à redémarrer. -->
+          <div class="tasks-head">
+            <strong>Extensions</strong>
+            <span id="extensions-mode" class="projects-hint">—</span>
+            <button id="extensions-refresh" class="ghost" type="button">Actualiser</button>
+          </div>
+          <div id="extensions-hint" class="projects-hint"></div>
+          <div id="extensions-groups" class="extensions-groups"></div>
         </div>
         <div id="memory-view" class="panel-view" role="tabpanel" aria-labelledby="tab-memory" hidden>
           <!-- Le graphe appartient au cerveau, pas au panneau UHB : il a suivi le

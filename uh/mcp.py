@@ -63,7 +63,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .config import Config
 from .config import load as load_config
@@ -867,16 +867,19 @@ class Toolset:
             return {"error": str(exc), "kind": exc.kind, "server": self.client.config.name}
 
 
-def build_toolsets(config: Optional[Config] = None) -> Dict[str, Toolset]:
+def build_toolsets(config: Optional[Config] = None, skip: Iterable[str] = ()) -> Dict[str, Toolset]:
     """One toolset per server that answers. A server that does not, contributes none.
 
-    Same rule as UHB: a tool that fails on every call is worse than an absent
-    one. The failure is kept in :func:`status` (and in the backoff above) so the
-    cockpit can say why instead of just showing nothing.
+    ``skip`` are server names the operator turned off in the extensions manager: they are
+    not even started, so a disabled server costs no process and no handshake - the same
+    rule as a server that does not answer, applied before the work instead of after.
     """
     servers, _ = servers_from_config(config)
+    off = {str(name) for name in skip}
     toolsets: Dict[str, Toolset] = {}
     for server in servers:
+        if server.name in off:
+            continue
         try:
             client = client_for(server)
         except MCPError:
