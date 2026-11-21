@@ -4192,7 +4192,25 @@ async function setSkillEnabled(skill, enabled) {
   }
 }
 
-async function setAllSkills(enabled) {
+//: Chaîne des opérations groupées : deux clics rapprochés (« tout éteindre » puis « tout
+//: rallumer ») ne doivent pas s'entrelacer. Sans elle, la seconde boucle lisait un état
+//: encore en cours et chaque réponse tardive de la première ré-éteignait ce que la seconde
+//: venait d'allumer — mesuré : le compteur de lignes éteintes montait de 1 à 10 en CI, et
+//: 6 essais sur 6 finissaient sur un état croisé (6 ou 18 lignes éteintes au lieu de 0).
+let SKILLS_BULK = Promise.resolve();
+
+function setAllSkills(enabled) {
+  const operation = SKILLS_BULK.then(() => runAllSkills(enabled));
+  // La chaîne doit rester utilisable même si une opération échoue ; l'erreur, elle, remonte
+  // à l'appelant par `operation`.
+  SKILLS_BULK = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return operation;
+}
+
+async function runAllSkills(enabled) {
   const cibles = SKILL_STATE.skills.filter((skill) => Boolean(skill.enabled) !== enabled);
   if (!cibles.length) {
     skillsHint(enabled ? "tous déjà activés" : "tous déjà désactivés");
