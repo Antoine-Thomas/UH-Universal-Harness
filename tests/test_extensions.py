@@ -89,6 +89,32 @@ def test_the_inventory_covers_the_three_families(home: Path, skill: str) -> None
     assert counts["total"] >= 1 and counts["enabled"] == counts["total"]
 
 
+def test_a_malformed_mcp_entry_is_listed_broken_with_its_reason(home: Path) -> None:
+    """Une entrée MCP mal écrite s'affiche cassée, elle ne fait pas tomber l'inventaire.
+
+    `mcp.status()` publie ses refus sous forme de phrases. Les lire comme des dicts
+    levait un AttributeError : le panneau Extensions renvoyait une erreur au lieu de
+    nommer le refus, et c'est exactement le chemin que D-8 demande de prouver.
+    """
+    (home / "config.toml").write_text(
+        "# `command` manque volontairement.\n"
+        "[[mcp.servers]]\n"
+        'name = "casse"\n'
+        'args = ["-y"]\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    data = uh_extensions.inventory()
+
+    casse = [entry for entry in data["groups"]["mcp"] if entry["name"] == "casse"]
+    assert len(casse) == 1, data["groups"]["mcp"]
+    assert casse[0]["state"] == "broken" and casse[0]["enabled"] is False
+    assert "'command' is required" in casse[0]["reason"], casse[0]["reason"]
+    assert "refusée" in casse[0]["detail"]
+    assert data["counts"]["mcp"]["broken"] == 1
+
+
 def test_the_uhb_catalogue_lists_its_tools(home: Path) -> None:
     tools = [entry["name"] for entry in uh_extensions.inventory()["groups"]["uhb"]]
     assert tools, "le catalogue UHB n'est pas vide"

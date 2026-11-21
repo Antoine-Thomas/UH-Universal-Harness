@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -183,14 +184,27 @@ def _mcp_entries(home: Optional[Path]) -> List[Dict[str, Any]]:
             }
         )
     for problem in report.get("problems") or []:
+        # `mcp.status()` publie ses refus sous forme de PHRASES (« mcp.servers[casse]:
+        # 'command' is required »), pas de dicts. Les lire comme des dicts levait un
+        # AttributeError : une entrée MCP mal écrite faisait tomber tout l'inventaire au
+        # lieu de s'afficher cassée avec sa raison - exactement le chemin que D-8 demande.
+        if isinstance(problem, dict):
+            nom = str(problem.get("name") or "") or "(entrée refusée)"
+            raison = str(problem.get("reason") or problem)
+        else:
+            texte = str(problem)
+            trouve = re.match(r"mcp\.servers\[([^\]]+)\]", texte)
+            cle = trouve.group(1) if trouve else ""
+            nom = cle if cle and not cle.isdigit() else "(entrée refusée)"
+            raison = texte
         entries.append(
             {
                 "kind": "mcp",
-                "name": str(problem.get("name") or "(entrée refusée)"),
+                "name": nom,
                 "state": "broken",
                 "enabled": False,
                 "detail": "configuration refusée avant tout démarrage",
-                "reason": str(problem.get("reason") or problem),
+                "reason": raison,
                 "tools": [],
             }
         )

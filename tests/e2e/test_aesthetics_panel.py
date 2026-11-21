@@ -7,7 +7,7 @@ chaîne du source : c'est la règle du projet, un test qui lit le code ne prouve
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -181,6 +181,21 @@ def test_the_tasks_panel_writes_dates_in_french(browser, server_no_triggers, mon
         context.close()
 
 
+def _fuseau_qui_change_de_jour(serveur: datetime) -> str:
+    """Le premier fuseau à décalage FIXE dont le jour calendaire n'est pas celui du serveur.
+
+    Le choix se fait sur l'heure UTC, pas sur l'heure locale du poste : `Etc/GMT-14` et
+    `Etc/GMT+12` ne connaissent pas l'heure d'été, donc la condition reste vraie toute
+    l'année. L'ancienne heuristique (« l'heure locale dépasse 11 ») tombait juste sauf
+    autour des changements d'heure, et le test pouvait alors ne plus rien distinguer.
+    """
+    maintenant = datetime.now(timezone.utc)
+    for identifiant, decalage in (("Etc/GMT-14", 14), ("Etc/GMT+12", -12)):
+        if (maintenant + timedelta(hours=decalage)).date() != serveur.date():
+            return identifiant
+    raise AssertionError("aucun fuseau candidat ne change de jour : le test ne prouverait rien")
+
+
 def test_the_day_is_the_servers_day_not_the_browsers(
     browser, server_no_triggers, monkeypatch
 ) -> None:
@@ -207,9 +222,9 @@ def test_the_day_is_the_servers_day_not_the_browsers(
     ]
     uh_schedule.save_registry(data)
 
-    # +14 tant que le serveur est assez avancé dans la journée, -11 sinon : dans les deux
-    # cas, le navigateur est de l'autre côté de minuit par rapport au serveur.
-    fuseau = "Pacific/Kiritimati" if serveur.hour >= 11 else "Pacific/Midway"
+    # Fuseau choisi sur l'heure UTC (fuseaux à décalage fixe, sans heure d'été) : le
+    # navigateur doit être de l'autre côté de minuit par rapport au serveur.
+    fuseau = _fuseau_qui_change_de_jour(serveur)
 
     context, page = open_app(browser, server_no_triggers, timezone_id=fuseau)
     try:
