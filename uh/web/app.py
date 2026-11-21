@@ -44,6 +44,7 @@ from .. import roles as uh_roles
 from .. import skill_prefs as uh_skill_prefs
 from ..console import ChatSession, Console
 from ..providers import Provider, ProviderError
+from ..sandbox import default_workspace
 from ..store import Store, display_id
 from ..toolsets import build_toolsets
 from .sse import frame
@@ -280,6 +281,23 @@ def _provider_for(app: FastAPI, session_id: Optional[str] = None) -> tuple[str, 
     return kind, model, provider
 
 
+def _chain_for(
+    app: FastAPI, session_id: Optional[str], kind: str, provider: Provider
+) -> list[tuple[str, Provider]]:
+    """The providers a turn may use, in order: the chosen one, then the fallback chain.
+
+    Same rule as ``uh chat``: a network failure or a quota (anything but 401/402/403,
+    which ``_ChainProvider`` re-raises) moves on to the next provider and says so in
+    the transcript. A model the operator picked for THIS conversation is a choice,
+    not a default: it stays alone, like ``uh chat --provider X``.
+    """
+    chain: list[tuple[str, Provider]] = [(kind, provider)]
+    if session_id and session_id in app.state.session_models:
+        return chain
+    chain.extend(entry for entry in app.state.fallback_chain if entry[0] != kind)
+    return chain
+
+
 # --------------------------------------------------------------------------- #
 # application factory
 # --------------------------------------------------------------------------- #
@@ -470,7 +488,7 @@ def create_app(
             "host": host,
             "port": port,
             "allow_terminal": allow_terminal,
-            "workspace": (workspace or Path.cwd()).resolve(),
+            "workspace": (workspace or default_workspace()).resolve(),
             "store_path": cfg.resolved_store_path(),
         },
     )()
@@ -482,6 +500,10 @@ def create_app(
 
     app.state.provider_factory = provider_factory
     app.state.provider_error = ""
+    #: The configured fallback order (Ollama -> Cloudflare -> DeepSeek -> OmniRouter ->
+    #: Router), the same one `uh chat` walks. Empty when the provider is explicit
+    #: (tests, embedding) or when the operator picked a model for a conversation.
+    app.state.fallback_chain = []
     if kind:
         # Explicit initial provider (tests, embedding): no discovery, no network.
         app.state.kind = kind
@@ -502,6 +524,7 @@ def create_app(
             # not necessarily the pair the user chose. Reporting it made the header
             # say "ollama · deepseek-flash": two things that do not go together.
             preferred_kind = str(cfg.get("default_provider") or "").strip().lower()
+            app.state.fallback_chain = list(chain)
             kinds = [kind for kind, _ in chain]
             if preferred_kind and preferred_kind in kinds:
                 app.state.kind = preferred_kind
@@ -1875,7 +1898,7 @@ def create_app(
                 session_obj = ChatSession(
                     provider_factory=app.state.provider_factory,
                     provider_kind=kind,
-                    chain=[(kind, provider)],
+                    chain=_chain_for(app, session["id"], kind, provider),
                     model=model,
                     toolsets=toolsets,
                     workspace=app.state.settings.workspace,
@@ -2071,6 +2094,50 @@ def create_app(
                 "owned": uhb_spawn.running() is not None,
             }
         return {"connected": True, **payload, "owned": uhb_spawn.running() is not None}
+
+    @app.get("/api/uhb/overview", dependencies=[Depends(require_token)])
+    async def uhb_overview() -> dict:
+        """UHB's ``/status``, ``/modes`` and ``/tools`` in one answer, nothing computed here.
+
+        The cockpit used to need three round trips to explain why ``execute_code``
+        is refused (which mode, which modes would allow it, whether UH owns the
+        process and may restart it). UHB stays the source of truth: its payloads
+        are passed through, and a part that fails is reported as ``null`` with its
+        error under ``errors`` instead of failing the whole answer.
+        """
+        from .. import uhb_spawn
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        if url is None:
+            return {
+                "connected": False,
+                "reason": "UHB is disabled (UH_UHB_URL is empty or not loopback)",
+            }
+        probe = Uhbtoolset(url, timeout=1.5)
+        status = await asyncio.to_thread(probe.status)
+        if "error" in status:
+            return {
+                "connected": False,
+                "reason": str(status.get("error") or "unreachable"),
+                "log": uhb_spawn.log_tail(),
+                "owned": uhb_spawn.running() is not None,
+            }
+        modes = await asyncio.to_thread(probe.modes)
+        tools = await asyncio.to_thread(probe.describe_tools)
+        errors = {
+            name: str(part.get("error"))
+            for name, part in (("modes", modes), ("tools", tools))
+            if "error" in part
+        }
+        return {
+            "connected": True,
+            "owned": uhb_spawn.running() is not None,
+            "status": status,
+            "modes": None if "modes" in errors else modes.get("modes"),
+            "tools": None if "tools" in errors else tools,
+            "errors": errors,
+        }
 
     @app.post("/api/uhb/start", dependencies=[Depends(require_token)])
     async def uhb_start() -> dict:

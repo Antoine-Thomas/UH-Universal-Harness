@@ -91,17 +91,41 @@ def fallback_workspace(home: Path | None = None) -> Path:
     return root.resolve()
 
 
+def is_uh_home(path: str | os.PathLike[str] | None) -> bool:
+    """True when ``path`` is ``$UH_HOME`` (``~/.uh``) or sits under it.
+
+    UH keeps its own state there (database, keys, memory). A shortcut that opens
+    in that folder must not make it the place where the agent writes files.
+    """
+    if not path:
+        return False
+    raw = os.environ.get("UH_HOME", "").strip()
+    home = Path(raw).expanduser() if raw else Path.home() / ".uh"
+    try:
+        candidate = Path(path).expanduser().resolve()
+        root = home.resolve()
+    except OSError:
+        return False
+    return candidate == root or root in candidate.parents
+
+
+def is_protected_cwd(path: str | os.PathLike[str] | None) -> bool:
+    """A directory the implicit workspace must never be: system-owned or ``$UH_HOME``."""
+    return is_system_directory(path) or is_uh_home(path)
+
+
 def default_workspace() -> Path:
-    """``UH_WORKSPACE`` verbatim, else the cwd - unless the cwd is system-owned.
+    """``UH_WORKSPACE`` verbatim, else the cwd - unless the cwd is protected.
 
     An explicit ``UH_WORKSPACE`` is trusted as given: the user said where they
-    want to work. Only the implicit choice is guarded.
+    want to work. Only the implicit choice is guarded: a system directory or
+    ``$UH_HOME`` becomes ``~/uh-workspace``, created when missing.
     """
     raw = os.environ.get("UH_WORKSPACE", "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
     cwd = Path.cwd().resolve()
-    if is_system_directory(cwd):
+    if is_protected_cwd(cwd):
         return fallback_workspace()
     return cwd
 
@@ -248,6 +272,8 @@ __all__ = [
     "is_system_directory",
     "fallback_workspace",
     "default_workspace",
+    "is_protected_cwd",
+    "is_uh_home",
     "home_directories",
     "configured_paths",
     "allowed_paths",

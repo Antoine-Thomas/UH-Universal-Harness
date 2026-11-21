@@ -159,7 +159,7 @@ def _workspace_path(raw: str | None = None) -> tuple[Path, str]:
         origin = "argument" if raw else "UH_WORKSPACE"
         return Path(value).expanduser().resolve(), origin
     cwd = Path.cwd().resolve()
-    if sandbox.is_system_directory(cwd):
+    if sandbox.is_protected_cwd(cwd):
         return sandbox.fallback_workspace(), "system-fallback"
     return cwd, "cwd"
 

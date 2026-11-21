@@ -13,6 +13,24 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [Unreleased]
+
+### Fixed
+
+- **422 `missing field 'type'` après un appel d'outil refusé ou retiré.** Un tour qui n'offre aucun
+  outil (`tools=[]`, mode chat après dev) rejouait les appels des tours précédents : une
+  passerelle stricte refusait toute la requête. Les appels sont retirés et leur résultat reste
+  lisible en note texte. Test de non-régression : refus, puis second tour contre une passerelle stricte.
+- **`uh web` lancé depuis `~/.uh` ou `System32`** adopte `~/uh-workspace` (créé au besoin) au lieu
+  du cwd : `write_file` n'échoue plus au premier lancement.
+
+### Added
+
+- `GET /api/uhb/overview` : `/status`, `/modes` et `/tools` d'UHB en une réponse.
+- `uh web` suit la même chaîne de repli que `uh chat` (Ollama, Cloudflare, DeepSeek, OmniRouter,
+  Router), hors 401/402/403, avec la bascule dite dans le fil. Un modèle choisi pour une
+  conversation reste seul.
+
 ## [1.9.0] — 2026-11-19 *(non publiée : le tag suit la fusion)*
 
 **Quatre lots et cinq correctifs de stabilisation, tous mesurés dans l'interface.**
