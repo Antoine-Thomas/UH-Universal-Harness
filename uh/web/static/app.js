@@ -112,7 +112,7 @@ function el(tag, className, text) {
 async function deleteMessage(box) {
   const messageId = box.dataset.messageId;
   if (!state.sessionId || !messageId) return;
-  if (!window.confirm("Delete this message? The rest of the conversation stays.")) return;
+  if (!window.confirm("Supprimer ce message ? Le reste de la conversation est conservé.")) return;
   await api(
     `/api/sessions/${encodeURIComponent(state.sessionId)}/messages/${encodeURIComponent(messageId)}`,
     { method: "DELETE" }
@@ -214,8 +214,8 @@ function appendMessage(role, text, messageId) {
   if (messageId !== undefined && messageId !== null) {
     box.dataset.messageId = messageId;
     const kill = el("button", "message-delete", "×");
-    kill.title = "Delete this message";
-    kill.setAttribute("aria-label", "Delete message");
+    kill.title = "Supprimer ce message";
+    kill.setAttribute("aria-label", "Supprimer le message");
     kill.addEventListener("click", () => deleteMessage(box));
     box.appendChild(kill);
   }
@@ -603,7 +603,7 @@ function updateGauge(messages) {
   const tokens = Math.max(1, Math.round(characters / 4));
   const percent = Math.min(100, (tokens / 8000) * 100);
   $("gauge-fill").style.width = `${percent}%`;
-  $("gauge-label").textContent = `ctx ~${tokens} tok`;
+  $("gauge-label").textContent = `contexte ~${tokens} tok`;
 }
 
 // ------------------------------------------------------------------ status --
@@ -1209,7 +1209,18 @@ function wireAttachments() {
     if (!menu.contains(event.target) && event.target !== $("attach")) plusOpen(false);
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") plusOpen(false);
+    if (event.key === "Escape") {
+      const menu = $("plus-menu");
+      if (menu && !menu.hidden) {
+        // Échap appartient à la modale tant qu'elle est ouverte. Sans l'arrêt de
+        // propagation, le MÊME événement atteignait le gestionnaire du panneau (enregistré
+        // plus bas) qui ajoutait `right-collapsed` à #layout : la modale se fermait et le
+        // panneau disparaissait (mesuré : #group-tools passait de 139 px à 0).
+        event.stopImmediatePropagation();
+        plusOpen(false);
+        return;
+      }
+    }
     plusTrapTab(event);
   });
   $("files").addEventListener("change", async (event) => {
@@ -1282,7 +1293,7 @@ function applyLayoutPrefs(prefs = layoutPrefs()) {
   $("layout").classList.toggle("sidebar-collapsed", Boolean(prefs.sidebarCollapsed));
   const toggle = $("sidebar-toggle");
   toggle.textContent = prefs.sidebarCollapsed ? "»" : "«";
-  toggle.title = prefs.sidebarCollapsed ? "Show the sessions column" : "Hide the sessions column";
+  toggle.title = prefs.sidebarCollapsed ? "Afficher la colonne des sessions" : "Masquer la colonne des sessions";
 }
 
 function clamp(value, [low, high]) {
@@ -1400,15 +1411,15 @@ function sessionRow(session) {
 
   const actions = el("div", "session-actions");
   const folder = el("button", null, "📁");
-  folder.title = "File this session in a folder";
-  folder.setAttribute("aria-label", "File session");
+  folder.title = "Classer cette session dans un dossier";
+  folder.setAttribute("aria-label", "Classer la session");
   folder.addEventListener("click", (event) => {
     event.stopPropagation();
     fileSession(session);
   });
   const remove = el("button", "danger", "🗑");
-  remove.title = "Delete this session";
-  remove.setAttribute("aria-label", "Delete session");
+  remove.title = "Supprimer cette session";
+  remove.setAttribute("aria-label", "Supprimer la session");
   remove.addEventListener("click", (event) => {
     event.stopPropagation();
     deleteSession(session);
@@ -2494,7 +2505,7 @@ function renderRouterSettings(settings) {
   box.appendChild(consentLabel);
 
   const status = el("span", "test-result", "");
-  const save = el("button", null, "Save");
+  const save = el("button", null, "Enregistrer");
   save.type = "button";
   allow.addEventListener("change", () => {
     warning.hidden = !allow.checked;
@@ -2610,7 +2621,7 @@ function providerCard(row) {
     input.autocomplete = "off";
     input.placeholder = "paste key (never shown again)";
     input.className = "provider-key-input";
-    const submit = el("button", null, "Add key");
+    const submit = el("button", null, "Ajouter une clé");
     submit.type = "submit";
     form.appendChild(input);
     form.appendChild(submit);
@@ -2636,7 +2647,7 @@ function providerCard(row) {
 
 function customProviderForm() {
   const details = el("details", "provider-custom");
-  details.appendChild(el("summary", null, "Add a custom OpenAI-compatible provider"));
+  details.appendChild(el("summary", null, "Ajouter un fournisseur personnalisé compatible OpenAI"));
   const form = el("form", "custom-form");
 
   const fields = [
@@ -2805,7 +2816,7 @@ function cloudflareCard(section) {
       type: "password",
       placeholder: "API token (never shown again)",
     });
-    const result = keyActions(form, "Save");
+    const result = keyActions(form, "Enregistrer");
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const typed = token.value;
@@ -2858,7 +2869,7 @@ function deepseekCard(section) {
       type: "password",
       placeholder: "API key (never shown again)",
     });
-    const result = keyActions(form, "Save");
+    const result = keyActions(form, "Enregistrer");
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const typed = key.value;
@@ -2897,7 +2908,7 @@ function omnirouteCard(section) {
 
   if (state.keyEntryAllowed && section.has_key) {
     const actions = el("div", "provider-test");
-    const button = el("button", null, "Import from OmniRoute");
+    const button = el("button", null, "Importer depuis OmniRoute");
     button.type = "button";
     const result = el("span", "test-result", "");
     button.addEventListener("click", async () => {
@@ -2974,7 +2985,7 @@ function presetCard(data) {
     model: keyField(form, "model", { placeholder: "model id" }),
     key: keyField(form, "key", { type: "password", placeholder: "API key (never shown again)" }),
   };
-  const result = keyActions(form, "Save");
+  const result = keyActions(form, "Enregistrer");
 
   let native = null;
   const lockFields = (locked) => {
@@ -3327,9 +3338,9 @@ async function loadUhb() {
 // argument, and a web composer that fires on one click is a way to lose a draft.
 const CHIPS = [
   ["🔧", "/tools", "List active toolsets"],
-  ["🌐", "/web", "Search the web, or open the UI"],
-  ["➕", "/new", "Start a new session"],
-  ["🧹", "/clear", "Clear this conversation"],
+  ["🌐", "/web", "Chercher sur le web, ou ouvrir l'interface"],
+  ["➕", "/new", "Démarrer une nouvelle session"],
+  ["🧹", "/clear", "Effacer cette conversation"],
   ["❓", "/help", "List commands"],
 ];
 
@@ -3445,14 +3456,14 @@ async function loadMemory() {
   }
 
   // -- search ---------------------------------------------------------------
-  const search = memorySection("Search");
+  const search = memorySection("Recherche");
   const form = el("form", "memory-search");
   const input = el("input", "memory-search-input");
   input.id = "memory-search";
   input.name = "memory-search";
   input.placeholder = "search the wiki, MEMORY.md and the sessions";
-  input.setAttribute("aria-label", "Search memory");
-  const go = el("button", null, "Search");
+  input.setAttribute("aria-label", "Rechercher dans la mémoire");
+  const go = el("button", null, "Rechercher");
   go.type = "submit";
   form.appendChild(input);
   form.appendChild(go);
@@ -4855,7 +4866,13 @@ function wireProviders() {
     showPanelTab("data");
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && providersAreOpen()) closeProviders();
+    if (event.key !== "Escape" || !providersAreOpen()) return;
+    // La modale d'attachement a son propre Échap : sans cette garde, fermer la modale
+    // repliait aussi le panneau de droite (mesuré : #group-tools passait d'une largeur
+    // de 139 px à 0, alors que la classe du panneau ne changeait pas).
+    const menu = $("plus-menu");
+    if (menu && !menu.hidden) return;
+    closeProviders();
   });
   document.addEventListener("click", (event) => {
     if (!isNarrow() || !providersAreOpen()) return;
@@ -4906,7 +4923,7 @@ function telemetryChart(days) {
     viewBox: `0 0 ${W} ${H}`,
     class: "telem-chart-svg",
     role: "img",
-    "aria-label": "Tokens per day, local and cloud",
+    "aria-label": "Jetons par jour, locaux et distants",
   });
   // A scale, not decoration: without it a single tall bar says nothing.
   for (const fraction of [1, 0.5]) {
@@ -5003,7 +5020,7 @@ function renderTelemetry(data, quiet) {
   const view = el("div", "telem");
 
   const head = el("div", "telem-head");
-  head.appendChild(el("span", null, `Tokens · ${usage.window_days || 7} derniers jours`));
+  head.appendChild(el("span", null, `Jetons · ${usage.window_days || 7} derniers jours`));
   const stamp = data.generated_at ? new Date(data.generated_at) : new Date();
   head.appendChild(el("span", "telem-stamp", stamp.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })));
   view.appendChild(head);
@@ -5709,7 +5726,7 @@ function memoryGraph(data) {
     viewBox: `0 0 ${W} ${H}`,
     class: "mem-svg",
     role: "img",
-    "aria-label": "Memory sources and what reaches a turn",
+    "aria-label": "Sources mémoire et ce qui parvient à un tour",
   });
   const detail = el("p", "mem-detail", "Survole un nœud pour son détail.");
 
@@ -8189,6 +8206,30 @@ function taskModeLabel(data) {
   return data.system_disabled ? `${mode} · déclencheurs désactivés` : mode;
 }
 
+const MOIS_COURTS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août",
+                     "sept.", "oct.", "nov.", "déc."];
+
+function frenchMoment(iso) {
+  // « AAAA-MM-JJTHH:MM:SS » (heure locale du serveur) -> « Aujourd'hui 03:25 »,
+  // « Hier 22:10 » ou « 21 nov. 03:25 ». L'ISO brut n'apparaît plus dans l'interface :
+  // il reste lisible par une machine, pas par un opérateur. Un format inconnu est rendu
+  // tel quel plutôt que masqué - on ne cache pas ce qu'on n'a pas su lire.
+  const texte = String(iso || "").trim();
+  if (!texte) return "";
+  const m = texte.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return texte;
+  const [, annee, mois, jour, heure, minute] = m;
+  const moment = new Date(Number(annee), Number(mois) - 1, Number(jour), Number(heure), Number(minute));
+  const maintenant = new Date();
+  const cle = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const hhmm = `${heure}:${minute}`;
+  if (cle(moment) === cle(maintenant)) return `Aujourd'hui ${hhmm}`;
+  const hier = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - 1);
+  if (cle(moment) === cle(hier)) return `Hier ${hhmm}`;
+  const suffixe = moment.getFullYear() === maintenant.getFullYear() ? "" : ` ${annee}`;
+  return `${Number(jour)} ${MOIS_COURTS[Number(mois) - 1]}${suffixe} ${hhmm}`;
+}
+
 function renderTasks(data) {
   const mode = $("tasks-mode");
   if (mode) mode.textContent = taskModeLabel(data);
@@ -8246,7 +8287,7 @@ function renderTasks(data) {
     const last = el("div", "task-last");
     last.dataset.role = "last";
     last.textContent = task.last_run
-      ? `dernier passage : ${task.last_run} (${task.last_status || "—"})`
+      ? `dernier passage : ${frenchMoment(task.last_run)} (${task.last_status || "—"})`
       : "jamais lancée";
     if (task.last_detail) last.title = task.last_detail;
     row.appendChild(last);
@@ -8256,7 +8297,7 @@ function renderTasks(data) {
     const next = el("div", "task-next");
     next.dataset.role = "next";
     next.textContent = task.next_run
-      ? `prochaine : ${task.next_run}`
+      ? `prochaine : ${frenchMoment(task.next_run)}`
       : `prochaine : aucune (${task.next_reason || "—"})`;
     row.appendChild(next);
 
