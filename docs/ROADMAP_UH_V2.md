@@ -1915,8 +1915,12 @@ refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
      pid enfant mort — l'enfant est bien arrêté AVANT la sortie du serveur.
      Les 305 s sont la voie « cachée » (budget 300 s) : la fenêtre n'a jamais pu
      être mise au premier plan dans cette session (`AppActivate` → `False`), donc
-     la page se déclarait `hidden`. Conséquence à connaître : une fenêtre ouverte
-     puis jamais focalisée garde UH et UHB jusqu'à 5 minutes après sa fermeture.
+     la page se déclarait `hidden`. Conséquence **assumée**, décidée le 22/11 : une
+     fenêtre ouverte puis jamais focalisée garde UH et UHB jusqu'à 5 minutes après
+     sa fermeture. On garde 300 s parce qu'en usage normal la fenêtre `--app` est au
+     premier plan au démarrage (voie visible, 45 s), et qu'un navigateur qui ralentit
+     ses minuteurs en arrière-plan ne doit pas couper UH et UHB pendant qu'on
+     travaille ailleurs ; 300 s couvre plusieurs battements manqués.
 - [x] Isolation de la mesure : les 8765/8101 de l'opérateur (son `uh web --app` et
   son UHB, PIDs 26416 et 28412) n'ont été ni arrêtés ni modifiés ; la preuve a
   utilisé 8798/8199 et un `UH_HOME` jetable (aucun pid file, jeton ou launcher
