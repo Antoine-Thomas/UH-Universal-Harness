@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from test_web import AUTH, client, make_app, run
 
-from tests.test_web import AUTH, client, make_app, run
 from uh.toolsets import uhb as uhb_mod
 
 URL = "http://127.0.0.1:8101"

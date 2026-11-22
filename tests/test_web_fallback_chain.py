@@ -11,8 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from test_web import AUTH, client, make_app, run
 
-from tests.test_web import AUTH, client, make_app, run
 from uh.providers import ProviderError
 from uh.web.sse import parse_frames
 
