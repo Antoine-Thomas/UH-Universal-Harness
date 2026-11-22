@@ -84,6 +84,17 @@ MAX_IMPORT_BYTES = 256 * 1024 * 1024
 #: used to leave `state.streaming` true for ever, and the next message vanished.
 HEARTBEAT_S = 15.0
 TURN_CAP_S = 600.0
+#: Lease of the cockpit window. A page that closes cannot say goodbye: `beforeunload`
+#: also fires on a reload, so a hook there kills the app on F5. The page therefore
+#: renews a lease while it lives, and the server - only when it opened the window
+#: itself (`--app`) - stops UHB and exits once the lease has gone quiet. A reload
+#: leaves a gap of a second, far under the TTL.
+LEASE_TTL_S = 45.0
+#: A minimised window stops painting; the browser also throttles its timers. Killing
+#: a product because the user switched to another app would be worse than the leak
+#: this fixes, so an explicitly hidden page gets a longer budget.
+LEASE_TTL_HIDDEN_S = 300.0
+LEASE_CHECK_S = 5.0
 #: Tools the panel's "Tester" button may run for a remote MCP server. Read-only by
 #: contract, decided on the name family: a button is not a blank cheque - anything
 #: that writes still goes through a chat turn and its approval card.
@@ -472,6 +483,7 @@ def create_app(
     kind: Optional[str] = None,
     model: Optional[str] = None,
     static_dir: Optional[Path] = None,
+    app_window: bool = False,
 ) -> FastAPI:
     app = FastAPI(title="UH", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     cfg = cfg or uh_config.load()
@@ -494,6 +506,13 @@ def create_app(
     )()
     # La vue Infra affiche l'uptime de CE serveur : l'instant de départ, pas une estimation.
     app.state.started_at = time.time()
+    # The lease exists only for a window this process opened: a `uh web` launched by
+    # hand (a terminal, a script, a remote bind) must survive anything the browser does.
+    # `clock` is injectable so a test can age the lease without sleeping.
+    app.state.app_window = bool(app_window)
+    app.state.clock = time.monotonic
+    app.state.lease_seen = time.monotonic()
+    app.state.lease_visible = True
 
     if provider_factory is None:
         from ..cli import _make_provider as provider_factory  # lazy: avoids a cycle
@@ -3602,6 +3621,23 @@ def create_app(
         asyncio.get_running_loop().create_task(end_soon())
         return {"quitting": True, "uhb_stopped": stopped}
 
+    @app.post("/api/system/alive", dependencies=[Depends(require_token)])
+    async def system_alive(payload: Annotated[Optional[dict], Body()] = None) -> dict:
+        """Renew the window's lease. Called by the page, never by a person.
+
+        Same guard as every other state-changing route (token + Host/Origin +
+        Sec-Fetch-Site): a page from another origin cannot keep a dead window's
+        server alive - nor make a live one look gone.
+        """
+        visible = True if payload is None else bool(payload.get("visible", True))
+        app.state.lease_seen = app.state.clock()
+        app.state.lease_visible = visible
+        return {
+            "alive": True,
+            "window": bool(getattr(app.state, "app_window", False)),
+            "ttl_s": LEASE_TTL_S if visible else LEASE_TTL_HIDDEN_S,
+        }
+
     # -- search / models --------------------------------------------------- #
     @app.get("/api/search", dependencies=[Depends(require_token)])
     async def search(q: str, limit: int = 20) -> dict:
@@ -3928,6 +3964,97 @@ def check_bind(host: str, *, allow_remote: bool = False) -> Optional[str]:
     )
 
 
+def lease_expired(
+    *,
+    last_seen: float,
+    now: float,
+    visible: bool,
+    active: bool,
+    app_window: bool,
+) -> bool:
+    """True when the window this server opened is demonstrably gone.
+
+    Four conditions, in this order, because each one alone was a bug someone can
+    name: a server started without ``--app`` belongs to whoever started it (quit
+    is their gesture); a turn in flight is work the user asked for (the same 409
+    ``/api/system/quit`` returns); a reload is a gap of about a second, so 45 s of
+    silence is a closed window, not a refresh; a hidden page is a minimised window,
+    which is still open and gets the longer budget.
+    """
+    if not app_window or active:
+        return False
+    ttl = LEASE_TTL_S if visible else LEASE_TTL_HIDDEN_S
+    return (now - last_seen) > ttl
+
+
+def lease_tick(
+    app: FastAPI,
+    *,
+    now: Optional[float] = None,
+    stop: Optional[Callable[[], bool]] = None,
+    exit_now: Optional[Callable[[int], None]] = None,
+) -> bool:
+    """One lease check. Returns True when it acted (the process is ending).
+
+    ``stop`` and ``exit_now`` are injected so a test asserts the ORDER (UHB is
+    asked to stop before the process goes) without a second brain, a signal or a
+    subprocess. Nothing here raises: a watchdog that dies of its own exception is
+    a leak with extra steps.
+    """
+    clock = getattr(app.state, "clock", time.monotonic)
+    current = clock() if now is None else now
+    active = bool([key for key in getattr(app.state, "active", {})])
+    if not lease_expired(
+        last_seen=float(getattr(app.state, "lease_seen", current)),
+        now=float(current),
+        visible=bool(getattr(app.state, "lease_visible", True)),
+        active=active,
+        app_window=bool(getattr(app.state, "app_window", False)),
+    ):
+        return False
+    from .. import uhb_spawn
+
+    stopper = stop or uhb_spawn.stop_running
+    ender = exit_now or os._exit
+    gap = float(current) - float(getattr(app.state, "lease_seen", current))
+    try:
+        stopped = stopper()
+    except Exception as exc:  # noqa: BLE001 - a leak, not a reason to keep serving
+        LOGGER.warning("lease: stopping UHB failed (%s); stopping uh web anyway", exc)
+        stopped = False
+    LOGGER.warning(
+        "window closed: no lease for %.0fs (uhb stopped: %s); stopping uh web",
+        gap,
+        stopped,
+    )
+    ender(0)
+    return True
+
+
+def start_lease_watchdog(app: FastAPI) -> Optional[threading.Thread]:
+    """Watch the lease in a daemon thread. ``None`` when this server has no window.
+
+    A thread rather than an asyncio task: ``uvicorn.run`` owns the loop and the
+    check must not depend on the loop still being healthy - the case this guards
+    against is a window that vanished while the server was busy.
+    """
+    if not bool(getattr(app.state, "app_window", False)):
+        return None
+
+    def loop() -> None:
+        while True:
+            time.sleep(LEASE_CHECK_S)
+            try:
+                if lease_tick(app):
+                    return
+            except Exception:  # noqa: BLE001 - the next tick retries
+                LOGGER.debug("lease tick failed", exc_info=True)
+
+    thread = threading.Thread(target=loop, name="uh-lease", daemon=True)
+    thread.start()
+    return thread
+
+
 def run_server(
     *,
     host: str = "127.0.0.1",
@@ -3994,7 +4121,12 @@ def run_server(
         allow_terminal=allow_terminal,
         workspace=workspace,
         static_dir=static_dir,
+        app_window=app_window,
     )
+    # The window this process opens is the only thing that keeps it alive: closing
+    # it is the ordinary way to quit an app, and until now it left UHB running with
+    # no window to reach it. A server started by hand has no watchdog at all.
+    start_lease_watchdog(app)
     if os.environ.get("UH_DEV_RELOAD") == "1":
         # A route added after the server started is a 404 until the process is
         # restarted (routes are frozen at import, the static files are not).

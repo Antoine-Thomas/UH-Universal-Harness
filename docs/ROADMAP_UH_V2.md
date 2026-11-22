@@ -1876,3 +1876,97 @@ sort encore du crochet ; un vrai bac à sable demande un jeton restreint Windows
 un conteneur, et c'est ce que l'installateur devra livrer pour pouvoir écrire
 « sandbox » un jour. Rien dans l'interface ne doit promettre plus que le tableau
 ci-dessus.
+
+
+---
+
+## P5-UI — passe visuelle et cycle de vie de la fenêtre (22/11, v1.9.1)
+
+Constat de départ, sur la v1.9.1 : le modèle prenait forme mais l'interface était
+jugée illisible (texte dense, quatre pavés teal dans le compositeur, bandeau du haut
+qui se chevauchait à 1280 px, colonne de droite qui débordait), et **fermer la
+fenêtre ne rendait pas la machine propre** : sans bouton « Quitter », UHB survivait à
+la fenêtre et plus rien ne le joignait.
+
+Trois points du prompt d'origine étaient déjà sur `main` (7db8f0f) et n'ont pas été
+refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
+`CREATE_NO_WINDOW` (uhb_spawn, browser, mcp, app), `MODE = "chat"` (`uh/uhb_spawn.py`).
+
+### A. Bail de la fenêtre — fermer la fenêtre arrête UH et UHB
+
+- [x] `POST /api/system/alive` (jeton + garde Host/Origin/Sec-Fetch-Site) renouvelle
+  un bail ; `app.js` l'envoie toutes les 10 s (`startLease`).
+- [x] Le serveur, **seulement** s'il a lui-même ouvert la fenêtre (`--app`), arrête
+  UHB puis se termine après 45 s de silence ; un tour actif bloque l'arrêt (même
+  périmètre que `/api/system/quit`, qui répond 409), et une fenêtre réduite a un
+  budget plus long (300 s) parce que le navigateur y raréfie ses minuteurs.
+- [x] `lease_expired` / `lease_tick` sont purs et injectables (horloge, `stop`,
+  `exit_now`) : `tests/test_web_lease.py`, 12 tests, dont « F5 (trou < TTL) n'arrête
+  rien » et « UHB est arrêté avant la sortie du processus ».
+- [x] Preuve réelle, mesurée deux fois le 22/11 :
+  1. `uh web --app --no-open`, page pilotée par Playwright puis fermée : serveur
+     à `200` tant que la page bat, sorti **48 s** après la fermeture, code 0 — la
+     voie « visible » (bail de 45 s).
+  2. Vraie fenêtre **Edge `--app`** (`UH_BROWSER=msedge`, profil sous `UH_HOME`
+     jetable) avec un **UHB enfant vivant** (`/status` 200, mode `chat`, pid
+     suivi via `uhb.pid`) : fenêtre fermée, UH est sorti **305 s** après, code
+     **0**, journal `window closed: no lease for 302s (uhb stopped: True);
+     stopping uh web`. Ensuite : UHB `/status` = connexion refusée, port libéré,
+     pid enfant mort — l'enfant est bien arrêté AVANT la sortie du serveur.
+     Les 305 s sont la voie « cachée » (budget 300 s) : la fenêtre n'a jamais pu
+     être mise au premier plan dans cette session (`AppActivate` → `False`), donc
+     la page se déclarait `hidden`. Conséquence **assumée**, décidée le 22/11 : une
+     fenêtre ouverte puis jamais focalisée garde UH et UHB jusqu'à 5 minutes après
+     sa fermeture. On garde 300 s parce qu'en usage normal la fenêtre `--app` est au
+     premier plan au démarrage (voie visible, 45 s), et qu'un navigateur qui ralentit
+     ses minuteurs en arrière-plan ne doit pas couper UH et UHB pendant qu'on
+     travaille ailleurs ; 300 s couvre plusieurs battements manqués.
+- [x] Isolation de la mesure : les 8765/8101 de l'opérateur (son `uh web --app` et
+  son UHB, PIDs 26416 et 28412) n'ont été ni arrêtés ni modifiés ; la preuve a
+  utilisé 8798/8199 et un `UH_HOME` jetable (aucun pid file, jeton ou launcher
+  partagé).
+
+### B. Passe CSS (`uh/web/static/style.css`, fin de fichier)
+
+- [x] Bloc `P5-UI` : variables manquantes définies (`--danger`, `--warn`,
+  `--bg-hover`, `--shadow-1/2`, `--ctl-h`, `--ctl-radius`), `[hidden]` avec
+  `!important`, chat à 14 px / interligne 1.55, un seul système de boutons, modales
+  avec `.modal-body`, onglets à 13 px qui se replient, texte minimal 12 px.
+- [x] Noms réels, pas ceux du prompt : `.slash-pill`, `.badge-ok/warn/bad` et
+  `.muted` n'existent pas dans cette UI (elles auraient été des règles mortes) ; les
+  cibles réelles sont `.chip`, `.badge.ok/.hl/.warn`, `.panel-hint`, `.data-hint`.
+- [x] Corrigé en plus, mesuré : bandeau du haut qui se chevauchait (flex-wrap),
+  <select> des fournisseurs qui sortait de sa carte (`min-width: 0`), pied de
+  sidebar qui débordait, et la colonne de droite qui restait en overlay après un
+  redimensionnement sous 1200 px.
+- [x] Preuve navigateur : `scripts/prove_ui_cdp.py` (Playwright, thèmes clair et
+  sombre) — 0 `var()` sans définition, modale fermée par Échap / clic dehors /
+  Annuler, onglets non tronqués à 1280 et 1024 px, contraste 9.53:1 et 4.65:1 en
+  sombre, 14.90:1 et 4.37:1 en clair, captures jointes.
+- [x] Garde-fous : `tests/test_web_css.py` (variables, blocs équilibrés, `[hidden]`)
+  et `tests/e2e/test_p5_ui_polish.py` (la confirmation est une vraie modale).
+
+### C. Textes et dates
+
+- [x] `window.confirm` remplacé par `confirmModal` (même composant `.modal` que le
+  reste) sur : suppression d'un message, d'un dossier, d'une conversation, et le
+  bouton Quitter.
+- [x] Textes anglais de la sidebar et des cartes fournisseur passés en français
+  (« Delete the folder… », « Popular providers », « not configured », placeholders
+  de clés…), et dates ISO rendues par la locale (`toLocaleString("fr-FR")` sur la
+  télémétrie, `toLocaleDateString("fr-FR")` sur les commits Git).
+- [ ] Reste : `window.confirm` / `window.prompt` subsistent sur la suppression d'un
+  skill, d'un run, d'une tâche et quelques prompts de renommage ; à convertir au
+  même composant au prochain passage.
+
+### Reste ouvert (vérifié le 22/11)
+
+- `POST /services/ensure` **n'existe pas** côté UHB (`grep` sur
+  `uhb/entrypoints/server.py`) ; c'était un point du prompt d'origine, pas de ce
+  dépôt. UHB est en 0.3.0, `main` verte (run 44933734466, 21/11).
+- La « CI rouge de la PR UHB #20 » est périmée : #20 et #21 sont fusionnées avec CI
+  verte (runs 44651677414 et 44933734466).
+- ~~`README.md` annonçait « 1128 tests … measured 2026-11-13 »~~ : corrigé le
+  22/11 (2029 passed, 2 skipped, mesurés sur la branche `feat/apply-nouveau-up-rapport`).
+- Confinement : le badge dit « dossier du run uniquement », jamais « sandbox »
+  (voir la section atelier plus haut).

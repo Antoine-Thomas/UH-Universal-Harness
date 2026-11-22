@@ -203,11 +203,14 @@ def test_the_memory_tab_says_reloaded_never_reindexed() -> None:
     """POST /rag/reindex reloads the index; claiming a rebuild would be a lie."""
     script = APP.read_text(encoding="utf-8").lower()
 
-    assert "reload rag" in script
-    assert "reloaded at" in script
-    assert "reindexed" not in script
-    assert "index rebuilt" not in script
-    assert "rebuilt" not in script
+    # The interface is French, so the intention is asserted on the French wording:
+    # the index was RELOADED, not rebuilt. A reindex would be a different promise.
+    assert "recharg" in script
+    assert "rechargé à" in script
+    assert "réindexé" not in script
+    assert "index reconstruit" not in script
+    # « reconstruit » seul existe dans un commentaire sans rapport (le DOM d'un
+    # panneau) : l'interdiction porte sur ce que le bouton PROMET, pas sur le mot.
 
 
 # --- P6: the splash, the framed window, the dreams mount -------------------- #

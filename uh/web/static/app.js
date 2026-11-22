@@ -109,10 +109,63 @@ function el(tag, className, text) {
   return node;
 }
 
+// One confirmation for every destructive gesture. `window.confirm` blocks the page,
+// ignores the theme, and cannot say what is kept - this is the same `.modal` the rest
+// of the cockpit builds, so Escape, the backdrop and the focus trap already apply.
+function confirmModal({ title, body = "", confirm = "Supprimer", cancel = "Annuler", danger = true }) {
+  return new Promise((resolve) => {
+    const backdrop = el("div", "modal-backdrop");
+    const modal = el("div", "modal");
+    const form = el("form", "modal-form");
+    form.appendChild(el("p", "modal-title", title));
+    if (body) form.appendChild(el("p", "modal-body", body));
+    const actions = el("div", "modal-actions");
+    const no = el("button", "data-button", cancel);
+    no.type = "button";
+    const yes = el("button", danger ? "data-button danger" : "data-button primary", confirm);
+    yes.type = "submit";
+    actions.appendChild(no);
+    actions.appendChild(yes);
+    form.appendChild(actions);
+    modal.appendChild(form);
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+
+    let settled = false;
+    const close = (answer) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("keydown", escape, true);
+      backdrop.remove();
+      resolve(answer);
+    };
+    function escape(event) {
+      if (event.key !== "Escape") return;
+      // The document-level Escape also collapses the right panel: a dialog that is
+      // closing owns the key, exactly like the attachment modal.
+      event.stopPropagation();
+      close(false);
+    }
+    document.addEventListener("keydown", escape, true);
+    modal.addEventListener("click", (event) => event.stopPropagation());
+    backdrop.addEventListener("click", () => close(false));
+    no.addEventListener("click", () => close(false));
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      close(true);
+    });
+  });
+}
+
 async function deleteMessage(box) {
   const messageId = box.dataset.messageId;
   if (!state.sessionId || !messageId) return;
-  if (!window.confirm("Supprimer ce message ? Le reste de la conversation est conservé.")) return;
+  const go = await confirmModal({
+    title: "Supprimer ce message ?",
+    body: "Le reste de la conversation est conservé.",
+    confirm: "Supprimer",
+  });
+  if (!go) return;
   await api(
     `/api/sessions/${encodeURIComponent(state.sessionId)}/messages/${encodeURIComponent(messageId)}`,
     { method: "DELETE" }
@@ -1584,6 +1637,16 @@ function wireLayout() {
   $("sidebar-toggle").addEventListener("click", () => {
     saveLayoutPrefs({ sidebarCollapsed: !layoutPrefs().sidebarCollapsed });
   });
+  // The breakpoint is mirrored in CSS (max-width: 1200px). Crossing it turns the
+  // right column into an overlay that covers the chat: boot already closes it on a
+  // narrow screen, but a window resized down kept the overlay on top of the
+  // transcript, and the ⚙ handle was hidden behind it.
+  let narrow = isNarrow();
+  window.addEventListener("resize", () => {
+    const now = isNarrow();
+    if (now && !narrow) closeProviders();
+    narrow = now;
+  });
 }
 
 // The session being dragged: kept here because HTML5 drag events carry data but
@@ -1627,7 +1690,7 @@ function sessionRow(session) {
   row1.appendChild(el("span", "sid", session.short_id));
   row1.appendChild(el("span", "meta", `${session.message_count} msg`));
   item.appendChild(row1);
-  item.appendChild(el("div", "title", session.title || "(untitled)"));
+  item.appendChild(el("div", "title", session.title || "(sans titre)"));
   item.appendChild(el("div", "meta", session.provider || "-"));
 
   const actions = el("div", "session-actions");
@@ -1697,12 +1760,12 @@ async function loadSessions() {
       if (group.name) {  // the ungrouped header has nothing to rename or delete
         const actions = el("div", "folder-actions");
         const edit = el("button", null, "✏");
-        edit.title = "Rename this folder";
-        edit.setAttribute("aria-label", "Rename folder");
+        edit.title = "Renommer ce dossier";
+        edit.setAttribute("aria-label", "Renommer le dossier");
         edit.addEventListener("click", () => renameFolder(head));
         const kill = el("button", "danger", "🗑");
-        kill.title = "Delete this folder (its sessions are kept)";
-        kill.setAttribute("aria-label", "Delete folder");
+        kill.title = "Supprimer ce dossier (ses conversations sont conservées)";
+        kill.setAttribute("aria-label", "Supprimer le dossier");
         kill.addEventListener("click", () => removeFolder(head));
         actions.appendChild(edit);
         actions.appendChild(kill);
@@ -1714,13 +1777,13 @@ async function loadSessions() {
     for (const session of group.sessions) list.appendChild(sessionRow(session));
   }
   if (!data.sessions.length) {
-    list.appendChild(el("li", "meta", "no sessions yet"));
+    list.appendChild(el("li", "meta", "aucune conversation pour l'instant"));
   }
 }
 
 async function renameFolder(head) {
   const previous = head.dataset.folder || "";
-  const answer = window.prompt("New folder name:", previous);
+  const answer = window.prompt("Nouveau nom du dossier :", previous);
   if (answer === null) return;
   const name = answer.trim();
   if (!name || name === previous) return;
@@ -1735,16 +1798,18 @@ async function removeFolder(head) {
   const name = head.dataset.folder || "";
   if (!name) return;
   const count = head.querySelector(".count")?.textContent || "?";
-  if (!window.confirm(`Delete the folder "${name}"? Its ${count} session(s) are kept, unfiled.`)) {
-    return;
-  }
+  const go = await confirmModal({
+    title: `Supprimer le dossier « ${name} » ?`,
+    body: `Ses ${count} conversation(s) sont conservées, sans dossier.`,
+  });
+  if (!go) return;
   await api(`/api/folders/${encodeURIComponent(name)}`, { method: "DELETE" });
   await loadSessions();
 }
 
 async function fileSession(session) {
   const current = (session.metadata && session.metadata.folder) || "";
-  const answer = window.prompt("Folder name (leave empty to remove it):", current);
+  const answer = window.prompt("Nom du dossier (laisser vide pour l'en retirer) :", current);
   if (answer === null) return;
   await api(`/api/sessions/${encodeURIComponent(session.id)}`, {
     method: "PATCH",
@@ -1755,12 +1820,16 @@ async function fileSession(session) {
 
 async function deleteSession(session) {
   const label = session.title || session.short_id;
-  if (!window.confirm(`Delete "${label}" and its messages?`)) return;
+  const go = await confirmModal({
+    title: `Supprimer « ${label} » ?`,
+    body: "La conversation et ses messages sont supprimés, sans retour.",
+  });
+  if (!go) return;
   await api(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
   if (state.sessionId === session.id) {
     state.sessionId = null;
     $("messages").textContent = "";
-    $("session-title").textContent = "No session";
+    $("session-title").textContent = "Aucune conversation";
     updateGauge([]);
   }
   await loadSessions();
@@ -1775,7 +1844,7 @@ async function newFolder() {
     setTimeout(() => { $("folder-hint").textContent = ""; }, 4000);
     return;
   }
-  const answer = window.prompt("Folder name for this session:");
+  const answer = window.prompt("Nom du dossier pour cette conversation :");
   if (answer === null) return;
   await api(`/api/sessions/${encodeURIComponent(state.sessionId)}`, {
     method: "PATCH",
@@ -1893,7 +1962,7 @@ async function newSession() {
   state.turns = 0;
   renderAttachments();
   $("messages").textContent = "";
-  $("session-title").textContent = "(untitled)";
+  $("session-title").textContent = "(sans titre)";
   updateGauge([]);
   await loadSessions();
   $("input").focus();
@@ -2550,9 +2619,11 @@ async function quitUh() {
   if ($("quit-uh").disabled) return;
   // Closing the browser window leaves the server (and UHB) running: this is the
   // only gesture that actually stops UH, so it asks once and says what it does.
-  const go = window.confirm(
-    "Quitter UH ?\n\nLe serveur s'arrête et le second brain (UHB) aussi. La page ne répondra plus."
-  );
+  const go = await confirmModal({
+    title: "Quitter UH ?",
+    body: "Le serveur s'arrête et le second brain (UHB) aussi. La page ne répondra plus.",
+    confirm: "Quitter",
+  });
   if (!go) return;
   $("quit-uh").disabled = true;
   try {
@@ -2885,10 +2956,10 @@ function providerCard(row) {
   if (row.keys > 0) {
     const chips = el("div", "key-chips");
     for (let index = 1; index <= row.keys; index += 1) {
-      const chip = el("span", "key-chip", `key ${index}`);
+      const chip = el("span", "key-chip", `clé ${index}`);
       const remove = el("button", "key-remove", "×");
       remove.type = "button";
-      remove.title = `delete key ${index}`;
+      remove.title = `supprimer la clé ${index}`;
       remove.addEventListener("click", async () => {
         await api(`/api/providers/${encodeURIComponent(row.name)}/keys`, {
           method: "DELETE",
@@ -2907,7 +2978,7 @@ function providerCard(row) {
     const input = document.createElement("input");
     input.type = "password";
     input.autocomplete = "off";
-    input.placeholder = "paste key (never shown again)";
+    input.placeholder = "collez la clé (jamais réaffichée)";
     input.className = "provider-key-input";
     const submit = el("button", null, "Ajouter une clé");
     submit.type = "submit";
@@ -2925,7 +2996,7 @@ function providerCard(row) {
         });
         await loadProviders();
       } catch (error) {
-        $("providers-hint").textContent = `error: ${error.message}`;
+        $("providers-hint").textContent = `erreur : ${error.message}`;
       }
     });
     card.appendChild(form);
@@ -2939,10 +3010,10 @@ function customProviderForm() {
   const form = el("form", "custom-form");
 
   const fields = [
-    ["name", "name (a-z, 0-9, -, _)", "text"],
-    ["base_url", "https://… (http only on loopback)", "text"],
-    ["model", "model id", "text"],
-    ["key", "key (optional, never shown again)", "password"],
+    ["name", "nom (a-z, 0-9, -, _)", "text"],
+    ["base_url", "https://… (http seulement en loopback)", "text"],
+    ["model", "identifiant du modèle", "text"],
+    ["key", "clé (facultative, jamais réaffichée)", "password"],
   ];
   const inputs = {};
   for (const [field, placeholder, type] of fields) {
@@ -3077,16 +3148,16 @@ function keyRows(card, provider, hints) {
 }
 
 function cloudflareCard(section) {
-  const card = keyCard("Cloudflare Workers AI", "free", "ok");
-  let status = "not configured";
+  const card = keyCard("Cloudflare Workers AI", "gratuit", "ok");
+  let status = "non configuré";
   if (section.configured && section.source === "environment") {
-    status = "configured from the environment (no value stored by UH)";
+    status = "configuré par l'environnement (aucune valeur stockée par UH)";
   } else if (section.configured) {
-    status = `configured · ${(section.key_hints || []).join(", ")}`;
+    status = `configuré · ${(section.key_hints || []).join(", ")}`;
   }
   card.appendChild(el("div", "provider-meta", status));
   if (section.account_id) {
-    card.appendChild(el("div", "provider-url", `account ${section.account_id}`));
+    card.appendChild(el("div", "provider-url", `compte ${section.account_id}`));
   }
   // Only a value UH stores can be deleted from here: "from the environment" belongs
   // to the caller's shell, not to this panel.
@@ -3097,12 +3168,12 @@ function cloudflareCard(section) {
   if (state.keyEntryAllowed) {
     const form = el("form", "custom-form");
     const account = keyField(form, "account", {
-      placeholder: "32 hex characters",
+      placeholder: "32 caractères hexadécimaux",
       value: section.account_id || "",
     });
     const token = keyField(form, "token", {
       type: "password",
-      placeholder: "API token (never shown again)",
+      placeholder: "jeton API (jamais réaffiché)",
     });
     const result = keyActions(form, "Enregistrer");
     form.addEventListener("submit", async (event) => {
@@ -3114,7 +3185,7 @@ function cloudflareCard(section) {
       if (!accountId) {
         // The account id is required: posting an empty one is what produced the
         // HTTP 400. Nothing is sent, so the server never sees an empty form.
-        result.textContent = "account id required (32 hex characters)";
+        result.textContent = "identifiant de compte requis (32 caractères hexadécimaux)";
         result.className = "test-result warn";
         return;
       }
@@ -3135,14 +3206,14 @@ function cloudflareCard(section) {
 }
 
 function deepseekCard(section) {
-  const card = keyCard("DeepSeek", "paid fallback", "hl");
+  const card = keyCard("DeepSeek", "repli payant", "hl");
   card.appendChild(
     el(
       "div",
       "provider-meta",
       section.configured
         ? `${(section.key_hints || []).length} key(s) · ${(section.key_hints || []).join(", ")}`
-        : "not configured",
+        : "non configuré",
     ),
   );
   // A revoked key stayed on screen for ever because nothing could remove it: the
@@ -3155,7 +3226,7 @@ function deepseekCard(section) {
     const form = el("form", "custom-form");
     const key = keyField(form, "key", {
       type: "password",
-      placeholder: "API key (never shown again)",
+      placeholder: "clé API (jamais réaffichée)",
     });
     const result = keyActions(form, "Enregistrer");
     form.addEventListener("submit", async (event) => {
@@ -3180,9 +3251,9 @@ function deepseekCard(section) {
 }
 
 function omnirouteCard(section) {
-  const card = keyCard("OmniRoute", "free gateways", "ok");
+  const card = keyCard("OmniRoute", "passerelles gratuites", "ok");
   if (!section.detected) {
-    card.appendChild(el("div", "provider-meta", "no OmniRoute config detected (~/.omniroute/.env)"));
+    card.appendChild(el("div", "provider-meta", "aucune configuration OmniRoute détectée (~/.omniroute/.env)"));
     return card;
   }
   card.appendChild(el("div", "provider-url", section.base_url || ""));
@@ -3190,7 +3261,7 @@ function omnirouteCard(section) {
     el(
       "div",
       "provider-meta",
-      section.has_key ? "configuration detected" : "configuration detected, no API key",
+      section.has_key ? "configuration détectée" : "configuration détectée, sans clé API",
     ),
   );
 
@@ -3223,23 +3294,23 @@ function omnirouteCard(section) {
 // path for keys.toml). A vendor without an OpenAI-compatible endpoint (Claude)
 // gets an explanation instead of a form that would 404 on /v1/chat/completions.
 function presetCard(data) {
-  const card = keyCard("Popular providers", "quick add", "hl");
+  const card = keyCard("Fournisseurs courants", "ajout rapide", "hl");
   const presets = (data && data.presets) || [];
   const builtin = (data && data.builtin) || [];
   const gatewayOnly = (data && data.gateway_only) || [];
 
   card.appendChild(
-    el("div", "provider-meta", "Choose one, paste the key, save. Nothing is stored before that."),
+    el("div", "provider-meta", "Choisissez-en un, collez la clé, enregistrez : rien n'est stocké avant."),
   );
 
   const form = el("form", "custom-form");
   const row = el("label", "custom-field");
-  row.appendChild(el("span", null, "preset"));
+  row.appendChild(el("span", null, "préréglage"));
   const select = document.createElement("select");
   select.className = "preset-select";
   const blank = document.createElement("option");
   blank.value = "";
-  blank.textContent = "choose a provider…";
+  blank.textContent = "choisir un fournisseur…";
   select.appendChild(blank);
   for (const entry of presets) {
     const option = document.createElement("option");
@@ -3252,13 +3323,13 @@ function presetCard(data) {
     // "builtin:" prefix: these post the key to the provider's own endpoint, and
     // create_custom() would refuse the name - UH already ships the provider.
     option.value = `builtin:${entry.name}`;
-    option.textContent = `${entry.label} — built-in`;
+    option.textContent = `${entry.label} — intégré`;
     select.appendChild(option);
   }
   for (const entry of gatewayOnly) {
     const option = document.createElement("option");
     option.value = `gateway:${entry.name}`;
-    option.textContent = `${entry.label} (gateway required)`;
+    option.textContent = `${entry.label} (passerelle requise)`;
     select.appendChild(option);
   }
   row.appendChild(select);
@@ -3271,7 +3342,7 @@ function presetCard(data) {
     name: keyField(form, "name", { placeholder: "openai" }),
     base_url: keyField(form, "base_url", { placeholder: "https://…" }),
     model: keyField(form, "model", { placeholder: "model id" }),
-    key: keyField(form, "key", { type: "password", placeholder: "API key (never shown again)" }),
+    key: keyField(form, "key", { type: "password", placeholder: "clé API (jamais réaffichée)" }),
   };
   const result = keyActions(form, "Enregistrer");
 
@@ -3854,7 +3925,7 @@ async function loadMemory() {
       const chunks = (answer.body.service && answer.body.service.fragments) || "?";
       const when = new Date(answer.body.at).toLocaleTimeString();
       reloadState.className = "memory-state-note memory-ok";
-      reloadState.textContent = `Reloaded at ${when} · ${chunks} chunks`;
+      reloadState.textContent = `Rechargé à ${when} · ${chunks} segments`;
       setTimeout(() => {
         reloadState.textContent = "";
         reloadState.className = "memory-state-note";
@@ -5370,7 +5441,13 @@ function telemGauge(label, percent, detail) {
 
 function telemPassRow(pass) {
   const row = el("div", "telem-pass");
-  const when = pass.at ? `${pass.at.slice(8, 10)}/${pass.at.slice(5, 7)} ${pass.at.slice(11, 16)}` : "?";
+  // ISO from the server, rendered by the browser locale: a hand-sliced string
+  // silently keeps the server's format (and breaks the day the field changes).
+  const when = pass.at
+    ? new Date(pass.at).toLocaleString("fr-FR", {
+        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+      })
+    : "?";
   row.appendChild(el("span", "telem-pass-when", when));
   row.appendChild(el("span", "telem-pass-model", pass.model || pass.provider || "?"));
   const seconds = pass.wall_time_s ?? pass.elapsed_s;
@@ -6869,7 +6946,35 @@ async function bootStep(label, run) {
   }
 }
 
+// A closed window cannot say goodbye: `beforeunload` also fires on a reload, so a
+// hook there would kill the app on F5. The page therefore renews a lease while it
+// lives, and the server - only when IT opened the window (`--app`) - stops UHB and
+// exits once the lease has been silent. A reload leaves a gap of a second, well
+// under the TTL; a minimised window keeps beating but reports itself hidden, and the
+// server gives it a longer budget instead of killing a product the user still has open.
+const LEASE_BEAT_MS = 10000;
+function startLease() {
+  const beat = () => {
+    // Not api(): the beat is ambient, and a failing one (server already going down)
+    // must not paint a banner over the transcript.
+    fetch("/api/system/alive", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visible: document.visibilityState === "visible" }),
+    }).catch(() => {});
+  };
+  beat();
+  window.setInterval(beat, LEASE_BEAT_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") beat();
+  });
+}
+
 async function boot() {
+  // First, before any slow load: a boot that takes longer than the TTL must not read
+  // as a closed window.
+  startLease();
   wireLayout();
   wireAttachments();
   wireMic();
@@ -8350,7 +8455,8 @@ function renderGitLog() {
     const sha = el("code", "git-sha", commit.short);
     sha.title = commit.sha;
     const subject = el("span", "git-subject", commit.subject || "(sans message)");
-    const meta = el("span", "git-meta", `${commit.author || "?"} · ${String(commit.date || "").slice(0, 10)}`);
+    const commitDate = commit.date ? new Date(commit.date).toLocaleDateString("fr-FR") : "?";
+    const meta = el("span", "git-meta", `${commit.author || "?"} · ${commitDate}`);
     row.append(sha, subject, meta);
     list.appendChild(row);
   }
