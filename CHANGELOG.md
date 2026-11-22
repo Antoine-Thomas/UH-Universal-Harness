@@ -13,6 +13,14 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [1.9.2] — 2026-11-22 *(PyPI — référence stable)*
+
+### Added
+- **Auto-shutdown lease on window close (uh/web/app.py, uh/web/static/app.js)**: heartbeat lease (/api/lease) plus pagehide/eforeunload notification so closing the cockpit window stops the local server cleanly without leaving orphan processes.
+
+### Changed
+- **P5-UI polish pass (uh/web/static/style.css, uh/web/static/app.js, uh/web/static/index.html)**: centered --app window geometry, balanced panel density, refined typography, spacing and visual contrast measured on live Chromium/Edge.
+
 ## [1.9.1] — 2026-11-22
 
 ### Fixed
