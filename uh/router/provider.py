@@ -120,7 +120,9 @@ class RouterProvider(Provider):
             return list(spec.models)
         if spec.name in self._discovered:
             return self._discovered[spec.name]
-        found = discover_models(spec, key, transport=self.transport, timeout=min(15.0, self.timeout))
+        found = discover_models(
+            spec, key, transport=self.transport, timeout=min(15.0, self.timeout)
+        )
         self._discovered[spec.name] = found
         return found
 

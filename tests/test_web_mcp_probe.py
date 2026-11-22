@@ -26,7 +26,7 @@ TOKEN = "test-token-probe"
 BASE = "http://127.0.0.1:8765"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
-MINI_SERVER = '''
+MINI_SERVER = """
 import json, sys
 for line in sys.stdin:
     line = line.strip()
@@ -44,7 +44,7 @@ for line in sys.stdin:
     else:
         result = {}
     print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}), flush=True)
-'''
+"""
 
 
 def make_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -75,9 +75,7 @@ def clean_registry():
     mcp_http.shutdown()
 
 
-def test_a_working_http_server_probes_connected_and_saves_nothing(
-    tmp_path, monkeypatch
-) -> None:
+def test_a_working_http_server_probes_connected_and_saves_nothing(tmp_path, monkeypatch) -> None:
     app = make_app(tmp_path, monkeypatch)
     with FakeMCP() as fake:
         response = asyncio.run(
@@ -166,9 +164,7 @@ def test_a_stdio_command_that_does_not_exist_is_reported(tmp_path, monkeypatch) 
     assert "PATH" in body["advice"]
 
 
-def test_a_stdio_server_that_never_answers_times_out_in_five_seconds(
-    tmp_path, monkeypatch
-) -> None:
+def test_a_stdio_server_that_never_answers_times_out_in_five_seconds(tmp_path, monkeypatch) -> None:
     app = make_app(tmp_path, monkeypatch)
     response = asyncio.run(
         call(

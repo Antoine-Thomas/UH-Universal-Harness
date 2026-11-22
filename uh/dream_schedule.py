@@ -99,11 +99,7 @@ def _probe_env() -> Dict[str, str]:
     interpreter look able to import ``uh``. The task inherits neither, so a
     probe that honours them validates the wrong thing.
     """
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.upper().startswith("PYTHON")
-    }
+    env = {key: value for key, value in os.environ.items() if not key.upper().startswith("PYTHON")}
     env.pop("VIRTUAL_ENV", None)
     return env
 
@@ -191,8 +187,13 @@ def pass_arguments(budget: int = DEFAULT_BUDGET) -> List[str]:
     # --start-uhb: at 03:00 nothing else is running, and a pass that needs UHB
     # while `uh web` is closed would be skipped every night.
     return [
-        "dream", "--now", "--budget", str(budget),
-        "--start-uhb", "--start-ollama", "--yes",
+        "dream",
+        "--now",
+        "--budget",
+        str(budget),
+        "--start-uhb",
+        "--start-ollama",
+        "--yes",
     ]
 
 
@@ -227,14 +228,14 @@ def vbs_text(command: str, at: str, log: Path) -> str:
             "Dim sh, target, stamp, rc",
             'Set sh = CreateObject("WScript.Shell")',
             "Do",
-            f"  target = DateAdd(\"d\", 0, DateSerial(Year(Now), Month(Now), Day(Now)) + TimeSerial({hour}, {minute}, 0))",
-            "  If target <= Now Then target = DateAdd(\"d\", 1, target)",
+            f'  target = DateAdd("d", 0, DateSerial(Year(Now), Month(Now), Day(Now)) + TimeSerial({hour}, {minute}, 0))',
+            '  If target <= Now Then target = DateAdd("d", 1, target)',
             "  Do While Now < target",
             "    WScript.Sleep 30000",
             "  Loop",
-            "  stamp = Year(Now) & Right(\"0\" & Month(Now), 2) & Right(\"0\" & Day(Now), 2)",
-            f"  rc = sh.Run(\"cmd.exe /c {command} >> \"\"{log}\"\" 2>&1\", 0, True)",
-            f"  sh.Run \"cmd.exe /c echo %DATE% %TIME% rc=\" & rc >> \"\"{log}\"\"\", 0, True",
+            '  stamp = Year(Now) & Right("0" & Month(Now), 2) & Right("0" & Day(Now), 2)',
+            f'  rc = sh.Run("cmd.exe /c {command} >> ""{log}"" 2>&1", 0, True)',
+            f'  sh.Run "cmd.exe /c echo %DATE% %TIME% rc=" & rc >> ""{log}""", 0, True',
             "  ' The loop recomputes tomorrow's target: no blind 24h sleep, so a",
             "  ' resume or a clock change cannot cost a night.",
             "Loop",
@@ -367,9 +368,7 @@ def _install_schtasks(interpreter: str, arguments: Sequence[str], at: str) -> bo
         os.close(fd)
         xml_path = Path(name)
         xml_path.write_text(task_xml(interpreter, arguments, at), encoding="utf-16")
-        result = _run(
-            ["schtasks", "/create", "/tn", TASK_NAME, "/xml", str(xml_path), "/f"]
-        )
+        result = _run(["schtasks", "/create", "/tn", TASK_NAME, "/xml", str(xml_path), "/f"])
     except (OSError, subprocess.SubprocessError):
         return False
     finally:
@@ -405,10 +404,7 @@ def install(at: str = "03:00", budget: int = DEFAULT_BUDGET) -> dict:
     if _install_schtasks(exe, arguments, at):
         return {
             "mechanism": "schtasks",
-            "detail": (
-                f"daily task '{TASK_NAME}' at {at} "
-                "(wakes the machine, runs on battery)"
-            ),
+            "detail": (f"daily task '{TASK_NAME}' at {at} (wakes the machine, runs on battery)"),
             "command": command,
             "interpreter": exe,
             "path": None,

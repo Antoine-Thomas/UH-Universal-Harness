@@ -84,7 +84,9 @@ def test_export_writes_an_archive_and_lists_it(
     assert body["name"] in listed["dir"] or listed["dir"].endswith("backups")
 
 
-def test_the_download_serves_the_same_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_download_serves_the_same_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     app = make_app(tmp_path, monkeypatch)
 
     async def scenario():
@@ -100,7 +102,9 @@ def test_the_download_serves_the_same_bytes(tmp_path: Path, monkeypatch: pytest.
     assert response.content[:2] == b"PK"
 
 
-def test_a_name_outside_the_folder_is_a_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_name_outside_the_folder_is_a_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     app = make_app(tmp_path, monkeypatch)
 
     async def scenario():
@@ -124,7 +128,9 @@ def test_import_restores_an_export_and_reports_the_safety_copy(
         async with client(app) as http:
             # A session first, so the store exists and travels in the archive.
             await http.post("/api/sessions", json={}, headers=AUTH)
-            await http.post("/api/skills", json={"title": "Avant", "instructions": "corps"}, headers=AUTH)
+            await http.post(
+                "/api/skills", json={"title": "Avant", "instructions": "corps"}, headers=AUTH
+            )
             exported = (await http.post("/api/backup/export", headers=AUTH)).json()
             archive = Path(exported["path"]).read_bytes()
             imported = await http.post(
@@ -229,7 +235,9 @@ def test_a_duplicate_or_empty_skill_is_refused(
 
     async def scenario():
         async with client(app) as http:
-            await http.post("/api/skills", json={"title": "Doublon", "instructions": "i"}, headers=AUTH)
+            await http.post(
+                "/api/skills", json={"title": "Doublon", "instructions": "i"}, headers=AUTH
+            )
             duplicate = await http.post(
                 "/api/skills", json={"title": "Doublon", "instructions": "j"}, headers=AUTH
             )
@@ -347,9 +355,7 @@ def test_the_panel_can_start_uhb(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(uhb_spawn, "running", lambda: None)
     calls: list = []
     monkeypatch.setattr(uhb_spawn, "ensure", lambda **kwargs: calls.append(kwargs) or None)
-    monkeypatch.setattr(
-        Uhbtoolset, "status", lambda self: {"version": "0.1.2", "mode": "chat"}
-    )
+    monkeypatch.setattr(Uhbtoolset, "status", lambda self: {"version": "0.1.2", "mode": "chat"})
 
     async def scenario():
         async with client(app) as http:

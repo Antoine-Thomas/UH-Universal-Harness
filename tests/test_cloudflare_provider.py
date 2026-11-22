@@ -68,16 +68,12 @@ def test_account_id_falls_back_to_config_toml(
 ) -> None:
     monkeypatch.setenv("UH_CLOUDFLARE_API_TOKEN", DUMMY_TOKEN)
     home = tmp_path / "uh-home"
-    (home / "config.toml").write_text(
-        'cloudflare_account_id = "from-config"\n', encoding="utf-8"
-    )
+    (home / "config.toml").write_text('cloudflare_account_id = "from-config"\n', encoding="utf-8")
     assert resolve_account_id() == "from-config"
     assert CloudflareProvider().base_url == f"{API_ROOT}/from-config/ai"
 
 
-def test_env_account_id_beats_config(
-    monkeypatch: pytest.MonkeyPatch, cloudflare_env: None
-) -> None:
+def test_env_account_id_beats_config(monkeypatch: pytest.MonkeyPatch, cloudflare_env: None) -> None:
     monkeypatch.setattr(
         uh_config, "load", lambda: uh_config.Config(values={"cloudflare_account_id": "x"})
     )
@@ -114,16 +110,12 @@ def test_chat_posts_to_the_openai_compatible_url(
     monkeypatch.setattr(httpx, "post", fake_post)
     message = CloudflareProvider().chat([{"role": "user", "content": "salut"}], [])
     assert message["content"] == "bonjour"
-    assert captured["url"] == (
-        f"{API_ROOT}/{ACCOUNT}/ai/v1/chat/completions"
-    )
+    assert captured["url"] == (f"{API_ROOT}/{ACCOUNT}/ai/v1/chat/completions")
     assert captured["headers"]["Authorization"] == f"Bearer {DUMMY_TOKEN}"
     assert captured["json"]["stream"] is False
 
 
-def test_chat_streams_sse_deltas(
-    monkeypatch: pytest.MonkeyPatch, cloudflare_env: None
-) -> None:
+def test_chat_streams_sse_deltas(monkeypatch: pytest.MonkeyPatch, cloudflare_env: None) -> None:
     lines = [
         'data: {"choices":[{"delta":{"content":"Hello"}}]}',
         'data: {"choices":[{"delta":{"content":" world"}}]}',

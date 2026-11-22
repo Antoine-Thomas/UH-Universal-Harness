@@ -27,34 +27,90 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 #: Words that ask for a picture of numbers.
 CHART_WORDS = (
-    "graphique", "graphe", "courbe", "trace", "tracer", "visualise", "visualiser",
-    "chart", "plot", "diagramme", "histogramme", "nuage de points", "figure",
+    "graphique",
+    "graphe",
+    "courbe",
+    "trace",
+    "tracer",
+    "visualise",
+    "visualiser",
+    "chart",
+    "plot",
+    "diagramme",
+    "histogramme",
+    "nuage de points",
+    "figure",
 )
 #: Words that ask to look something up outside the machine.
 WEB_WORDS = (
-    "recherche", "rechercher", "cherche", "chercher", "actualite", "actualites",
-    "news", "internet", "web", "en ligne", "dernieres informations", "verifie sur",
-    "search", "look up",
+    "recherche",
+    "rechercher",
+    "cherche",
+    "chercher",
+    "actualite",
+    "actualites",
+    "news",
+    "internet",
+    "web",
+    "en ligne",
+    "dernieres informations",
+    "verifie sur",
+    "search",
+    "look up",
 )
 #: Words that point at a file on disk or an attachment.
 FILE_WORDS = (
-    "fichier", "dossier", "document", "pdf", "csv", "json", "texte joint",
-    "piece jointe", "lis ", "lire ", "ouvre ", "open ", "read ", "file",
+    "fichier",
+    "dossier",
+    "document",
+    "pdf",
+    "csv",
+    "json",
+    "texte joint",
+    "piece jointe",
+    "lis ",
+    "lire ",
+    "ouvre ",
+    "open ",
+    "read ",
+    "file",
 )
 #: Words that ask to run something.
 EXEC_WORDS = (
-    "execute", "executer", "lance", "lancer", "script", "shell", "terminal",
-    "commande", "python", "run ",
+    "execute",
+    "executer",
+    "lance",
+    "lancer",
+    "script",
+    "shell",
+    "terminal",
+    "commande",
+    "python",
+    "run ",
 )
 #: Words that ask about memory / past work.
 MEMORY_WORDS = (
-    "souviens", "souvenir", "memoire", "note", "notes", "historique de mes",
-    "remember", "memory",
+    "souviens",
+    "souvenir",
+    "memoire",
+    "note",
+    "notes",
+    "historique de mes",
+    "remember",
+    "memory",
 )
 #: Words that make a question *conversational* rather than actionable.
 SMALL_TALK = (
-    "bonjour", "salut", "merci", "ca va", "comment vas", "qui es-tu", "hello",
-    "good morning", "blague", "raconte-moi une histoire",
+    "bonjour",
+    "salut",
+    "merci",
+    "ca va",
+    "comment vas",
+    "qui es-tu",
+    "hello",
+    "good morning",
+    "blague",
+    "raconte-moi une histoire",
 )
 #: Below this many characters, a request with no strong signal is ambiguous.
 SHORT_REQUEST = 24
@@ -134,16 +190,27 @@ def _family_boost(name: str, vocabulary: str, text: str) -> int:
     """Family score: the request's words against what this toolset can actually do."""
     boost = 0
     if _hits(text, CHART_WORDS):
-        if any(mark in vocabulary for mark in ("execute_code", "chart", "plot", "matplotlib", "figure", "python")):
+        if any(
+            mark in vocabulary
+            for mark in ("execute_code", "chart", "plot", "matplotlib", "figure", "python")
+        ):
             boost += 6
     if _hits(text, WEB_WORDS):
-        if any(mark in vocabulary for mark in ("web_search", "search the web", "web", "internet", "http")):
+        if any(
+            mark in vocabulary
+            for mark in ("web_search", "search the web", "web", "internet", "http")
+        ):
             boost += 6
     if _hits(text, FILE_WORDS):
-        if any(mark in vocabulary for mark in ("read_file", "list_directory", "file", "path", "document")):
+        if any(
+            mark in vocabulary
+            for mark in ("read_file", "list_directory", "file", "path", "document")
+        ):
             boost += 5
     if _hits(text, EXEC_WORDS):
-        if any(mark in vocabulary for mark in ("terminal", "shell", "execute", "command", "python")):
+        if any(
+            mark in vocabulary for mark in ("terminal", "shell", "execute", "command", "python")
+        ):
             boost += 5
     if _hits(text, MEMORY_WORDS):
         if any(mark in vocabulary for mark in ("memory", "remember", "note", "graph")):
@@ -250,7 +317,11 @@ def select(
     context = f"{request} {recent}".strip()
     words = _words(request) or _words(context)
 
-    if _hits(request, SMALL_TALK) and len(words) <= 6 and not _hits(request, CHART_WORDS + WEB_WORDS + EXEC_WORDS):
+    if (
+        _hits(request, SMALL_TALK)
+        and len(words) <= 6
+        and not _hits(request, CHART_WORDS + WEB_WORDS + EXEC_WORDS)
+    ):
         return Selection(reason="conversation : aucune capacite requise")
 
     scores = _score_toolsets(context, catalog, words)

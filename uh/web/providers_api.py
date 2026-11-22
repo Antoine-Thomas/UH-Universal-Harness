@@ -152,9 +152,7 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
     @app.post("/api/providers/{name}/test", dependencies=[Depends(dependency)])
     def test_provider(name: str) -> dict:
         try:
-            return test_connection(
-                name, transport=getattr(app.state, "probe_transport", None)
-            )
+            return test_connection(name, transport=getattr(app.state, "probe_transport", None))
         except AdminError as exc:
             raise translate(exc) from exc
 

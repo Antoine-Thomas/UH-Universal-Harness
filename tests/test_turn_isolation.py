@@ -92,6 +92,7 @@ def test_the_file_tool_refuses_another_folder_and_every_traversal(tmp_path: Path
 # Integration: the REAL turn path (sessions -> /chat -> turn thread -> _toolsets)
 # ---------------------------------------------------------------------------
 
+
 def test_two_real_turns_receive_their_own_upload_roots(tmp_path: Path, monkeypatch) -> None:
     """Deux tours concurrents par le vrai chemin, pas par un appel direct a `_toolsets`.
 
@@ -168,7 +169,9 @@ def test_two_real_turns_receive_their_own_upload_roots(tmp_path: Path, monkeypat
                 sessions.append(sid)
 
             async def one(sid: str) -> str:
-                async with http.stream("POST", f"/api/sessions/{sid}/chat", json={"message": "x"}) as r:
+                async with http.stream(
+                    "POST", f"/api/sessions/{sid}/chat", json={"message": "x"}
+                ) as r:
                     return "".join([chunk async for chunk in r.aiter_text()])
 
             return await asyncio.gather(*(one(sid) for sid in sessions))
@@ -228,10 +231,10 @@ import pytest as _pytest  # noqa: E402
 @_pytest.mark.parametrize(
     "home_rel,workspace_rel",
     [
-        ("home", "project"),          # UH_HOME hors du workspace (cas normal)
-        ("same", "same"),             # UH_HOME == workspace (le cas qui fuyait)
-        ("home", "home/project"),     # UH_HOME parent du workspace
-        ("home/project", "home"),     # workspace parent du UH_HOME
+        ("home", "project"),  # UH_HOME hors du workspace (cas normal)
+        ("same", "same"),  # UH_HOME == workspace (le cas qui fuyait)
+        ("home", "home/project"),  # UH_HOME parent du workspace
+        ("home/project", "home"),  # workspace parent du UH_HOME
     ],
 )
 def test_the_uploads_folder_is_never_reachable_through_the_workspace(

@@ -108,12 +108,13 @@ def test_the_memory_graph_is_in_the_brain_not_in_uhb(browser, server) -> None:
         open_panel(page)
         page.click("#group-brain")
         page.click("#tab-memory")
-        assert page.eval_on_selector("#memory-graph", "el => el.closest('.panel-view').id") == "memory-view"
+        assert (
+            page.eval_on_selector("#memory-graph", "el => el.closest('.panel-view').id")
+            == "memory-view"
+        )
         page.click("#group-tools")
         page.click("#tab-uhb")
-        assert page.eval_on_selector_all(
-            "#uhb-view #memory-graph", "els => els.length"
-        ) == 0
+        assert page.eval_on_selector_all("#uhb-view #memory-graph", "els => els.length") == 0
     finally:
         context.close()
 

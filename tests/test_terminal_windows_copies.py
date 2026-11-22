@@ -24,7 +24,9 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         (root / name).mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(Path, "home", staticmethod(lambda: root))
     monkeypatch.setattr(
-        os.path, "expanduser", lambda value: str(root) + value[1:] if value.startswith("~") else value
+        os.path,
+        "expanduser",
+        lambda value: str(root) + value[1:] if value.startswith("~") else value,
     )
     return root
 
@@ -52,7 +54,6 @@ def test_windows_copy_destinations_inside_the_workspace_are_allowed(
     toolset: TerminalToolset, command: str
 ) -> None:
     assert check_writes(command, toolset.workspace, toolset.allowed) is None
-
 
 
 @pytest.mark.parametrize(

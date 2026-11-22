@@ -35,7 +35,9 @@ def reconcile_body() -> str:
 def test_the_notice_no_longer_lives_in_the_conversation() -> None:
     assert "Le transcript enregistré contient moins de messages" not in APP_JS
     assert "Recharger la session" not in APP_JS
-    assert 'appendMessage(\n      "system"' not in reconcile_body(), "rien ne doit être dessiné dans le fil"
+    assert 'appendMessage(\n      "system"' not in reconcile_body(), (
+        "rien ne doit être dessiné dans le fil"
+    )
 
 
 def test_the_header_carries_a_discreet_control_in_plain_french() -> None:
@@ -65,7 +67,9 @@ def test_a_gap_is_only_believed_after_a_second_read() -> None:
 def test_a_capped_window_never_raises_the_flag() -> None:
     body = reconcile_body()
     assert "RECONCILE_MAX_WINDOW" in body
-    assert "const comparable = boxes.length + RECONCILE_WINDOW_MARGIN <= RECONCILE_MAX_WINDOW;" in body
+    assert (
+        "const comparable = boxes.length + RECONCILE_WINDOW_MARGIN <= RECONCILE_MAX_WINDOW;" in body
+    )
     assert "const desynced = comparable && stored.length < boxes.length;" in body
 
 
@@ -79,5 +83,11 @@ def test_the_control_is_wired_and_cleared_when_the_view_is_fresh() -> None:
 
 def test_no_folder_or_message_is_deleted_by_the_reconciliation() -> None:
     body = reconcile_body()
-    for forbidden in ("deleteMessage", "deleteSession", "deleteFolder", "remove()", "innerHTML = \"\""):
+    for forbidden in (
+        "deleteMessage",
+        "deleteSession",
+        "deleteFolder",
+        "remove()",
+        'innerHTML = ""',
+    ):
         assert forbidden not in body, f"{forbidden} n'a rien à faire dans une réconciliation"

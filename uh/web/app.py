@@ -44,6 +44,7 @@ from .. import roles as uh_roles
 from .. import skill_prefs as uh_skill_prefs
 from ..console import ChatSession, Console
 from ..providers import Provider, ProviderError
+from ..sandbox import default_workspace
 from ..store import Store, display_id
 from ..toolsets import build_toolsets
 from .sse import frame
@@ -189,7 +190,8 @@ def _session_or_404(app: FastAPI, session_id: str) -> dict:
         session = store.get_session(session_id)
         if session is None:
             matches = [
-                s for s in store.list_sessions(limit=10_000)
+                s
+                for s in store.list_sessions(limit=10_000)
                 if s["id"].startswith(session_id) or display_id(s["id"]) == session_id
             ]
             if len(matches) == 1:
@@ -279,6 +281,23 @@ def _provider_for(app: FastAPI, session_id: Optional[str] = None) -> tuple[str, 
     return kind, model, provider
 
 
+def _chain_for(
+    app: FastAPI, session_id: Optional[str], kind: str, provider: Provider
+) -> list[tuple[str, Provider]]:
+    """The providers a turn may use, in order: the chosen one, then the fallback chain.
+
+    Same rule as ``uh chat``: a network failure or a quota (anything but 401/402/403,
+    which ``_ChainProvider`` re-raises) moves on to the next provider and says so in
+    the transcript. A model the operator picked for THIS conversation is a choice,
+    not a default: it stays alone, like ``uh chat --provider X``.
+    """
+    chain: list[tuple[str, Provider]] = [(kind, provider)]
+    if session_id and session_id in app.state.session_models:
+        return chain
+    chain.extend(entry for entry in app.state.fallback_chain if entry[0] != kind)
+    return chain
+
+
 # --------------------------------------------------------------------------- #
 # application factory
 # --------------------------------------------------------------------------- #
@@ -323,7 +342,11 @@ def _git_commit(root: Path) -> str:
     try:
         proc = subprocess.run(
             ("git", "-C", str(root), "rev-parse", "--short", "HEAD"),
-            capture_output=True, text=True, encoding="utf-8", timeout=5, check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -342,7 +365,11 @@ def _git_dirty(root: Path) -> bool:
     try:
         proc = subprocess.run(
             ("git", "-C", str(root), "status", "--porcelain"),
-            capture_output=True, text=True, encoding="utf-8", timeout=5, check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -461,7 +488,7 @@ def create_app(
             "host": host,
             "port": port,
             "allow_terminal": allow_terminal,
-            "workspace": (workspace or Path.cwd()).resolve(),
+            "workspace": (workspace or default_workspace()).resolve(),
             "store_path": cfg.resolved_store_path(),
         },
     )()
@@ -473,6 +500,10 @@ def create_app(
 
     app.state.provider_factory = provider_factory
     app.state.provider_error = ""
+    #: The configured fallback order (Ollama -> Cloudflare -> DeepSeek -> OmniRouter ->
+    #: Router), the same one `uh chat` walks. Empty when the provider is explicit
+    #: (tests, embedding) or when the operator picked a model for a conversation.
+    app.state.fallback_chain = []
     if kind:
         # Explicit initial provider (tests, embedding): no discovery, no network.
         app.state.kind = kind
@@ -493,6 +524,7 @@ def create_app(
             # not necessarily the pair the user chose. Reporting it made the header
             # say "ollama · deepseek-flash": two things that do not go together.
             preferred_kind = str(cfg.get("default_provider") or "").strip().lower()
+            app.state.fallback_chain = list(chain)
             kinds = [kind for kind, _ in chain]
             if preferred_kind and preferred_kind in kinds:
                 app.state.kind = preferred_kind
@@ -776,7 +808,9 @@ def create_app(
     async def list_folders() -> dict:
         with _store(app) as store:
             counts = store.folders()
-        return {"folders": [{"name": name, "count": count} for name, count in sorted(counts.items())]}
+        return {
+            "folders": [{"name": name, "count": count} for name, count in sorted(counts.items())]
+        }
 
     def _folder_name(value: str) -> str:
         name = (value or "").strip()[:60]
@@ -816,9 +850,7 @@ def create_app(
             # Le total vient d'un COUNT, pas des lignes rendues : une page de 200 messages
             # ne doit pas faire croire que la session n'a que les tours qu'elle contient.
             total_turns = store.turn_count(session["id"])
-        kind, model = app.state.session_models.get(
-            session["id"], (app.state.kind, app.state.model)
-        )
+        kind, model = app.state.session_models.get(session["id"], (app.state.kind, app.state.model))
         # Un tour commence à chaque message de l'utilisateur - c'est ce que Télémétrie
         # compte (une décision par tour envoyé). Le numéro est calculé ici, une seule fois :
         # le fil et la télémétrie ne peuvent donc pas raconter deux histoires différentes.
@@ -932,7 +964,9 @@ def create_app(
         if folder.is_dir():
             for sidecar in folder.rglob("*.json"):
                 try:
-                    sources.append(str(json.loads(sidecar.read_text(encoding="utf-8")).get("from") or ""))
+                    sources.append(
+                        str(json.loads(sidecar.read_text(encoding="utf-8")).get("from") or "")
+                    )
                 except (OSError, ValueError):
                     continue
         result = uh_artifacts.empty_trash()
@@ -1055,26 +1089,34 @@ def create_app(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     @app.get("/api/git/log", dependencies=[Depends(require_token)])
-    async def git_log(path: str = "", session_id: str = "", limit: int = 30, offset: int = 0) -> dict:
+    async def git_log(
+        path: str = "", session_id: str = "", limit: int = 30, offset: int = 0
+    ) -> dict:
         from .. import projects as uh_projects
 
         root = _active_workspace(app, session_id)
         requested = Path(path).expanduser().resolve() if str(path or "").strip() else root
         if requested != root:
-            raise HTTPException(status_code=403, detail="ce n'est pas le dépôt actif de cette conversation")
+            raise HTTPException(
+                status_code=403, detail="ce n'est pas le dépôt actif de cette conversation"
+            )
         try:
             return await asyncio.to_thread(uh_projects.log, root, limit, offset)
         except uh_projects.ProjectsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/git/diff", dependencies=[Depends(require_token)])
-    async def git_diff(path: str = "", session_id: str = "", file: str = "", staged: bool = False) -> dict:
+    async def git_diff(
+        path: str = "", session_id: str = "", file: str = "", staged: bool = False
+    ) -> dict:
         from .. import projects as uh_projects
 
         root = _active_workspace(app, session_id)
         requested = Path(path).expanduser().resolve() if str(path or "").strip() else root
         if requested != root:
-            raise HTTPException(status_code=403, detail="ce n'est pas le dépôt actif de cette conversation")
+            raise HTTPException(
+                status_code=403, detail="ce n'est pas le dépôt actif de cette conversation"
+            )
         try:
             return await asyncio.to_thread(uh_projects.diff, root, file, staged)
         except uh_projects.ProjectsError as exc:
@@ -1284,7 +1326,9 @@ def create_app(
             run_id = str(payload.get("run") or "").strip()
             if not run_id:
                 raise HTTPException(status_code=400, detail="run requis")
-            return uhb_runs.close(run_id, bool(payload.get("keep")), str(payload.get("summary") or ""))
+            return uhb_runs.close(
+                run_id, bool(payload.get("keep")), str(payload.get("summary") or "")
+            )
         if action == "prune":
             return uhb_runs.prune(bool(payload.get("apply")))
         if action == "restore":
@@ -1487,16 +1531,31 @@ def create_app(
             answer = await asyncio.to_thread(tool.read_pdf, str(target), "1-5")
             if answer.get("error"):
                 # pypdf absent, ou PDF protégé : on le dit, on ne prétend pas avoir lu.
-                return {"kind": "pdf", "name": target.name, "bytes": size, "readable": False,
-                        "reason": str(answer["error"])}
-            return {"kind": "pdf", "name": target.name, "bytes": size, "readable": True,
-                    "text": str(answer.get("text") or ""), "truncated": bool(answer.get("truncated"))}
+                return {
+                    "kind": "pdf",
+                    "name": target.name,
+                    "bytes": size,
+                    "readable": False,
+                    "reason": str(answer["error"]),
+                }
+            return {
+                "kind": "pdf",
+                "name": target.name,
+                "bytes": size,
+                "readable": True,
+                "text": str(answer.get("text") or ""),
+                "truncated": bool(answer.get("truncated")),
+            }
 
         cap = max(1, min(int(max_bytes or fs_text_bytes), fs_text_max))
         head = await asyncio.to_thread(_read_head, target, cap)
         if b"\x00" in head:
-            return {"kind": "binary", "name": target.name, "bytes": size,
-                    "reason": "aperçu non pris en charge pour ce format binaire"}
+            return {
+                "kind": "binary",
+                "name": target.name,
+                "bytes": size,
+                "reason": "aperçu non pris en charge pour ce format binaire",
+            }
         return {
             "kind": "text",
             "name": target.name,
@@ -1729,9 +1788,7 @@ def create_app(
         turn_started = time.perf_counter()
         # P1-14: what the turn actually sent, so "the image was attached" is a line
         # in the journal and not a memory of the browser.
-        turnlog.event(
-            "turn_media", turn=turn_id, images=len(turn_images), kinds=media_kinds
-        )
+        turnlog.event("turn_media", turn=turn_id, images=len(turn_images), kinds=media_kinds)
         tool_since: dict[str, float] = {}
         turn_reason = "done"
         # The workspace this turn works in: the session's own if it switched project
@@ -1767,7 +1824,9 @@ def create_app(
                             payload = {}
                         run_id = str(payload.get("run") or payload.get("run_dir") or "").strip()
                         if run_id:
-                            name_only = Path(run_id).name if "\\" in run_id or "/" in run_id else run_id
+                            name_only = (
+                                Path(run_id).name if "\\" in run_id or "/" in run_id else run_id
+                            )
                             turn_runs.append({"run": name_only, "keep": bool(payload.get("keep"))})
                     # A refusal caused by the mode gets its own event: the page turns
                     # it into one card whose button grants execution and re-sends the
@@ -1780,7 +1839,9 @@ def create_app(
                         loop.call_soon_threadsafe(queue.put_nowait, refused)
                 elif kind == "error":
                     turn_reason = "error"
-                    turnlog.event("turn_error", turn=turn_id, detail=str(event.get("message") or "")[:200])
+                    turnlog.event(
+                        "turn_error", turn=turn_id, detail=str(event.get("message") or "")[:200]
+                    )
             except Exception:  # noqa: BLE001 - the journal never breaks a turn
                 pass
             try:
@@ -1837,7 +1898,7 @@ def create_app(
                 session_obj = ChatSession(
                     provider_factory=app.state.provider_factory,
                     provider_kind=kind,
-                    chain=[(kind, provider)],
+                    chain=_chain_for(app, session["id"], kind, provider),
                     model=model,
                     toolsets=toolsets,
                     workspace=app.state.settings.workspace,
@@ -2034,6 +2095,50 @@ def create_app(
             }
         return {"connected": True, **payload, "owned": uhb_spawn.running() is not None}
 
+    @app.get("/api/uhb/overview", dependencies=[Depends(require_token)])
+    async def uhb_overview() -> dict:
+        """UHB's ``/status``, ``/modes`` and ``/tools`` in one answer, nothing computed here.
+
+        The cockpit used to need three round trips to explain why ``execute_code``
+        is refused (which mode, which modes would allow it, whether UH owns the
+        process and may restart it). UHB stays the source of truth: its payloads
+        are passed through, and a part that fails is reported as ``null`` with its
+        error under ``errors`` instead of failing the whole answer.
+        """
+        from .. import uhb_spawn
+        from ..toolsets.uhb import Uhbtoolset, resolve_url
+
+        url = resolve_url()
+        if url is None:
+            return {
+                "connected": False,
+                "reason": "UHB is disabled (UH_UHB_URL is empty or not loopback)",
+            }
+        probe = Uhbtoolset(url, timeout=1.5)
+        status = await asyncio.to_thread(probe.status)
+        if "error" in status:
+            return {
+                "connected": False,
+                "reason": str(status.get("error") or "unreachable"),
+                "log": uhb_spawn.log_tail(),
+                "owned": uhb_spawn.running() is not None,
+            }
+        modes = await asyncio.to_thread(probe.modes)
+        tools = await asyncio.to_thread(probe.describe_tools)
+        errors = {
+            name: str(part.get("error"))
+            for name, part in (("modes", modes), ("tools", tools))
+            if "error" in part
+        }
+        return {
+            "connected": True,
+            "owned": uhb_spawn.running() is not None,
+            "status": status,
+            "modes": None if "modes" in errors else modes.get("modes"),
+            "tools": None if "tools" in errors else tools,
+            "errors": errors,
+        }
+
     @app.post("/api/uhb/start", dependencies=[Depends(require_token)])
     async def uhb_start() -> dict:
         """Start the second brain from the panel: the button, not a shell command.
@@ -2094,9 +2199,7 @@ def create_app(
 
         wanted = str((payload or {}).get("mode") or "").strip().lower()
         if wanted not in ("chat", "dev", "review", "observe"):
-            raise HTTPException(
-                status_code=400, detail="mode must be chat, dev, review or observe"
-            )
+            raise HTTPException(status_code=400, detail="mode must be chat, dev, review or observe")
         url = resolve_url()
         if url is None:
             raise HTTPException(
@@ -2210,14 +2313,21 @@ def create_app(
         workspace = app.state.settings.workspace
         with log.open("ab") as handle:
             handle.write(
-                f"\n--- {datetime.now().isoformat(timespec='seconds')} pass from the cockpit ---\n"
-                .encode("utf-8")
+                f"\n--- {datetime.now().isoformat(timespec='seconds')} pass from the cockpit ---\n".encode(
+                    "utf-8"
+                )
             )
             handle.flush()
             process = subprocess.Popen(  # noqa: S603 - our own module, no shell
                 [
-                    sys.executable, "-m", "uh.cli", "dream",
-                    "--now", "--budget", str(budget), "--yes",
+                    sys.executable,
+                    "-m",
+                    "uh.cli",
+                    "dream",
+                    "--now",
+                    "--budget",
+                    str(budget),
+                    "--yes",
                 ],
                 stdout=handle,
                 stderr=handle,
@@ -2271,7 +2381,9 @@ def create_app(
         if upload:
             from .. import mcp_cloud
 
-            targets = {item["name"]: item for item in await asyncio.to_thread(mcp_cloud.upload_targets)}
+            targets = {
+                item["name"]: item for item in await asyncio.to_thread(mcp_cloud.upload_targets)
+            }
             target = targets.get(upload)
             if target is None:
                 pushed["error"] = f"'{upload}' is not a cloud server that can store a file"
@@ -2461,7 +2573,9 @@ def create_app(
                 "column": "in",
                 "count": len(memory.get("sections") or []) if memory_available else None,
                 "unit": "section(s)",
-                "state": state(memory_available, memory.get("sections") if memory_available else None),
+                "state": state(
+                    memory_available, memory.get("sections") if memory_available else None
+                ),
                 "detail": str(
                     memory.get("path")
                     if memory_available
@@ -2667,8 +2781,11 @@ def create_app(
         from .. import skills as uh_skills
 
         entry = next(
-            (item for item in uh_skills.list_skills().get("skills") or []
-             if str(item.get("name")) == str(name)),
+            (
+                item
+                for item in uh_skills.list_skills().get("skills") or []
+                if str(item.get("name")) == str(name)
+            ),
             None,
         )
         if entry is None:
@@ -2689,8 +2806,11 @@ def create_app(
         from .. import skills as uh_skills
 
         entry = next(
-            (item for item in uh_skills.list_skills().get("skills") or []
-             if str(item.get("name")) == str(name)),
+            (
+                item
+                for item in uh_skills.list_skills().get("skills") or []
+                if str(item.get("name")) == str(name)
+            ),
             None,
         )
         if entry is None:
@@ -2726,8 +2846,11 @@ def create_app(
         from .. import skills as uh_skills
 
         entry = next(
-            (item for item in uh_skills.list_skills().get("skills") or []
-             if str(item.get("name")) == str(name)),
+            (
+                item
+                for item in uh_skills.list_skills().get("skills") or []
+                if str(item.get("name")) == str(name)
+            ),
             None,
         )
         if entry is not None and str(entry.get("origin")) == "native":
@@ -2782,8 +2905,11 @@ def create_app(
         if "enabled" not in body or not isinstance(body.get("enabled"), bool):
             raise HTTPException(status_code=400, detail="send {enabled: true|false}")
         entry = next(
-            (item for item in uh_skills.list_skills().get("skills") or []
-             if str(item.get("name")) == str(name)),
+            (
+                item
+                for item in uh_skills.list_skills().get("skills") or []
+                if str(item.get("name")) == str(name)
+            ),
             None,
         )
         if entry is None:
@@ -2876,7 +3002,10 @@ def create_app(
 
         url = resolve_url()
         if url is None:
-            uhb = {"connected": False, "reason": "UHB is disabled (UH_UHB_URL unset or not loopback)"}
+            uhb = {
+                "connected": False,
+                "reason": "UHB is disabled (UH_UHB_URL unset or not loopback)",
+            }
         else:
             payload = await asyncio.to_thread(lambda: Uhbtoolset(url, timeout=1.0).status())
             if "error" in payload:
@@ -2915,7 +3044,9 @@ def create_app(
                 "http_reason": summary,
                 # The stdio half may be empty; its "nothing configured" sentence
                 # would then contradict the rows right beside it.
-                "reason": summary if not mcp_status.get("servers") else mcp_status.get("reason", ""),
+                "reason": summary
+                if not mcp_status.get("servers")
+                else mcp_status.get("reason", ""),
             }
         elif not mcp_status.get("configured"):
             from .. import mcp_cloud
@@ -2976,9 +3107,7 @@ def create_app(
         applies, error = await asyncio.to_thread(fixes.check, repo, text)
         if not applies:
             raise HTTPException(status_code=409, detail=f"the patch does not apply: {error}")
-        proposal = fixes.Proposal(
-            stamp=stamp, instruction="", diff=text, path=path, applies=True
-        )
+        proposal = fixes.Proposal(stamp=stamp, instruction="", diff=text, path=path, applies=True)
         checks = [[sys.executable, "-m", "ruff", "check", "uh", "tests"]]
         try:
             outcome = await asyncio.to_thread(fixes.apply, proposal, repo=repo, checks=checks)
@@ -3062,7 +3191,9 @@ def create_app(
                 spec = catalog().get(provider)
                 model = spec.models[0].id if spec and spec.models else ""
         else:
-            raise HTTPException(status_code=400, detail="choice must be ollama, huggingface or cloud")
+            raise HTTPException(
+                status_code=400, detail="choice must be ollama, huggingface or cloud"
+            )
 
         try:
             write_layer("user", "default_provider", provider)
@@ -3320,7 +3451,10 @@ def create_app(
         from .. import mcp
         from .. import mcp_http as uh_mcp_http
 
-        if any(server.name == name for server in await asyncio.to_thread(uh_mcp_http.servers_from_config)):
+        if any(
+            server.name == name
+            for server in await asyncio.to_thread(uh_mcp_http.servers_from_config)
+        ):
             return await asyncio.to_thread(uh_mcp_http.test_connection, name)
 
         servers, _ = await asyncio.to_thread(mcp.servers_from_config)
@@ -3331,9 +3465,7 @@ def create_app(
         except mcp.MCPError as exc:
             # The server's stderr is quoted in the message; redaction happens in
             # `stderr_tail`, and again here for any path that formatted a secret.
-            raise HTTPException(
-                status_code=502, detail=_redact(str(exc))
-            ) from exc
+            raise HTTPException(status_code=502, detail=_redact(str(exc))) from exc
 
     # -- remote tool approval (P14.1) -------------------------------------- #
     @app.get("/api/mcp/approvals", dependencies=[Depends(require_token)])
@@ -3409,7 +3541,8 @@ def create_app(
         if server is None:
             known = ", ".join(item.name for item in uh_mcp_http.servers_from_config()) or "aucun"
             raise HTTPException(
-                status_code=404, detail=f"aucun serveur MCP HTTP nommé « {name} » (connus : {known})"
+                status_code=404,
+                detail=f"aucun serveur MCP HTTP nommé « {name} » (connus : {known})",
             )
         started = time.perf_counter()
         try:
@@ -3445,7 +3578,8 @@ def create_app(
 
         if not is_loopback_bind(str(getattr(app.state.settings, "host", ""))):
             raise HTTPException(
-                status_code=403, detail="quitter UH n'est permis que si le serveur écoute en loopback"
+                status_code=403,
+                detail="quitter UH n'est permis que si le serveur écoute en loopback",
             )
         if not (payload or {}).get("confirm"):
             raise HTTPException(status_code=400, detail='envoie {"confirm": true} pour quitter')
@@ -3473,7 +3607,10 @@ def create_app(
     async def search(q: str, limit: int = 20) -> dict:
         with _store(app) as store:
             hits = store.search(q, limit=limit)
-        return {"query": q, "hits": [{**hit, "short_id": display_id(hit["session_id"])} for hit in hits]}
+        return {
+            "query": q,
+            "hits": [{**hit, "short_id": display_id(hit["session_id"])} for hit in hits],
+        }
 
     @app.get("/api/models", dependencies=[Depends(require_token)])
     async def models() -> dict:
@@ -3572,8 +3709,7 @@ def create_app(
             ),
         }
         if not any(
-            row["id"] == current["id"] and row["provider"] == current["provider"]
-            for row in choices
+            row["id"] == current["id"] and row["provider"] == current["provider"] for row in choices
         ):
             choices.insert(0, current)
 
@@ -3649,8 +3785,7 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"« {model} » est un modèle local : choisis le fournisseur ollama, "
-                    f"pas {kind}."
+                    f"« {model} » est un modèle local : choisis le fournisseur ollama, pas {kind}."
                 ),
             )
         if kind == "ollama" and local and model not in local:

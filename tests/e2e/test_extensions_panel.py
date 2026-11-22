@@ -30,10 +30,7 @@ def seeded(make_server, tmp_path: Path):
     )
     (skills / "vide.md").write_text("# Vide\n", encoding="utf-8")
     (server.home / "config.toml").write_text(
-        '[[mcp.servers]]\n'
-        'name = "casse"\n'
-        'command = "uh-binaire-qui-nexiste-pas-42"\n'
-        "args = []\n",
+        '[[mcp.servers]]\nname = "casse"\ncommand = "uh-binaire-qui-nexiste-pas-42"\nargs = []\n',
         encoding="utf-8",
     )
     return server
@@ -60,7 +57,8 @@ def test_the_three_families_are_on_one_screen(browser, seeded) -> None:
         )
         assert kinds == ["mcp", "skills", "uhb"], kinds
         names = page.eval_on_selector_all(
-            "#extensions-groups .extension-row", "els => els.map(e => [e.dataset.kind, e.dataset.name])"
+            "#extensions-groups .extension-row",
+            "els => els.map(e => [e.dataset.kind, e.dataset.name])",
         )
         assert ["skills", "veille"] in names
         assert ["skills", "vide"] in names

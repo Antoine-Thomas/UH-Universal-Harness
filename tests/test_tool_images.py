@@ -30,7 +30,9 @@ PNG_URL = "data:image/png;base64," + base64.b64encode(PNG).decode()
 
 
 def session_with(history: list[dict]) -> ChatSession:
-    session = ChatSession.__new__(ChatSession)  # no server, no console: the helper only reads history
+    session = ChatSession.__new__(
+        ChatSession
+    )  # no server, no console: the helper only reads history
     session.history = history
     session.events = None
     return session
@@ -44,7 +46,10 @@ def test_an_execute_code_image_becomes_an_artifact() -> None:
     session = session_with(
         [
             {"role": "user", "content": "trace la courbe"},
-            tool_message("execute_code", {"images": [{"mime": "image/png", "bytes": len(PNG), "data_url": PNG_URL}]}),
+            tool_message(
+                "execute_code",
+                {"images": [{"mime": "image/png", "bytes": len(PNG), "data_url": PNG_URL}]},
+            ),
             {"role": "assistant", "content": "Voici la courbe."},
         ]
     )
@@ -89,7 +94,11 @@ def test_a_path_without_a_data_url_is_not_read() -> None:
     # UHB can answer with a path when the caller did not ask for inline images: the
     # browser must never receive a filesystem path, and nothing is read from disk.
     session = session_with(
-        [tool_message("execute_code", {"images": [{"path": r"C:\tmp\run\chart.png", "data_url": None}]})]
+        [
+            tool_message(
+                "execute_code", {"images": [{"path": r"C:\tmp\run\chart.png", "data_url": None}]}
+            )
+        ]
     )
 
     assert session._tool_images(0) == []

@@ -122,9 +122,7 @@ def test_recording_a_remote_plain_http_server_needs_the_flag(tmp_path: Path) -> 
         mcp_cloud.connect_http("remote", "http://mcp.example.com/sse")
     assert not (tmp_path / "config.toml").exists()
 
-    created = mcp_cloud.connect_http(
-        "remote", "http://mcp.example.com/sse", allow_insecure=True
-    )
+    created = mcp_cloud.connect_http("remote", "http://mcp.example.com/sse", allow_insecure=True)
     assert created["insecure"] is True
     assert "en clair" in created["warning"]
 
@@ -320,9 +318,9 @@ def test_another_host_header_is_refused(tmp_path: Path, monkeypatch) -> None:
 # ?panel= is a whitelist
 # --------------------------------------------------------------------------- #
 def test_the_deep_link_is_a_whitelist_not_an_interpolation() -> None:
-    source = (
-        Path(__file__).resolve().parents[1] / "uh" / "web" / "static" / "app.js"
-    ).read_text(encoding="utf-8")
+    source = (Path(__file__).resolve().parents[1] / "uh" / "web" / "static" / "app.js").read_text(
+        encoding="utf-8"
+    )
     start = source.index("function openPanelFromUrl()")
     body = source[start : start + 400]
     assert "PANEL_TABS.has(wanted)" in body, "the value must be checked against a set"
@@ -331,9 +329,19 @@ def test_the_deep_link_is_a_whitelist_not_an_interpolation() -> None:
 
 
 def test_the_documented_tabs_are_the_ones_the_panel_knows() -> None:
-    source = (
-        Path(__file__).resolve().parents[1] / "uh" / "web" / "static" / "app.js"
-    ).read_text(encoding="utf-8")
-    known = {"keys", "providers", "conn", "models", "uhb", "memory", "decision", "telemetry", "data"}
+    source = (Path(__file__).resolve().parents[1] / "uh" / "web" / "static" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    known = {
+        "keys",
+        "providers",
+        "conn",
+        "models",
+        "uhb",
+        "memory",
+        "decision",
+        "telemetry",
+        "data",
+    }
     for tab in known:
         assert f'"{tab}"' in source

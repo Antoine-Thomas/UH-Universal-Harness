@@ -137,7 +137,6 @@ def retry_transport(
     raise AssertionError("unreachable: the loop returns or raises")
 
 
-
 def request_messages(
     messages: List[dict], wire: str = "openai", tools: Optional[List[dict]] = None
 ) -> List[dict]:
@@ -184,6 +183,11 @@ def request_messages(
     cleaned: List[dict] = []
     last_calls: List[str] = []
     declared = _declared_tool_names(tools)
+    # A request that offers no tool at all (chat mode, a model without tool calling)
+    # cannot replay calls an earlier turn made. The calls go, but what they produced
+    # stays readable: it becomes a plain-text note on the assistant message.
+    as_notes = declared is not None and not declared
+    noted: Dict[str, str] = {}
     for message in messages:
         if not isinstance(message, dict):
             cleaned.append(message)
@@ -224,6 +228,10 @@ def request_messages(
                 message = {**message, "content": content}
             if not str(message.get("tool_call_id") or "").strip() and last_calls:
                 message = {**message, "tool_call_id": last_calls.pop(0)}
+            call_id = str(message.get("tool_call_id") or "")
+            if as_notes and call_id in noted:
+                _append_note(cleaned, noted.pop(call_id), message.get("content"))
+                continue
         if message.get("tool_calls"):
             calls = _wire_tool_calls(message["tool_calls"], wire)
             if declared is not None:
@@ -234,6 +242,8 @@ def request_messages(
                         kept.append(call)
                     else:
                         record_drop(name or "(sans nom)", "outil non déclaré dans request.tools")
+                        if as_notes:
+                            noted[call["id"]] = name or "(sans nom)"
                 calls = kept
             if calls:
                 message = {**message, "tool_calls": calls}
@@ -244,10 +254,27 @@ def request_messages(
                 # request.tools", OmniRouter 19/11), and keeping an assistant
                 # message with no content and no calls is refused just as well.
                 message = {key: value for key, value in message.items() if key != "tool_calls"}
-                if not str(message.get("content") or "").strip():
+                if not str(message.get("content") or "").strip() and not as_notes:
                     continue
         cleaned.append(message)
     return _close_open_calls(cleaned)
+
+
+def _append_note(cleaned: List[dict], name: str, content: object) -> None:
+    """Add "the call to ``name`` answered: ..." to the assistant message that made it."""
+    text = (
+        content
+        if isinstance(content, str)
+        else json.dumps(content, ensure_ascii=False, default=str)
+    )
+    note = f"[résultat de `{name}` : {text}]"
+    for index in range(len(cleaned) - 1, -1, -1):
+        candidate = cleaned[index]
+        if isinstance(candidate, dict) and candidate.get("role") == "assistant":
+            joined = f"{candidate.get('content') or ''}\n{note}".strip()
+            cleaned[index] = {**candidate, "content": joined}
+            return
+    cleaned.append({"role": "assistant", "content": note})
 
 
 #: A call dropped on the wire, kept only until the turn reports it.
@@ -272,7 +299,7 @@ def _declared_tool_names(tools: Optional[List[dict]]) -> Optional[set]:
     ``None`` means "do not filter": every existing caller that passes no tool list
     keeps the behaviour it had, filtering is opt-in and therefore testable.
     """
-    if not tools:
+    if tools is None:
         return None
     names = set()
     for tool in tools:
@@ -282,7 +309,10 @@ def _declared_tool_names(tools: Optional[List[dict]]) -> Optional[set]:
         name = (function or {}).get("name") if isinstance(function, dict) else None
         names.add(str(name or tool.get("name") or ""))
     names.discard("")
-    return names or None
+    # An explicit empty list is an answer, not silence: a turn that offers no tool
+    # (chat mode, a model that cannot call tools) must not replay the calls an
+    # earlier turn made, or a strict gateway refuses the request over them.
+    return names
 
 
 def _call_name(call: dict) -> str:

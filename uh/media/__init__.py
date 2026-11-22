@@ -93,7 +93,10 @@ def shrink_image(path: Path, *, budget: int = IMAGE_BUDGET, max_side: int = MAX_
     longest = max(image.size)
     if longest > max_side:
         ratio = max_side / float(longest)
-        image = image.resize((max(1, int(image.width * ratio)), max(1, int(image.height * ratio))), Image.Resampling.LANCZOS)
+        image = image.resize(
+            (max(1, int(image.width * ratio)), max(1, int(image.height * ratio))),
+            Image.Resampling.LANCZOS,
+        )
 
     target = derived_dir(path) / (path.stem + SENT_SUFFIX)
     for quality in (85, 75, 65, 55, 45, 35):
@@ -102,7 +105,9 @@ def shrink_image(path: Path, *, budget: int = IMAGE_BUDGET, max_side: int = MAX_
             return target
     # Last resort: halve until it fits, but never below 640 px on the long side.
     while target.stat().st_size > budget and max(image.size) > 640:
-        image = image.resize((max(1, image.width // 2), max(1, image.height // 2)), Image.Resampling.LANCZOS)
+        image = image.resize(
+            (max(1, image.width // 2), max(1, image.height // 2)), Image.Resampling.LANCZOS
+        )
         image.save(target, format="JPEG", quality=70, optimize=True)
     if target.stat().st_size > budget:
         raise MediaError("image impossible à réduire sous le budget sans la rendre illisible")
@@ -141,9 +146,21 @@ def video_info(path: Path) -> Dict[str, Any]:
     if not probe:
         raise MediaError("ffprobe absent : impossible de lire la vidéo (ffmpeg embarqué requis)")
     out = subprocess.run(
-        [probe, "-v", "error", "-show_entries",
-         "format=duration:stream=codec_name,codec_type", "-of", "json", str(path)],
-        capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
+        [
+            probe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration:stream=codec_name,codec_type",
+            "-of",
+            "json",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+        check=False,
     )
     if out.returncode != 0:
         raise MediaError(f"ffprobe a refusé le fichier : {out.stderr[-160:]}")
@@ -178,9 +195,24 @@ def video_frames(path: Path, *, count: int = VIDEO_FRAMES) -> List[Path]:
         moment = duration * (index + 0.5) / count
         target = folder / f"{path.stem}-frame{index + 1}.jpg"
         proc = subprocess.run(
-            [binary, "-y", "-ss", f"{moment:.2f}", "-i", str(path), "-frames:v", "1",
-             "-vf", f"scale='min({MAX_SIDE},iw)':-2", str(target)],
-            capture_output=True, text=True, encoding="utf-8", timeout=180, check=False,
+            [
+                binary,
+                "-y",
+                "-ss",
+                f"{moment:.2f}",
+                "-i",
+                str(path),
+                "-frames:v",
+                "1",
+                "-vf",
+                f"scale='min({MAX_SIDE},iw)':-2",
+                str(target),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=180,
+            check=False,
         )
         if proc.returncode == 0 and target.is_file():
             frames.append(target)
@@ -200,7 +232,11 @@ def video_audio(path: Path) -> Optional[Path]:
     target = derived_dir(path) / f"{path.stem}-audio.wav"
     proc = subprocess.run(
         [binary, "-y", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", str(target)],
-        capture_output=True, text=True, encoding="utf-8", timeout=300, check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=300,
+        check=False,
     )
     return target if proc.returncode == 0 and target.is_file() else None
 

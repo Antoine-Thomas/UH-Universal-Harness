@@ -89,7 +89,9 @@ class _Tgi(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's name
         length = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(length) or b"{}")
-        type(self).seen.append({"path": self.path, "body": body, "auth": self.headers.get("Authorization")})
+        type(self).seen.append(
+            {"path": self.path, "body": body, "auth": self.headers.get("Authorization")}
+        )
         payload = json.dumps(
             {
                 "id": "chatcmpl-1",

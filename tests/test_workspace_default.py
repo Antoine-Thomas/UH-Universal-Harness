@@ -138,7 +138,9 @@ def test_the_cli_reports_where_the_workspace_went(
     finally:
         session.close()
 
-    assert "[WARN] cwd is a system directory; using ~/uh-workspace instead" in capsys.readouterr().err
+    assert (
+        "[WARN] cwd is a system directory; using ~/uh-workspace instead" in capsys.readouterr().err
+    )
 
 
 def test_workspace_path_reports_its_origin(monkeypatch: pytest.MonkeyPatch) -> None:

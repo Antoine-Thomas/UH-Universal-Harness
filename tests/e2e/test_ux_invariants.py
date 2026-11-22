@@ -104,7 +104,5 @@ def test_e3_two_instances_do_not_kill_each_other(browser, make_server) -> None:
     page.wait_for_timeout(1500)
     assert page.locator("#input").count() == 1, "the first tab lost its interface"
 
-    status = page.evaluate(
-        "async () => (await fetch('/api/status')).status"
-    )
+    status = page.evaluate("async () => (await fetch('/api/status')).status")
     assert status == 200, json.dumps({"first_http_status": status})

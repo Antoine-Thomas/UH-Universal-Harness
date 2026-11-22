@@ -23,8 +23,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 @dataclass
 class CommandResult:
-    out: str = ""       # printed on stdout
-    err: str = ""       # printed on stderr
+    out: str = ""  # printed on stdout
+    err: str = ""  # printed on stderr
     exit: bool = False  # leave the console
 
     @property
@@ -146,7 +146,9 @@ def _cmd_key(_session: "ChatSession", args: str) -> CommandResult:
         return CommandResult(out="\n".join(lines))
 
     if action not in {"add", "remove"}:
-        return CommandResult(err="usage: /key list | /key add <provider> | /key remove <provider> <index>")
+        return CommandResult(
+            err="usage: /key list | /key add <provider> | /key remove <provider> <index>"
+        )
     if len(parts) < 2:
         return CommandResult(err="key: a provider name is required")
 
@@ -196,9 +198,7 @@ def _cmd_router(session: "ChatSession", args: str) -> CommandResult:
     if not rows:
         lines.append("  (empty: no key stored for a catalogued provider)")
     for row in rows:
-        lines.append(
-            f"  {row['name']:<12}{row['keys']} key(s)  {row['verified']}  {row['model']}"
-        )
+        lines.append(f"  {row['name']:<12}{row['keys']} key(s)  {row['verified']}  {row['model']}")
     lines.append("usage: /router reset  clears cooldowns in this session")
     return CommandResult(out="\n".join(lines))
 
@@ -213,8 +213,7 @@ def _cmd_local_only(_session: "ChatSession", args: str) -> CommandResult:
     state = providers_admin.settings()
     if want not in {"on", "off"}:
         return CommandResult(
-            out=f"allow_remote: {str(state['allow_remote']).lower()}"
-            "  (usage: /local-only on|off)"
+            out=f"allow_remote: {str(state['allow_remote']).lower()}  (usage: /local-only on|off)"
         )
 
     if want == "on":
@@ -223,9 +222,7 @@ def _cmd_local_only(_session: "ChatSession", args: str) -> CommandResult:
 
     if state["consent"]:
         providers_admin.update_settings(allow_remote=True, consent=False)
-        return CommandResult(
-            out=f"remote enabled (consent recorded {state['consent_date']})"
-        )
+        return CommandResult(out=f"remote enabled (consent recorded {state['consent_date']})")
 
     if not (sys.stdin is not None and sys.stdin.isatty()):
         return CommandResult(
@@ -282,8 +279,7 @@ def _cmd_save(session: "ChatSession", args: str) -> CommandResult:
     except OSError as exc:
         return CommandResult(err=f"save: {exc}")
     return CommandResult(
-        out=f"saved {target}\n"
-        "note: tool output may contain sensitive data; UH never writes a key"
+        out=f"saved {target}\nnote: tool output may contain sensitive data; UH never writes a key"
     )
 
 
@@ -374,9 +370,7 @@ def _web_ui(session: "ChatSession") -> CommandResult:
     except embedded.WebStartError as exc:
         return CommandResult(err=f"web: {exc}")
     if not started:
-        return CommandResult(
-            out=f"web UI already running: {server.url}\n  /exit stops it"
-        )
+        return CommandResult(out=f"web UI already running: {server.url}\n  /exit stops it")
     note = ""
     try:
         child = uhb_spawn.ensure()
@@ -447,7 +441,11 @@ def _cmd_config(session: "ChatSession", _args: str) -> CommandResult:
 def _cmd_doctor(_session: "ChatSession", _args: str) -> CommandResult:
     from . import cli
 
-    return CommandResult(out="") if cli.main(["doctor"]) == 0 else CommandResult(err="doctor reported problems")
+    return (
+        CommandResult(out="")
+        if cli.main(["doctor"]) == 0
+        else CommandResult(err="doctor reported problems")
+    )
 
 
 def _cmd_exit(_session: "ChatSession", _args: str) -> CommandResult:
@@ -499,21 +497,57 @@ def _cmd_memory(_session: "ChatSession", _args: str) -> CommandResult:
 # registry
 # --------------------------------------------------------------------------- #
 REGISTRY: tuple[SlashCommand, ...] = (
-    SlashCommand("help", "List commands, or explain one (/help model)", _cmd_help,
-                 aliases=("h", "?"), args_hint="[command]", group="Info"),
-    SlashCommand("model", "List models, or switch model in this session", _cmd_model,
-                 args_hint="[name]", group="Model"),
-    SlashCommand("provider", "Show, switch, add or test a provider", _cmd_provider,
-                 args_hint="[name|add <name>|test <name>]", group="Model"),
-    SlashCommand("key", "Keys: list, add (masked), remove by index", _cmd_key,
-                 args_hint="[list|add <p>|remove <p> <n>]", group="Model"),
-    SlashCommand("router", "Router state; reset clears cooldowns", _cmd_router,
-                 args_hint="[reset]", group="Model"),
-    SlashCommand("local-only", "Nothing leaves the machine; off needs consent", _cmd_local_only,
-                 args_hint="[on|off]", group="Model"),
+    SlashCommand(
+        "help",
+        "List commands, or explain one (/help model)",
+        _cmd_help,
+        aliases=("h", "?"),
+        args_hint="[command]",
+        group="Info",
+    ),
+    SlashCommand(
+        "model",
+        "List models, or switch model in this session",
+        _cmd_model,
+        args_hint="[name]",
+        group="Model",
+    ),
+    SlashCommand(
+        "provider",
+        "Show, switch, add or test a provider",
+        _cmd_provider,
+        args_hint="[name|add <name>|test <name>]",
+        group="Model",
+    ),
+    SlashCommand(
+        "key",
+        "Keys: list, add (masked), remove by index",
+        _cmd_key,
+        args_hint="[list|add <p>|remove <p> <n>]",
+        group="Model",
+    ),
+    SlashCommand(
+        "router",
+        "Router state; reset clears cooldowns",
+        _cmd_router,
+        args_hint="[reset]",
+        group="Model",
+    ),
+    SlashCommand(
+        "local-only",
+        "Nothing leaves the machine; off needs consent",
+        _cmd_local_only,
+        args_hint="[on|off]",
+        group="Model",
+    ),
     SlashCommand("tools", "List active toolsets and their tools", _cmd_tools, group="Info"),
-    SlashCommand("web", "Search the web, or start the browser UI", _cmd_web,
-                 args_hint="[query]", group="Info"),
+    SlashCommand(
+        "web",
+        "Search the web, or start the browser UI",
+        _cmd_web,
+        args_hint="[query]",
+        group="Info",
+    ),
     SlashCommand("clear", "Clear the conversation, keep the session", _cmd_clear, group="Session"),
     SlashCommand(
         "workspace",
@@ -524,17 +558,30 @@ REGISTRY: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("new", "Start a new session", _cmd_new, aliases=("reset",), group="Session"),
     SlashCommand("sessions", "List stored sessions", _cmd_sessions, group="Session"),
-    SlashCommand("resume", "Reload a stored session", _cmd_resume,
-                 args_hint="<id>", group="Session"),
-    SlashCommand("history", "Show the conversation so far", _cmd_history,
-                 args_hint="[N]", group="Session"),
+    SlashCommand(
+        "resume", "Reload a stored session", _cmd_resume, args_hint="<id>", group="Session"
+    ),
+    SlashCommand(
+        "history", "Show the conversation so far", _cmd_history, args_hint="[N]", group="Session"
+    ),
     SlashCommand("retry", "Resend the last prompt", _cmd_retry, group="Session"),
-    SlashCommand("title", "Set the title of the stored session", _cmd_title,
-                 args_hint="<text>", group="Session"),
-    SlashCommand("save", "Save this session as Markdown", _cmd_save,
-                 args_hint="[file]", group="Session"),
-    SlashCommand("export", "Export this session (md or json)", _cmd_export,
-                 args_hint="[md|json]", group="Session"),
+    SlashCommand(
+        "title",
+        "Set the title of the stored session",
+        _cmd_title,
+        args_hint="<text>",
+        group="Session",
+    ),
+    SlashCommand(
+        "save", "Save this session as Markdown", _cmd_save, args_hint="[file]", group="Session"
+    ),
+    SlashCommand(
+        "export",
+        "Export this session (md or json)",
+        _cmd_export,
+        args_hint="[md|json]",
+        group="Session",
+    ),
     SlashCommand("status", "Provider, model, session, context size", _cmd_status, group="Info"),
     SlashCommand("config", "Effective configuration and its sources", _cmd_config, group="Info"),
     SlashCommand("doctor", "Environment report", _cmd_doctor, group="Info"),
@@ -544,9 +591,7 @@ REGISTRY: tuple[SlashCommand, ...] = (
 )
 
 REGISTRY_BY_NAME: dict[str, SlashCommand] = {command.name: command for command in REGISTRY}
-ALIASES: dict[str, str] = {
-    alias: command.name for command in REGISTRY for alias in command.aliases
-}
+ALIASES: dict[str, str] = {alias: command.name for command in REGISTRY for alias in command.aliases}
 ALIASES.update({command.name: command.name for command in REGISTRY})
 
 GROUP_ORDER = ("Session", "Model", "Info", "Exit")

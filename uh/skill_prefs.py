@@ -131,9 +131,7 @@ def for_listing(listing: Iterable[Mapping[str, Any]], home: Optional[Path] = Non
     return marked
 
 
-def enabled_only(
-    listing: Iterable[Mapping[str, Any]], home: Optional[Path] = None
-) -> List[dict]:
+def enabled_only(listing: Iterable[Mapping[str, Any]], home: Optional[Path] = None) -> List[dict]:
     """The skills the router may see: enabled, named, and nothing else."""
     return [entry for entry in for_listing(listing, home) if entry.get("enabled")]
 

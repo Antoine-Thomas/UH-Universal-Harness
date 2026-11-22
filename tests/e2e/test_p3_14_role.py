@@ -51,8 +51,7 @@ def test_a_preset_chosen_in_the_header_survives_a_reload(
         # (observé sur `e2e / windows-latest`, sous charge). On attend la réponse, et on
         # vérifie qu'elle a bien enregistré ce preset.
         with page.expect_response(
-            lambda response: response.request.method == "PATCH"
-            and "/api/sessions/" in response.url
+            lambda response: response.request.method == "PATCH" and "/api/sessions/" in response.url
         ) as patched:
             page.locator("#role-select").select_option("analyste")
         assert patched.value.ok, patched.value.status
@@ -69,8 +68,7 @@ def test_a_preset_chosen_in_the_header_survives_a_reload(
         # Mid-conversation change: the second choice replaces the first on the same
         # session, and the reload keeps the latest one.
         with page.expect_response(
-            lambda response: response.request.method == "PATCH"
-            and "/api/sessions/" in response.url
+            lambda response: response.request.method == "PATCH" and "/api/sessions/" in response.url
         ) as changed:
             page.locator("#role-select").select_option("vision")
         assert changed.value.ok, changed.value.status
@@ -120,8 +118,7 @@ def test_a_free_text_role_is_kept_and_shown_in_the_header(
         page.fill("#role-posture", "Réponds comme un architecte du bâtiment : surfaces, budget.")
         # Même règle que pour les presets : attendre l'enregistrement, pas seulement le DOM.
         with page.expect_response(
-            lambda response: response.request.method == "PATCH"
-            and "/api/sessions/" in response.url
+            lambda response: response.request.method == "PATCH" and "/api/sessions/" in response.url
         ) as saved:
             page.click("#role-custom-save")
         assert saved.value.ok, saved.value.status
@@ -134,9 +131,12 @@ def test_a_free_text_role_is_kept_and_shown_in_the_header(
         # The 8 preset options plus the free-text one the session now carries.
         expect(page.locator("#role-select option")).to_have_count(9, timeout=20000)
         expect(page.locator("#role-select")).to_have_value("custom", timeout=20000)
-        expect(page.locator("#role-select option:checked")).to_have_text(
-            "Architecte de la maison"
-        ), "le libelle libre revient apres rechargement"
+        (
+            expect(page.locator("#role-select option:checked")).to_have_text(
+                "Architecte de la maison"
+            ),
+            "le libelle libre revient apres rechargement",
+        )
     finally:
         context.close()
 

@@ -71,10 +71,7 @@ def test_the_chat_turn_cannot_see_audio() -> None:
 
 def test_importing_the_agent_does_not_load_the_audio_package() -> None:
     """Same rule, measured at import time rather than by grep - and in a clean process."""
-    code = (
-        "import sys, uh.agent, uh.console\n"
-        "print('uh.audio' in sys.modules)\n"
-    )
+    code = "import sys, uh.agent, uh.console\nprint('uh.audio' in sys.modules)\n"
     result = subprocess.run(
         [sys.executable, "-c", code], cwd=str(ROOT), capture_output=True, text=True
     )
@@ -84,8 +81,12 @@ def test_importing_the_agent_does_not_load_the_audio_package() -> None:
 
 def test_the_routes_are_the_only_door() -> None:
     source = (ROOT / "uh" / "web" / "app.py").read_text(encoding="utf-8")
-    for route in ("/api/audio/capabilities", "/api/audio/transcribe", "/api/audio/speak",
-                  "/api/audio/file"):
+    for route in (
+        "/api/audio/capabilities",
+        "/api/audio/transcribe",
+        "/api/audio/speak",
+        "/api/audio/file",
+    ):
         assert f'"{route}"' in source
     # The audio package is imported inside the handlers, never at module scope.
     assert "from .. import audio as uh_audio" in source
@@ -110,9 +111,7 @@ def test_capabilities_name_the_reason_for_every_missing_engine(
 
     data = audio.capabilities()
 
-    assert [engine["name"] for engine in data["engines"]] == [
-        "voxtral", "xtts", "piper", "whisper"
-    ]
+    assert [engine["name"] for engine in data["engines"]] == ["voxtral", "xtts", "piper", "whisper"]
     assert data["tts"] is False and data["stt"] is False
     for engine in data["engines"]:
         assert engine["available"] is False

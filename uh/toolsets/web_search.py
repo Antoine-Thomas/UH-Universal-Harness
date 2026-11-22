@@ -210,7 +210,11 @@ class WebSearchToolset:
                 "count": 0,
                 "note": "no results parsed - possibly throttled by DuckDuckGo, retry later",
             }
-        return {"query": query, "results": results[:max_results], "count": min(len(results), max_results)}
+        return {
+            "query": query,
+            "results": results[:max_results],
+            "count": min(len(results), max_results),
+        }
 
 
 __all__ = ["WebSearchToolset", "parse_results", "DDG_ENDPOINT", "MAX_RESULTS"]

@@ -159,7 +159,7 @@ def _workspace_path(raw: str | None = None) -> tuple[Path, str]:
         origin = "argument" if raw else "UH_WORKSPACE"
         return Path(value).expanduser().resolve(), origin
     cwd = Path.cwd().resolve()
-    if sandbox.is_system_directory(cwd):
+    if sandbox.is_protected_cwd(cwd):
         return sandbox.fallback_workspace(), "system-fallback"
     return cwd, "cwd"
 
@@ -256,7 +256,9 @@ def _session_or_error(store: Store, token: str) -> tuple[dict | None, int]:
     session, matches = _resolve_session(store, token)
     if session is None:
         if matches > 1:
-            print(f"uh: '{token}' is ambiguous ({matches} sessions); use a longer id", file=sys.stderr)
+            print(
+                f"uh: '{token}' is ambiguous ({matches} sessions); use a longer id", file=sys.stderr
+            )
         else:
             print(f"uh: no session matching '{token}'", file=sys.stderr)
         return None, EXIT_FAILURE
@@ -286,7 +288,10 @@ def _check_disk(cfg: uh_config.Config) -> tuple[str, str]:
     except OSError as exc:
         return "WARN", f"cannot read free space for {target}: {exc}"
     if free < MIN_FREE_DISK_BYTES:
-        return "WARN", f"{_human_size(free)} free on {target} (< {_human_size(MIN_FREE_DISK_BYTES)})"
+        return (
+            "WARN",
+            f"{_human_size(free)} free on {target} (< {_human_size(MIN_FREE_DISK_BYTES)})",
+        )
     return "OK", f"{_human_size(free)} free on {target}"
 
 
@@ -312,8 +317,10 @@ def cmd_fix(args: argparse.Namespace) -> int:
     if getattr(args, "from_file", ""):
         patch = Path(args.from_file).expanduser().read_text(encoding="utf-8")
     if not instruction and not patch:
-        print("uh fix: give a description of the problem, or --from-file <patch.diff>",
-              file=sys.stderr)
+        print(
+            "uh fix: give a description of the problem, or --from-file <patch.diff>",
+            file=sys.stderr,
+        )
         return EXIT_FAILURE
 
     try:
@@ -332,7 +339,9 @@ def cmd_fix(args: argparse.Namespace) -> int:
     print("uh fix: the patch applies cleanly (git apply --check)")
     print(proposal.diff)
     if not getattr(args, "apply", False):
-        print("uh fix: not applied. Review it, then: uh fix -m \"<problem>\" --apply", file=sys.stderr)
+        print(
+            'uh fix: not applied. Review it, then: uh fix -m "<problem>" --apply', file=sys.stderr
+        )
         return EXIT_OK
 
     checks = []
@@ -344,7 +353,9 @@ def cmd_fix(args: argparse.Namespace) -> int:
         print(f"uh fix: {exc}", file=sys.stderr)
         return EXIT_FAILURE
     if not outcome["applied"]:
-        print(f"uh fix: applied on {outcome['branch']} then REVERTED: a check failed", file=sys.stderr)
+        print(
+            f"uh fix: applied on {outcome['branch']} then REVERTED: a check failed", file=sys.stderr
+        )
         for line in outcome["failed"]:
             print(f"  {line}", file=sys.stderr)
         return EXIT_FAILURE
@@ -416,7 +427,9 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     import uh as uh_package
 
     package = Path(uh_package.__file__).resolve()
-    editable = "site-packages" not in str(package) and (package.parent.parent / "pyproject.toml").is_file()
+    editable = (
+        "site-packages" not in str(package) and (package.parent.parent / "pyproject.toml").is_file()
+    )
     checkout = Path.cwd() / "pyproject.toml"
     if editable:
         rows.append(("OK", "install", f"dépôt (éditable) : {package}"))
@@ -696,11 +709,13 @@ def _build_chain(
         cloud_entries = [entry for entry in cloud_entries if entry[0] == preferred_name] + [
             entry for entry in cloud_entries if entry[0] != preferred_name
         ]
-    chain = (cloud_entries + local_entries) if prefer == "cloud" else (local_entries + cloud_entries)
+    chain = (
+        (cloud_entries + local_entries) if prefer == "cloud" else (local_entries + cloud_entries)
+    )
 
     if chain[0][0] != "ollama" and ollama_entry is None:
         reason = next(
-            (item[len("ollama: "):] for item in reasons if item.startswith("ollama: ")),
+            (item[len("ollama: ") :] for item in reasons if item.startswith("ollama: ")),
             "ollama provider unavailable",
         )
         print(f"fallback: ollama -> {chain[0][0]} (reason: {reason})", file=sys.stderr)
@@ -821,7 +836,9 @@ def cmd_keys_list(_args: argparse.Namespace) -> int:
     print(f"{'provider':<14}{'keys':<9}{'in chain':<10}verified")
     for row in rows:
         count = str(row["keys"]) if row["keys"] else "absent"
-        print(f"{row['name']:<14}{count:<9}{'yes' if row['in_chain'] else 'no':<10}{row['verified']}")
+        print(
+            f"{row['name']:<14}{count:<9}{'yes' if row['in_chain'] else 'no':<10}{row['verified']}"
+        )
     print("\nvalues are never displayed: only presence and count")
     return EXIT_OK
 
@@ -898,7 +915,9 @@ def installed_version() -> str | None:
         return None
 
 
-def pip_upgrade_command(*, user: bool = False, dry_run: bool = False, clean: bool = False) -> list[str]:
+def pip_upgrade_command(
+    *, user: bool = False, dry_run: bool = False, clean: bool = False
+) -> list[str]:
     """The pip invocation. ``clean`` replaces the package instead of upgrading it.
 
     ``--force-reinstall --no-cache-dir`` is what makes an upgrade work when the
@@ -934,7 +953,10 @@ def uh_processes() -> list[str]:
     try:
         completed = subprocess.run(
             ["powershell.exe", "-NoProfile", "-Command", script],
-            capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=25,
+            capture_output=True,
+            text=True,
+            encoding=locale.getpreferredencoding(False),
+            timeout=25,
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -949,7 +971,8 @@ def stop_uh_processes() -> list[str]:
         try:
             subprocess.run(
                 ["taskkill", "/PID", pid, "/T", "/F"],
-                capture_output=True, timeout=15,
+                capture_output=True,
+                timeout=15,
             )
         except (OSError, subprocess.TimeoutExpired):
             continue
@@ -961,7 +984,10 @@ def purge_pip_cache() -> bool:
     try:
         completed = subprocess.run(
             [sys.executable, "-m", "pip", "cache", "purge"],
-            capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=120,
+            capture_output=True,
+            text=True,
+            encoding=locale.getpreferredencoding(False),
+            timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -985,10 +1011,7 @@ def detached_upgrade() -> bool:
     """
     install = subprocess.list2cmdline(pip_upgrade_command(clean=True))
     shortcut = subprocess.list2cmdline([sys.executable, "-m", "uh.cli", "install-shortcut"])
-    tail = (
-        'echo. & echo UH updated - relaunch "UH web" from the Desktop. & '
-        "timeout /t 6 >nul"
-    )
+    tail = 'echo. & echo UH updated - relaunch "UH web" from the Desktop. & timeout /t 6 >nul'
     script = f"timeout /t 3 /nobreak >nul & {install} && {shortcut} & {tail}"
     try:
         subprocess.Popen(  # noqa: S603 - our own command, no shell string from a user
@@ -1535,8 +1558,10 @@ def cmd_console(_args: argparse.Namespace) -> int:
 
     try:
         chain, model = _build_chain(
-            None, str(cfg.get("default_model") or "") or None,
-            str(cfg.get("omnirouter_model") or ""), preferred=str(cfg.get("default_provider") or "") or None,
+            None,
+            str(cfg.get("default_model") or "") or None,
+            str(cfg.get("omnirouter_model") or ""),
+            preferred=str(cfg.get("default_provider") or "") or None,
         )
     except ProviderError:
         chain = None
@@ -1567,6 +1592,7 @@ def cmd_console(_args: argparse.Namespace) -> int:
         return _run_repl(session)
     finally:
         session.close()
+
 
 # --------------------------------------------------------------------------- #
 # uh providers free / uh router status (Jalon 6a)
@@ -1632,7 +1658,9 @@ def cmd_providers_free(args: argparse.Namespace) -> int:
     print()
     print(CONSENT_WARNING)
     try:
-        answer = input("\nStore a key for this provider and enable remote calls? [y/N] ").strip().lower()
+        answer = (
+            input("\nStore a key for this provider and enable remote calls? [y/N] ").strip().lower()
+        )
     except (EOFError, KeyboardInterrupt):
         print("cancelled (no terminal input)", file=sys.stderr)
         return EXIT_FAILURE
@@ -1719,8 +1747,7 @@ def cmd_router_serve(args: argparse.Namespace) -> int:
         from .router.serve import run_server
     except ImportError as exc:
         print(
-            "uh router serve: the [web] extra is required "
-            f"({type(exc).__name__}: {exc}).",
+            f"uh router serve: the [web] extra is required ({type(exc).__name__}: {exc}).",
             file=sys.stderr,
         )
         print('  install it with: pip install "uh-harness[web]"', file=sys.stderr)
@@ -1807,8 +1834,7 @@ def cmd_web(args: argparse.Namespace) -> int:
         from .web.app import LOOPBACK_NAMES, check_bind, run_server
     except ImportError as exc:
         print(
-            "uh web: the [web] extra is not installed "
-            f"({type(exc).__name__}: {exc}).",
+            f"uh web: the [web] extra is not installed ({type(exc).__name__}: {exc}).",
             file=sys.stderr,
         )
         print('  install it with: pip install "uh-harness[web]"', file=sys.stderr)
@@ -1943,10 +1969,16 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
     if not args.dry_run:
         cfg = uh_config.load()
         try:
-            chain, model = _build_chain(None, str(cfg.get("default_model") or "") or None,
-                                        preferred=str(cfg.get("default_provider") or "") or None)
+            chain, model = _build_chain(
+                None,
+                str(cfg.get("default_model") or "") or None,
+                preferred=str(cfg.get("default_provider") or "") or None,
+            )
         except Exception as exc:  # noqa: BLE001 - a pass without a model still inventories
-            print(f"uh dream: no provider ({type(exc).__name__}: {exc}); inventory only", file=sys.stderr)
+            print(
+                f"uh dream: no provider ({type(exc).__name__}: {exc}); inventory only",
+                file=sys.stderr,
+            )
             chain = []
         if chain:
             provider = chain[0][1]
@@ -1974,13 +2006,13 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
             _log_pass(f"ollama: failed {type(exc).__name__}: {exc}", time.time())
         else:
             _log_pass(
-                f"ollama: {state}"
-                if state == ollama_spawn.NOT_INSTALLED
-                else f"ollama: {state}",
+                f"ollama: {state}" if state == ollama_spawn.NOT_INSTALLED else f"ollama: {state}",
                 time.time(),
             )
 
-    fallback = next((entry[1] for entry in chain if entry[0] != "ollama"), None) if provider else None
+    fallback = (
+        next((entry[1] for entry in chain if entry[0] != "ollama"), None) if provider else None
+    )
     engine = DreamScheduler(
         config=config,
         provider=provider,
@@ -2040,8 +2072,10 @@ def _run_dream_pass(args: argparse.Namespace) -> int:
     if getattr(args, "no_write", False) or args.dry_run:
         print(report.render())
     else:
-        print(f"uh dream: {report.status} - {len(report.ideas)} idea(s), "
-              f"{report.tokens.get('total', 0)} tokens, {report.wall_time_s:.0f}s")
+        print(
+            f"uh dream: {report.status} - {len(report.ideas)} idea(s), "
+            f"{report.tokens.get('total', 0)} tokens, {report.wall_time_s:.0f}s"
+        )
         for path in report.artifacts:
             print(f"  {path}")
         if report.reason:
@@ -2097,8 +2131,10 @@ def cmd_dream(args: argparse.Namespace) -> int:
         print(f"  command: {installed['command']}")
         return EXIT_OK
 
-    if getattr(args, "daemon", False) or getattr(args, "daemon_stop", False) or getattr(
-        args, "daemon_status", False
+    if (
+        getattr(args, "daemon", False)
+        or getattr(args, "daemon_stop", False)
+        or getattr(args, "daemon_status", False)
     ):
         return _run_dream_daemon(args)
 
@@ -2335,7 +2371,9 @@ def cmd_sessions_search(args: argparse.Namespace) -> int:
         print(f"no match for '{args.query}'", file=sys.stderr)
         return EXIT_OK
     for hit in hits:
-        print(f"  {display_id(hit['session_id'])}  {str(hit.get('updated_at'))[:19]}  {hit.get('title') or '-'}")
+        print(
+            f"  {display_id(hit['session_id'])}  {str(hit.get('updated_at'))[:19]}  {hit.get('title') or '-'}"
+        )
         print(f"      {hit.get('snippet')}")
     print("")
     print(f"{len(hits)} match(es)")
@@ -2498,7 +2536,9 @@ def cmd_memory_migrate(args: argparse.Namespace) -> int:
     with store:
         existing = store.find_session_by_metadata("kind", "memory")
         if existing is not None:
-            print(f"memory already migrated (session {display_id(existing['id'])})", file=sys.stderr)
+            print(
+                f"memory already migrated (session {display_id(existing['id'])})", file=sys.stderr
+            )
             return EXIT_OK
 
         text = source.read_text(encoding="utf-8", errors="replace")
@@ -2604,17 +2644,11 @@ def build_parser() -> argparse.ArgumentParser:
     show_map = sub.add_parser(
         "map", help="where everything lives: chats, dreams, outputs, skills, workspace"
     )
-    show_map.add_argument(
-        "--write", action="store_true", help="also write $UH_HOME/SYSTEM_MAP.md"
-    )
+    show_map.add_argument("--write", action="store_true", help="also write $UH_HOME/SYSTEM_MAP.md")
 
-    fix_cmd = sub.add_parser(
-        "fix", help="propose a patch for a problem, in a diff that must apply"
-    )
+    fix_cmd = sub.add_parser("fix", help="propose a patch for a problem, in a diff that must apply")
     fix_cmd.add_argument("instruction", nargs="*", help="what is broken, in words")
-    fix_cmd.add_argument(
-        "--from-file", default="", help="use this .diff instead of asking a model"
-    )
+    fix_cmd.add_argument("--from-file", default="", help="use this .diff instead of asking a model")
     fix_cmd.add_argument(
         "--apply", action="store_true", help="apply on a fix/auto-<stamp> branch (never commits)"
     )
@@ -2806,14 +2840,24 @@ def build_parser() -> argparse.ArgumentParser:
     dream_cmd.add_argument("--journal", action="store_true", help="print the journal of a day")
     dream_cmd.add_argument("--date", default=None, metavar="YYYY-MM-DD", help="day for --journal")
     dream_cmd.add_argument("--list-snapshots", action="store_true", help="list available snapshots")
-    dream_cmd.add_argument("--now", action="store_true", help="run one pass (read-only on the sources)")
-    dream_cmd.add_argument("--dry-run", action="store_true", help="inventory only: no model call, nothing written")
-    dream_cmd.add_argument("--budget", type=int, default=None, metavar="TOKENS", help="token budget for this pass")
     dream_cmd.add_argument(
-        "--source", default=None, metavar="siyuan,rag,skills,mcp",
+        "--now", action="store_true", help="run one pass (read-only on the sources)"
+    )
+    dream_cmd.add_argument(
+        "--dry-run", action="store_true", help="inventory only: no model call, nothing written"
+    )
+    dream_cmd.add_argument(
+        "--budget", type=int, default=None, metavar="TOKENS", help="token budget for this pass"
+    )
+    dream_cmd.add_argument(
+        "--source",
+        default=None,
+        metavar="siyuan,rag,skills,mcp",
         help="sources to read (default siyuan,rag,skills,mcp)",
     )
-    dream_cmd.add_argument("--no-write", action="store_true", help="print the report, write nothing")
+    dream_cmd.add_argument(
+        "--no-write", action="store_true", help="print the report, write nothing"
+    )
     dream_cmd.add_argument(
         "--daemon", action="store_true", help="dream when the machine is idle, in the background"
     )
@@ -2825,11 +2869,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="also copy the report to the Desktop as UH_Rapport_Nuit.txt",
     )
     dream_cmd.add_argument(
-        "--schedule", action="store_true", help="install the nightly pass (Task Scheduler or Startup)"
+        "--schedule",
+        action="store_true",
+        help="install the nightly pass (Task Scheduler or Startup)",
     )
-    dream_cmd.add_argument("--at", default="03:00", metavar="HH:MM", help="hour of the nightly pass")
+    dream_cmd.add_argument(
+        "--at", default="03:00", metavar="HH:MM", help="hour of the nightly pass"
+    )
     dream_cmd.add_argument("--uninstall", action="store_true", help="remove the nightly pass")
-    dream_cmd.add_argument("--status", action="store_true", help="is it installed, when did it last run")
+    dream_cmd.add_argument(
+        "--status", action="store_true", help="is it installed, when did it last run"
+    )
     dream_cmd.add_argument(
         "--start-uhb", action="store_true", help="start UHB for this pass, then stop it"
     )

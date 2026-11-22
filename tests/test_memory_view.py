@@ -87,9 +87,7 @@ def test_a_huge_note_is_refused(wiki: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert "limit" in str(caught.value)
 
 
-def test_without_a_wiki_everything_says_so(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_without_a_wiki_everything_says_so(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("UH_WIKI_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(memory_view.Path, "home", classmethod(lambda cls: tmp_path / "nohome"))
@@ -134,7 +132,9 @@ def test_rag_with_an_index_reports_it_but_stays_unqueryable(
     rag.mkdir(parents=True)
     (rag / "index.faiss").write_bytes(b"0" * 2048)
     (rag / "chunks.jsonl").write_text("{}\n{}\n", encoding="utf-8")
-    (rag / "manifeste.json").write_text(json.dumps({"documents": ["a", "b", "c"]}), encoding="utf-8")
+    (rag / "manifeste.json").write_text(
+        json.dumps({"documents": ["a", "b", "c"]}), encoding="utf-8"
+    )
     monkeypatch.setattr(memory_view, "_uhb_checkout", lambda: tmp_path)
 
     state = memory_view.rag_state()

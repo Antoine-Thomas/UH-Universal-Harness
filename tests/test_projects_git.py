@@ -32,7 +32,11 @@ def run(coro):
 def git(repo: Path, *args: str) -> str:
     proc = subprocess.run(
         ("git", "-C", str(repo), *args),
-        capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+        check=False,
     )
     assert proc.returncode == 0, proc.stderr
     return proc.stdout.strip()
@@ -43,7 +47,11 @@ def git_raw(repo: Path, *args: str) -> str:
     ``strip()`` mange justement les espaces de fin de la dernière ligne - le sujet du test."""
     proc = subprocess.run(
         ("git", "-C", str(repo), *args),
-        capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+        check=False,
     )
     assert proc.returncode == 0, proc.stderr
     return proc.stdout
@@ -171,8 +179,13 @@ def test_an_empty_repository_says_so_without_failing(app, repo: Path, tmp_path: 
     git(empty, "init", "-q")
     uh_projects.add(empty, "vide")
     empty_app = create_app(
-        token=TOKEN, port=8765, host="127.0.0.1", workspace=empty,
-        provider_factory=lambda kind, model: _Stub(), kind="stub", model="stub:1b",
+        token=TOKEN,
+        port=8765,
+        host="127.0.0.1",
+        workspace=empty,
+        provider_factory=lambda kind, model: _Stub(),
+        kind="stub",
+        model="stub:1b",
     )
 
     async def go():
@@ -281,7 +294,9 @@ def test_a_commit_with_nothing_staged_is_refused_by_git(app, repo: Path) -> None
     assert response.json()["detail"]
 
 
-def test_session_workspace_only_the_active_repository_accepts_writes(app, repo: Path, tmp_path: Path) -> None:
+def test_session_workspace_only_the_active_repository_accepts_writes(
+    app, repo: Path, tmp_path: Path
+) -> None:
     other = tmp_path / "autre"
     other.mkdir()
     git(other, "init", "-q")
@@ -334,9 +349,7 @@ def test_a_relative_escape_is_refused(app, repo: Path) -> None:
 
     async def go():
         async with client(app) as http:
-            return await http.post(
-                "/api/git/stage", json={"files": ["../notes.txt"]}, headers=AUTH
-            )
+            return await http.post("/api/git/stage", json={"files": ["../notes.txt"]}, headers=AUTH)
 
     response = run(go())
     assert response.status_code == 400, response.text

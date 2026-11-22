@@ -94,7 +94,10 @@ def test_the_projects_routes_require_the_token(app) -> None:
 
 def test_a_cross_origin_switch_is_refused(app, tmp_path: Path) -> None:
     response = call(
-        app, "POST", "/api/projects/switch", {"path": str(tmp_path)},
+        app,
+        "POST",
+        "/api/projects/switch",
+        {"path": str(tmp_path)},
         headers={**AUTH, "Origin": "https://evil.example"},
     )
     assert response.status_code == 403
@@ -111,7 +114,9 @@ def test_the_current_project_is_listed_with_its_real_status(app) -> None:
     assert first["current"] is True and first["branch"] == "main"
     terminal = subprocess.run(
         ("git", "-C", first["path"], "status", "--porcelain=v1", "-b"),
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     ).stdout
     assert first["porcelain"] == terminal, "D-4 : le panneau doit montrer la sortie du terminal"
 
@@ -151,7 +156,9 @@ def test_the_runs_route_is_a_proxy_and_says_so_when_uhb_is_down(app, monkeypatch
     from uh import uhb_runs
 
     monkeypatch.setattr(
-        uhb_runs, "status", lambda: {"ok": False, "reason": "UHB injoignable (ConnectError)", "runs": []}
+        uhb_runs,
+        "status",
+        lambda: {"ok": False, "reason": "UHB injoignable (ConnectError)", "runs": []},
     )
     payload = call(app, "GET", "/api/runs").json()
 
@@ -164,7 +171,9 @@ def test_prune_via_the_route_stays_a_dry_run_unless_apply(app, monkeypatch) -> N
 
     seen: list[bool] = []
     monkeypatch.setattr(
-        uhb_runs, "prune", lambda apply=False: seen.append(apply) or {"ok": True, "dry_run": not apply}
+        uhb_runs,
+        "prune",
+        lambda apply=False: seen.append(apply) or {"ok": True, "dry_run": not apply},
     )
 
     call(app, "POST", "/api/runs", {"action": "prune"})
@@ -182,7 +191,12 @@ def test_close_requires_a_run_name(app, monkeypatch) -> None:
     )
 
     assert call(app, "POST", "/api/runs", {"action": "close"}).status_code == 400
-    assert call(app, "POST", "/api/runs", {"action": "close", "run": "run-1", "keep": True}).status_code == 200
+    assert (
+        call(
+            app, "POST", "/api/runs", {"action": "close", "run": "run-1", "keep": True}
+        ).status_code
+        == 200
+    )
     assert called == [("run-1", True)]
 
 

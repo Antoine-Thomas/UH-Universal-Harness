@@ -66,7 +66,9 @@ class AlwaysEmptyAfterTool:
 
 class NoopToolset:
     name = "noop"
-    tools = [{"type": "function", "function": {"name": "noop", "description": "", "parameters": {}}}]
+    tools = [
+        {"type": "function", "function": {"name": "noop", "description": "", "parameters": {}}}
+    ]
 
     def call(self, name: str, args: dict) -> dict:
         return {"ok": True}

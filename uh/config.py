@@ -112,9 +112,7 @@ def project_config_path(cwd: Optional[Path] = None) -> Path:
 def coerce(key: str, raw: Any) -> Any:
     """Convert ``raw`` to the declared type of ``key`` or raise :class:`ConfigError`."""
     if key not in KEY_TYPES:
-        raise ConfigError(
-            f"unknown config key '{key}'; known keys: {', '.join(sorted(KEY_TYPES))}"
-        )
+        raise ConfigError(f"unknown config key '{key}'; known keys: {', '.join(sorted(KEY_TYPES))}")
     kind = KEY_TYPES[key]
     if kind is bool:
         if isinstance(raw, bool):
@@ -282,7 +280,11 @@ class Config:
             raw = [raw]
         if not isinstance(raw, list):
             return []
-        return [Path(item.strip()).expanduser() for item in raw if isinstance(item, str) and item.strip()]
+        return [
+            Path(item.strip()).expanduser()
+            for item in raw
+            if isinstance(item, str) and item.strip()
+        ]
 
     def resolved_store_path(self) -> Path:
         raw = str(self.get("store_path") or "")
@@ -314,7 +316,11 @@ def load(cli_overrides: Optional[dict[str, Any]] = None, cwd: Optional[Path] = N
             if key not in KEY_TYPES:
                 config.warnings.append(f"{path}: unknown config key '{key}' ignored")
                 continue
-            if not isinstance(value, KEY_TYPES[key]) or isinstance(value, bool) and KEY_TYPES[key] is int:
+            if (
+                not isinstance(value, KEY_TYPES[key])
+                or isinstance(value, bool)
+                and KEY_TYPES[key] is int
+            ):
                 config.warnings.append(
                     f"{path}: '{key}' expects {KEY_TYPES[key].__name__}, got "
                     f"{type(value).__name__} - ignored"

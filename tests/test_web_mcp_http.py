@@ -180,9 +180,7 @@ def test_an_unreachable_server_stays_a_state_after_a_save(tmp_path, monkeypatch)
         url = fake.url
 
     async def scenario():
-        return await call(
-            app, "POST", "/api/mcp/http", json_body={"name": "positron", "url": url}
-        )
+        return await call(app, "POST", "/api/mcp/http", json_body={"name": "positron", "url": url})
 
     body = run(scenario()).json()
     assert body["state"] == "unreachable"
@@ -199,9 +197,7 @@ def test_an_approval_ticket_can_be_read_and_answered(tmp_path, monkeypatch) -> N
     gate = mcp_http.GATE
     seen = []
     worker = threading.Thread(
-        target=lambda: gate.ask(
-            "positron", "write", {"path": "x"}, notify=seen.append, timeout=5
-        )
+        target=lambda: gate.ask("positron", "write", {"path": "x"}, notify=seen.append, timeout=5)
     )
     worker.start()
     for _ in range(100):
@@ -249,9 +245,7 @@ def test_a_second_answer_is_refused_while_the_worker_has_not_returned(
     gate = mcp_http.GATE
     seen = []
     worker = threading.Thread(
-        target=lambda: gate.ask(
-            "positron", "write", {"path": "x"}, notify=seen.append, timeout=5
-        )
+        target=lambda: gate.ask("positron", "write", {"path": "x"}, notify=seen.append, timeout=5)
     )
     worker.start()
     for _ in range(100):
@@ -300,12 +294,11 @@ def test_no_tool_runs_without_an_approver(tmp_path, monkeypatch) -> None:
         fake_cfg.mkdir(parents=True, exist_ok=True)
         monkeypatch.setenv("UH_HOME", str(fake_cfg))
         (fake_cfg / "config.toml").write_text(
-            '[[mcp.servers]]\nname = "positron"\ntransport = "http"\n'
-            f'url = "{fake.url}"\n',
+            f'[[mcp.servers]]\nname = "positron"\ntransport = "http"\nurl = "{fake.url}"\n',
             encoding="utf-8",
         )
         assert mcp_http.build_toolsets() == {}
-        assert json.dumps(mcp_http.status()) .count("positron") >= 1
+        assert json.dumps(mcp_http.status()).count("positron") >= 1
 
 
 def test_the_tools_panel_shows_a_configured_http_server(tmp_path, monkeypatch) -> None:
@@ -344,9 +337,7 @@ def test_the_probe_button_runs_a_read_tool_and_refuses_a_write(tmp_path, monkeyp
                 app, "POST", "/api/mcp/http", json_body={"name": "positron", "url": fake.url}
             )
             ok = await call(app, "POST", "/api/mcp/positron/call", json_body={"tool": "list"})
-            refused = await call(
-                app, "POST", "/api/mcp/positron/call", json_body={"tool": "write"}
-            )
+            refused = await call(app, "POST", "/api/mcp/positron/call", json_body={"tool": "write"})
             return ok, refused
 
         ok, refused = run(scenario())

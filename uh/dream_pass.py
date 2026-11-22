@@ -87,7 +87,9 @@ class DreamReport:
     #: Concrete workflows the model proposed, with the tools they would use. The
     #: pass never runs one: the name of a tool is a suggestion, not a call.
     workflows: List[dict] = field(default_factory=list)
-    tokens: Dict[str, int] = field(default_factory=lambda: {"prompt": 0, "completion": 0, "total": 0})
+    tokens: Dict[str, int] = field(
+        default_factory=lambda: {"prompt": 0, "completion": 0, "total": 0}
+    )
     wall_time_s: float = 0.0
     notes: List[str] = field(default_factory=list)
     artifacts: List[str] = field(default_factory=list)
@@ -108,7 +110,10 @@ class DreamReport:
         for name, state in self.sources.items():
             available = state.get("available")
             detail = state.get("detail") or state.get("error") or ""
-            lines.append(f"- **{name}**: {'read' if available else 'not read'}" + (f" - {detail}" if detail else ""))
+            lines.append(
+                f"- **{name}**: {'read' if available else 'not read'}"
+                + (f" - {detail}" if detail else "")
+            )
         lines.append("")
 
         if self.classification:
@@ -262,16 +267,22 @@ class DreamScheduler:
                 before = self._usage()
                 try:
                     answer = self.provider.chat(
-                        [{"role": "system", "content": system},
-                         {"role": "user", "content": user}], None
+                        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                        None,
                     )
                 except Exception as second:  # noqa: BLE001
-                    report.notes.append(f"cloud fallback failed too: {type(second).__name__}: {second}")
+                    report.notes.append(
+                        f"cloud fallback failed too: {type(second).__name__}: {second}"
+                    )
                     return None
                 after = self._usage()
                 for key in self._tokens:
                     self._tokens[key] += max(0, after[key] - before[key])
-                return str(answer.get("content") or "") if isinstance(answer, dict) else str(answer or "")
+                return (
+                    str(answer.get("content") or "")
+                    if isinstance(answer, dict)
+                    else str(answer or "")
+                )
             report.notes.append(f"model call failed: {type(exc).__name__}: {exc}")
             return None
         after = self._usage()
@@ -299,8 +310,11 @@ class DreamScheduler:
             report.reason_kind = "uhb-offline"
             report.reason = (
                 "UHB offline: siyuan and rag were not read"
-                + (f"; inventoried {', '.join(readable)}" if readable else
-                   ", and no local source was readable")
+                + (
+                    f"; inventoried {', '.join(readable)}"
+                    if readable
+                    else ", and no local source was readable"
+                )
                 + "; no model was called"
             )
             if not readable:
@@ -329,13 +343,16 @@ class DreamScheduler:
         if complexity in ("standard", "complex"):
             self._review(inventory, report)
         elif complexity:
-            report.notes.append(f"analysed by UHB as '{complexity}': no model call, nothing to review")
+            report.notes.append(
+                f"analysed by UHB as '{complexity}': no model call, nothing to review"
+            )
 
         # Measure before writing: render() reads tokens and wall time, and a
         # report that says "0 tokens, 0.0s" while the log says 5244 is a lie in
         # the one artefact the operator actually reads.
         missing = [
-            name for name, state in inventory.items()
+            name
+            for name, state in inventory.items()
             if not state.get("available") and not state.get("empty")
         ]
         readable = [name for name, state in inventory.items() if state.get("available")]
@@ -362,12 +379,14 @@ class DreamScheduler:
         for source in self.config.sources:
             if source == "siyuan":
                 inventory[source] = (
-                    self._inventory_siyuan(url, report) if url
+                    self._inventory_siyuan(url, report)
+                    if url
                     else {"available": False, "error": "UHB offline"}
                 )
             elif source == "rag":
                 inventory[source] = (
-                    self._inventory_rag(url, report) if url
+                    self._inventory_rag(url, report)
+                    if url
                     else {"available": False, "error": "UHB offline"}
                 )
             elif source == "skills":
@@ -398,8 +417,7 @@ class DreamScheduler:
 
             path = default_store_path()
             if not path.is_file():
-                return {"available": False, "sessions": [], "empty": True,
-                        "error": "no store yet"}
+                return {"available": False, "sessions": [], "empty": True, "error": "no store yet"}
             store = Store(path)
             try:
                 rows = store.list_sessions(limit=20)
@@ -416,8 +434,7 @@ class DreamScheduler:
             if isinstance(row, dict)
         ]
         if not entries:
-            return {"available": False, "sessions": [], "empty": True,
-                    "error": "no session yet"}
+            return {"available": False, "sessions": [], "empty": True, "error": "no session yet"}
         headlines = ", ".join(str(entry["title"])[:40] for entry in entries[:6])
         return {
             "available": True,
@@ -447,12 +464,12 @@ class DreamScheduler:
             for entry in listing.get("skills") or []
         ]
         if not entries:
-            return {"available": False, "skills": [], "empty": True,
-                    "error": "no skill installed"}
+            return {"available": False, "skills": [], "empty": True, "error": "no skill installed"}
         return {
             "available": True,
             "skills": entries,
-            "detail": f"{len(entries)} skill(s): " + ", ".join(entry["name"] for entry in entries[:8]),
+            "detail": f"{len(entries)} skill(s): "
+            + ", ".join(entry["name"] for entry in entries[:8]),
         }
 
     def _inventory_mcp(self) -> dict:
@@ -473,8 +490,13 @@ class DreamScheduler:
             reason = "no [[mcp.servers]] configured"
             if problems:
                 reason += f" ({len(problems)} invalid entry/entries)"
-            return {"available": False, "servers": [], "problems": problems,
-                    "empty": True, "error": reason}
+            return {
+                "available": False,
+                "servers": [],
+                "problems": problems,
+                "empty": True,
+                "error": reason,
+            }
 
         try:
             connected = {
@@ -529,7 +551,9 @@ class DreamScheduler:
     def _inventory_siyuan(self, url: str, report: DreamReport) -> dict:
         try:
             with self._http() as http:
-                response = http.get(f"{url}/siyuan/blocks", params={"path": "/", "limit": BLOCK_CAP})
+                response = http.get(
+                    f"{url}/siyuan/blocks", params={"path": "/", "limit": BLOCK_CAP}
+                )
         except Exception as exc:  # noqa: BLE001
             return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
         if response.status_code != 200:
@@ -598,7 +622,9 @@ class DreamScheduler:
         )
         try:
             with self._http() as http:
-                response = http.post(f"{url}/route", json={"prompt": prompt, "mode": self.config.mode})
+                response = http.post(
+                    f"{url}/route", json={"prompt": prompt, "mode": self.config.mode}
+                )
         except Exception:  # noqa: BLE001 - no plan is not a failure of the pass
             return {}
         if response.status_code != 200:
@@ -705,8 +731,13 @@ class DreamScheduler:
                 f"[skill {skill.get('origin')}] {skill.get('title')}: {description[:chars]}"
             )
         for server in (inventory.get("mcp") or {}).get("servers") or []:
-            tools = ", ".join(server.get("tools") or []) or "not connected, tools unknown until it starts"
-            parts.append(f"[mcp {server.get('name')}] {server.get('command')} -> {tools[: chars * 3]}")
+            tools = (
+                ", ".join(server.get("tools") or [])
+                or "not connected, tools unknown until it starts"
+            )
+            parts.append(
+                f"[mcp {server.get('name')}] {server.get('command')} -> {tools[: chars * 3]}"
+            )
         return "\n".join(parts)
 
     def _write(self, report: DreamReport) -> None:
@@ -734,7 +765,9 @@ class DreamScheduler:
                         "reason": f"idea: {idea.get('title', '')}"[:200],
                     }
                 )
-            report.artifacts = [str(folder / "report.md")] + [str(path) for path in folder.glob("journal-*.jsonl")]
+            report.artifacts = [str(folder / "report.md")] + [
+                str(path) for path in folder.glob("journal-*.jsonl")
+            ]
         except OSError as exc:
             report.notes.append(f"cannot write the pass folder: {exc}")
 

@@ -86,7 +86,9 @@ def test_the_log_returns_only_its_tail(tmp_path: Path) -> None:
     report = uh_infra.tail_lines(log, 20)
     assert report["returned"] == 20
     assert report["lines"][-1] == "ligne 4999"
-    assert "ligne 0\n" not in "\n".join(report["lines"]) + "\n", "les vieilles lignes ne remontent pas"
+    assert "ligne 0\n" not in "\n".join(report["lines"]) + "\n", (
+        "les vieilles lignes ne remontent pas"
+    )
     # Ce fichier tient dans la fenêtre de lecture : rien n'a été coupé en tête.
     assert report["head_cut"] is False
 
@@ -154,7 +156,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (runs / "run-1" / "b.bin").write_bytes(b"z" * 24)
     (uh_home / "brouillon.txt").write_bytes(b"c" * 500)
     (uh_home / "uh-web.log").write_text(
-        "\n".join(f"ligne {i}" for i in range(300)) + '\nGET /?token=SECRET123 200\n',
+        "\n".join(f"ligne {i}" for i in range(300)) + "\nGET /?token=SECRET123 200\n",
         encoding="utf-8",
     )
     (uh_home / "uhb.log").write_text("second cerveau\n", encoding="utf-8")
@@ -183,7 +185,6 @@ def docker_up(monkeypatch: pytest.MonkeyPatch) -> None:
             "listening": True,
         },
     )
-
 
 
 @pytest.fixture()
@@ -222,7 +223,9 @@ def test_a_dead_second_brain_turns_the_view_red_with_a_reason(app) -> None:
     uhb = next(service for service in body["services"] if service["name"] == "UHB")
     assert uhb["state"] == "down"
     reason = uhb["reason"].lower()
-    assert reason and reason != "uhb unreachable", "le refus doit être explicite, pas un « hors ligne » muet"
+    assert reason and reason != "uhb unreachable", (
+        "le refus doit être explicite, pas un « hors ligne » muet"
+    )
     assert "port" in reason, f"la raison nomme le port : {uhb['reason']!r}"
     assert any(
         marker in reason for marker in ("refus", "connect", "timed out", "timeout", "unreachable")
@@ -260,7 +263,10 @@ def test_the_view_is_read_only_by_contract(app) -> None:
     assert body["read_only"] is True
     assert body["actions_available"] == []
     # Aucune route d'action n'existe sous /api/infra : rien à arrêter, rien à relancer.
-    routes = {(getattr(route, "path", ""), tuple(getattr(route, "methods", []) or [])) for route in app.routes}
+    routes = {
+        (getattr(route, "path", ""), tuple(getattr(route, "methods", []) or []))
+        for route in app.routes
+    }
     for path, methods in routes:
         if path.startswith("/api/infra"):
             assert "GET" in methods
@@ -287,7 +293,9 @@ def test_an_alert_is_ok_when_nothing_is_wrong(app, monkeypatch: pytest.MonkeyPat
     from uh.toolsets import uhb as uhb_module
 
     monkeypatch.setattr(uhb_module, "Uhbtoolset", lambda *a, **k: _Reachable())
-    monkeypatch.setattr(uh_infra, "probe", lambda url, timeout=0.4: {"listening": True, "port": 8101, "reason": ""})
+    monkeypatch.setattr(
+        uh_infra, "probe", lambda url, timeout=0.4: {"listening": True, "port": 8101, "reason": ""}
+    )
     body = snapshot(app)
     levels = [alert["level"] for alert in body["alerts"]]
     assert "error" not in levels
@@ -352,11 +360,15 @@ def test_a_missing_docker_binary_is_said_plainly(monkeypatch: pytest.MonkeyPatch
     assert report["reason"] == "binaire introuvable"
 
 
-def test_a_refused_docker_daemon_keeps_the_first_line_of_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_refused_docker_daemon_keeps_the_first_line_of_the_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Done:
         returncode = 1
         stdout = ""
-        stderr = "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine\n"
+        stderr = (
+            "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine\n"
+        )
 
     monkeypatch.setattr(uh_infra.subprocess, "run", lambda *a, **k: Done())
     report = REAL_DOCKER_STATUS()
@@ -384,7 +396,9 @@ def test_an_invalid_port_is_reported_instead_of_raising() -> None:
         assert "port invalide" in report["reason"], report
 
 
-def test_the_view_survives_an_invalid_second_brain_url(app, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_view_survives_an_invalid_second_brain_url(
+    app, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("UH_UHB_URL", "http://127.0.0.1:99999")
     body = snapshot(app)  # 200, pas 500
     uhb = next(service for service in body["services"] if service["name"] == "UHB")
@@ -393,7 +407,9 @@ def test_the_view_survives_an_invalid_second_brain_url(app, monkeypatch: pytest.
     assert len(body["services"]) == 7
 
 
-def test_the_extra_urls_can_be_redirected_by_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_extra_urls_can_be_redirected_by_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("UH_RAG_URL", "http://127.0.0.1:9999")
     monkeypatch.setenv("SIYUAN_URL", "http://127.0.0.1:9998")
     monkeypatch.setenv("UH_MARI_URL", "http://127.0.0.1:9997")

@@ -63,20 +63,24 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
-        self._answer({"tools": [
+        self._answer(
             {
-                "name": "execute_code",
-                "description": "run python",
-                "parameters": EXECUTE_SCHEMA,
-                "execution_type": "subprocess",
-            },
-            {
-                "name": "desktop_snapshot",
-                "description": "look at the screen",
-                "parameters": {"type": "object", "properties": {}},
-                "execution_type": "in_process",
-            },
-        ]})
+                "tools": [
+                    {
+                        "name": "execute_code",
+                        "description": "run python",
+                        "parameters": EXECUTE_SCHEMA,
+                        "execution_type": "subprocess",
+                    },
+                    {
+                        "name": "desktop_snapshot",
+                        "description": "look at the screen",
+                        "parameters": {"type": "object", "properties": {}},
+                        "execution_type": "in_process",
+                    },
+                ]
+            }
+        )
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
         length = int(self.headers.get("Content-Length") or 0)
@@ -84,8 +88,9 @@ class _Handler(BaseHTTPRequestHandler):
             self.rfile.read(length)  # drain, the body is not under test
         if self.path == "/tools/approvals":
             # The nonce UHB would mint: without one the client may not execute at all.
-            self._answer({"approval_id": "nonce-timeout", "tool": "execute_code",
-                          "expires_in": 120})
+            self._answer(
+                {"approval_id": "nonce-timeout", "tool": "execute_code", "expires_in": 120}
+            )
             return
         delay, payload = self.routes.get(self.path, (0.0, {"error": "no route"}))
         time.sleep(delay)
@@ -114,6 +119,7 @@ def served(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., Uhbtoolset
     url = f"http://127.0.0.1:{server.server_address[1]}"
     monkeypatch.setenv("UH_UHB_EXECUTE", "1")
     try:
+
         def build(**kwargs: Any) -> Uhbtoolset:
             kwargs.setdefault("timeout", 5.0)
             kwargs.setdefault("approver", lambda _tool, _arguments: True)
@@ -181,7 +187,9 @@ def test_the_budget_is_the_requested_timeout_plus_a_margin(served) -> None:
     assert toolset.execute_limits == {"default": 30.0, "maximum": 300.0}
     assert toolset._call_timeout("execute_code", {}) == 30 + uhb_mod.EXECUTE_MARGIN
     # above the clamp UHB applies: the ceiling is the schema's, not a guess
-    assert toolset._call_timeout("execute_code", {"timeout": 10_000}) == 300 + uhb_mod.EXECUTE_MARGIN
+    assert (
+        toolset._call_timeout("execute_code", {"timeout": 10_000}) == 300 + uhb_mod.EXECUTE_MARGIN
+    )
     # junk or zero falls back to the default rather than to a zero-second wait
     assert toolset._call_timeout("execute_code", {"timeout": "soon"}) == 30 + uhb_mod.EXECUTE_MARGIN
     assert toolset._call_timeout("execute_code", {"timeout": 0}) == 30 + uhb_mod.EXECUTE_MARGIN

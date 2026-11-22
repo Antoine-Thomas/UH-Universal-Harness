@@ -80,10 +80,14 @@ def test_the_web_search_switch_is_not_a_provider_parameter() -> None:
     clean = llm_params.sanitise({"enabled": True, "values": {"web_search": False}})
     assert "web_search" not in clean
 
-    assert llm_params.web_search_enabled({"enabled": True, "values": {"web_search": False}}) is False
+    assert (
+        llm_params.web_search_enabled({"enabled": True, "values": {"web_search": False}}) is False
+    )
     assert llm_params.web_search_enabled({"enabled": True, "values": {"web_search": True}}) is True
     assert llm_params.web_search_enabled(None) is True
-    assert llm_params.web_search_enabled({"enabled": False, "values": {"web_search": False}}) is True
+    assert (
+        llm_params.web_search_enabled({"enabled": False, "values": {"web_search": False}}) is True
+    )
 
 
 def test_ollama_applies_every_parameter_but_reasoning() -> None:

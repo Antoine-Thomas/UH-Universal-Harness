@@ -28,6 +28,12 @@ jobs:
       - name: ruff
         run: ruff check uh tests scripts
 
+      # The tree is formatted (184 files at the time this was added): without this
+      # step a PR can reintroduce unformatted code and nothing notices, because
+      # `ruff check` says nothing about layout.
+      - name: ruff format
+        run: ruff format --check .
+
       - name: mypy
         run: mypy uh
 

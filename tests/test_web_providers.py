@@ -134,7 +134,13 @@ def test_providers_lists_the_catalogue(tmp_path: Path, monkeypatch: pytest.Monke
             assert row["in_chain"] is False
             assert row["custom"] is False
             assert set(row) == {
-                "name", "base_url", "model", "keys", "verified", "custom", "in_chain",
+                "name",
+                "base_url",
+                "model",
+                "keys",
+                "verified",
+                "custom",
+                "in_chain",
             }
 
     run(scenario())
@@ -159,6 +165,7 @@ def test_known_key_never_appears_in_any_response(
             assert groq["keys"] == 1  # the count is public, the value is not
 
     run(scenario())
+
 
 # --------------------------------------------------------------------------- #
 # 7a.2 — key entry: write-only, loopback only, deletion by index
@@ -198,9 +205,7 @@ def test_key_entry_refused_off_loopback(tmp_path: Path, monkeypatch: pytest.Monk
     assert keys_mod.get_provider("groq") is None
 
 
-def test_add_key_stores_without_echoing_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_add_key_stores_without_echoing_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = make_app(tmp_path, monkeypatch)
 
     async def scenario():
@@ -287,6 +292,7 @@ def test_delete_key_by_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     run(scenario())
     assert keys_mod.get_provider("groq")["keys"] == ["second-key"]
+
 
 # --------------------------------------------------------------------------- #
 # 7a.3 — custom provider and connection test
@@ -450,6 +456,7 @@ def test_probe_unknown_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     run(scenario())
 
+
 # --------------------------------------------------------------------------- #
 # 7a.4 — allow_remote and consent
 # --------------------------------------------------------------------------- #
@@ -541,9 +548,7 @@ def test_settings_refuse_off_loopback(tmp_path: Path, monkeypatch: pytest.Monkey
     run(scenario())
 
 
-def test_settings_reject_unknown_strategy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_settings_reject_unknown_strategy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = make_app(tmp_path, monkeypatch)
 
     async def scenario():
@@ -670,9 +675,7 @@ def test_choosing_a_preset_saves_it_through_the_custom_path(
 
             listing = await http.get("/api/providers", headers=AUTH)
             assert_no_key(listing.text)
-            row = next(
-                item for item in listing.json()["providers"] if item["name"] == "openai"
-            )
+            row = next(item for item in listing.json()["providers"] if item["name"] == "openai")
             assert row["base_url"] == preset["base_url"]
             assert row["model"] == preset["model"]
             assert row["custom"] is True and row["keys"] == 1

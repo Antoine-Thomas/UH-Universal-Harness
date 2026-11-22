@@ -181,8 +181,12 @@ def run(
             continue
 
         started = now()
-        write_status(state="dreaming", threshold_minutes=idle_minutes(), passes=passes,
-                     idle_seconds=round(idle_for, 1))
+        write_status(
+            state="dreaming",
+            threshold_minutes=idle_minutes(),
+            passes=passes,
+            idle_seconds=round(idle_for, 1),
+        )
         try:
             pass_runner()
             passes += 1
@@ -192,8 +196,9 @@ def run(
         elapsed = now() - started
         if elapsed > MAX_PASS_SECONDS:  # pragma: no cover - depends on the model
             last = f"{last} (long pass: {elapsed:.0f}s)"
-        write_status(state="idle-monitoring", threshold_minutes=idle_minutes(),
-                     passes=passes, last_pass=last)
+        write_status(
+            state="idle-monitoring", threshold_minutes=idle_minutes(), passes=passes, last_pass=last
+        )
         last_pass_at = now()
         # Do not dream twice for the same absence: wait for real input first.
         # `running()` means "a stop has been requested", so this guard used to be

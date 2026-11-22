@@ -37,7 +37,7 @@ PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 
-FAKE_SERVER = r'''
+FAKE_SERVER = r"""
 import base64
 import json
 import sys
@@ -79,7 +79,7 @@ for line in sys.stdin:
     elif request_id is not None:
         send({"jsonrpc": "2.0", "id": request_id,
               "error": {"code": -32601, "message": "unknown method"}})
-'''
+"""
 
 
 class ChartProvider:
@@ -103,9 +103,7 @@ class ChartProvider:
         return {"role": "assistant", "content": "Le graphique est affiché."}
 
 
-def make_app(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: Optional[object] = None
-):
+def make_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: Optional[object] = None):
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("UH_HOME", str(home))
@@ -158,18 +156,18 @@ def test_an_api_answer_that_calls_a_tool_puts_an_image_in_the_transcript(
             assert artifacts[0]["mime"] == "image/png"
             assert artifacts[0]["bytes"] == len(PNG_BYTES)
             assert artifacts[0]["data_url"].startswith("data:image/png;base64,")
-            assert artifacts[0]["data_url"].endswith(
-                base64.b64encode(PNG_BYTES).decode()
-            ), "the interface gets the real bytes, not a placeholder"
+            assert artifacts[0]["data_url"].endswith(base64.b64encode(PNG_BYTES).decode()), (
+                "the interface gets the real bytes, not a placeholder"
+            )
 
             # The model's copy: a marker, never tens of thousands of characters.
             text = payload.get("text") or ""
             assert "[image: image/png" in text
             assert base64.b64encode(PNG_BYTES).decode() not in text
 
-            stored = (
-                await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)
-            ).json()["messages"]
+            stored = (await http.get(f"/api/sessions/{session_id}/messages", headers=AUTH)).json()[
+                "messages"
+            ]
             carriage = [m for m in stored if "artifacts" in str(m.get("content") or "")]
             assert carriage, "the artifact is in the store: a reload shows it again"
             assert "data:image/png;base64," in str(carriage[0]["content"])

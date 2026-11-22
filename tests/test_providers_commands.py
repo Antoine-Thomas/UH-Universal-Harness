@@ -130,7 +130,9 @@ def test_cli_providers_test_reports_without_a_key(
     home: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        admin, "test_connection", lambda name, **_kwargs: {"ok": False, "status": 401, "error_kind": "auth"}
+        admin,
+        "test_connection",
+        lambda name, **_kwargs: {"ok": False, "status": 401, "error_kind": "auth"},
     )
     assert cli.main(["providers", "test", "groq"]) == 1
     captured = capsys.readouterr()
@@ -221,7 +223,11 @@ def test_console_local_only_off_uses_recorded_consent(session: console.ChatSessi
 def test_console_save_and_export(session: console.ChatSession, home: Path) -> None:
     session.history.append({"role": "user", "content": "bonjour"})
     session.history.append(
-        {"role": "assistant", "content": "salut", "tool_calls": [{"function": {"name": "read_file"}}]}
+        {
+            "role": "assistant",
+            "content": "salut",
+            "tool_calls": [{"function": {"name": "read_file"}}],
+        }
     )
 
     saved = commands.dispatch(session, "/save notes.md")
@@ -240,9 +246,7 @@ def test_console_save_and_export(session: console.ChatSession, home: Path) -> No
     assert '"role": "assistant"' in payload
 
 
-def test_console_save_warns_but_writes_no_key(
-    session: console.ChatSession, home: Path
-) -> None:
+def test_console_save_warns_but_writes_no_key(session: console.ChatSession, home: Path) -> None:
     admin.save_provider("groq", "https://api.groq.com/openai/v1", "m", SECRET)
     session.history.append({"role": "user", "content": "question"})
     result = commands.dispatch(session, "/export md")
@@ -285,6 +289,7 @@ def test_known_key_never_appears_in_any_command_output(
     assert SECRET not in blob
     assert SECRET[:12] not in blob
     assert "known-key-7b1" not in blob
+
 
 def test_console_local_only_off_handles_eof(
     session: console.ChatSession, monkeypatch: pytest.MonkeyPatch

@@ -75,9 +75,7 @@ def test_once_budget_exhausted_exits_one(
     assert "max_iterations" in captured.err or "no final answer" in captured.err
 
 
-def test_a_failed_turn_is_still_recorded(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_a_failed_turn_is_still_recorded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A provider error must not erase the turn — and must not store silence.
 
     Point 1 changed the second half: the stored turn is the user's message *and*

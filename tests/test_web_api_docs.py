@@ -47,7 +47,9 @@ def _router_section() -> str:
 def documented_routes() -> set[tuple[str, str]]:
     text = _web_section()
     found: set[tuple[str, str]] = set()
-    for method, path in re.findall(r"^\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`", text, re.M):
+    for method, path in re.findall(
+        r"^\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`", text, re.M
+    ):
         path = path.split("?")[0]
         if path.startswith("/static"):
             continue  # a mount, documented separately, not an app route

@@ -62,7 +62,9 @@ def tool_messages(history: list[dict]) -> list[dict]:
 def test_provider_ids_are_kept_and_each_answer_names_its_call(tmp_path: Path) -> None:
     provider = ScriptedProvider(
         [
-            assistant(call("read_file", "call_a", path="a.txt"), call("read_file", "call_b", path="b.txt")),
+            assistant(
+                call("read_file", "call_a", path="a.txt"), call("read_file", "call_b", path="b.txt")
+            ),
             final(),
         ]
     )
@@ -99,7 +101,9 @@ def test_a_provider_without_ids_gets_them_assigned_and_mirrored(tmp_path: Path) 
 
 def test_a_forbidden_tool_is_typed_and_visible_in_the_transcript(tmp_path: Path) -> None:
     notices: list[str] = []
-    provider = ScriptedProvider([assistant(call("terminal", "call_t", command="rm -rf /")), final()])
+    provider = ScriptedProvider(
+        [assistant(call("terminal", "call_t", command="rm -rf /")), final()]
+    )
 
     history = run_turn(
         [{"role": "user", "content": "x"}],
@@ -118,7 +122,10 @@ def test_a_forbidden_tool_is_typed_and_visible_in_the_transcript(tmp_path: Path)
 def test_a_forbidden_call_does_not_cancel_an_allowed_one(tmp_path: Path) -> None:
     provider = ScriptedProvider(
         [
-            assistant(call("terminal", "call_t"), call("write_file", "call_w", path="ok.txt", content="ok")),
+            assistant(
+                call("terminal", "call_t"),
+                call("write_file", "call_w", path="ok.txt", content="ok"),
+            ),
             final(),
         ]
     )
@@ -168,10 +175,14 @@ def test_a_model_stuck_on_a_forbidden_tool_stops_the_turn(tmp_path: Path) -> Non
         on_notice=notices.append,
     )
 
-    assert len(provider.calls) == 3, f"the loop must stop at the limit, got {len(provider.calls)} calls"
+    assert len(provider.calls) == 3, (
+        f"the loop must stop at the limit, got {len(provider.calls)} calls"
+    )
     assert len(tool_messages(history)) == 3
     assert any("tour arrêté" in notice for notice in notices)
-    assert history[-1]["role"] == "tool", "the turn ends on the refusal, which stays in the transcript"
+    assert history[-1]["role"] == "tool", (
+        "the turn ends on the refusal, which stays in the transcript"
+    )
 
 
 def test_the_answer_keeps_its_id_when_the_session_is_replayed(tmp_path: Path) -> None:
@@ -185,7 +196,9 @@ def test_the_answer_keeps_its_id_when_the_session_is_replayed(tmp_path: Path) ->
             {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{"id": "call_x", "function": {"name": "read_file", "arguments": {}}}],
+                "tool_calls": [
+                    {"id": "call_x", "function": {"name": "read_file", "arguments": {}}}
+                ],
             },
         )
         store.append_message(
@@ -225,8 +238,12 @@ def test_describe_tools_then_a_forbidden_call_answers_on_the_right_ids(tmp_path:
                 "category": "code",
                 "compatible_modes": ["dev"],
                 "available": False,
-                "reason": {"code": "not_in_mode", "mode": "chat", "available_in": ["dev"],
-                           "hint": "the current mode does not declare this tool"},
+                "reason": {
+                    "code": "not_in_mode",
+                    "mode": "chat",
+                    "available_in": ["dev"],
+                    "hint": "the current mode does not declare this tool",
+                },
             }
         ],
         "count": 1,
@@ -237,8 +254,9 @@ def test_describe_tools_then_a_forbidden_call_answers_on_the_right_ids(tmp_path:
         assert request.method == "GET", "describe_tools must never execute anything"
         return httpx.Response(200, json=catalogue)
 
-    uhb_toolset = Uhbtoolset("http://127.0.0.1:8101", client=httpx.Client(
-        transport=httpx.MockTransport(handler)))
+    uhb_toolset = Uhbtoolset(
+        "http://127.0.0.1:8101", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
 
     provider = ScriptedProvider(
         [
@@ -295,26 +313,43 @@ def test_one_allowed_execution_and_one_forbidden_tool_in_the_same_message(
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
-            return httpx.Response(200, json={"tools": [
-                {"name": "execute_code", "description": "Run Python.",
-                 "parameters": {"type": "object", "properties": {"code": {"type": "string"}}},
-                 "execution_type": "subprocess"},
-            ]})
+            return httpx.Response(
+                200,
+                json={
+                    "tools": [
+                        {
+                            "name": "execute_code",
+                            "description": "Run Python.",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"code": {"type": "string"}},
+                            },
+                            "execution_type": "subprocess",
+                        },
+                    ]
+                },
+            )
         if request.url.path == "/tools/approvals":
-            return httpx.Response(200, json={"approval_id": "nonce-cycle",
-                                             "tool": "execute_code", "expires_in": 120})
-        return httpx.Response(200, json={"ok": True, "stdout": "4\n", "exit_code": 0,
-                                         "duration_s": 0.1, "images": []})
+            return httpx.Response(
+                200, json={"approval_id": "nonce-cycle", "tool": "execute_code", "expires_in": 120}
+            )
+        return httpx.Response(
+            200, json={"ok": True, "stdout": "4\n", "exit_code": 0, "duration_s": 0.1, "images": []}
+        )
 
-    uhb_toolset = Uhbtoolset("http://127.0.0.1:8101",
-                             client=httpx.Client(transport=httpx.MockTransport(handler)),
-                             discover=True,
-                             approver=lambda _tool, _arguments: True)
+    uhb_toolset = Uhbtoolset(
+        "http://127.0.0.1:8101",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        discover=True,
+        approver=lambda _tool, _arguments: True,
+    )
 
     provider = ScriptedProvider(
         [
-            assistant(call("execute_code", "call_run", code="print(2+2)"),
-                      call("desktop_click", "call_click", ref="x:0")),
+            assistant(
+                call("execute_code", "call_run", code="print(2+2)"),
+                call("desktop_click", "call_click", ref="x:0"),
+            ),
             final("voici 4"),
         ]
     )

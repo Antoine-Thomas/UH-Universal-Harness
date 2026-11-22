@@ -78,8 +78,12 @@ def test_the_vocabulary_names_the_technical_mode() -> None:
     js = (Path(__file__).resolve().parents[1] / "uh" / "web" / "static" / "app.js").read_text(
         encoding="utf-8"
     )
-    for label in ('"Discussion (chat)"', '"Atelier (dev)"', '"Relecture (review)"',
-                  '"Observation (observe)"'):
+    for label in (
+        '"Discussion (chat)"',
+        '"Atelier (dev)"',
+        '"Relecture (review)"',
+        '"Observation (observe)"',
+    ):
         assert label in js, f"{label} doit apparaître dans les libellés de mode"
     assert re.search(r"dev: \"Atelier \(dev\) : exécute du code", js), (
         "l'en-tête doit nommer le mode technique, pas seulement son nom français"

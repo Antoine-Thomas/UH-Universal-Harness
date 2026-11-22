@@ -40,7 +40,16 @@ MAX_PDF_PAGES = 50
 MAX_PDF_CHARS = 10_000
 MAX_SEARCH_RESULTS = 100
 MAX_SEARCH_FILE_BYTES = 1_000_000
-SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", "dist", "build", ".pytest_cache"}
+SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+    "dist",
+    "build",
+    ".pytest_cache",
+}
 
 
 TOOLS: List[dict] = [
@@ -51,7 +60,9 @@ TOOLS: List[dict] = [
             "description": "Read a UTF-8 text file inside the workspace.",
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "Workspace-relative path"}},
+                "properties": {
+                    "path": {"type": "string", "description": "Workspace-relative path"}
+                },
                 "required": ["path"],
             },
         },
@@ -267,8 +278,7 @@ class FileToolset:
                 # `root.parent == uploads` impose un dossier de session de premier niveau :
                 # ni `uploads` lui-meme (toutes les sessions), ni `~/.uh`, ni un sous-dossier
                 # arbitraire plus profond.
-                root.parent == uploads
-                and (resolved == root or resolved.is_relative_to(root))
+                root.parent == uploads and (resolved == root or resolved.is_relative_to(root))
                 for root in self.read_roots
             )
             if not write and open_by_root:

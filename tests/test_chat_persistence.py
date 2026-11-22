@@ -123,9 +123,20 @@ def test_session_flag_appends_to_existing_session(
     assert len(sessions) == 1
 
 
-def test_unknown_session_exits_one(home: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_unknown_session_exits_one(
+    home: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = cli.main(
-        ["chat", "--session", "nope1234", "--once", "--model", "stub:1b", "--workspace", str(tmp_path)]
+        [
+            "chat",
+            "--session",
+            "nope1234",
+            "--once",
+            "--model",
+            "stub:1b",
+            "--workspace",
+            str(tmp_path),
+        ]
     )
     captured = capsys.readouterr()
     assert code == 1
@@ -136,7 +147,17 @@ def test_session_plus_no_save_is_refused(
     home: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     code = cli.main(
-        ["chat", "--session", "abc", "--no-save", "--once", "--model", "stub:1b", "--workspace", str(tmp_path)]
+        [
+            "chat",
+            "--session",
+            "abc",
+            "--no-save",
+            "--once",
+            "--model",
+            "stub:1b",
+            "--workspace",
+            str(tmp_path),
+        ]
     )
     assert code == 1
     assert "--session needs persistence" in capsys.readouterr().err
@@ -160,8 +181,16 @@ def test_an_unexpected_failure_still_records_the_turn(
     monkeypatch.setattr(cli, "_make_provider", lambda kind, model: CrashingProvider())
 
     code = cli.main(
-        ["chat", "trace ceci", "--once", "--model", "stub:1b",
-         "--workspace", str(tmp_path), "--no-stream"]
+        [
+            "chat",
+            "trace ceci",
+            "--once",
+            "--model",
+            "stub:1b",
+            "--workspace",
+            str(tmp_path),
+            "--no-stream",
+        ]
     )
 
     captured = capsys.readouterr()

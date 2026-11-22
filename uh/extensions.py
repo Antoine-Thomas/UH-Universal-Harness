@@ -267,7 +267,9 @@ def _uhb_entries(home: Optional[Path]) -> List[Dict[str, Any]]:
                 "state": "ready" if reachable else "unreachable",
                 "enabled": name not in off,
                 "detail": f"second cerveau {url or 'non configuré'} · {spec.get('function', {}).get('description', '')[:80]}",
-                "reason": "" if reachable else "UH_UHB_URL vide ou hôte non loopback : l'outil est proposé mais échouera",
+                "reason": ""
+                if reachable
+                else "UH_UHB_URL vide ou hôte non loopback : l'outil est proposé mais échouera",
                 "tools": [],
             }
         )
@@ -343,11 +345,21 @@ def test(kind: str, name: str, home: Optional[Path] = None) -> Dict[str, Any]:
 
         entry = skills.read_skill(label, home)
         if entry is None:
-            return {"kind": kind, "name": label, "ok": False, "detail": "fichier illisible ou introuvable"}
+            return {
+                "kind": kind,
+                "name": label,
+                "ok": False,
+                "detail": "fichier illisible ou introuvable",
+            }
         instructions = str(entry.get("instructions") or "").strip()
         title = str(entry.get("title") or "").strip()
         if not instructions:
-            return {"kind": kind, "name": label, "ok": False, "detail": "le skill n'a aucune instruction à suivre"}
+            return {
+                "kind": kind,
+                "name": label,
+                "ok": False,
+                "detail": "le skill n'a aucune instruction à suivre",
+            }
         return {
             "kind": kind,
             "name": label,
@@ -368,7 +380,12 @@ def test(kind: str, name: str, home: Optional[Path] = None) -> Dict[str, Any]:
     try:
         status = toolset.status()
     except Exception as exc:  # noqa: BLE001
-        return {"kind": kind, "name": label, "ok": False, "detail": _explain(type(exc).__name__, str(exc))}
+        return {
+            "kind": kind,
+            "name": label,
+            "ok": False,
+            "detail": _explain(type(exc).__name__, str(exc)),
+        }
     connected = bool(status.get("connected"))
     return {
         "kind": kind,

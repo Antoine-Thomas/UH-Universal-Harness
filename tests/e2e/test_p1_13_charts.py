@@ -55,7 +55,9 @@ def seed(home: Path) -> str:
     return session_id
 
 
-def test_a_stored_chart_is_drawn_and_survives_a_reload(make_server, browser, tmp_path: Path) -> None:
+def test_a_stored_chart_is_drawn_and_survives_a_reload(
+    make_server, browser, tmp_path: Path
+) -> None:
     seed(tmp_path / "home")
     server = make_server("home")
     context, page = open_app(browser, server)

@@ -134,7 +134,9 @@ def test_explicit_provider_has_no_fallback(
     monkeypatch.setattr(cli, "_make_provider", fake_make_provider)
     monkeypatch.setattr("sys.stdin", io.StringIO("bonjour\n"))
 
-    code = cli.main(["chat", "--once", "--provider", "ollama", "--model", "x", "--workspace", str(tmp_path)])
+    code = cli.main(
+        ["chat", "--once", "--provider", "ollama", "--model", "x", "--workspace", str(tmp_path)]
+    )
 
     out = capsys.readouterr()
     assert code == 1
@@ -159,6 +161,7 @@ def test_providers_list_without_omnirouter_configuration(
     assert "qwen3:8b" in out.out
     assert "not configured" in out.out
     assert "registered: cloudflare, deepseek, huggingface, ollama, omnirouter" in out.out
+
 
 def test_deepseek_is_listed_before_it_has_a_key() -> None:
     """A provider only visible once it holds a key is one you cannot give a key.

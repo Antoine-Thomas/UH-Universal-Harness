@@ -91,7 +91,10 @@ def _run_prune() -> Dict[str, Any]:
         return {"ok": False, "detail": str(report["error"])[:DETAIL_LIMIT]}
     removable = report.get("removable") if isinstance(report, dict) else None
     count = len(removable) if isinstance(removable, list) else report.get("count")
-    return {"ok": True, "detail": f"simulation : {count if count is not None else '?'} run(s) supprimable(s)"}
+    return {
+        "ok": True,
+        "detail": f"simulation : {count if count is not None else '?'} run(s) supprimable(s)",
+    }
 
 
 #: clé -> (libellé, description, action, écrit sur le disque ?)
@@ -182,7 +185,10 @@ def load_registry() -> Dict[str, Any]:
     tasks = data.get("tasks")
     if not isinstance(tasks, list):
         tasks = []
-    return {"tasks": [task for task in tasks if isinstance(task, dict) and task.get("id")], "mechanism": str(data.get("mechanism") or "")}
+    return {
+        "tasks": [task for task in tasks if isinstance(task, dict) and task.get("id")],
+        "mechanism": str(data.get("mechanism") or ""),
+    }
 
 
 def save_registry(data: Dict[str, Any]) -> None:
@@ -268,11 +274,16 @@ def _install_schtasks(task: Dict[str, Any]) -> bool:
     try:
         done = _run(
             [
-                "schtasks", "/create",
-                "/tn", task_name(task),
-                "/tr", command_line(task),
-                "/sc", "MINUTE",
-                "/mo", str(int(task["every_minutes"])),
+                "schtasks",
+                "/create",
+                "/tn",
+                task_name(task),
+                "/tr",
+                command_line(task),
+                "/sc",
+                "MINUTE",
+                "/mo",
+                str(int(task["every_minutes"])),
                 "/f",
             ]
         )
@@ -333,7 +344,11 @@ def _remove_triggers(task: Dict[str, Any]) -> List[str]:
 def _install_trigger(task: Dict[str, Any]) -> Dict[str, Any]:
     """Installe le déclencheur et rend ce qui a réellement été posé."""
     if _system_disabled():
-        return {"mechanism": "registre", "path": "", "detail": "aucun déclencheur (UH_SCHEDULE_DISABLE_SYSTEM)"}
+        return {
+            "mechanism": "registre",
+            "path": "",
+            "detail": "aucun déclencheur (UH_SCHEDULE_DISABLE_SYSTEM)",
+        }
     if _install_schtasks(task):
         return {"mechanism": "schtasks", "path": "", "detail": "tâche du Planificateur Windows"}
     script = _install_startup(task)
@@ -439,7 +454,11 @@ def create(name: str, command: str, every_minutes: Any, enabled: bool = True) ->
         "last_status": "",
         "last_detail": "",
     }
-    trigger = _install_trigger(task) if task["enabled"] else {"mechanism": "", "path": "", "detail": "désactivée : aucun déclencheur"}
+    trigger = (
+        _install_trigger(task)
+        if task["enabled"]
+        else {"mechanism": "", "path": "", "detail": "désactivée : aucun déclencheur"}
+    )
     task["mechanism"] = trigger["mechanism"]
     task["trigger_path"] = trigger["path"]
     data["tasks"].insert(0, task)

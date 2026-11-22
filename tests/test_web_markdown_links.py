@@ -24,10 +24,14 @@ def render(cases: list[str]) -> list[str]:
         'import { renderMarkdown } from "'
         + MARKDOWN.as_uri()
         + '";\n'
-        + "const cases = " + json.dumps(cases) + ";\n"
+        + "const cases = "
+        + json.dumps(cases)
+        + ";\n"
         + "for (const text of cases) console.log(renderMarkdown(text));\n"
     )
-    result = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True)
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script], capture_output=True, text=True
+    )
     assert result.returncode == 0, result.stderr
     return result.stdout.splitlines()
 

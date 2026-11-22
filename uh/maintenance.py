@@ -96,12 +96,12 @@ def report(session_dir: Path, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             if item.is_file() and "derived" not in item.parts and not item.name.endswith(".keep")
         ]
     unmentioned = [item for item in on_disk if str(item) not in mentioned]
-    missing = sorted(path for path in mentioned if path.startswith(str(folder)) and not Path(path).is_file())
+    missing = sorted(
+        path for path in mentioned if path.startswith(str(folder)) and not Path(path).is_file()
+    )
     return {
         "files": len(on_disk),
-        "unmentioned": [
-            {"path": str(item), "bytes": item.stat().st_size} for item in unmentioned
-        ],
+        "unmentioned": [{"path": str(item), "bytes": item.stat().st_size} for item in unmentioned],
         "missing": missing[:50],
         "unmentioned_bytes": sum(item.stat().st_size for item in unmentioned),
     }

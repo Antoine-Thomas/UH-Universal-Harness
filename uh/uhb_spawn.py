@@ -188,7 +188,9 @@ def _command(checkout: Optional[Path], port: int, mode: Optional[str] = None) ->
     ]
 
 
-def build_command(port: int, checkout: Optional[Path] = None, mode: Optional[str] = None) -> List[str]:
+def build_command(
+    port: int, checkout: Optional[Path] = None, mode: Optional[str] = None
+) -> List[str]:
     """The child command: a UHB-capable interpreter, the same checkout, the port.
 
     ``mode`` is the execution profile UHB starts with - it is a property of the
@@ -205,20 +207,14 @@ def build_command(port: int, checkout: Optional[Path] = None, mode: Optional[str
 #: ``httpx``, and the cockpit then says "uhb unreachable" with no reason.
 MIN_UBH_PYTHON = (3, 11)
 _ENV_PYTHON = "UH_UHB_PYTHON"
-_PROBE = (
-    "import sys\n"
-    "if sys.version_info < (3, 11): raise SystemExit(1)\n"
-    "import httpx, fastapi\n"
-)
+_PROBE = "import sys\nif sys.version_info < (3, 11): raise SystemExit(1)\nimport httpx, fastapi\n"
 _INTERPRETERS: dict = {}
 
 
 def _supports_uhb(executable: str) -> bool:
     """Ask the interpreter instead of guessing from its name."""
     try:
-        result = subprocess.run(
-            [executable, "-c", _PROBE], capture_output=True, timeout=15
-        )
+        result = subprocess.run([executable, "-c", _PROBE], capture_output=True, timeout=15)
     except (OSError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
@@ -405,7 +401,9 @@ def _command_line(pid: int) -> str:
         except Exception:  # noqa: BLE001 - a failed probe means "unknown", not "kill"
             return ""
     try:
-        return Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
+        return (
+            Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
+        )
     except OSError:
         return ""
 
@@ -563,6 +561,7 @@ def _job_for(process: subprocess.Popen) -> Optional[int]:
         job = kernel32.CreateJobObjectW(None, None)
         if not job:
             return None
+
         # JOBOBJECT_EXTENDED_LIMIT_INFORMATION, with the one flag that matters.
         class Limits(ctypes.Structure):
             _fields_ = [
@@ -590,7 +589,10 @@ def _job_for(process: subprocess.Popen) -> Optional[int]:
         info = Extended()
         info.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
         if not kernel32.SetInformationJobObject(
-            job, 9, ctypes.byref(info), ctypes.sizeof(info)  # 9 = ExtendedLimitInformation
+            job,
+            9,
+            ctypes.byref(info),
+            ctypes.sizeof(info),  # 9 = ExtendedLimitInformation
         ):
             kernel32.CloseHandle(job)
             return None

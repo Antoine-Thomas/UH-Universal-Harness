@@ -179,9 +179,7 @@ def test_mid_stream_failure_is_explicit_and_never_replayed() -> None:
 
 
 def test_empty_messages_is_400() -> None:
-    response = call(
-        make_app(), method="POST", path="/v1/chat/completions", json={"messages": []}
-    )
+    response = call(make_app(), method="POST", path="/v1/chat/completions", json={"messages": []})
     assert response.status_code == 400
 
 
@@ -205,7 +203,9 @@ def test_concurrency_cap_answers_429() -> None:
         headers = {"Host": "127.0.0.1:8780", "Authorization": f"Bearer {TOKEN}"}
         body = {"model": "auto", "messages": [{"role": "user", "content": "x"}]}
         async with httpx.AsyncClient(transport=transport, base_url=BASE) as http:
-            first = asyncio.create_task(http.post("/v1/chat/completions", json=body, headers=headers))
+            first = asyncio.create_task(
+                http.post("/v1/chat/completions", json=body, headers=headers)
+            )
             await asyncio.sleep(0.15)
             second = await http.post("/v1/chat/completions", json=body, headers=headers)
             await first
@@ -297,7 +297,10 @@ def test_no_token_key_or_prompt_in_responses_logs_or_exceptions(
     bodies = []
     for path, payload in (
         ("/v1/models", None),
-        ("/v1/chat/completions", {"model": "auto", "messages": [{"role": "user", "content": PROMPT}]}),
+        (
+            "/v1/chat/completions",
+            {"model": "auto", "messages": [{"role": "user", "content": PROMPT}]},
+        ),
         (
             "/v1/chat/completions",
             {"model": "auto", "messages": [{"role": "user", "content": PROMPT}], "stream": True},
@@ -339,6 +342,7 @@ def test_non_loopback_bind_is_refused() -> None:
     with pytest.raises(ValueError, match="loopback only"):
         serve.create_router_app(token=TOKEN, port=8780, host="0.0.0.0")
     assert serve.run_server(host="192.168.1.10", port=8780) == 1
+
 
 # --------------------------------------------------------------------------- #
 # 6b.1 - reproductions of the three reported defects

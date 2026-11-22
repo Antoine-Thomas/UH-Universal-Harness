@@ -73,7 +73,9 @@ def test_a_refused_key_still_points_at_the_key_files() -> None:
 
 
 def test_a_403_with_an_unreadable_body_keeps_the_key_message() -> None:
-    response = httpx.Response(403, text="<html>nope</html>", request=httpx.Request("POST", CHAT_URL))
+    response = httpx.Response(
+        403, text="<html>nope</html>", request=httpx.Request("POST", CHAT_URL)
+    )
 
     with pytest.raises(ProviderError) as failure:
         _provider()._payload(response)

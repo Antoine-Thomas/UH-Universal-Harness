@@ -79,7 +79,9 @@ def test_sessions_list_show_search(db_path: Path, capsys: pytest.CaptureFixture[
     assert "no match" in capsys.readouterr().err
 
 
-def test_sessions_short_id_prefix_resolves(db_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_sessions_short_id_prefix_resolves(
+    db_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     session_id = _seed(db_path)
     assert cli.main(["sessions", "show", display_id(session_id)]) == 0
     assert session_id in capsys.readouterr().out

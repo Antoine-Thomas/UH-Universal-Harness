@@ -89,7 +89,9 @@ def test_provider_without_on_token_degrades_and_warns_once(tmp_path: Path, capsy
 def test_no_on_token_means_blocking_provider_call(tmp_path: Path) -> None:
     provider = StreamingProvider(["x"])
 
-    run_turn([{"role": "user", "content": "hi"}], provider, {"file": FileToolset(workspace=tmp_path)})
+    run_turn(
+        [{"role": "user", "content": "hi"}], provider, {"file": FileToolset(workspace=tmp_path)}
+    )
 
     assert provider.calls == 1
 
@@ -127,7 +129,7 @@ def _patch_stream(monkeypatch: pytest.MonkeyPatch, lines: List[str], captured: d
 
 def test_ollama_streaming_parses_ndjson(monkeypatch: pytest.MonkeyPatch) -> None:
     lines = [
-        json.dumps({"message": {"role": "assistant", "content": "Bon"} , "done": False}),
+        json.dumps({"message": {"role": "assistant", "content": "Bon"}, "done": False}),
         "",
         json.dumps({"message": {"content": "jour"}, "done": False}),
         json.dumps({"message": {"content": " !"}, "done": False}),
@@ -138,9 +140,7 @@ def test_ollama_streaming_parses_ndjson(monkeypatch: pytest.MonkeyPatch) -> None
 
     provider = OllamaProvider("qwen3:8b")
     received: List[str] = []
-    message = provider.chat(
-        [{"role": "user", "content": "salut"}], [], on_token=received.append
-    )
+    message = provider.chat([{"role": "user", "content": "salut"}], [], on_token=received.append)
 
     assert received == ["Bon", "jour", " !"]
     assert message == {"role": "assistant", "content": "Bonjour !", "tool_calls": []}
@@ -195,7 +195,9 @@ def test_ollama_streaming_extracts_final_tool_calls(monkeypatch: pytest.MonkeyPa
     _patch_stream(monkeypatch, lines, captured)
 
     provider = OllamaProvider("qwen3:8b")
-    message = provider.chat([{"role": "user", "content": "lis a.txt"}], [], on_token=lambda _t: None)
+    message = provider.chat(
+        [{"role": "user", "content": "lis a.txt"}], [], on_token=lambda _t: None
+    )
 
     assert message["content"] == "je regarde"
     assert message["tool_calls"][0]["function"]["name"] == "read_file"
@@ -209,4 +211,6 @@ def test_ollama_streaming_error_event_raises(monkeypatch: pytest.MonkeyPatch) ->
     from uh.providers import ProviderError
 
     with pytest.raises(ProviderError):
-        OllamaProvider("nope").chat([{"role": "user", "content": "x"}], [], on_token=lambda _t: None)
+        OllamaProvider("nope").chat(
+            [{"role": "user", "content": "x"}], [], on_token=lambda _t: None
+        )

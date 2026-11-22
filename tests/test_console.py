@@ -74,7 +74,9 @@ def test_plain_table_without_rich(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_rich_absent_still_prints_status(
-    session: console.ChatSession, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    session: console.ChatSession,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(console, "rich_available", lambda: False)
     ui = console.Console()
@@ -265,9 +267,7 @@ def test_uhb_line_reads_version_mode_and_provider_count() -> None:
             "modes": ["chat", "dev"],
         }
     )
-    assert console.uhb_header_line(toolset) == (
-        "UHB: connected (v0.4.1) · mode: dev · 3 providers"
-    )
+    assert console.uhb_header_line(toolset) == ("UHB: connected (v0.4.1) · mode: dev · 3 providers")
     assert toolset.calls == 1, "exactly one status() call at startup"
 
 

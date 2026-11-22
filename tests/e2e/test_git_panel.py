@@ -23,7 +23,11 @@ from .conftest import open_app  # noqa: E402
 def git(repo: Path, *args: str) -> str:
     proc = subprocess.run(
         ("git", "-C", str(repo), *args),
-        capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+        check=False,
     )
     assert proc.returncode == 0, proc.stderr
     return proc.stdout.strip()
@@ -57,9 +61,13 @@ def test_the_log_shows_the_commit_and_its_short_sha(browser, make_server, work_r
     try:
         open_projects(page)
         page.wait_for_selector("#git-log .git-entry", timeout=20000)
-        shas = page.eval_on_selector_all("#git-log .git-sha", "els => els.map(e => e.textContent.trim())")
+        shas = page.eval_on_selector_all(
+            "#git-log .git-sha", "els => els.map(e => e.textContent.trim())"
+        )
         assert shas and shas[0] == expected, f"journal : {shas} attendu {expected}"
-        subjects = page.eval_on_selector_all("#git-log .git-subject", "els => els.map(e => e.textContent)")
+        subjects = page.eval_on_selector_all(
+            "#git-log .git-subject", "els => els.map(e => e.textContent)"
+        )
         assert "premier commit" in subjects
     finally:
         context.close()
@@ -115,13 +123,17 @@ def test_stage_then_commit_from_the_panel(browser, make_server, work_repo: Path)
             arg=after[:7],
             timeout=20000,
         )
-        shas = page.eval_on_selector_all("#git-log .git-sha", "els => els.map(e => e.textContent.trim())")
+        shas = page.eval_on_selector_all(
+            "#git-log .git-sha", "els => els.map(e => e.textContent.trim())"
+        )
         assert shas[0] == after[:7], f"le journal n'affiche pas le nouveau commit : {shas}"
     finally:
         context.close()
 
 
-def test_a_commit_without_a_message_keeps_the_button_disabled(browser, make_server, work_repo: Path) -> None:
+def test_a_commit_without_a_message_keeps_the_button_disabled(
+    browser, make_server, work_repo: Path
+) -> None:
     server = make_server(workspace=work_repo)
     httpx.post(
         server.base + "/api/projects/add",

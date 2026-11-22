@@ -38,9 +38,7 @@ def _fake_python(path: Path) -> Path:
 def test_a_tool_venv_is_never_scheduled(tmp_path: Path) -> None:
     """The agent's venv is rebuilt by every update; the task must not live there."""
     venv_python = _fake_python(tmp_path / "hermes-agent" / "venv" / "Scripts" / "python.exe")
-    (venv_python.parent.parent / "pyvenv.cfg").write_text(
-        "home = C:\\Python310", encoding="ascii"
-    )
+    (venv_python.parent.parent / "pyvenv.cfg").write_text("home = C:\\Python310", encoding="ascii")
     system = _fake_python(tmp_path / "Programs" / "Python" / "Python310" / "python.exe")
 
     chosen = dream_schedule.resolve_interpreter(

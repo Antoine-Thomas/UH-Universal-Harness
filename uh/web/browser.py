@@ -185,8 +185,12 @@ def app_command(binary: Path, url: str, profile_dir: Optional[Path] = None) -> L
 
 def _spawn(argv: Sequence[str]) -> None:
     """Start the window and forget it: UH does not own the browser process."""
-    kwargs: dict = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
-                    "stderr": subprocess.DEVNULL, "close_fds": True}
+    kwargs: dict = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
     if windows():
         # A detached console-less child: no black window flashes over the UI.
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)

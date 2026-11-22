@@ -115,7 +115,9 @@ def choose_provider(
 
     # c. a local gateway already serving models
     if router_probe():
-        return Choice("omnirouter", OMNIROUTER_DEFAULT_MODEL, "omnirouter", "using local OmniRouter")
+        return Choice(
+            "omnirouter", OMNIROUTER_DEFAULT_MODEL, "omnirouter", "using local OmniRouter"
+        )
 
     # d. a provider the user already configured
     configured = keys_reader()
@@ -145,15 +147,22 @@ def _guided(*, stream, input_fn: Callable[[str], str]) -> Optional[Choice]:
     print("", file=stream)
     print("No local model and no router found. Two ways to get one:", file=stream)
     print("  - Ollama, free and on this machine   https://ollama.com/download", file=stream)
-    print("    (once installed, UH finds it; `uh model pull qwen2.5:0.5b` takes ~400 MB)", file=stream)
+    print(
+        "    (once installed, UH finds it; `uh model pull qwen2.5:0.5b` takes ~400 MB)", file=stream
+    )
     print("  - a free OpenAI-compatible API key:", file=stream)
     for name, url in FREE_KEY_HINTS:
         print(f"      {name:<18} {url}", file=stream)
     print("", file=stream)
-    print("Add it later with: uh providers add <name> --base-url <url> --model <model>", file=stream)
+    print(
+        "Add it later with: uh providers add <name> --base-url <url> --model <model>", file=stream
+    )
 
     if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
-        print("stdin is not a terminal: nothing configured, run `uh providers add` first.", file=stream)
+        print(
+            "stdin is not a terminal: nothing configured, run `uh providers add` first.",
+            file=stream,
+        )
         return None
 
     print("Guided setup (leave a field empty to abort):", file=stream)
@@ -162,7 +171,9 @@ def _guided(*, stream, input_fn: Callable[[str], str]) -> Optional[Choice]:
         return None
     base_url = _ask("  base URL (e.g. https://openrouter.ai/api/v1): ", input_fn).strip()
     model = _ask("  model id: ", input_fn).strip()
-    key = _ask("  API key (input is echoed; use `uh providers add` to avoid it): ", input_fn).strip()
+    key = _ask(
+        "  API key (input is echoed; use `uh providers add` to avoid it): ", input_fn
+    ).strip()
     if not (base_url and model and key):
         print("  incomplete setup, nothing saved.", file=stream)
         return None

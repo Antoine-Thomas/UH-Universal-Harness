@@ -50,7 +50,9 @@ def _logger() -> logging.Logger:
         logger.propagate = False  # the console already has uvicorn's log
         path = log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        handler = RotatingFileHandler(path, maxBytes=MAX_BYTES, backupCount=BACKUPS, encoding="utf-8")
+        handler = RotatingFileHandler(
+            path, maxBytes=MAX_BYTES, backupCount=BACKUPS, encoding="utf-8"
+        )
         handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%d %H:%M:%S"))
         logger.addHandler(handler)
         _HANDLER = handler
@@ -65,7 +67,9 @@ def event(kind: str, **fields: Any) -> None:
     and greppable (``turn tool_end turn=ab12 tool=execute_code ms=4210 status=ok``).
     """
     try:
-        payload = " ".join(f"{key}={_clean(value)}" for key, value in fields.items() if value is not None)
+        payload = " ".join(
+            f"{key}={_clean(value)}" for key, value in fields.items() if value is not None
+        )
         _logger().info("turn %s%s", kind, f" {payload}" if payload else "")
     except Exception:  # noqa: BLE001 - observability must never break a turn
         pass

@@ -72,7 +72,9 @@ def test_a_local_address_is_refused(url: str) -> None:
     assert "refus" in images.check_url(url) or "refused" in images.check_url(url)
 
 
-@pytest.mark.parametrize("url", ["file:///C:/Windows/win.ini", "ftp://host/x.png", "data:text/html,x"])
+@pytest.mark.parametrize(
+    "url", ["file:///C:/Windows/win.ini", "ftp://host/x.png", "data:text/html,x"]
+)
 def test_a_non_http_scheme_is_refused(url: str) -> None:
     assert "schéma" in images.check_url(url) or "http" in images.check_url(url)
 
@@ -117,7 +119,9 @@ def test_a_body_over_the_cap_is_refused_whole() -> None:
 
 def test_a_declared_length_over_the_cap_is_refused_before_reading() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=b"", headers={"content-length": str(images.MAX_BYTES + 1)})
+        return httpx.Response(
+            200, content=b"", headers={"content-length": str(images.MAX_BYTES + 1)}
+        )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     artifact, reason = images.fetch_image("https://example.com/c.png", client=client)
@@ -137,7 +141,9 @@ def test_a_redirect_to_localhost_is_refused() -> None:
 
 def test_a_body_that_is_not_an_image_is_refused() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=b"<html>nope</html>", headers={"content-type": "image/png"})
+        return httpx.Response(
+            200, content=b"<html>nope</html>", headers={"content-type": "image/png"}
+        )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     artifact, reason = images.fetch_image("https://example.com/x.png", client=client)
@@ -168,9 +174,7 @@ def test_a_markdown_image_keeps_its_reference_and_gains_bytes() -> None:
         return httpx.Response(200, content=PNG)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    normalised = images.normalise(
-        "Regarde : ![courbe](https://example.com/c.png)", client=client
-    )
+    normalised = images.normalise("Regarde : ![courbe](https://example.com/c.png)", client=client)
 
     assert "![courbe](https://example.com/c.png)" in normalised.text, "the text is untouched"
     assert markers == ["https://example.com/c.png"]
@@ -178,9 +182,7 @@ def test_a_markdown_image_keeps_its_reference_and_gains_bytes() -> None:
 
 
 def test_a_refused_url_becomes_a_readable_line_not_an_empty_frame() -> None:
-    normalised = images.normalise(
-        "vois ![x](http://127.0.0.1:8101/secret.png)", fetch=True
-    )
+    normalised = images.normalise("vois ![x](http://127.0.0.1:8101/secret.png)", fetch=True)
     assert normalised.artifacts == []
     note = images.note_for(normalised.refusals)
     assert "image non affichée" in note and "127.0.0.1" in note

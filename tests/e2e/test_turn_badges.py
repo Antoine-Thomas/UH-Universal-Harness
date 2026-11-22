@@ -27,7 +27,9 @@ def seed_two_turns(server) -> str:
 
     store = Store(server.home / "uh.db")
     try:
-        session_id = store.create_session(title="preuve des tours", model="stub:1b", provider="stub")
+        session_id = store.create_session(
+            title="preuve des tours", model="stub:1b", provider="stub"
+        )
         for question, answer in [
             ("premier tour", "premiere reponse"),
             ("deuxieme tour", "seconde reponse"),
@@ -100,7 +102,9 @@ def test_a_new_session_starts_the_counter_again(browser, server) -> None:
         page.fill("#input", "reprise apres une session neuve")
         page.press("#input", "Enter")
         page.wait_for_selector("#messages .msg.user .turn-badge", timeout=20000)
-        fresh = page.eval_on_selector("#messages .msg.user .turn-badge", "el => el.textContent.trim()")
+        fresh = page.eval_on_selector(
+            "#messages .msg.user .turn-badge", "el => el.textContent.trim()"
+        )
         assert fresh == "Tour #1", f"la session neuve hérite du compteur précédent : {fresh}"
     finally:
         context.close()

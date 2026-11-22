@@ -70,7 +70,7 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
-    throw new Error(detail.detail || `HTTP ${response.status}`);
+    throw new Error(detail.detail || httpErrorText(response.status));
   }
   return response.json();
 }
@@ -156,7 +156,7 @@ function textFeedback(box) {
           }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+        if (!response.ok) throw new Error(payload.detail || httpErrorText(response.status));
         bar.dataset.vote = wanted === "none" ? "" : wanted;
         for (const node of buttons) {
           const active = Boolean(bar.dataset.vote) && node.dataset.vote === bar.dataset.vote;
@@ -242,21 +242,165 @@ function appendMessage(role, text, messageId) {
   return box;
 }
 
+// --- erreurs lisibles ---------------------------------------------------------- //
+// A raw code ("HTTP 422", "WinError 10054") tells a non-developer nothing and offers
+// no way out. Every failure shown in the thread goes through here: a sentence in
+// French, the technical text kept in a collapsible detail, and the one button that
+// fixes the usual cause. Messages already written for people pass through untouched.
+const HTTP_TEXTS = {
+  400: "La demande n'a pas été comprise par UH. Reformulez-la ou rechargez la page.",
+  401: "Cette page n'est plus reliée à UH (jeton périmé). Rechargez la page.",
+  403: "UH a refusé cette action pour des raisons de sécurité. Rechargez la page, puis réessayez.",
+  404: "Cet élément n'existe plus ou le serveur UH est une ancienne version. Rechargez la page.",
+  408: "Le serveur a mis trop de temps à répondre. Réessayez dans un instant.",
+  413: "Le contenu envoyé est trop volumineux. Réduisez-le ou joignez un fichier plus petit.",
+  422: "UH n'a pas pu traiter cette demande : la conversation est peut-être dans un état invalide. Une nouvelle session règle généralement le problème.",
+  429: "Trop de demandes ou quota du fournisseur atteint. Patientez un peu ou changez de modèle.",
+  500: "UH ou le fournisseur de modèle a rencontré un problème interne. Réessayez ; sinon changez de modèle.",
+  502: "Le fournisseur de modèle ne répond pas correctement. Réessayez dans un instant.",
+  503: "Le service est momentanément indisponible. Réessayez dans un instant.",
+  504: "Le fournisseur de modèle a mis trop de temps à répondre. Réessayez dans un instant.",
+};
+
+function httpErrorText(status) {
+  const code = Number(status) || 0;
+  const known = HTTP_TEXTS[code];
+  if (known) return known;
+  if (code >= 500) return HTTP_TEXTS[500];
+  return "UH n'a pas pu terminer cette action. Rechargez la page, puis réessayez.";
+}
+
+// -> { text, actions[] } ; actions among "reload", "new", "allow".
+function humanizeError(raw) {
+  const message = String(raw || "").trim();
+  const http = message.match(/\bHTTP\s*(\d{3})\b/i);
+  if (/WinError\s*100(53|54|60|61)|Failed to fetch|NetworkError|Load failed|ECONNRESET|connection (reset|refused|aborted)|socket|BrokenPipe/i.test(message)) {
+    return {
+      text: "La connexion a été coupée avant la fin de la réponse. UH ou le fournisseur est peut-être redémarré ou injoignable.",
+      actions: ["reload"],
+    };
+  }
+  if (/timed? ?out|timeout|délai/i.test(message) && !http) {
+    return { text: "Le fournisseur a mis trop de temps à répondre. Réessayez dans un instant.", actions: ["reload"] };
+  }
+  if (/read-?only|lecture seule|not available in this mode|mode (chat|review|observe)/i.test(message)) {
+    return {
+      text: "Cet outil exige le mode Atelier, mais le second cerveau est en lecture seule. Rien n'a été exécuté.",
+      actions: ["allow"],
+    };
+  }
+  if (http) {
+    const code = Number(http[1]);
+    const actions = code === 422 ? ["new", "reload"] : ["reload"];
+    return { text: httpErrorText(code), actions };
+  }
+  return { text: message || "erreur inconnue", actions: [] };
+}
+
+function errorButton(label, title, onClick) {
+  const button = el("button", "notice-action", label);
+  button.type = "button";
+  button.title = title;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+// Adds the technical detail (collapsed) and the action buttons under a failed bubble.
+function decorateError(box, raw, info) {
+  const details = el("details", "error-detail");
+  details.appendChild(el("summary", null, "Détails techniques"));
+  details.appendChild(el("code", null, String(raw || "")));
+  box.appendChild(details);
+  const row = el("div", "error-actions");
+  for (const action of info.actions || []) {
+    if (action === "reload") {
+      row.appendChild(errorButton("Recharger", "Recharger la page : la conversation est conservée", () => window.location.reload()));
+    } else if (action === "new") {
+      row.appendChild(
+        errorButton("Nouvelle session", "Repartir d'une conversation vide", () => {
+          newSession().catch((error) => modelNote(error.message, "warn"));
+        })
+      );
+    } else if (action === "allow") {
+      row.appendChild(
+        errorButton("Autoriser l'outil", "Passer en mode Atelier (exécution de code dans le dossier du run)", async (event) => {
+          event.currentTarget.disabled = true;
+          try {
+            await applyMode("dev");
+            event.currentTarget.textContent = "Mode Atelier actif : renvoyez votre message";
+          } catch (error) {
+            event.currentTarget.disabled = false;
+            modelNote(error.message, "warn");
+          }
+        })
+      );
+    }
+  }
+  if (row.childNodes.length) box.appendChild(row);
+}
+
+// --- cartes d'outils : quatre états distincts ---------------------------------- //
+const TOOL_STATE_TEXT = { loading: "en cours…", success: "✓ terminé", refused: "✕ refusé", error: "⚠ erreur" };
+const TOOL_SLOW_MS = 3000;
+
+function setToolState(card, toolState, raw) {
+  card.dataset.state = toolState;
+  card.setAttribute("aria-busy", String(toolState === "loading"));
+  const label = card.querySelector(".state");
+  if (label) label.textContent = TOOL_STATE_TEXT[toolState] || toolState;
+  card.classList.toggle("error", toolState === "error" || toolState === "refused");
+  card.classList.toggle("refused", toolState === "refused");
+  if (card._slowTimer) {
+    window.clearTimeout(card._slowTimer);
+    card._slowTimer = null;
+  }
+  for (const old of card.querySelectorAll(".tool-slow, .tool-why")) old.remove();
+  if (toolState === "loading") {
+    card._slowTimer = window.setTimeout(() => {
+      if (card.dataset.state !== "loading") return;
+      const slow = el("span", "tool-slow", "Toujours en cours… certains outils prennent quelques secondes.");
+      slow.setAttribute("role", "status");
+      card.insertBefore(slow, card.querySelector("pre"));
+    }, TOOL_SLOW_MS);
+  } else if (toolState === "refused") {
+    const why = el("div", "tool-why");
+    why.appendChild(el("span", "tool-why-badge", "Mode lecture seule (chat)"));
+    why.appendChild(
+      el("span", null, " Ce mode bloque l'exécution de code. Passez en mode Atelier pour autoriser cet outil.")
+    );
+    const link = el("button", "tool-why-link", "Changer de mode");
+    link.type = "button";
+    link.addEventListener("click", () => {
+      const badge = $("mode-badge");
+      if (badge) {
+        badge.scrollIntoView({ block: "nearest" });
+        badge.focus();
+      }
+    });
+    why.appendChild(link);
+    card.insertBefore(why, card.querySelector("pre"));
+  }
+}
+
+function classifyToolResult(content) {
+  const text = String(content || "");
+  if (!/"error"\s*:/.test(text)) return "success";
+  return /not available in this mode|read-?only|lecture seule|refus|denied|not allowed|mode (chat|review|observe)/i.test(text)
+    ? "refused"
+    : "error";
+}
+
 function toolCard(name, args, result) {
   const card = el("details", "tool-card");
   const summary = el("summary");
   summary.appendChild(document.createTextNode(name || "tool"));
-  const stateLabel = el("span", "state", result === undefined ? "running…" : "done");
+  const stateLabel = el("span", "state");
+  stateLabel.setAttribute("aria-live", "polite");
   summary.appendChild(stateLabel);
   card.appendChild(summary);
   const payload = el("pre", null, JSON.stringify({ args, result }, null, 2));
   card.appendChild(payload);
-
-  const isError = result !== undefined && /"error"\s*:/.test(result || "");
-  if (isError) {
-    card.classList.add("error");
-    stateLabel.textContent = "error";
-  }
+  setToolState(card, result === undefined ? "loading" : classifyToolResult(result));
   $("messages").appendChild(card);
   $("messages").scrollTop = $("messages").scrollHeight;
   return card;
@@ -349,11 +493,33 @@ function drawArtifacts(container, artifacts, context) {
     img.src = url;
     img.alt = `${mime}, ${Number(artifact.bytes || 0)} octets`;
     img.loading = "lazy";
+    // A real loading state: a placeholder frame until the bytes decode, a sentence
+    // if they never do - never a collapsed, silent hole in the thread.
+    figure.classList.add("loading");
+    figure.setAttribute("aria-busy", "true");
+    img.addEventListener("load", () => {
+      figure.classList.remove("loading");
+      figure.setAttribute("aria-busy", "false");
+    });
+    img.addEventListener("error", () => {
+      figure.classList.remove("loading");
+      figure.classList.add("broken");
+      figure.setAttribute("aria-busy", "false");
+      figure.appendChild(el("div", "tool-artifact-note", "Cette image n'a pas pu être affichée."));
+    });
     figure.appendChild(img);
     if (artifact.note && !String(artifact.note).startsWith("http")) {
       figure.appendChild(el("figcaption", "tool-artifact-note", String(artifact.note)));
     }
     artifactToolbar(figure, artifact, context);
+    if (!figure.querySelector(".tool-artifact-actions")) {
+      const solo = artifactOpen(artifact);
+      if (solo) {
+        const bar = el("div", "tool-artifact-actions");
+        bar.appendChild(solo);
+        figure.appendChild(bar);
+      }
+    }
     container.appendChild(figure);
   }
   if (list.some((artifact) => artifact && artifact.omitted)) {
@@ -405,7 +571,7 @@ async function artifactAction(button, figure, body) {
     } catch (error) {
       data = {};
     }
-    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    if (!response.ok) throw new Error(data.detail || httpErrorText(response.status));
     if (button) button.disabled = false;
     return data;
   } catch (error) {
@@ -501,6 +667,30 @@ function artifactButton(icon, label, title, onClick, extraClass) {
   return node;
 }
 
+// Opens the picture full size in a new tab. A data: URL cannot be navigated to by
+// the browser (top-level data: is blocked), so the bytes become a blob first; the
+// prefix was already whitelisted by drawArtifacts. Nothing is fetched.
+function artifactOpen(artifact) {
+  const url = String((artifact && artifact.data_url) || "");
+  const mime = String((artifact && artifact.mime) || "");
+  const marker = `data:${mime};base64,`;
+  if (!ARTIFACT_MIME.includes(mime) || !url.startsWith(marker)) return null;
+  const node = artifactButton("download", "Ouvrir", "ouvrir l'image en grand dans un nouvel onglet", null);
+  node.addEventListener("click", () => {
+    try {
+      const raw = atob(url.slice(marker.length));
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+      window.open(blobUrl, "_blank", "noopener");
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (error) {
+      node.disabled = true;
+      node.title = "image illisible";
+    }
+  });
+  return node;
+}
 function artifactDownload(artifact) {
   const source = artifact && artifact.source;
   if (!source || !artifact.data_url) return null;
@@ -547,6 +737,8 @@ function artifactToolbar(figure, artifact, context) {
     node.setAttribute("aria-pressed", "false");
     node.addEventListener("click", () => voteOn(node, figure, base, vote));
   }
+  const opener = artifactOpen(artifact);
+  if (opener) bar.appendChild(opener);
   const link = artifactDownload(artifact);
   if (link) bar.appendChild(link);
   const trash = add("trash", "Corbeille", "retirer cette image du fil (récupérable quelques secondes)", "danger");
@@ -566,10 +758,7 @@ function renderArtifacts(card, content) {
 
 function fillToolCard(card, content) {
   card.querySelector("pre").textContent = content;
-  const label = card.querySelector(".state");
-  const failed = /"error"\s*:/.test(content || "");
-  label.textContent = failed ? "error" : "done";
-  card.classList.toggle("error", failed);
+  setToolState(card, classifyToolResult(content));
   renderArtifacts(card, content);
 }
 
@@ -1147,7 +1336,7 @@ async function uploadFile(file) {
   );
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
-    throw new Error(detail.detail || `HTTP ${response.status}`);
+    throw new Error(detail.detail || httpErrorText(response.status));
   }
   const data = await response.json();
   state.attachments.push(data.attachment);
@@ -1607,6 +1796,62 @@ async function openSession(id) {
   $("sidebar").classList.remove("open");
 }
 
+// --- modales : rôle, focus piégé, retour du focus ---------------------------------- //
+// Every `.modal-backdrop` the page builds (help, new skill, fix, ...) is announced as
+// a dialog, takes the focus, keeps Tab inside, and gives the focus back to whatever
+// opened it when it disappears.
+function installModalAccessibility() {
+  let counter = 0;
+  const openers = new WeakMap();
+  const focusables = (root) =>
+    [...root.querySelectorAll("button, [href], input, select, textarea, summary, [tabindex]")].filter(
+      (node) => !node.disabled && !node.hidden && node.tabIndex >= 0 && node.offsetParent !== null
+    );
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      record.addedNodes.forEach((node) => {
+        if (!(node instanceof HTMLElement) || !node.classList.contains("modal-backdrop")) return;
+        const dialog = node.querySelector(".modal");
+        if (!dialog) return;
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        const title = dialog.querySelector(".modal-title");
+        if (title) {
+          if (!title.id) title.id = `modal-title-${++counter}`;
+          dialog.setAttribute("aria-labelledby", title.id);
+        }
+        openers.set(node, document.activeElement);
+        const first = focusables(dialog)[0];
+        if (first) first.focus();
+      });
+      record.removedNodes.forEach((node) => {
+        if (!(node instanceof HTMLElement) || !node.classList.contains("modal-backdrop")) return;
+        const opener = openers.get(node);
+        if (opener && document.contains(opener) && typeof opener.focus === "function") opener.focus();
+      });
+    }
+  });
+  observer.observe(document.body, { childList: true });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const open = document.querySelectorAll(".modal-backdrop .modal");
+    const dialog = open[open.length - 1];
+    if (!dialog) return;
+    const nodes = focusables(dialog);
+    if (!nodes.length) return;
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !dialog.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
 async function newSession() {
   const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
   state.sessionId = data.session.id;
@@ -1756,7 +2001,7 @@ async function toggleMic() {
         credentials: "same-origin",
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+      if (!response.ok) throw new Error(payload.detail || httpErrorText(response.status));
       const text = String(payload.text || "").trim();
       if (!text) throw new Error("transcription vide");
       const input = $("input");
@@ -2106,7 +2351,7 @@ async function sendMessage(text) {
     }
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
-      throw new Error(detail.detail || `HTTP ${response.status}`);
+      throw new Error(detail.detail || httpErrorText(response.status));
     }
     // Accepted: the files belong to the turn that just started. A refusal above
     // keeps them on screen, so the user can retry without dropping them again.
@@ -2179,8 +2424,12 @@ async function sendMessage(text) {
             // "Erreur du modèle" pushed people to check a provider key while the
             // broken part was a search endpoint.
             const label = data.source === "command" ? "Commande" : "Erreur du modèle";
-            const bubble = appendMessage("assistant", `${label} : ${failed}`);
+            const info = humanizeError(failed);
+            const bubble = appendMessage("assistant", `${label} : ${info.text}`);
             bubble.classList.add("failed");
+            bubble.setAttribute("role", "alert");
+            if (info.text !== failed) decorateError(bubble, failed, info);
+            else decorateError(bubble, failed, { actions: info.actions.length ? info.actions : ["reload"] });
             if (data.partial) {
               // The provider died after the model had already spoken: the words
               // on screen are real, and the answer was cut. Continuing is a
@@ -2238,7 +2487,10 @@ async function sendMessage(text) {
       // The bubble stays. Removing it is what made a failed turn look like the
       // question had been swallowed along with the answer.
       assistant.classList.add("failed");
-      assistantContent.textContent = `Erreur du modèle : ${failed}. Réessaie, ou choisis un autre modèle avec « ⋯ ».`;
+      const info = humanizeError(failed);
+      assistantContent.textContent = `Erreur du modèle : ${info.text} Réessaie, ou choisis un autre modèle avec « ⋯ ».`;
+      assistant.setAttribute("role", "alert");
+      decorateError(assistant, failed, { actions: info.actions.length ? info.actions : ["reload"] });
     }
   } finally {
     if (stallTimer) window.clearTimeout(stallTimer);
@@ -2556,8 +2808,8 @@ function providerCard(row) {
         method: "POST",
       });
       testResult.textContent = result.ok
-        ? `ok (HTTP ${result.status})`
-        : `failed: ${result.error_kind}${result.status ? ` (HTTP ${result.status})` : ""}`;
+        ? `ok`
+        : `échec : ${result.error_kind}${result.status ? ` — ${httpErrorText(result.status)}` : ""}`;
       testResult.className = `test-result ${result.ok ? "ok" : "warn"}`;
     } catch (error) {
       testResult.textContent = `failed: ${error.message}`;
@@ -3580,7 +3832,7 @@ async function loadMemory() {
     } else if (body.kind === "uhb_offline") {
       reloadState.textContent = "UHB offline - memory actions unavailable";
     } else {
-      reloadState.textContent = body.error || `reload failed (HTTP ${answer.status})`;
+      reloadState.textContent = body.error || `rechargement impossible : ${httpErrorText(answer.status)}`;
     }
   });
   const ragAction = el("div", "memory-action");
@@ -3645,7 +3897,7 @@ async function loadMemory() {
     } else if (body.kind === "uhb_offline") {
       note.textContent = "UHB offline - memory actions unavailable";
     } else {
-      note.textContent = body.error || `blocks failed (HTTP ${answer.status})`;
+      note.textContent = body.error || `blocs indisponibles : ${httpErrorText(answer.status)}`;
     }
   });
   const siyuanForm = el("div", "memory-action");
@@ -3773,6 +4025,38 @@ const MODE_BADGE_TEXT = {
   observe: "Observation : rapporte seulement",
 };
 
+//: The four states of the second brain, said with an icon AND words AND a colour
+//: (never the colour alone). `degraded` = reachable but reporting itself unhealthy.
+const UHB_STATES = {
+  dev: {
+    icon: "✎",
+    text: "Dev · écriture",
+    full: "Connecté (Mode Dev) : écriture et dessin actifs",
+  },
+  chat: {
+    icon: "◉",
+    text: "Chat · lecture seule",
+    full: "Connecté (Mode Chat) : lecture seule",
+  },
+  degraded: {
+    icon: "⚠",
+    text: "Dégradé",
+    full: "Second cerveau dégradé : certaines fonctions peuvent manquer",
+  },
+  offline: {
+    icon: "✖",
+    text: "Hors ligne",
+    full: "Second cerveau hors ligne",
+  },
+};
+
+function uhbStateOf(status) {
+  if (!status || !status.connected) return "offline";
+  if (status.degraded === true || status.ok === false || status.healthy === false) return "degraded";
+  const mode = String(status.mode || "");
+  return mode === "dev" ? "dev" : "chat";
+}
+
 async function refreshModeBadge() {
   const badge = $("mode-badge");
   if (!badge) return;
@@ -3780,24 +4064,41 @@ async function refreshModeBadge() {
   try {
     status = await api("/api/uhb/status");
   } catch (error) {
-    $("mode-badge-label").textContent = "second cerveau arrêté";
-    badge.dataset.mode = "";
-    return;
+    status = { connected: false };
   }
   const mode = String(status.mode || "");
-  const label = MODE_BADGE_TEXT[mode] || (status.connected ? `mode « ${mode} »` : "second cerveau arrêté");
-  $("mode-badge-label").textContent = label;
-  badge.dataset.mode = mode;
-  badge.classList.toggle("readonly", mode === "chat");
-  badge.classList.toggle("agent", mode === "dev");
+  const key = uhbStateOf(status);
+  const view = UHB_STATES[key];
+  // review / observe keep their own wording: they are connected, read-only variants.
+  const text = key === "chat" && MODE_BADGE_TEXT[mode] && mode !== "chat" ? MODE_BADGE_TEXT[mode] : view.text;
+  const full = text === view.text ? view.full : `Connecté : ${MODE_BADGE_TEXT[mode]}`;
+  $("mode-badge-label").textContent = text;
+  const dot = badge.querySelector(".mode-badge-dot");
+  if (dot) dot.textContent = view.icon;
+  badge.dataset.mode = key === "offline" ? "" : mode;
+  badge.dataset.uhb = key;
+  badge.classList.toggle("readonly", key === "chat");
+  badge.classList.toggle("agent", key === "dev");
+  badge.classList.toggle("degraded", key === "degraded");
+  badge.classList.toggle("offline", key === "offline");
+  badge.setAttribute("aria-label", `Second cerveau : ${full}`);
   badge.title =
-    mode === "chat"
-      ? "Lecture seule. Cliquez pour autoriser l'exécution de code (mode Atelier)."
-      : "Ce mode peut exécuter du code. Cliquez pour revenir en lecture seule.";
+    key === "offline"
+      ? "Le second cerveau ne répond pas. Cliquez pour ouvrir son panneau et le démarrer."
+      : key === "degraded"
+        ? "Le second cerveau répond mais signale un problème. Cliquez pour ouvrir son panneau."
+        : mode === "chat"
+          ? "Lecture seule. Cliquez pour autoriser l'exécution de code (mode Atelier)."
+          : "Ce mode peut exécuter du code. Cliquez pour revenir en lecture seule.";
 }
 
 async function toggleModeFromBadge() {
   const badge = $("mode-badge");
+  // Offline or degraded: switching a mode is meaningless, show the panel that can fix it.
+  if (badge && (badge.dataset.uhb === "offline" || badge.dataset.uhb === "degraded")) {
+    showPanelTab("uhb");
+    return;
+  }
   const target = badge && badge.dataset.mode === "dev" ? "chat" : "dev";
   await applyMode(target);
   await refreshModeBadge();
@@ -3864,12 +4165,18 @@ function renderDecision(data, reload) {
   const promptBody = el("div", "decision-body");
   if (prompt.complexity) {
     promptBody.appendChild(el("p", "decision-headline", String(prompt.complexity)));
-    if (prompt.mode) promptBody.appendChild(el("p", "decision-sub", `mode ${prompt.mode}`));
+    if (prompt.mode) promptBody.appendChild(el("p", "decision-sub", `Mode : ${prompt.mode}`));
     if (prompt.reason) promptBody.appendChild(el("p", "decision-note", prompt.reason));
   } else {
-    promptBody.appendChild(el("p", "decision-note", prompt.note || "UHB was not consulted"));
+    const absent = el(
+      "p",
+      "decision-note",
+      "Le second cerveau (UHB) n'a pas été consulté pour ce tour : le modèle a répondu seul, sans conseil de routage."
+    );
+    absent.title = String(prompt.note || "UHB was not consulted for this turn: no uhb_route call");
+    promptBody.appendChild(absent);
   }
-  box.appendChild(decisionBlock("Prompt", promptBody));
+  box.appendChild(decisionBlock("Votre demande", promptBody));
 
   // 2 - the model that answered
   const model = data.model || {};
@@ -3881,10 +4188,10 @@ function renderDecision(data, reload) {
   if (model.substituted) {
     // An alias resolved to another tag: say it, do not hide it.
     modelBody.appendChild(
-      el("p", "decision-note", `chosen ${model.chosen || model.model} → served ${model.served}`)
+      el("p", "decision-note", `Modèle demandé : ${model.chosen || model.model} · modèle réellement servi : ${model.served}`)
     );
   }
-  box.appendChild(decisionBlock("Model", modelBody));
+  box.appendChild(decisionBlock("Modèle qui a répondu", modelBody));
 
   // 3 - the chain, in order, chosen first
   const chainBody = el("div", "decision-body");
@@ -3898,9 +4205,15 @@ function renderDecision(data, reload) {
       chainBody.appendChild(row);
     }
   } else {
-    chainBody.appendChild(el("p", "decision-note", "no chain: UHB did not plan this turn"));
+    const none = el(
+      "p",
+      "decision-note",
+      "Aucun ordre de repli prévu : le second cerveau n'a pas planifié ce tour, donc un seul modèle a été essayé."
+    );
+    none.title = "no chain: UHB did not plan this turn";
+    chainBody.appendChild(none);
   }
-  box.appendChild(decisionBlock("UHB chain", chainBody));
+  box.appendChild(decisionBlock("Modèles essayés, dans l'ordre", chainBody));
 
   // 4 - context: what was sent, against the budget
   const context = data.context || {};
@@ -3922,66 +4235,87 @@ function renderDecision(data, reload) {
   fill.style.width = `${budget > 0 ? Math.min(100, Math.round((measured / budget) * 100)) : 0}%`;
   track.appendChild(fill);
   contextBody.appendChild(track);
-  contextBody.appendChild(
+  const percent = budget > 0 ? Math.min(100, Math.round((measured / budget) * 100)) : 0;
+  const plain = el(
+    "p",
+    "decision-note",
+    budget > 0
+      ? `Mémoire de la conversation utilisée : ${percent} % de ce que le modèle peut lire.`
+      : "Taille de la conversation envoyée au modèle : non mesurée pour ce tour."
+  );
+  plain.title = "payload / budget, en tokens (un token ≈ 4 caractères)";
+  contextBody.appendChild(plain);
+  track.setAttribute("role", "progressbar");
+  track.setAttribute("aria-label", "Part de la mémoire de conversation utilisée");
+  track.setAttribute("aria-valuemin", "0");
+  track.setAttribute("aria-valuemax", "100");
+  track.setAttribute("aria-valuenow", String(percent));
+  // The numbers stay one click away, for whoever needs them.
+  const tech = el("details", "decision-tech");
+  tech.appendChild(el("summary", null, "Détails techniques"));
+  tech.appendChild(
     el(
       "p",
       "decision-note",
       payload > 0
-        ? `payload ${payload} / ${budget || "?"} tok · ${data.tool_calls || 0} tool calls`
-        : `payload not recorded for this turn (before 1.2.0) · provider counted ${counted} / ${
+        ? `Charge envoyée : ${payload} / ${budget || "?"} tokens · ${data.tool_calls || 0} appel(s) d'outil`
+        : `Charge non enregistrée pour ce tour (avant la 1.2.0) · comptée par le fournisseur : ${counted} / ${
             budget || "?"
-          } tok`
+          } tokens`
     )
   );
-  if (usage.reported) {
-    contextBody.appendChild(
-      el("p", "decision-note", `in ${usage.prompt} · out ${usage.completion}`)
-    );
-  } else {
-    contextBody.appendChild(el("p", "decision-note", "the provider reported no counters"));
-  }
+  tech.appendChild(
+    el(
+      "p",
+      "decision-note",
+      usage.reported
+        ? `Tokens lus : ${usage.prompt} · tokens écrits : ${usage.completion}`
+        : "Le fournisseur n'a pas indiqué ses compteurs."
+    )
+  );
+  contextBody.appendChild(tech);
   if (context.mode === "summary" && context.summarised_exchanges) {
     contextBody.appendChild(
       el(
         "p",
         "decision-note",
-        `${context.summarised_exchanges} exchanges summarised · ${context.kept_exchanges} kept`
+        `${context.summarised_exchanges} échanges anciens résumés · ${context.kept_exchanges} gardés tels quels`
       )
     );
   } else if (context.mode === "trim") {
     // The middle was dropped, not summarised: saying "summarised" would describe
     // text the model never received.
     contextBody.appendChild(
-      el("p", "decision-note", "the middle was dropped without a summary (budget too small)")
+      el("p", "decision-note", "Le milieu de la conversation a été retiré sans résumé (mémoire trop petite pour ce modèle).")
     );
   }
-  box.appendChild(decisionBlock("Context", contextBody));
+  box.appendChild(decisionBlock("Mémoire de la conversation", contextBody));
 
   // 5 - the summary itself, collapsed, because it replaced messages
   if (context.summary) {
     const summaryBody = el("div", "decision-body");
     const details = el("details", "decision-summary");
-    details.appendChild(el("summary", null, `summary (replaces ${context.summarised_exchanges} exchanges)`));
+    details.appendChild(el("summary", null, `Résumé qui remplace ${context.summarised_exchanges} échanges`));
     details.appendChild(el("pre", "memory-reader", context.summary));
     summaryBody.appendChild(details);
-    box.appendChild(decisionBlock("Summary", summaryBody));
+    box.appendChild(decisionBlock("Résumé de la conversation", summaryBody));
   }
 
   // 6 - duration, this turn and the average
   const turn = data.turn || {};
   const durationBody = el("div", "decision-body");
-  durationBody.appendChild(el("p", "decision-headline", `${(Number(turn.duration_ms || 0) / 1000).toFixed(2)}s`));
+  durationBody.appendChild(el("p", "decision-headline", `${(Number(turn.duration_ms || 0) / 1000).toFixed(2)} s`));
   durationBody.appendChild(
     el(
       "p",
       "decision-note",
-      `average of the last ${turn.turns || 0}: ${(Number(turn.average_ms || 0) / 1000).toFixed(2)}s`
+      `Moyenne sur les ${turn.turns || 0} derniers tours : ${(Number(turn.average_ms || 0) / 1000).toFixed(2)} s`
     )
   );
-  box.appendChild(decisionBlock("Duration", durationBody));
+  box.appendChild(decisionBlock("Durée de la réponse", durationBody));
 
   // A plan UHB would give now, clearly marked as not applied.
-  const ask = el("button", "hardware-pull", "Ask UHB about this prompt");
+  const ask = el("button", "hardware-pull", "Demander conseil au second cerveau pour cette demande");
   const out = el("div", "decision-body");
   ask.addEventListener("click", async () => {
     ask.disabled = true;
@@ -6004,26 +6338,43 @@ function renderLlmRows() {
   rows.textContent = "";
   const spec = llmSpec();
   Object.entries(spec).forEach(([key, field]) => {
-    const row = el("label", "llm-row");
+    // A boolean is a switch, not a bare checkbox: a <label> would also make the
+    // whole row a second click target for the button inside it.
+    const row = el(field.kind === "bool" ? "div" : "label", "llm-row");
     const head = el("div", "llm-row-head");
-    head.appendChild(el("span", "llm-label", field.label));
+    const labelNode = el("span", "llm-label", field.label);
+    labelNode.id = `llm-label-${key}`;
+    head.appendChild(labelNode);
     const value = el("span", "llm-value");
     head.appendChild(value);
     row.appendChild(head);
 
     const current = state.llm.values[key];
     if (field.kind === "bool") {
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.id = `llm-${key}`;
-      input.checked = Boolean(current);
-      input.addEventListener("change", () => {
-        state.llm.values[key] = input.checked;
+      const toggle = el("button", "llm-switch llm-switch-field");
+      toggle.type = "button";
+      toggle.id = `llm-${key}`;
+      toggle.setAttribute("role", "switch");
+      toggle.setAttribute("aria-labelledby", `llm-label-${key}`);
+      toggle.appendChild(el("span", "llm-switch-knob"));
+      toggle.firstChild.setAttribute("aria-hidden", "true");
+      const toggleText = el("span", "llm-switch-label");
+      toggle.appendChild(toggleText);
+      const paint = (on) => {
+        toggle.setAttribute("aria-checked", String(on));
+        toggle.classList.toggle("on", on);
+        toggleText.textContent = on ? "Activé" : "Désactivé";
+        value.textContent = "";
+      };
+      paint(Boolean(current));
+      toggle.addEventListener("click", () => {
+        const next = toggle.getAttribute("aria-checked") !== "true";
+        state.llm.values[key] = next;
+        paint(next);
         renderLlmSummary();
         saveLlmSettings();
       });
-      row.appendChild(input);
-      value.textContent = current ? "activé" : "désactivé";
+      row.appendChild(toggle);
     } else if (field.kind === "choice") {
       const select = document.createElement("select");
       select.id = `llm-${key}`;
@@ -6135,7 +6486,7 @@ function openLlmPanel() {
     panel.innerHTML = `
       <header class="llm-head">
         <span>Réglages de la conversation</span>
-        <button id="llm-close" class="ghost" title="Fermer">×</button>
+        <button id="llm-close" class="ghost" title="Fermer" aria-label="Fermer">×</button>
       </header>
       <button type="button" id="llm-enabled" class="llm-switch" role="switch" aria-checked="false">
         <span class="llm-switch-knob" aria-hidden="true"></span>
@@ -6528,6 +6879,11 @@ async function boot() {
   if (providersAreOpen() && state.activeTab === "keys") openProviders();
   // The mode is a state of the second brain, not of a tab: it is read on arrival.
   refreshModeBadge().catch(() => {});
+  // Permanent means current: a second brain that dies mid-session must show up.
+  window.setInterval(() => {
+    if (!document.hidden) refreshModeBadge().catch(() => {});
+  }, 20000);
+  installModalAccessibility();
   const badge = $("mode-badge");
   if (badge) badge.addEventListener("click", () => toggleModeFromBadge().catch(() => {}));
   showRemoteBanner().catch(() => {});
@@ -8568,7 +8924,7 @@ async function attachSelectedFile() {
     });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
-      throw new Error(detail.detail || `HTTP ${response.status}`);
+      throw new Error(detail.detail || httpErrorText(response.status));
     }
     const blob = await response.blob();
     // Le nom vient du serveur : aucun séparateur de chemin n'est deviné ici.

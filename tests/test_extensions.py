@@ -97,10 +97,7 @@ def test_a_malformed_mcp_entry_is_listed_broken_with_its_reason(home: Path) -> N
     nommer le refus, et c'est exactement le chemin que D-8 demande de prouver.
     """
     (home / "config.toml").write_text(
-        "# `command` manque volontairement.\n"
-        "[[mcp.servers]]\n"
-        'name = "casse"\n'
-        'args = ["-y"]\n',
+        '# `command` manque volontairement.\n[[mcp.servers]]\nname = "casse"\nargs = ["-y"]\n',
         encoding="utf-8",
         newline="\n",
     )
@@ -118,7 +115,9 @@ def test_a_malformed_mcp_entry_is_listed_broken_with_its_reason(home: Path) -> N
 def test_the_uhb_catalogue_lists_its_tools(home: Path) -> None:
     tools = [entry["name"] for entry in uh_extensions.inventory()["groups"]["uhb"]]
     assert tools, "le catalogue UHB n'est pas vide"
-    assert all(entry["state"] == "unreachable" for entry in uh_extensions.inventory()["groups"]["uhb"])
+    assert all(
+        entry["state"] == "unreachable" for entry in uh_extensions.inventory()["groups"]["uhb"]
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -190,7 +189,9 @@ def test_a_disabled_mcp_server_leaves_the_tool_list_without_a_restart(
     from uh.toolsets import build_toolsets
 
     monkeypatch.setattr(
-        mcp, "servers_from_config", lambda config=None: ([_FakeServer("alpha"), _FakeServer("beta")], [])
+        mcp,
+        "servers_from_config",
+        lambda config=None: ([_FakeServer("alpha"), _FakeServer("beta")], []),
     )
     started: list[str] = []
     monkeypatch.setattr(mcp, "client_for", lambda server: started.append(server.name) or object())
@@ -220,7 +221,9 @@ def test_a_disabled_uhb_tool_is_not_offered(home: Path, monkeypatch: pytest.Monk
             ]
 
     monkeypatch.setattr(
-        toolsets_module.Uhbtoolset, "from_environment", classmethod(lambda cls, **kwargs: _FakeUhb())
+        toolsets_module.Uhbtoolset,
+        "from_environment",
+        classmethod(lambda cls, **kwargs: _FakeUhb()),
     )
     tools = {spec["function"]["name"] for spec in toolsets_module.build_toolsets()["uhb"].tools}
     assert tools == {"uhb_status", "uhb_route"}
@@ -261,7 +264,9 @@ def test_a_missing_binary_is_named_as_such() -> None:
 
     explained = uh_extensions._explain("FileNotFoundError", "[WinError 2] introuvable")
     assert "binaire introuvable" in explained
-    assert "binaire introuvable" in uh_extensions._explain("MCPError", "no such file or directory: 'npx'")
+    assert "binaire introuvable" in uh_extensions._explain(
+        "MCPError", "no such file or directory: 'npx'"
+    )
     assert "handshake" in uh_extensions._explain("TimeoutError", "the read operation timed out")
     assert mcp is not None
 

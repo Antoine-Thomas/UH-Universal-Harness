@@ -13,7 +13,6 @@
   --highlight: #fdc502;
   --tool: #eef4f2;
   --error: #a3341f;
-  --on-accent: #06302c;
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* Behind the window: the desktop the frame sits on. */
@@ -32,7 +31,6 @@ html[data-theme="dark"] {
   --highlight: #fdc502;
   --tool: #22403d;
   --error: #ef8a72;
-  --on-accent: #06302c;
   --app-bg: radial-gradient(1200px 800px at 18% -10%, #26433f 0%, #162523 55%, #0e1a19 100%);
 }
 
@@ -2035,4 +2033,135 @@ body.modal-open { overflow: hidden; }
   margin: 6px 4px;
   background: var(--line, #2a2f39);
   opacity: 0.7;
+}
+
+/* ==========================================================================
+   UI/UX & accessibility layer (WCAG AA). Last on purpose: it refines the rules
+   above without rewriting them. Brand: ink #284543, accent #fdc502 (--highlight).
+   Measured contrasts (WCAG 2.x): control border #5f7f7b on #fff 4.4:1 and on the
+   page #eef6f5 4.0:1 (light); #8fb5b1 on the ink panel #284543 4.7:1 (dark);
+   dark ink #04201d on the teal accent 5.2:1; gold focus ring on ink 6.5:1.
+   No inline style, no CDN, no script here.
+   ========================================================================== */
+:root {
+  --control-border: #5f7f7b;
+  --on-accent: #04201d;
+  --brand-ink: #284543;
+  --brand-gold: #fdc502;
+  --state-ok: #0b6b45;
+  --state-warn: #7a5200;
+  --state-bad: #a3341f;
+  /* Aliases: three names were used for years without ever being defined. */
+  --line: var(--border);
+  --fg-dim: var(--muted);
+  --bg-soft: var(--tool);
+}
+html[data-theme="dark"] {
+  --control-border: #8fb5b1;
+  --on-accent: #04201d;
+  --state-ok: #6fe0a8;
+  --state-warn: #fdc502;
+  --state-bad: #ef8a72;
+}
+
+/* Text that is the accent colour must be readable: the teal is only 3.3:1 on white. */
+.llm-value { color: var(--link); }
+.mode-btn.active, .mode-btn:disabled { color: var(--on-accent); }
+.notice-action.continuation { color: var(--on-accent); }
+
+/* Borders of interactive controls reach 3:1 against what they sit on. */
+input:not([type="range"]):not([type="checkbox"]), select, textarea,
+.composer textarea, .ghost, .data-button, .icon-button, .tool-artifact-btn,
+.mode-btn, .mode-badge, .llm-switch, .notice-action {
+  border-color: var(--control-border);
+}
+.mode-btn.active, .mode-btn:disabled, .notice-action.continuation { border-color: var(--accent); }
+
+/* Keyboard: one visible ring everywhere, gold on dark, ink on light. */
+:focus-visible { outline: 2px solid var(--brand-ink); outline-offset: 2px; }
+html[data-theme="dark"] :focus-visible { outline-color: var(--brand-gold); }
+summary:focus-visible, a:focus-visible, [role="switch"]:focus-visible,
+[role="tab"]:focus-visible, .splitter:focus-visible, .mode-badge:focus-visible,
+.tool-card summary:focus-visible { outline: 2px solid var(--brand-ink); outline-offset: 2px; }
+html[data-theme="dark"] summary:focus-visible, html[data-theme="dark"] a:focus-visible,
+html[data-theme="dark"] [role="switch"]:focus-visible, html[data-theme="dark"] [role="tab"]:focus-visible,
+html[data-theme="dark"] .splitter:focus-visible, html[data-theme="dark"] .mode-badge:focus-visible,
+html[data-theme="dark"] .tool-card summary:focus-visible { outline-color: var(--brand-gold); }
+.modal :focus-visible { outline-offset: 1px; }
+
+/* Boolean settings: a real switch, 34 px tall, identical to the master switch. */
+.llm-switch-field { width: auto; align-self: flex-start; min-width: 150px; }
+.llm-switch .llm-switch-knob { background: var(--control-border); }
+.llm-switch.on .llm-switch-knob { background: var(--accent); }
+.llm-switch.on .llm-switch-knob::after { background: #fff; }
+.llm-switch { border-radius: 999px; }
+
+/* Decision panel: the technical numbers are one click away, not on screen. */
+.decision-tech { margin-top: 4px; }
+.decision-tech summary, .error-detail summary {
+  cursor: pointer; font-size: 11px; color: var(--link); min-height: 24px;
+}
+.decision-tech .decision-note { margin-top: 4px; font-family: var(--mono); }
+.decision-bar { overflow: hidden; }
+
+/* Failed answers: a sentence, the detail on demand, the button that fixes it. */
+.error-detail { margin-top: 6px; font-size: 11px; }
+.error-detail code { display: block; margin-top: 4px; padding: 6px 8px; font-family: var(--mono); word-break: break-word; background: var(--tool); border-radius: 6px; color: var(--text); }
+.error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.error-actions .notice-action { margin-top: 4px; min-height: 34px; }
+.msg.failed { border-color: var(--state-bad); }
+.msg.failed .role { color: var(--state-bad); }
+.notice-action { color: #fff; background: var(--state-bad); border-color: var(--state-bad); }
+html[data-theme="dark"] .notice-action { color: #1c1210; }
+
+/* Tool cards: four states, each with an icon, a word and a colour. */
+.tool-card .state { font-weight: 600; }
+.tool-card[data-state="loading"] { border-style: dashed; }
+.tool-card[data-state="loading"] .state { color: var(--muted); }
+.tool-card[data-state="success"] { border-left: 4px solid var(--state-ok); }
+.tool-card[data-state="success"] .state { color: var(--state-ok); }
+.tool-card[data-state="refused"] { border-left: 4px solid var(--state-warn); }
+.tool-card[data-state="refused"] .state { color: var(--state-warn); }
+.tool-card[data-state="error"] { border-left: 4px solid var(--state-bad); }
+.tool-card[data-state="error"] .state { color: var(--state-bad); }
+.tool-slow { display: block; padding: 0 12px 8px; font-size: 11px; color: var(--muted); }
+.tool-why { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px 10px; font-size: 12px; color: var(--text); }
+.tool-why-badge { padding: 2px 8px; border-radius: 999px; font-weight: 600; border: 1px solid var(--state-warn); color: var(--state-warn); }
+.tool-why-link {
+  min-height: 28px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  color: var(--text); background: var(--panel); border: 1px solid var(--control-border); border-radius: 8px;
+}
+.tool-why-link:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+/* Image artifacts: responsive, ratio kept, a frame while loading. The earlier rule
+   used variables that do not exist (--line, --fg-dim): fixed here. */
+.tool-artifact { max-width: 100%; }
+.tool-artifact-img {
+  max-width: 100%; max-height: 320px; width: auto; height: auto;
+  object-fit: contain; border: 1px solid var(--border); border-radius: 6px;
+}
+.tool-artifact.loading .tool-artifact-img { min-height: 120px; min-width: 120px; background: var(--accent-soft); }
+.tool-artifact.broken .tool-artifact-img { display: none; }
+.tool-artifact-note { color: var(--muted); }
+.tool-artifact-btn { min-height: 32px; border: 1px solid var(--control-border); }
+
+/* Second brain status: icon + words + colour, four distinguishable states. */
+.mode-badge { max-width: 240px; min-width: 44px; min-height: 32px; flex: 0 1 auto; }
+.mode-badge-dot { flex: 0 0 auto; }
+.mode-badge-dot {
+  width: auto; height: auto; flex: 0 0 auto; background: transparent !important;
+  font-size: 13px; line-height: 1; border-radius: 0;
+}
+.mode-badge.agent { border-color: var(--state-ok); }
+.mode-badge.readonly { border-color: var(--control-border); }
+.mode-badge.degraded { border-color: var(--state-warn); border-width: 2px; }
+.mode-badge.offline { border-color: var(--state-bad); border-width: 2px; border-style: dashed; }
+.mode-badge.agent .mode-badge-dot { color: var(--state-ok); }
+.mode-badge.degraded .mode-badge-dot { color: var(--state-warn); }
+.mode-badge.offline .mode-badge-dot { color: var(--state-bad); }
+#mode-badge-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+@media (forced-colors: active) {
+  .llm-switch.on .llm-switch-knob { background: Highlight; }
+  .tool-card[data-state] { border-left-color: CanvasText; }
 }

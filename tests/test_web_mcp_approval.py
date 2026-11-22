@@ -131,9 +131,10 @@ def run_turn(
     """POST a chat, answer (or not) every approval frame, collect the events."""
     events: List[Dict[str, Any]] = []
     seen: List[str] = []
-    with httpx.Client(base_url=base, headers=AUTH, timeout=60.0) as browser, httpx.Client(
-        base_url=base, headers=AUTH, timeout=60.0
-    ) as answering:
+    with (
+        httpx.Client(base_url=base, headers=AUTH, timeout=60.0) as browser,
+        httpx.Client(base_url=base, headers=AUTH, timeout=60.0) as answering,
+    ):
         session = browser.post("/api/sessions", json={}).json()["session"]
         with browser.stream(
             "POST",
@@ -153,9 +154,7 @@ def run_turn(
                     seen.append(str(data["id"]))
                     wanted = len(seen) <= (stop_after or 0)
                     if answer is not None and wanted:
-                        answering.post(
-                            f"/api/mcp/approvals/{data['id']}", json={"allow": answer}
-                        )
+                        answering.post(f"/api/mcp/approvals/{data['id']}", json={"allow": answer})
     return {"events": events, "session": session, "tickets": seen}
 
 

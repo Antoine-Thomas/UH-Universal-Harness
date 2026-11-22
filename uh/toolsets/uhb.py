@@ -448,9 +448,7 @@ def probe(
     return response.status_code == 200 and isinstance((payload or {}).get("modes"), list)
 
 
-def approver_for(
-    notify: Callable[[Dict[str, Any]], None]
-) -> Callable[[str, Dict[str, Any]], bool]:
+def approver_for(notify: Callable[[Dict[str, Any]], None]) -> Callable[[str, Dict[str, Any]], bool]:
     """An approver bound to the UI gate: the operator answers, the answer decides.
 
     Imported lazily because `uh/mcp_http` imports this package: a module-level
@@ -565,8 +563,9 @@ class Uhbtoolset:
         """
         if self.approver is None:
             return {
-                "error": (f"{name} needs an approval and this interface wired "
-                          "none: nothing was run"),
+                "error": (
+                    f"{name} needs an approval and this interface wired none: nothing was run"
+                ),
                 "type": "forbidden",
                 "kind": "forbidden",
                 "status": 403,
@@ -598,9 +597,7 @@ class Uhbtoolset:
         """
         try:
             with _client(self.timeout, self.client) as http:
-                response = http.post(
-                    f"{self.url}/tools/approvals", json={"tool": EXECUTE_TOOL}
-                )
+                response = http.post(f"{self.url}/tools/approvals", json={"tool": EXECUTE_TOOL})
         except Exception:  # noqa: BLE001 - no nonce means no run
             return None
         if response.status_code != 200:
@@ -717,8 +714,10 @@ class Uhbtoolset:
             nonce = self._mint_approval()
             if nonce is None:
                 return {
-                    "error": ("execute_code needs an approval nonce and UHB did not "
-                              "issue one: nothing was executed"),
+                    "error": (
+                        "execute_code needs an approval nonce and UHB did not "
+                        "issue one: nothing was executed"
+                    ),
                     "type": "forbidden",
                     "kind": "forbidden",
                     "status": 403,

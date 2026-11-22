@@ -84,7 +84,12 @@ def docker_status(timeout: float = 2.0) -> Dict[str, Any]:
             check=False,
         )
     except FileNotFoundError:
-        return {**blank, "state": "down", "detail": "docker absent du PATH", "reason": "binaire introuvable"}
+        return {
+            **blank,
+            "state": "down",
+            "detail": "docker absent du PATH",
+            "reason": "binaire introuvable",
+        }
     except (OSError, subprocess.SubprocessError) as exc:
         return {
             **blank,
@@ -94,10 +99,15 @@ def docker_status(timeout: float = 2.0) -> Dict[str, Any]:
         }
     version = (done.stdout or "").strip()
     if done.returncode == 0 and version:
-        return {**blank, "state": "up", "detail": f"moteur v{version}", "reason": "", "listening": True}
+        return {
+            **blank,
+            "state": "up",
+            "detail": f"moteur v{version}",
+            "reason": "",
+            "listening": True,
+        }
     reason = " ".join((done.stderr or done.stdout or "").split())[:200] or f"code {done.returncode}"
     return {**blank, "state": "down", "detail": "démon arrêté ou injoignable", "reason": reason}
-
 
 
 def _join_reason(headline: str, probe_report: Dict[str, Any]) -> str:
@@ -276,7 +286,9 @@ def collect(
     now = time.time()
     uhb = uhb_status or {"error": "second cerveau désactivé (UH_UHB_URL vide ou hors loopback)"}
     uhb_error = str(uhb.get("error") or "") if isinstance(uhb, dict) else ""
-    uhb_probe = probe(uhb_url) if uhb_url else {"listening": False, "reason": "non configuré", "port": None}
+    uhb_probe = (
+        probe(uhb_url) if uhb_url else {"listening": False, "reason": "non configuré", "port": None}
+    )
     ollama_probe = probe(ollama_url)
 
     services = [
@@ -308,7 +320,9 @@ def collect(
         {
             "name": "Ollama",
             "state": "up" if ollama_up else "down",
-            "detail": f"port {ollama_probe.get('port')}" if ollama_up else "aucune réponse sur /api/tags",
+            "detail": f"port {ollama_probe.get('port')}"
+            if ollama_up
+            else "aucune réponse sur /api/tags",
             "reason": "" if ollama_up else _join_reason("", ollama_probe) or "muet",
             "url": ollama_url,
             "port": ollama_probe.get("port"),
@@ -325,7 +339,9 @@ def collect(
             {
                 "name": entry["name"],
                 "state": "up" if report.get("listening") else "down",
-                "detail": f"port {report.get('port')}" if report.get("listening") else "aucune écoute",
+                "detail": f"port {report.get('port')}"
+                if report.get("listening")
+                else "aucune écoute",
                 "reason": "" if report.get("listening") else _join_reason("", report) or "muet",
                 "url": entry["url"],
                 "port": report.get("port"),
@@ -366,7 +382,11 @@ def collect(
         elif free < FREE_WARN_BYTES:
             add("warn", "Espace disque faible", f"{free // (1024**2)} Mo libres")
     if vram and float(vram.get("percent") or 0) >= VRAM_WARN_PERCENT:
-        add("warn", "VRAM saturée", f"{vram.get('used_mb')} / {vram.get('total_mb')} Mo ({vram.get('percent')} %)")
+        add(
+            "warn",
+            "VRAM saturée",
+            f"{vram.get('used_mb')} / {vram.get('total_mb')} Mo ({vram.get('percent')} %)",
+        )
     if not install.get("editable", True):
         add(
             "warn",
@@ -374,7 +394,11 @@ def collect(
             f"code chargé : {install.get('package', '?')} · l'interface peut être plus récente que le serveur",
         )
     if install.get("dirty"):
-        add("warn", "Code servi modifié", f"des fichiers suivis diffèrent du commit {install.get('commit') or '?'}")
+        add(
+            "warn",
+            "Code servi modifié",
+            f"des fichiers suivis diffèrent du commit {install.get('commit') or '?'}",
+        )
     if not alerts:
         add("ok", "Rien à signaler", "services, disque et VRAM dans les seuils")
 

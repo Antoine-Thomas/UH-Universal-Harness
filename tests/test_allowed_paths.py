@@ -31,7 +31,9 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # ~ must resolve inside the fake home too: Path.expanduser() goes through
     # os.path.expanduser, which reads HOME/USERPROFILE and ignores Path.home().
     monkeypatch.setattr(
-        os.path, "expanduser", lambda value: str(root) + value[1:] if value.startswith("~") else value
+        os.path,
+        "expanduser",
+        lambda value: str(root) + value[1:] if value.startswith("~") else value,
     )
     return root
 

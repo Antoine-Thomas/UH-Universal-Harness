@@ -338,7 +338,11 @@ def memory_usage() -> Optional[Dict[str, float]]:
             vm = psutil.virtual_memory()
             total = float(vm.total) / (1024**3)
             used = float(vm.total - vm.available) / (1024**3)
-            return {"total_gb": round(total, 1), "used_gb": round(used, 1), "percent": float(vm.percent)}
+            return {
+                "total_gb": round(total, 1),
+                "used_gb": round(used, 1),
+                "percent": float(vm.percent),
+            }
         except Exception:  # noqa: BLE001
             return None
     return _windows_memory() if os.name == "nt" else _linux_memory()
@@ -415,7 +419,11 @@ def _read_vram() -> Optional[Dict[str, Any]]:
     ]
     try:
         done = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            command, capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=2.0
+            command,
+            capture_output=True,
+            text=True,
+            encoding=locale.getpreferredencoding(False),
+            timeout=2.0,
         )
     except (OSError, subprocess.SubprocessError):
         return None

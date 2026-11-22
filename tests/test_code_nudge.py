@@ -80,12 +80,21 @@ class RunnableToolset:
 # --------------------------------------------------------------------------- #
 def test_the_first_code_block_is_reasked_with_the_tool_named() -> None:
     toolset = RunnableToolset()
-    provider = ScriptedProvider([{"role": "assistant", "content": code()}, tool_call("execute_code", code="print(41+1)"), {"role": "assistant", "content": "42"}])
+    provider = ScriptedProvider(
+        [
+            {"role": "assistant", "content": code()},
+            tool_call("execute_code", code="print(41+1)"),
+            {"role": "assistant", "content": "42"},
+        ]
+    )
     notices: list[str] = []
 
     history = run_turn(
-        [{"role": "user", "content": "calcule 41+1"}], provider, {"positron": toolset},
-        on_notice=notices.append, max_iterations=6,
+        [{"role": "user", "content": "calcule 41+1"}],
+        provider,
+        {"positron": toolset},
+        on_notice=notices.append,
+        max_iterations=6,
     )
 
     assert toolset.calls == [("execute_code", {"code": "print(41+1)"})], "the snippet ran"
@@ -128,8 +137,11 @@ def test_the_third_code_block_ends_the_turn_and_says_so() -> None:
     notices: list[str] = []
 
     history = run_turn(
-        [{"role": "user", "content": "fais-le"}], provider, {"positron": toolset},
-        on_notice=notices.append, max_iterations=8,
+        [{"role": "user", "content": "fais-le"}],
+        provider,
+        {"positron": toolset},
+        on_notice=notices.append,
+        max_iterations=8,
     )
 
     assert toolset.calls == [], "nothing was executed: the model never called the tool"
@@ -145,7 +157,9 @@ def test_the_third_code_block_ends_the_turn_and_says_so() -> None:
 def test_the_nudge_names_the_one_tool_that_can_run() -> None:
     assert "{tool}" in _NUDGE
     toolset = RunnableToolset()
-    provider = ScriptedProvider([{"role": "assistant", "content": code()}, {"role": "assistant", "content": "ok"}])
+    provider = ScriptedProvider(
+        [{"role": "assistant", "content": code()}, {"role": "assistant", "content": "ok"}]
+    )
 
     run_turn([{"role": "user", "content": "x"}], provider, {"positron": toolset}, max_iterations=4)
 
@@ -212,7 +226,13 @@ def test_a_request_that_asks_for_the_code_is_never_reasked() -> None:
 def test_only_the_last_user_message_decides_the_guard() -> None:
     """An older turn asking for a snippet must not silence today's nudge."""
     toolset = RunnableToolset()
-    provider = ScriptedProvider([{"role": "assistant", "content": code()}, tool_call("execute_code", code="x=1"), {"role": "assistant", "content": "fait"}])
+    provider = ScriptedProvider(
+        [
+            {"role": "assistant", "content": code()},
+            tool_call("execute_code", code="x=1"),
+            {"role": "assistant", "content": "fait"},
+        ]
+    )
 
     run_turn(
         [

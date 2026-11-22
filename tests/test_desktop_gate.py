@@ -84,8 +84,16 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/tools":
             self._answer(200, CATALOGUE)
         elif path == "/status":
-            self._answer(200, {"version": "1.0", "mode": "dev", "harness": "sim",
-                               "providers": ["p"], "modes": ["dev"]})
+            self._answer(
+                200,
+                {
+                    "version": "1.0",
+                    "mode": "dev",
+                    "harness": "sim",
+                    "providers": ["p"],
+                    "modes": ["dev"],
+                },
+            )
         elif path == "/modes":
             self._answer(200, {"modes": [{"name": "dev", "tools": ["desktop_windows"]}]})
         else:
@@ -101,11 +109,19 @@ class _Handler(BaseHTTPRequestHandler):
             body = {}
         _Handler.calls.append((path, body))
         if path == "/route":
-            self._answer(200, {"complexity": "trivial", "reason": "simulated",
-                               "chain": [{"model": "m"}], "score": 0})
+            self._answer(
+                200,
+                {
+                    "complexity": "trivial",
+                    "reason": "simulated",
+                    "chain": [{"model": "m"}],
+                    "score": 0,
+                },
+            )
         elif path == "/tools/approvals":
-            self._answer(200, {"approval_id": "nonce-from-uhb", "tool": "execute_code",
-                               "expires_in": 120})
+            self._answer(
+                200, {"approval_id": "nonce-from-uhb", "tool": "execute_code", "expires_in": 120}
+            )
         else:
             self._answer(200, {"ok": True, "simulated": path})
 
@@ -152,9 +168,7 @@ def posts() -> List[tuple[str, Dict[str, Any]]]:
 def actions() -> List[tuple[str, Dict[str, Any]]]:
     """Only the calls that would have ACTED (execute_code or a desktop_ tool)."""
     return [
-        (path, body)
-        for path, body in posts()
-        if path != "/tools/approvals" and path != "/tools"
+        (path, body) for path, body in posts() if path != "/tools/approvals" and path != "/tools"
     ]
 
 

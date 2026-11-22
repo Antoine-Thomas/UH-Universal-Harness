@@ -140,7 +140,9 @@ def test_branch_e_guided_setup_saves_the_key_without_printing_it(
             return True
 
     monkeypatch.setattr(sys, "stdin", FakeTty(""))
-    answers = iter(["groq", "https://api.groq.com/openai/v1", "llama-3.1-8b-instant", "sk-test-SECRET"])
+    answers = iter(
+        ["groq", "https://api.groq.com/openai/v1", "llama-3.1-8b-instant", "sk-test-SECRET"]
+    )
     stream = io.StringIO()
 
     choice = onboarding.choose_provider(

@@ -120,7 +120,9 @@ def test_install_refuses_a_bad_hour(home: Path) -> None:
         dream_schedule.install(at="3am")
 
 
-def test_status_says_nothing_is_installed_at_first(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_status_says_nothing_is_installed_at_first(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(dream_schedule, "task_exists", lambda: False)
 
     state = dream_schedule.status()

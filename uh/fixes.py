@@ -60,9 +60,17 @@ class Proposal:
 def _git(repo: Path, *args: str, timeout: float = 60.0) -> subprocess.CompletedProcess:
     command = ["git", "-C", str(repo), *args]
     try:
-        return subprocess.run(command, capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=timeout)
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding=locale.getpreferredencoding(False),
+            timeout=timeout,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise FixError(f"cannot run {' '.join(shlex.quote(part) for part in command)}: {exc}") from exc
+        raise FixError(
+            f"cannot run {' '.join(shlex.quote(part) for part in command)}: {exc}"
+        ) from exc
 
 
 def repo_root(start: Optional[Path] = None) -> Path:
@@ -171,9 +179,7 @@ def _ask_model(
         "fences, no explanation. If you cannot produce a diff that applies, answer "
         "exactly: CANNOT."
     )
-    user = (
-        "Repository files (truncated):\n" + "\n".join(context) + f"\n\nProblem:\n{instruction}"
-    )
+    user = "Repository files (truncated):\n" + "\n".join(context) + f"\n\nProblem:\n{instruction}"
     try:
         answer = provider.chat(  # type: ignore[attr-defined]
             [{"role": "system", "content": system}, {"role": "user", "content": user}], []
@@ -234,7 +240,12 @@ def apply(
     failed: List[str] = []
     for command in checks:
         result = subprocess.run(
-            list(command), cwd=str(root), capture_output=True, text=True, encoding=locale.getpreferredencoding(False), timeout=900
+            list(command),
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            encoding=locale.getpreferredencoding(False),
+            timeout=900,
         )
         if result.returncode != 0:
             failed.append(

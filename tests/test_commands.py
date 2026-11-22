@@ -43,8 +43,17 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ChatSession:
 
 
 MANDATORY = {
-    "help", "model", "provider", "tools", "clear", "new",
-    "sessions", "resume", "config", "doctor", "exit",
+    "help",
+    "model",
+    "provider",
+    "tools",
+    "clear",
+    "new",
+    "sessions",
+    "resume",
+    "config",
+    "doctor",
+    "exit",
 }
 
 
@@ -177,9 +186,7 @@ def test_web_runs_the_search_without_the_model(
     assert session.history == before  # no model call, nothing added to the history
 
 
-def test_web_reports_search_errors(
-    session: ChatSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_web_reports_search_errors(session: ChatSession, monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(*args, **kwargs):
         raise httpx.ConnectError("dns failed")
 

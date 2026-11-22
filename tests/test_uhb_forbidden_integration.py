@@ -66,8 +66,11 @@ def test_a_chat_mode_uhb_refuses_execute_code_and_the_loop_keeps_the_id(
 
     child = subprocess.Popen(
         [sys.executable, "-m", "uhb.entrypoints.cli", "run", "--mode", "chat", "--port", str(port)],
-        cwd=str(UHB), env=dict(os.environ),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        cwd=str(UHB),
+        env=dict(os.environ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
     try:
         assert wait(lambda: uhb_spawn.port_open(url)), "the chat-mode UHB never came up"
@@ -76,13 +79,21 @@ def test_a_chat_mode_uhb_refuses_execute_code_and_the_loop_keeps_the_id(
         names = [spec["function"]["name"] for spec in toolset.tools]
         assert "execute_code" in names, "the catalogue publishes it; the mode is what refuses"
 
-        provider = ScriptedProvider([
-            {"role": "assistant", "content": "", "tool_calls": [
-                {"id": "call_real", "function": {"name": "execute_code",
-                                                 "arguments": {"code": "print(1)"}}},
-            ]},
-            {"role": "assistant", "content": "je ne peux pas exécuter de code ici"},
-        ])
+        provider = ScriptedProvider(
+            [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_real",
+                            "function": {"name": "execute_code", "arguments": {"code": "print(1)"}},
+                        },
+                    ],
+                },
+                {"role": "assistant", "content": "je ne peux pas exécuter de code ici"},
+            ]
+        )
 
         history = run_turn(
             [{"role": "user", "content": "lance print(1)"}],
@@ -118,8 +129,11 @@ def test_a_real_uhb_runs_nothing_when_the_operator_refuses(tmp_path, monkeypatch
 
     child = subprocess.Popen(
         [sys.executable, "-m", "uhb.entrypoints.cli", "run", "--mode", "dev", "--port", str(port)],
-        cwd=str(UHB), env=dict(os.environ),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        cwd=str(UHB),
+        env=dict(os.environ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
     try:
         assert wait(lambda: uhb_spawn.port_open(url)), "the dev-mode UHB never came up"
@@ -157,8 +171,11 @@ def test_a_real_uhb_is_waited_for_longer_than_a_route_decision(tmp_path, monkeyp
 
     child = subprocess.Popen(
         [sys.executable, "-m", "uhb.entrypoints.cli", "run", "--mode", "dev", "--port", str(port)],
-        cwd=str(UHB), env=dict(os.environ),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        cwd=str(UHB),
+        env=dict(os.environ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
     try:
         assert wait(lambda: uhb_spawn.port_open(url)), "the dev-mode UHB never came up"

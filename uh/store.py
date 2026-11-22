@@ -245,9 +245,7 @@ class Store:
         raise StoreError("could not allocate a unique session id after 32 attempts")
 
     def get_session(self, session_id: str) -> Optional[dict]:
-        row = self.conn.execute(
-            "SELECT * FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
+        row = self.conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
         return self._session_dict(row) if row else None
 
     def list_sessions(self, limit: int = 50) -> list[dict]:
@@ -371,9 +369,7 @@ class Store:
         if content is None:
             content = ""
         tool_calls = message.get("tool_calls")
-        payload = (
-            json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None
-        )
+        payload = json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None
         artifacts = message.get("artifacts")
         images = json.dumps(artifacts, ensure_ascii=False) if artifacts else None
         now = _now()
@@ -395,9 +391,7 @@ class Store:
                 ),
             )
             message_id = int(cursor.lastrowid or 0)
-            self.conn.execute(
-                "UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id)
-            )
+            self.conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
         return message_id
 
     def append_messages(self, session_id: str, messages: Iterable[dict]) -> int:

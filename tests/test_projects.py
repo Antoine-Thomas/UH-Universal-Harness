@@ -103,7 +103,9 @@ def test_the_registry_round_trips(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert projects.registry_path().is_file()
 
 
-def test_adding_a_non_repository_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_adding_a_non_repository_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
     plain = tmp_path / "fichier"
     plain.mkdir()

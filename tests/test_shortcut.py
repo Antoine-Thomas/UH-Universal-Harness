@@ -151,7 +151,7 @@ def test_install_writes_the_launcher_and_the_link(tmp_path: Path) -> None:
     script = commands[0]
     assert "WScript.Shell" in script
     assert "powershell.exe" in script
-    assert f"-File \"{created.script}\"" in script
+    assert f'-File "{created.script}"' in script
     assert str(created.icon) in script
     assert shortcut.LINK_DESCRIPTION in script
     assert "-WindowStyle Hidden" in script, "no console window on top of the browser"
@@ -268,6 +268,7 @@ def test_the_cli_turns_a_shortcut_error_into_one_line(
 
     assert cli.main(["install-shortcut"]) == 1
     assert "uh install-shortcut: powershell failed: access denied" in capsys.readouterr().err
+
 
 def test_the_launcher_clears_a_previous_web_before_starting() -> None:
     """The button must not depend on the user knowing about a leftover process."""

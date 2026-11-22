@@ -190,9 +190,7 @@ def validate_key(raw: Any) -> str:
 def validate_name(raw: str) -> str:
     name = (raw or "").strip().lower()
     if not NAME_RE.match(name):
-        raise AdminError(
-            "name must be lowercase letters, digits, '-' or '_' (max 32 characters)"
-        )
+        raise AdminError("name must be lowercase letters, digits, '-' or '_' (max 32 characters)")
     return name
 
 
@@ -285,9 +283,10 @@ def keys_panel() -> dict[str, Any]:
     configured = read_providers()
     cfg = uh_config.load()
 
-    account = os.environ.get("UH_CLOUDFLARE_ACCOUNT_ID", "").strip() or str(
-        cfg.get("cloudflare_account_id") or ""
-    ).strip()
+    account = (
+        os.environ.get("UH_CLOUDFLARE_ACCOUNT_ID", "").strip()
+        or str(cfg.get("cloudflare_account_id") or "").strip()
+    )
     env_token = os.environ.get("UH_CLOUDFLARE_API_TOKEN", "").strip()
     stored_token = _stored_keys("cloudflare", configured)
     if env_token:
@@ -387,9 +386,7 @@ def remove_key_index(name: str, index: int) -> int:
     return len(read_providers().get(clean, {}).get("keys") or [])
 
 
-def save_provider(
-    name: str, base_url: str, model: str = "", raw_key: str = ""
-) -> dict[str, Any]:
+def save_provider(name: str, base_url: str, model: str = "", raw_key: str = "") -> dict[str, Any]:
     """Store or update a provider; used by ``uh providers add`` and by the panel."""
     clean = validate_name(name)
     url = validate_base_url(base_url)
@@ -494,9 +491,7 @@ def import_from_omnirouter() -> dict[str, Any]:
 
     path = config_path()
     if path is None:
-        raise AdminError(
-            "no OmniRoute configuration detected (~/.omniroute/.env)", kind="unknown"
-        )
+        raise AdminError("no OmniRoute configuration detected (~/.omniroute/.env)", kind="unknown")
     base_url = resolve_base_url() or ""
     key = resolve_api_key() or ""
     if not base_url or not key:
@@ -536,14 +531,10 @@ def read_secret(prompt: str = "API key (not echoed): ", env_var: str = "UH_PROVI
     return ""
 
 
-def update_settings(
-    *, allow_remote: bool, consent: bool, strategy: str = ""
-) -> dict[str, Any]:
+def update_settings(*, allow_remote: bool, consent: bool, strategy: str = "") -> dict[str, Any]:
     current = uh_config.load()
     if allow_remote and not has_consent(current) and not consent:
-        raise AdminError(
-            "enabling remote providers requires consent: true in the same request"
-        )
+        raise AdminError("enabling remote providers requires consent: true in the same request")
     wanted = (strategy or "").strip().lower()
     if wanted and wanted not in STRATEGIES:
         raise AdminError("strategy must be priority or round-robin")

@@ -92,8 +92,9 @@ def test_the_artefact_survives_a_reload_because_it_lives_in_the_message(tmp_path
         "role": "tool",
         "name": "screenshot",
         "tool_call_id": "call_img",
-        "content": json.dumps({"server": "positron", "tool": "screenshot",
-                               "text": "voici", "artifacts": artefacts}),
+        "content": json.dumps(
+            {"server": "positron", "tool": "screenshot", "text": "voici", "artifacts": artefacts}
+        ),
     }
 
     store = Store(tmp_path / "uh.db")

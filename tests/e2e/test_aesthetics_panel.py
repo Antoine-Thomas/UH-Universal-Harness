@@ -139,19 +139,34 @@ def test_the_tasks_panel_writes_dates_in_french(browser, server_no_triggers, mon
     data = uh_schedule.load_registry()
     data["tasks"] = [
         {
-            "id": "t-date-aujourdhui", "name": "aujourd'hui", "command": "doctor",
-            "every_minutes": 15, "enabled": True, "created": jour(-1, 12),
-            "last_run": jour(0), "last_status": "ok",
+            "id": "t-date-aujourdhui",
+            "name": "aujourd'hui",
+            "command": "doctor",
+            "every_minutes": 15,
+            "enabled": True,
+            "created": jour(-1, 12),
+            "last_run": jour(0),
+            "last_status": "ok",
         },
         {
-            "id": "t-date-hier", "name": "hier", "command": "doctor",
-            "every_minutes": 60, "enabled": True, "created": jour(-2, 12),
-            "last_run": jour(-1), "last_status": "ok",
+            "id": "t-date-hier",
+            "name": "hier",
+            "command": "doctor",
+            "every_minutes": 60,
+            "enabled": True,
+            "created": jour(-2, 12),
+            "last_run": jour(-1),
+            "last_status": "ok",
         },
         {
-            "id": "t-date-mois", "name": "mois", "command": "doctor",
-            "every_minutes": 60, "enabled": True, "created": jour(-41, 12),
-            "last_run": jour(-40, 12), "last_status": "ok",
+            "id": "t-date-mois",
+            "name": "mois",
+            "command": "doctor",
+            "every_minutes": 60,
+            "enabled": True,
+            "created": jour(-41, 12),
+            "last_run": jour(-40, 12),
+            "last_status": "ok",
         },
     ]
     uh_schedule.save_registry(data)
@@ -216,8 +231,14 @@ def test_the_day_is_the_servers_day_not_the_browsers(
     data = uh_schedule.load_registry()
     data["tasks"] = [
         {
-            "id": "t-fuseau", "name": "fuseau", "command": "doctor", "every_minutes": 60,
-            "enabled": True, "created": passage, "last_run": passage, "last_status": "ok",
+            "id": "t-fuseau",
+            "name": "fuseau",
+            "command": "doctor",
+            "every_minutes": 60,
+            "enabled": True,
+            "created": passage,
+            "last_run": passage,
+            "last_status": "ok",
         }
     ]
     uh_schedule.save_registry(data)

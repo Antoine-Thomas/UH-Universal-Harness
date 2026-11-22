@@ -20,7 +20,9 @@ def _write_skill(home: Path, name: str, title: str, description: str, body: str)
     folder = skills.user_dir(home)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{name}.md"
-    path.write_text(TEMPLATE.format(title=title, description=description, body=body), encoding="utf-8")
+    path.write_text(
+        TEMPLATE.format(title=title, description=description, body=body), encoding="utf-8"
+    )
     return path
 
 
@@ -35,7 +37,9 @@ def test_two_skills_with_the_same_title_are_a_group(tmp_path: Path) -> None:
 
 
 def test_different_skills_are_not_a_group(tmp_path: Path) -> None:
-    _write_skill(tmp_path, "rust", "Rust et les emprunts", "Le borrow checker en pratique", "x" * 50)
+    _write_skill(
+        tmp_path, "rust", "Rust et les emprunts", "Le borrow checker en pratique", "x" * 50
+    )
     _write_skill(tmp_path, "php", "PHP moderne", "Typage et Composer", "y" * 50)
 
     assert skills.duplicate_groups(home=tmp_path) == []

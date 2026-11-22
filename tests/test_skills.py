@@ -115,7 +115,9 @@ def test_an_existing_name_is_refused(home: Path) -> None:
         skills.create(title="Doublon", description="", instructions="j", home=home)
 
 
-@pytest.mark.parametrize("name", ["../evade", "avec/espace", "avec espace", "a" * 80, ".cache", "majuscule!"])
+@pytest.mark.parametrize(
+    "name", ["../evade", "avec/espace", "avec espace", "a" * 80, ".cache", "majuscule!"]
+)
 def test_a_name_that_could_escape_the_folder_is_refused(home: Path, name: str) -> None:
     with pytest.raises(skills.SkillError, match="file name"):
         skills.create(title="T", description="", instructions="i", name=name, home=home)

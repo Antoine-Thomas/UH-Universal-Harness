@@ -88,7 +88,7 @@ def test_the_page_asks_for_the_session_status() -> None:
     source = (Path(__file__).resolve().parents[1] / "uh" / "web" / "static" / "app.js").read_text(
         encoding="utf-8"
     )
-    assert re.search(r'api\(`/api/status\$\{query\}`\)', source), (
+    assert re.search(r"api\(`/api/status\$\{query\}`\)", source), (
         "loadStatus must pass the session id, or the header goes back to the default"
     )
     assert "?session_id=" in source

@@ -221,8 +221,7 @@ class OmniRouterProvider(Provider):
         resolved = (base_url or resolve_base_url() or "").rstrip("/")
         if not resolved:
             raise ProviderError(
-                "OmniRouter not configured: set UH_OMNIROUTER_URL "
-                "(e.g. http://127.0.0.1:20128)"
+                "OmniRouter not configured: set UH_OMNIROUTER_URL (e.g. http://127.0.0.1:20128)"
             )
         self.base_url = resolved
         self.model = model or DEFAULT_MODEL
@@ -284,9 +283,7 @@ class OmniRouterProvider(Provider):
             sleep=self.retry_sleep,
         )
 
-    def _stream_with_usage(
-        self, payload: dict, on_token: Callable[[str], None]
-    ) -> dict:
+    def _stream_with_usage(self, payload: dict, on_token: Callable[[str], None]) -> dict:
         """Stream, asking the gateway for its final usage chunk.
 
         ``stream_options.include_usage`` is the OpenAI way to get token counters
@@ -458,11 +455,13 @@ def _normalise_tool_calls(raw) -> List[dict]:
             # OpenAI/DeepSeek (422). Les arguments invalides sont conserves tels
             # quels, jamais remplaces par {} : la validation decide plus loin.
             arguments = json.dumps(arguments if arguments is not None else {}, ensure_ascii=False)
-        calls.append({
-            "id": call.get("id") or f"call_{uuid.uuid4().hex[:12]}",
-            "type": call.get("type") or "function",
-            "function": {"name": function.get("name", ""), "arguments": arguments},
-        })
+        calls.append(
+            {
+                "id": call.get("id") or f"call_{uuid.uuid4().hex[:12]}",
+                "type": call.get("type") or "function",
+                "function": {"name": function.get("name", ""), "arguments": arguments},
+            }
+        )
     return calls
 
 
@@ -472,11 +471,14 @@ def _merge_tool_call_fragments(fragments: dict, raw) -> None:
         if not isinstance(call, dict):
             continue
         index = call.get("index", position)
-        slot = fragments.setdefault(index, {
-            "id": call.get("id") or f"call_{uuid.uuid4().hex[:12]}",
-            "type": call.get("type") or "function",
-            "function": {"name": "", "arguments": ""},
-        })
+        slot = fragments.setdefault(
+            index,
+            {
+                "id": call.get("id") or f"call_{uuid.uuid4().hex[:12]}",
+                "type": call.get("type") or "function",
+                "function": {"name": "", "arguments": ""},
+            },
+        )
         function = call.get("function") or {}
         if function.get("name"):
             slot["function"]["name"] += str(function["name"])

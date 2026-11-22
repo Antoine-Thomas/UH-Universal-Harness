@@ -86,11 +86,14 @@ def test_the_counts_come_from_the_store_and_the_disk(
 ) -> None:
     app = make_app(tmp_path, monkeypatch)
     home = tmp_path / "home"
-    (home / "MEMORY.md").write_text("# Preferences\n\ndark mode\n\n# Projets\n\nUH\n", encoding="utf-8")
+    (home / "MEMORY.md").write_text(
+        "# Preferences\n\ndark mode\n\n# Projets\n\nUH\n", encoding="utf-8"
+    )
     dreams = home / "dreams" / "passes" / "20261113-030000"
     dreams.mkdir(parents=True)
     (dreams / "report.md").write_text(
-        "# Dream pass\n\n- status: ok\n\n## Ideas\n1. **Une idee** - deux phrases.\n", encoding="utf-8"
+        "# Dream pass\n\n- status: ok\n\n## Ideas\n1. **Une idee** - deux phrases.\n",
+        encoding="utf-8",
     )
 
     async def scenario():

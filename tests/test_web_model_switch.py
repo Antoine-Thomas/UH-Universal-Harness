@@ -138,7 +138,11 @@ def test_a_provider_without_a_key_is_not_offered(monkeypatch, calls, tmp_path) -
 
 def test_switching_to_deepseek_sends_both_halves(monkeypatch, calls, tmp_path) -> None:
     answer = call(
-        monkeypatch, calls, tmp_path, "POST", "/api/model",
+        monkeypatch,
+        calls,
+        tmp_path,
+        "POST",
+        "/api/model",
         {"provider": "deepseek", "model": "deepseek-v4-pro"},
     )
     assert answer.status_code == 200, answer.text
@@ -157,7 +161,11 @@ def test_the_provider_is_inferred_from_the_catalogue(monkeypatch, calls, tmp_pat
 def test_a_local_name_never_reaches_an_api_provider(monkeypatch, calls, tmp_path) -> None:
     """The exact mismatch behind the 'HTTP 500': ollama's name sent to DeepSeek."""
     answer = call(
-        monkeypatch, calls, tmp_path, "POST", "/api/model",
+        monkeypatch,
+        calls,
+        tmp_path,
+        "POST",
+        "/api/model",
         {"provider": "deepseek", "model": "lfm3:latest"},
     )
 
@@ -167,9 +175,15 @@ def test_a_local_name_never_reaches_an_api_provider(monkeypatch, calls, tmp_path
     assert calls == [], "nothing was constructed from a contradictory pair"
 
 
-def test_an_uninstalled_local_model_is_refused_with_a_sentence(monkeypatch, calls, tmp_path) -> None:
+def test_an_uninstalled_local_model_is_refused_with_a_sentence(
+    monkeypatch, calls, tmp_path
+) -> None:
     answer = call(
-        monkeypatch, calls, tmp_path, "POST", "/api/model",
+        monkeypatch,
+        calls,
+        tmp_path,
+        "POST",
+        "/api/model",
         {"provider": "ollama", "model": "qwen9:70b"},
     )
 
@@ -180,7 +194,11 @@ def test_an_uninstalled_local_model_is_refused_with_a_sentence(monkeypatch, call
 
 def test_setup_refuses_a_model_that_is_not_installed(monkeypatch, calls, tmp_path) -> None:
     answer = call(
-        monkeypatch, calls, tmp_path, "POST", "/api/setup",
+        monkeypatch,
+        calls,
+        tmp_path,
+        "POST",
+        "/api/setup",
         {"choice": "ollama", "model": "qwen9:70b"},
     )
 
@@ -194,7 +212,11 @@ def test_setup_picks_a_published_model_for_a_cloud_choice(monkeypatch, calls, tm
     stored: list[tuple[str, str]] = []
     monkeypatch.setattr(admin, "add_key_to", lambda name, key: stored.append((name, key)) or 1)
     answer = call(
-        monkeypatch, calls, tmp_path, "POST", "/api/setup",
+        monkeypatch,
+        calls,
+        tmp_path,
+        "POST",
+        "/api/setup",
         {"choice": "cloud", "provider": "deepseek", "key": "sk-x"},
     )
 
@@ -212,7 +234,13 @@ def test_a_catalogue_provider_is_listed_once(monkeypatch, calls, tmp_path) -> No
     monkeypatch.setattr(
         keys_mod,
         "read_providers",
-        lambda: {"deepseek": {"base_url": "https://api.deepseek.com", "model": "deepseek-flash", "keys": ["sk"]}},
+        lambda: {
+            "deepseek": {
+                "base_url": "https://api.deepseek.com",
+                "model": "deepseek-flash",
+                "keys": ["sk"],
+            }
+        },
     )
     payload = call(monkeypatch, calls, tmp_path, "GET", "/api/models").json()
 
@@ -288,7 +316,9 @@ def test_a_refused_write_is_reported_not_hidden(monkeypatch, calls, tmp_path) ->
     assert body["persisted"] is False, "and the browser is told it was not saved"
 
 
-def test_the_choice_is_written_even_when_the_config_holds_tables(monkeypatch, calls, tmp_path) -> None:
+def test_the_choice_is_written_even_when_the_config_holds_tables(
+    monkeypatch, calls, tmp_path
+) -> None:
     """The real config carries [[mcp.servers]], and the flat writer refuses those.
 
     That refusal is why the model reset at every restart on this machine. One root
@@ -296,8 +326,8 @@ def test_the_choice_is_written_even_when_the_config_holds_tables(monkeypatch, ca
     """
     config = tmp_path / "config.toml"
     config.write_text(
-        "default_model = \"lfm3:latest\"\n\n[[mcp.servers]]\nname = \"atelier\"\n"
-        "command = \"npx\"\nargs = [\"-y\", \"server-filesystem\"]\n",
+        'default_model = "lfm3:latest"\n\n[[mcp.servers]]\nname = "atelier"\n'
+        'command = "npx"\nargs = ["-y", "server-filesystem"]\n',
         encoding="utf-8",
     )
 

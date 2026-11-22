@@ -106,9 +106,11 @@ def test_blocks_are_forwarded_with_a_capped_limit() -> None:
         seen["url"] = str(request.url)
         return httpx.Response(
             200,
-            json={"count": 1, "path": "veille", "blocks": [
-                {"id": "a", "type": "h", "hpath": "/veille", "content": "Titre"}
-            ]},
+            json={
+                "count": 1,
+                "path": "veille",
+                "blocks": [{"id": "a", "type": "h", "hpath": "/veille", "content": "Titre"}],
+            },
         )
 
     use(handler)
@@ -143,7 +145,11 @@ def test_a_refused_token_is_an_auth_failure() -> None:
 
 
 def test_an_unreachable_kernel_is_a_transport_failure() -> None:
-    use(lambda request: httpx.Response(502, json={"error": {"message": "SiYuan is not reachable at http://x"}}))
+    use(
+        lambda request: httpx.Response(
+            502, json={"error": {"message": "SiYuan is not reachable at http://x"}}
+        )
+    )
 
     result = memory_actions.siyuan_blocks(URL)
 
