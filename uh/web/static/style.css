@@ -2165,3 +2165,146 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
   .llm-switch.on .llm-switch-knob { background: Highlight; }
   .tool-card[data-state] { border-left-color: CanvasText; }
 }
+
+
+/* ==========================================================================
+   P5-UI — passe de lisibilité et de cohérence (22/11).
+   Aucun style inline, aucun CDN, aucune police externe : la CSP ne change pas.
+   Palette de marque conservée (encre #284543, or #fdc502, teal #0c9f93).
+   Chaque sélecteur ici existe vraiment dans index.html / app.js : la version du
+   rapport citait `.slash-pill`, `.badge-ok` et `.muted`, qui n'existent pas et
+   auraient été des règles mortes.
+   ========================================================================== */
+
+/* 1. Variables utilisées mais jamais définies : `var(--danger)` retombait sur du
+   noir par défaut, et `var(--bg-hover)` n'avait qu'un repli local. */
+:root {
+  --danger: var(--state-bad);
+  --danger-soft: color-mix(in srgb, var(--state-bad) 12%, transparent);
+  --warn: var(--state-warn);
+  --bg-hover: color-mix(in srgb, var(--text) 6%, transparent);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .10);
+  --shadow-2: 0 8px 28px rgba(0, 0, 0, .22);
+  --ctl-h: 34px;          /* hauteur unique des contrôles */
+  --ctl-radius: 10px;
+}
+
+/* 2. `hidden` gagne toujours. Une règle display:flex/grid sur la même classe
+   battait l'attribut, et la modale restait peinte après sa fermeture. */
+[hidden] { display: none !important; }
+
+/* 3. Lecture du chat : 14 px, interligne 1.55, de l'air entre les bulles. */
+.messages { gap: 16px; padding: 22px clamp(14px, 3vw, 28px); }
+.msg {
+  font-size: 14px; line-height: 1.55; padding: 12px 16px;
+  border-radius: 14px; box-shadow: var(--shadow-1);
+}
+.msg code, .msg pre { font-size: 12.5px; line-height: 1.5; }
+.msg .role { font-size: 11.5px; letter-spacing: .02em; }
+
+/* 4. Compositeur : une hauteur, un rayon, un état de survol. */
+.composer { gap: 8px; align-items: flex-end; }
+.composer textarea {
+  font-size: 14px; line-height: 1.5;
+  border-radius: var(--ctl-radius); padding: 9px 12px;
+}
+.composer button, .composer .ghost, .composer .icon-button, .composer .skill-open {
+  min-height: var(--ctl-h); border-radius: var(--ctl-radius);
+}
+/* Les quatre icônes du compositeur avaient le fond accent des boutons d'envoi :
+   quatre pavés teal de teintes différentes collés au champ. Un seul bouton porte
+   l'accent (Envoyer) ; les autres sont des contrôles neutres de même taille. */
+.composer .icon-button, .composer .skill-open {
+  width: var(--ctl-h); height: var(--ctl-h);
+  background: var(--panel); color: var(--text); border-color: var(--control-border);
+}
+.composer .icon-button:hover, .composer .skill-open:hover {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
+.composer button:hover:not(:disabled) { border-color: var(--accent); }
+.composer button:active:not(:disabled) { transform: translateY(1px); }
+
+/* Le bandeau du haut empilait ses contrôles sur 700 px : titre tronqué, jauge
+   sous les icônes, « Configuration » coupé. Il passe à la ligne au lieu de se
+   chevaucher, et le titre reste ce qui cède de la place. */
+.topbar { flex-wrap: wrap; row-gap: 8px; }
+.topbar .title { flex: 1 1 140px; }
+.topbar > :not(.title) { flex-shrink: 0; }
+
+/* En-têtes de colonne : sept contrôles ne tiennent pas sur 220 px de sidebar ni
+   sur 360 px de panneau. Ils se replient au lieu de sortir du cadre. */
+/* Sept contrôles ne tiennent pas sur 360 px : on resserre plutôt que d'orpheliner
+   le bouton de fermeture sur une deuxième ligne. La sidebar, elle, se replie. */
+.panel-head { gap: 6px; }
+.panel-head .icon-button, .sidebar-head .icon-button { width: 26px; height: 26px; }
+.sidebar-head { flex-wrap: wrap; row-gap: 6px; gap: 8px; }
+.sidebar-head .brand { min-width: 0; }
+
+/* Pied de la sidebar : la version, le badge d'installation et deux boutons sur
+   220 px. Le texte cède de la place (ellipse), les boutons restent entiers. */
+.sidebar-foot { flex-wrap: wrap; gap: 6px 8px; }
+.sidebar-foot #status-provider, .sidebar-foot .install-badge {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sidebar-foot .icon-button { flex: 0 0 auto; }
+
+/* Champs des cartes fournisseur : un <select> garde sa largeur intrinsèque
+   (321 px) et sortait de la carte. `flex: 1` sans base nulle ne le laisse pas
+   rétrécir - il faut min-width: 0 partout dans la chaîne. */
+.custom-field, .custom-field input, .custom-field select, .preset-select { min-width: 0; }
+.custom-field input, .custom-field select, .preset-select { flex: 1 1 0; max-width: 100%; }
+
+/* 5. Un seul système de boutons : `.ghost`, `.ghost-button` et `.data-button`
+   avaient trois hauteurs et trois rayons. */
+.ghost, .ghost-button, .data-button {
+  min-height: var(--ctl-h); border-radius: var(--ctl-radius);
+  padding: 0 12px; font: inherit; font-size: 13px; cursor: pointer;
+  color: var(--text); background: var(--panel);
+}
+.ghost:hover, .ghost-button:hover, .data-button:hover {
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.ghost:disabled, .ghost-button:disabled, .data-button:disabled {
+  opacity: .55; cursor: not-allowed;
+}
+
+/* 6. Modales : fond surélevé, ombre douce, en-tête net, actions séparées.
+   `.modal-body` est le texte des confirmations (remplace window.confirm). */
+.modal-backdrop { background: rgba(8, 20, 19, .55); backdrop-filter: blur(2px); }
+.modal {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-2);
+  max-height: min(86vh, 900px); overflow: auto;
+}
+.modal-form { padding: 22px; gap: 14px; }
+.modal-title { font-size: 16px; font-weight: 700; }
+.modal-body { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text); }
+.modal-input, .modal-area {
+  font-size: 14px; border-radius: var(--ctl-radius); padding: 9px 12px;
+}
+.modal-actions { padding-top: 12px; border-top: 1px solid var(--border); }
+.modal-actions button { min-height: var(--ctl-h); border-radius: var(--ctl-radius); }
+
+/* 7. Panneau de droite : onglets lisibles, qui passent à la ligne sans couper
+   leur titre (chaque onglet garde son libellé entier, la barre se replie). */
+.panel-tab { font-size: 13px; padding: 7px 10px; min-height: var(--ctl-h); }
+.panel-tabs { flex-wrap: wrap; }
+
+/* 8. Taille minimale de texte : plus rien sous 12 px dans les zones de lecture. */
+.catalog-meta, .tool-artifact-note, .telem-provider, .tool-slow,
+.decision-tech summary, .error-detail, .modal-error, .view-stale { font-size: 12px; }
+.panel-hint, .data-hint, .data-note, .data-status, .skills-hint, .llm-hint,
+.key-hint, .projects-hint { color: var(--muted); }
+
+/* 9. Défilement : une seule zone qui défile par colonne. */
+.rightbar-scroll { overflow-y: auto; overscroll-behavior: contain; }
+.messages { overscroll-behavior: contain; }
+
+/* 10. Mouvement réduit et petits écrans. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+@media (max-width: 900px) {
+  .msg { max-width: 100%; }
+  .modal { max-width: 94vw; }
+}
