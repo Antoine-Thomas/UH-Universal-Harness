@@ -13,7 +13,7 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [1.9.2] — 2026-11-22
+## [1.9.2] — 2026-11-22 *(PyPI — référence stable)*
 
 ### Added
 - **Auto-shutdown lease on window close (uh/web/app.py, uh/web/static/app.js)**: heartbeat lease (/api/lease) plus pagehide/eforeunload notification so closing the cockpit window stops the local server cleanly without leaving orphan processes.

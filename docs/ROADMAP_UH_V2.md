@@ -1,3 +1,4 @@
+> **Point de repli stable recommandé (PyPI) :** `v1.9.2` — installation directe : `pip install "uh-harness[web]==1.9.2"` (fermeture propre à la fermeture de la fenêtre cockpit + passe visuelle P5-UI).
 # UH V2 — the unified cockpit
 
 Source of truth for the order of work. Written 2026-11-13, at UH **1.1.0**
