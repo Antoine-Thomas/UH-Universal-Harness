@@ -1984,7 +1984,7 @@ refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
 
 ---
 
-## P5-UI lot 2 — retours du 22/11 (ouvert, non commencé)
+## P5-UI lot 2 — retours du 22/11 (en cours)
 
 ### Point de situation (vérifié le 22/11 sur `main`, `1d6be9d`)
 
@@ -2004,6 +2004,21 @@ refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
   `POST /api/system/alive` et un **bail** renouvelé toutes les 10 s (un `pagehide`
   tuerait le serveur sur un simple F5, c'est précisément ce qui a été écarté).
   Le compteur de tests du `README` est celui mesuré sur `1d6be9d`.
+
+### État des points (23/11)
+
+| point | état | preuve |
+| --- | --- | --- |
+| 1. Une seule barre de retour, « Écouter » seulement sur du texte | **livré** (`66f9ec9`) | 5 tests node sur `feedbackText`, 4 e2e Chromium, captures avant/après clair + sombre |
+| 2. Arrêt garanti du micro, indicateur permanent, « Dicter » distinct d'« Écouter » | **livré** (`305556d`) | 6 tests node sur `micErrorText`/`micClockText`, 5 e2e à faux micro (0 piste après Arrêter, après F5, au plafond, au changement de session), captures clair + sombre |
+
+Mesures de référence après ces deux points : **2041 tests** unitaires (2 skipped),
+**86 tests e2e** (Chromium réel, faux micro pour la dictée), `ruff check` et
+`mypy` verts sur `feat/p5ui-lot2-point2`.
+
+Constat de mesure à ne pas oublier : le ConsentStore du micro **ne témoigne pas** des
+captures Chromium sur ce poste (aucune entrée datée du 22/11 alors qu'une capture a eu
+lieu). Détail et test décisif : `docs/HANDOFF_POINT0.md`, section « Mesure 2.0 (suite) ».
 
 ### Règles du lot (identiques au lot 1)
 
