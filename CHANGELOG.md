@@ -13,13 +13,35 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
+## [Unreleased]
+
+### Fixed
+
+- **Le chien de garde du bail ne s'arme plus sans fenêtre** (`uh/web/app.py`) : il
+  exige `--app` **et** `open_browser` (`managed_window`). `uh web --app --no-open`
+  (CI, tests, headless) ne s'arrête plus tout seul après 45 s sans battement de
+  bail. Test : `test_no_open_disables_the_watchdog_even_with_app_window`.
+- **e2e `test_p3_14_role.py`** : attente explicite des `GET /api/sessions/` au
+  rechargement de rôle, qui rendait Playwright instable sous Windows et Ubuntu.
+
 ## [1.9.2] — 2026-11-22 *(PyPI — référence stable)*
 
 ### Added
-- **Auto-shutdown lease on window close (uh/web/app.py, uh/web/static/app.js)**: heartbeat lease (/api/lease) plus pagehide/eforeunload notification so closing the cockpit window stops the local server cleanly without leaving orphan processes.
+
+- **Fermeture propre de la fenêtre (bail)** (`uh/web/app.py`,
+  `uh/web/static/app.js`) : la page renouvelle un bail via
+  `POST /api/system/alive` toutes les 10 s ; le serveur arrête UHB puis se termine
+  après 45 s de silence (300 s si la page se déclare réduite), et **seulement**
+  s'il a lui-même ouvert la fenêtre `--app`. Pas de `pagehide`/`beforeunload` :
+  ils se déclenchent aussi sur un simple F5, qui doit laisser le serveur en vie.
 
 ### Changed
-- **P5-UI polish pass (uh/web/static/style.css, uh/web/static/app.js, uh/web/static/index.html)**: centered --app window geometry, balanced panel density, refined typography, spacing and visual contrast measured on live Chromium/Edge.
+
+- **Passe visuelle P5-UI** (`uh/web/static/style.css`, `app.js`, `index.html`) :
+  densité des panneaux, typographie 14 px / interligne 1.55, un seul système de
+  boutons, modales et états harmonisés, contrastes mesurés dans Chromium/Edge
+  (thèmes clair et sombre). La géométrie centrée de la fenêtre `--app` était déjà
+  livrée avant cette passe (`uh/web/browser.py`).
 
 ## [1.9.1] — 2026-11-22
 
