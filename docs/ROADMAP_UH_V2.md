@@ -1881,7 +1881,11 @@ ci-dessus.
 
 ---
 
-## P5-UI — passe visuelle et cycle de vie de la fenêtre (22/11, v1.9.1)
+## P5-UI — passe visuelle et cycle de vie de la fenêtre (22/11, v1.9.1 → livré en v1.9.2)
+
+**Livraison** : PR #42 (`1a014f0`), publiée en **v1.9.2** (`42d72cc`, marquée
+référence stable par `1da67b1` / `391f5d5`) ; correctif post-release en PR #44
+(`1d6be9d`, voir la section « lot 2 »).
 
 Constat de départ, sur la v1.9.1 : le modèle prenait forme mais l'interface était
 jugée illisible (texte dense, quatre pavés teal dans le compositeur, bandeau du haut
@@ -1897,17 +1901,21 @@ refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
 
 - [x] `POST /api/system/alive` (jeton + garde Host/Origin/Sec-Fetch-Site) renouvelle
   un bail ; `app.js` l'envoie toutes les 10 s (`startLease`).
-- [x] Le serveur, **seulement** s'il a lui-même ouvert la fenêtre (`--app`), arrête
-  UHB puis se termine après 45 s de silence ; un tour actif bloque l'arrêt (même
+- [x] Le serveur, **seulement** s'il a lui-même ouvert la fenêtre (`--app`, et
+  depuis PR #44 `--app` **sans** `--no-open`), arrête UHB puis se termine après
+  45 s de silence ; un tour actif bloque l'arrêt (même
   périmètre que `/api/system/quit`, qui répond 409), et une fenêtre réduite a un
   budget plus long (300 s) parce que le navigateur y raréfie ses minuteurs.
 - [x] `lease_expired` / `lease_tick` sont purs et injectables (horloge, `stop`,
-  `exit_now`) : `tests/test_web_lease.py`, 12 tests, dont « F5 (trou < TTL) n'arrête
+  `exit_now`) : `tests/test_web_lease.py`, 13 tests, dont « F5 (trou < TTL) n'arrête
   rien » et « UHB est arrêté avant la sortie du processus ».
 - [x] Preuve réelle, mesurée deux fois le 22/11 :
   1. `uh web --app --no-open`, page pilotée par Playwright puis fermée : serveur
      à `200` tant que la page bat, sorti **48 s** après la fermeture, code 0 — la
-     voie « visible » (bail de 45 s).
+     voie « visible » (bail de 45 s). **Mesure d'avant PR #44** : depuis, `--no-open`
+     désarme volontairement le chien de garde (aucune fenêtre à fermer), ce montage
+     ne se reproduit donc plus ; `test_no_open_disables_the_watchdog_even_with_app_window`
+     le fige, et la preuve 2 reste la référence pour la fenêtre réelle.
   2. Vraie fenêtre **Edge `--app`** (`UH_BROWSER=msedge`, profil sous `UH_HOME`
      jetable) avec un **UHB enfant vivant** (`/status` 200, mode `chat`, pid
      suivi via `uhb.pid`) : fenêtre fermée, UH est sorti **305 s** après, code
@@ -1968,6 +1976,267 @@ refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
 - La « CI rouge de la PR UHB #20 » est périmée : #20 et #21 sont fusionnées avec CI
   verte (runs 44651677414 et 44933734466).
 - ~~`README.md` annonçait « 1128 tests … measured 2026-11-13 »~~ : corrigé le
-  22/11 (2029 passed, 2 skipped, mesurés sur la branche `feat/apply-nouveau-up-rapport`).
+  22/11 (2030 passed, 2 skipped, mesurés sur `1d6be9d` ; les 77 e2e sont exclus
+  par défaut et tournent à part).
 - Confinement : le badge dit « dossier du run uniquement », jamais « sandbox »
   (voir la section atelier plus haut).
+
+
+---
+
+## P5-UI lot 2 — retours du 22/11 (ouvert, non commencé)
+
+### Point de situation (vérifié le 22/11 sur `main`, `1d6be9d`)
+
+- **PR #42** (`1a014f0`) : lot 1 fusionné — bail de la fenêtre, passe CSS P5-UI,
+  textes et dates (section précédente).
+- **v1.9.2** (`42d72cc`, marquée référence stable par `1da67b1` / `391f5d5`, publiée
+  sur PyPI) : la fermeture propre de la fenêtre et la passe visuelle y sont.
+- **PR #44** (`1d6be9d`) : le chien de garde du bail n'est armé que si `--app` **et**
+  `open_browser` (`managed_window`) — `uh web --app --no-open` ne s'arrête donc plus
+  tout seul, ce qui est le comportement voulu quand aucune fenêtre n'est ouverte ;
+  test `test_no_open_disables_the_watchdog_even_with_app_window` ; e2e
+  `test_p3_14_role.py` stabilisé (attente explicite des `GET /api/sessions/`).
+  **PR #44 est postérieure au tag v1.9.2** : elle n'est pas dans le paquet PyPI
+  1.9.2, seulement sur `main`.
+- Rectifications de cohérence faites avec ce lot : le `CHANGELOG` 1.9.2 annonçait
+  une route `/api/lease` et un `pagehide`/`beforeunload` — le code réel expose
+  `POST /api/system/alive` et un **bail** renouvelé toutes les 10 s (un `pagehide`
+  tuerait le serveur sur un simple F5, c'est précisément ce qui a été écarté).
+  Le compteur de tests du `README` est celui mesuré sur `1d6be9d`.
+
+### Règles du lot (identiques au lot 1)
+
+Aucun `git push`, aucun `--no-verify`, rien qui touche l'authentification ou
+`~/.gitconfig`, aucun processus tué qui n'a pas été lancé. Un commit par point.
+Preuve = vrai navigateur (`scripts/prove_ui_cdp.py`, étendu) **et** captures
+avant/après, pas seulement `pytest`. Tout texte en français. **L'interface ne
+promet que ce qui est mesuré** : une capacité non vérifiée s'affiche « non
+vérifiée ».
+
+### Ordre imposé : 1 → 2 → 3 → 4 → 5 → 6, puis 7 et 8
+
+Les points 1 et 2 passent d'abord (bug visible + sécurité du micro).
+
+---
+
+### 1. « Utile / Pas utile » partout, « Écouter » en erreur
+
+Constat (lu, pas testé) : `addMessage` appelle `textFeedback(box)` **et**
+`speakBox(box, text)` pour chaque message assistant (`app.js`), y compris une
+réponse qui n'est qu'une image `![Mouton](x.png)` ou une phrase de statut. Sur une
+image, deux barres coexistent (retour texte + Garder/Utile/Ouvrir/Télécharger/
+Corbeille de l'artefact), la phrase « noté » est répétée, et « Écouter » envoie un
+texte vide au serveur → « voix impossible : text is required » (`app.py`), affiché
+plusieurs fois.
+
+Cible :
+- [ ] Une **seule** barre de retour par réponse : si la réponse porte un artefact,
+  la barre de l'artefact fait foi, la barre texte n'est pas créée.
+- [ ] Barre texte **discrète** : deux boutons-icônes (aria-label « Réponse utile »
+  / « Réponse à éviter »), visibles au survol/focus, sur le **dernier** message
+  seulement ; l'état voté reste visible.
+- [ ] Aucune barre sur : messages `system`, erreurs, notices, réponses de moins de
+  ~20 caractères, réponses sans contenu réel après retrait des images Markdown.
+- [ ] « Écouter » seulement si le texte nettoyé (images, code, URL retirés) fait
+  ≥ 3 mots ; **un seul** message d'erreur, qui se remplace au lieu de s'empiler ;
+  le bouton se réactive ensuite.
+- [ ] « noté » une seule fois, en infobulle ou sous la barre.
+
+Preuve exigée (CDP + captures) : (a) réponse image seule → une barre, pas d'«
+Écouter » ; (b) réponse texte longue → barre + « Écouter » ; (c) notice système →
+aucune barre ; (d) trois clics sur « Écouter » en échec → un seul message.
+
+### 2. Micro : arrêt garanti, rien ne reste branché
+
+Constat : le flux est arrêté seulement dans l'événement `stop` (`toggleMic`) ;
+aucune durée maximale, rien à la fermeture ni au rechargement, aucun indicateur
+permanent. **Aucun code d'enregistrement n'existe côté Python** (`sounddevice`,
+`pyaudio`, `cv2` : vides) : si Windows liste `python` comme utilisateur du micro,
+c'est à **mesurer**, pas à supposer.
+
+- [ ] **2.0 — mesure d'abord** (avant tout code) : Réglages Windows >
+  Confidentialité > Microphone (dernier accès par application) + liste des
+  processus avec un handle audio ouvert, UI inactive ; consigner dans
+  `docs/HANDOFF_POINT0.md`.
+- [ ] Arrêt automatique : 120 s, `visibilitychange`→hidden, `pagehide`,
+  `beforeunload`, erreur, changement de session ; `track.stop()` dans un `finally` ;
+  `recorder`/`stream` remis à `null`.
+- [ ] Indicateur permanent « Micro actif » dans l'en-tête + bouton « Arrêter »
+  visible tant que le flux existe.
+- [ ] « Écouter » = synthèse vocale (haut-parleur) ; « Dicter » = micro. Deux
+  libellés, deux icônes, jamais confondus ; choix du périphérique
+  (`enumerateDevices`) mémorisé localement.
+- [ ] Erreurs lisibles : Voxtral 429 → « service vocal saturé, réessaie dans N s »
+  (+ une reprise unique) ; faster-whisper absent → bouton « Installer la dictée
+  locale » (commande exacte affichée, rien installé sans clic) ; plus de
+  `VoxtralError:` brut.
+
+Preuve exigée : CDP avec faux micro (`--use-fake-device-for-media-stream`) — après
+« Arrêter », 0 piste live ; après F5 pendant l'enregistrement, 0 piste live ; au
+bout de 120 s, arrêt effectif.
+
+### 3. Fenêtres amovibles sans casser la page
+
+Constat : seul `#providers-panel` peut flotter ; le commentaire du code dit que la
+colonne de chat n'est pas détachable. Déplacer des onglets casse la grille.
+
+- [ ] Petit **moteur de docking**, pas du CSS en plus : registre de panneaux
+  (barre latérale, panneau de droite, chaque sous-onglet détachable) ; le **chat
+  reste dans la grille** (il se redimensionne, il ne flotte pas, il n'est jamais
+  détruit).
+- [ ] Panneau détaché = fenêtre flottante : z-order, déplacement,
+  redimensionnement (poignées), bornes dans la fenêtre, repli, redocking (bouton +
+  glisser vers un bord), équivalents clavier (flèches pour déplacer, Échap pour
+  redocker).
+- [ ] À chaque redimensionnement de la fenêtre, tout panneau revient dans la zone
+  visible.
+- [ ] Disposition **mémorisée et versionnée** + bouton « Réinitialiser la
+  disposition » toujours accessible. Ne pas toucher aux maths du splitter
+  (`layoutPrefs`).
+
+Preuve exigée : détacher chaque panneau, redimensionner 1280 → 1024 → 1920,
+recharger : le chat occupe l'espace libre, aucun débordement, « Réinitialiser »
+rétablit l'état d'origine.
+
+### 4. Le « régisseur » invisible
+
+Constat : quand le chat se fige (modèle local saturé), seule F5 remet d'aplomb ;
+aucun chien de garde côté interface.
+
+- [ ] Chien de garde de tour : aucun jeton depuis 20 s → état « semble bloqué » ;
+  à 60 s → **rafraîchissement doux** de la vue (relecture de la session, sans
+  perdre la saisie ni l'historique) + bandeau « Vue rafraîchie automatiquement ».
+  Jamais de reload sauvage ; jamais d'annulation d'un tour utile sans le dire. F5
+  reste, et la touche est citée dans le bandeau.
+- [ ] Module unique `uh/steward.py` : liste des automatismes (rafraîchir la vue,
+  relancer UHB/Ollama s'ils sont à nous, rêve, mémoire, auto-réparation), chacun
+  avec condition, action, journal et interrupteur dans l'interface. Aucune action
+  destructive, aucun outil d'exécution sans l'approbation par appel déjà en place.
+- [ ] Chaque action automatique est **signalée à l'écran** (une ligne), jamais
+  silencieuse.
+
+Preuve exigée : jeton coupé → à 20 s l'état, à 60 s le rafraîchissement, saisie
+conservée ; tour sain → rien ne se déclenche.
+
+### 5. Choisir le meilleur outil selon l'IA et la machine (rendu d'images)
+
+Constat : sur « dessine un mouton », OpenRouter (cloud) comme Ollama local
+finissent sur `execute_code` + matplotlib (`uh/intent.py` route
+chart/plot/figure/python vers ce chemin ; aucun outil d'image générative dans les
+toolsets). Le modèle a répondu « basculez manuellement le cockpit sur dev » —
+l'utilisateur ne doit jamais avoir à le faire.
+
+- [ ] **Registre de capacités** (étendre `uh/router/catalog.toml`) : par
+  modèle/fournisseur, modalités de sortie (image, audio, video) **vérifiées à
+  l'exécution**, pas déclarées de mémoire.
+- [ ] **Échelle pour une demande de dessin** : (1) génération native du
+  fournisseur si elle existe ; (2) pipeline local de diffusion (ComfyUI / SD en
+  HTTP loopback, avec LoRA) si détecté ; (3) `execute_code` matplotlib en dernier
+  recours, **étiqueté** « schéma vectoriel, pas photoréaliste ».
+- [ ] Intention : « schéma / courbe / graphique » → (3) ; « photoréaliste /
+  illustration / dessine un <sujet> » → (1) ou (2) d'abord. Le choix est affiché
+  (badge « pourquoi cet outil ») avec l'alternative.
+- [ ] **Matériel** : `uh/hardware.py` ne renvoie qu'un nom de GPU ; ajouter
+  VRAM/RAM chiffrées (`nvidia-smi --query-gpu=memory.total`, multi-GPU sommés) et
+  des paliers jusqu'à 240 Go VRAM / 532 Go RAM (72B Q4 inclus), **sans plafond
+  codé en dur** ; petite machine → alternatives légères.
+- [ ] L'exposition des outils dépend de la **capacité du modèle sélectionné**, pas
+  d'une liste unique.
+- [ ] Bouton « **Passer en Atelier** » dans la bulle (pas une consigne écrite dans
+  la réponse) ; l'approbation par appel reste obligatoire.
+
+Preuve exigée : même demande « dessine un mouton photoréaliste » avec trois
+configurations (OpenRouter, Ollama petit, Ollama + diffusion) montrant l'outil
+choisi et la raison ; aucune capacité annoncée non vérifiée.
+
+### 6. Voix, webcam, vidéo — par phases, chacune livrable seule
+
+- [ ] **Phase A** (après le point 2) : conversation vocale — Dicter
+  (push-to-talk) → transcription → réponse → lecture automatique optionnelle ;
+  casque choisi dans la liste des périphériques.
+- [ ] **Phase B** : webcam — `getUserMedia({video})` dans un panneau « Caméra »,
+  aperçu local, « Capturer » = image jointe via le circuit des pièces jointes
+  existant (P1-14) ; consentement par session, voyant « Caméra active », arrêt
+  garanti comme le micro, rien écrit sur disque sans clic.
+- [ ] **Phase C** : transformer l'image capturée (dessin, filtre, img2img) via le
+  planificateur du point 5.
+- [ ] **Phase D** : flux vidéo et chat vidéo IA — **spécification seulement** dans
+  cette feuille de route (latence, VRAM, consentement), non implémenté ici.
+
+Preuve exigée par phase : capture + mesure (tracks vivantes après arrêt, image
+réellement jointe, aucune écriture disque sans clic).
+
+### 7. Moteur vocal choisi selon la clé API **et** la machine
+
+Constat : avec une IA locale (qwen3.5:9b), la dictée tente Voxtral (cloud) et
+échoue en HTTP 429 alors qu'aucune clé n'a été saisie pour cet usage.
+
+- [ ] Fonction **pure** `choose_voice_engines(profile, keys, versions)` dans
+  `uh/audio/`, testable : Voxtral (cloud) **seulement** si une clé Voxtral/Mistral
+  est saisie **et** valide, et si l'utilisateur n'a pas choisi « local seulement ».
+  Jamais de requête réseau vocale sans clé, jamais en secret.
+- [ ] Chat en IA locale ⇒ dictée et synthèse **locales**, par palier mesuré :
+  petite machine / CPU → STT léger (faster-whisper tiny/base) + TTS système
+  (SAPI) ; moyenne (≥ 8 Go VRAM libres après le modèle de chat) → Whisper
+  small/medium GPU + voix neuronale légère ; grosse (jusqu'à 240 Go VRAM) →
+  meilleurs moteurs locaux installés, voix clonable (LoRA/XTTS) si présents.
+  Aucun plafond codé en dur ; la VRAM du modèle de chat est déduite **avant** le
+  choix.
+- [ ] STT et TTS choisis séparément ; le panneau Voix affiche le moteur actif,
+  **pourquoi** (« local : aucune clé » / « Voxtral : clé saisie ») et
+  l'alternative. Bouton « Tester la voix » par moteur (micro → texte, texte → son).
+- [ ] Bouton « **Vérifier mon installation** » : machine (OS, CPU, RAM, GPU, VRAM,
+  disque) et versions (Python, UH, UHB, Ollama + modèle chargé, faster-whisper /
+  TTS / ComfyUI, navigateur, matplotlib/numpy de l'atelier). Verdict **OK / à
+  mettre à jour / manquant** + commande exacte affichée, **jamais exécutée sans
+  clic**. Matrice des compatibilités dans un fichier de données, pas dans le code.
+- [ ] Réutilisé par le planificateur de rendu (point 5). Une capacité non vérifiée
+  s'affiche « non vérifiée ».
+
+Preuve exigée : sans clé + IA locale → aucun appel Voxtral (assert réseau) ; clé
+valide → Voxtral proposé ; petite machine simulée → palier léger ; VRAM large
+simulée → palier haut.
+
+### 8. UH s'améliore et se répare — jamais tout seul
+
+Objectif : avec une API assez puissante, UH peut améliorer son UX, s'auto-réparer
+et créer des modules d'interface — **sans jamais s'appliquer un changement
+lui-même**. Chaîne obligatoire :
+
+- [ ] **Diagnostic** : le régisseur (point 4) collecte des signaux réels (erreurs
+  console, tours bloqués, échecs e2e, retours « pas utile », journaux) dans un
+  « carnet d'améliorations ».
+- [ ] **Proposition** : le modèle propose un correctif ou un module sous forme de
+  **patch (diff)** + justification + test. Il n'écrit pas dans le dépôt actif.
+- [ ] **Essai isolé** : patch appliqué dans une copie jetable (worktree/branche
+  locale), tests + ruff + mypy + preuve navigateur lancés automatiquement ; la
+  copie active de l'utilisateur n'est pas touchée.
+- [ ] **Approbation humaine** : diff lisible, résultat des tests, capture
+  avant/après, puis « Appliquer » ou « Rejeter » ; annulation en un clic.
+- [ ] **Jamais** : push, `--no-verify`, modification de l'authentification, des
+  clés, de `~/.gitconfig`, de la politique de sécurité (`mode_gate`, confinement,
+  garde Origin/CSRF), ni **de ce mécanisme lui-même** sans approbation explicite
+  et séparée.
+- [ ] **Modules UI** : un module = dossier déclaratif (manifeste : nom, panneau,
+  permissions demandées, version, auteur « généré »), chargé par le moteur de
+  docking (point 3) ; permissions (micro, caméra, réseau, fichiers) affichées
+  avant activation ; désactivable et supprimable depuis « Extensions ». Premier
+  module visé : **Voix** (points 2, 6, 7).
+- [ ] **Traçabilité** : chaque amélioration appliquée est journalisée (qui l'a
+  proposée, quel modèle, quel diff, quels tests) ; une API faible/locale peut
+  diagnostiquer mais ne propose pas de patch si sa capacité vérifiée est
+  insuffisante (message clair).
+
+Périmètre de **ce lot** : poser le cadre (carnet, format de patch, essai isolé,
+écran d'approbation, manifeste de module) et **un** cas réel de bout en bout sur un
+défaut CSS mineur. Le reste est inscrit ci-dessous, non implémenté.
+
+### Reste ouvert après ce lot
+
+- Auto-amélioration complète (P6) : seuls le cadre et un cas CSS sont livrés ici.
+- Phases C et D de la voix/webcam (transformation d'image, flux vidéo) : à
+  spécifier puis implémenter séparément.
+- `window.confirm` / `window.prompt` restants (skill, run, tâche, renommages) :
+  conversion au composant modal, reportée du lot 1.
+- `POST /services/ensure` côté UHB : toujours absent (dépôt UHB, hors de ce lot).
