@@ -2020,6 +2020,20 @@ Constat de mesure à ne pas oublier : le ConsentStore du micro **ne témoigne pa
 captures Chromium sur ce poste (aucune entrée datée du 22/11 alors qu'une capture a eu
 lieu). Détail et test décisif : `docs/HANDOFF_POINT0.md`, section « Mesure 2.0 (suite) ».
 
+### Tests e2e instables connus (à stabiliser avant la CI)
+
+Deux tests d'interface échouent par intermittence sous charge, jamais seuls. Ils ne
+doivent être ni ignorés ni « réparés » par un délai plus long : la cause est à démontrer
+d'abord, et le test ne doit pas être affaibli.
+
+1. `tests/e2e/test_p3_15_skills_editor.py` (éditeur de skills) — instabilité connue,
+   non mesurée dans ce lot.
+2. `tests/e2e/test_p3_14_role.py::test_a_preset_chosen_in_the_header_survives_a_reload` —
+   mesuré le 23/11 : **1 échec** sur une passe complète (`expect_response` : 30 s
+   dépassées), **passe seul en 9,5 s**, puis **vert** dans la passe complète suivante
+   (86/86). Symptôme d'attente qui ne couvre pas l'ordre réel des réponses, pas d'un
+   défaut du produit.
+
 ### Règles du lot (identiques au lot 1)
 
 Aucun `git push`, aucun `--no-verify`, rien qui touche l'authentification ou
