@@ -1922,6 +1922,7 @@ async function newFolder() {
 
 
 async function openSession(id) {
+  if (recorder || micStream) stopDictation("changement de session");
   state.sessionId = id;
   state.attachments = [];
   renderAttachments();
@@ -2021,6 +2022,7 @@ function installModalAccessibility() {
 }
 
 async function newSession() {
+  if (recorder || micStream) stopDictation("changement de session");
   const data = await api("/api/sessions", { method: "POST", body: JSON.stringify({}) });
   state.sessionId = data.session.id;
   state.attachments = [];
@@ -2119,8 +2121,49 @@ function drawAudio(container, artifacts, context) {
 
 // The mic: record, ask the transcribe route, insert PLAIN TEXT. Nothing about the
 // audio reaches the turn - that is the anti-regression promise of this lot.
+// Un enregistrement ne doit jamais survivre à son contexte : plafond dur, fenêtre
+// masquée, page qui se ferme, changement de session, erreur d'enregistrement. Toutes
+// les sorties passent par `finishDictation`, qui ferme les pistes dans un `finally`.
 let recorder = null;
 let recorderChunks = [];
+let micStream = null;
+let micTimer = null;
+let micStartedAt = 0;
+let micEndsAt = 0;
+let micStopReason = "";
+
+//: Deux minutes : au-delà, ce n'est plus une dictée.
+const MIC_MAX_MS = 120000;
+
+//: Le test CDP abaisse ce plafond avant le chargement (init script).
+function micLimitMs() {
+  const asked = Number(window.UH_MIC_MAX_MS);
+  return Number.isFinite(asked) && asked > 0 ? asked : MIC_MAX_MS;
+}
+
+// BEGIN micText — testé sous node par tests/test_web_mic_text.py
+function micClockText(ms) {
+  const seconds = Math.max(0, Math.round(Number(ms) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+// Une erreur de dictée doit dire quoi faire. Les trois cas réels : quota 429 du
+// fournisseur, faster-whisper absent, aucun moteur configuré.
+function micErrorText(status, detail) {
+  const message = String(detail || "").trim();
+  if (status === 429 || /\\b429\\b/.test(message)) {
+    return "quota de dictée atteint (429) : réessayez dans une minute, ou installez la transcription locale";
+  }
+  if (/faster[-_ ]?whisper/i.test(message) && /(absent|introuvable|not installed|installer|install)/i.test(message)) {
+    return "faster-whisper n'est pas installé : pip install -e \".[audio]\"";
+  }
+  if (/aucun moteur/i.test(message)) {
+    return "aucun moteur de dictée disponible : configurez Voxtral, ou installez la transcription locale";
+  }
+  if (message) return message;
+  return `échec de transcription (${status})`;
+}
+// END micText
 
 function micStatus(text) {
   const box = $("mic-status");
@@ -2130,12 +2173,109 @@ function micStatus(text) {
   }
 }
 
-async function toggleMic() {
-  const button = $("mic");
-  if (recorder && recorder.state === "recording") {
-    recorder.stop();
-    return;
+async function micBarShow(show) {
+  const bar = $("mic-bar");
+  if (bar) bar.hidden = !show;
+}
+
+function micClockTick() {
+  const clock = $("mic-clock");
+  if (!clock) return;
+  const now = Date.now();
+  const left = micEndsAt - now;
+  // Le temps qui compte pour l'utilisateur est celui déjà enregistré ; le plafond
+  // n'apparaît qu'à la fin, quand il devient une information utile.
+  const elapsed = micClockText(now - micStartedAt);
+  clock.textContent = left <= 15000 ? `${elapsed} · arrêt dans ${micClockText(left)}` : elapsed;
+  clock.title = `arrêt automatique dans ${micClockText(left)}`;
+}
+
+function releaseMic() {
+  if (micTimer) {
+    clearInterval(micTimer);
+    micTimer = null;
   }
+  if (micStream) {
+    for (const track of micStream.getTracks()) {
+      try {
+        track.stop();
+      } catch (error) {
+        // une piste déjà terminée n'est pas une erreur
+      }
+    }
+    micStream = null;
+  }
+  const button = $("mic");
+  if (button) {
+    button.classList.remove("recording");
+    button.setAttribute("aria-pressed", "false");
+  }
+  micBarShow(false);
+}
+
+function stopDictation(reason) {
+  if (reason) micStopReason = reason;
+  if (recorder && recorder.state !== "inactive") {
+    try {
+      recorder.stop();
+      return;
+    } catch (error) {
+      // on libère quand même : le `finally` de finishDictation couvre le reste
+    }
+  }
+  releaseMic();
+}
+
+async function finishDictation() {
+  const recorderRef = recorder;
+  const chunks = recorderChunks;
+  const reason = micStopReason;
+  recorderChunks = [];
+  recorder = null;
+  micStopReason = "";
+  const mime = (recorderRef && recorderRef.mimeType) || "audio/webm";
+  try {
+    if (reason === "page fermée" || reason === "changement de session") {
+      micStatus("");
+      return;
+    }
+    micStatus("transcription…");
+    const suffix = mime.includes("ogg") ? ".ogg" : ".webm";
+    const url =
+      `/api/audio/transcribe?session_id=${encodeURIComponent(state.sessionId || "")}` +
+      `&name=dictation${suffix}`;
+    const blob = new Blob(chunks, { type: mime });
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "application/octet-stream" },
+      body: blob,
+      credentials: "same-origin",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      micStatus(`dictée impossible : ${micErrorText(response.status, payload.detail)}`);
+      return;
+    }
+    const text = String(payload.text || "").trim();
+    if (!text) {
+      micStatus("dictée impossible : transcription vide, parlez un peu plus longtemps");
+      return;
+    }
+    const input = $("input");
+    input.value = input.value ? `${input.value} ${text}` : text;
+    input.focus();
+    micStatus(`dicté (${payload.engine || "local"})`);
+    window.setTimeout(() => micStatus(""), 4000);
+  } catch (error) {
+    micStatus(`dictée impossible : ${error.message}`);
+  } finally {
+    // Quoi qu'il arrive au-dessus : plus aucune piste vivante.
+    releaseMic();
+  }
+}
+
+async function startDictation() {
+  if (recorder) return;
   if (!navigator.mediaDevices || !window.MediaRecorder) {
     micStatus("Ce navigateur ne sait pas enregistrer le micro.");
     return;
@@ -2147,43 +2287,44 @@ async function toggleMic() {
     micStatus(`Micro refusé : ${error.message}`);
     return;
   }
+  micStream = stream;
+  micStopReason = "";
   recorderChunks = [];
   recorder = new MediaRecorder(stream);
   recorder.addEventListener("dataavailable", (event) => {
     if (event.data && event.data.size) recorderChunks.push(event.data);
   });
-  recorder.addEventListener("stop", async () => {
-    stream.getTracks().forEach((track) => track.stop());
-    button.classList.remove("recording");
-    micStatus("transcription…");
-    const blob = new Blob(recorderChunks, { type: recorder.mimeType || "audio/webm" });
-    recorderChunks = [];
-    try {
-      const suffix = (recorder.mimeType || "").includes("ogg") ? ".ogg" : ".webm";
-      const url = `/api/audio/transcribe?session_id=${encodeURIComponent(state.sessionId || "")}` +
-        `&name=dictation${suffix}`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": blob.type || "application/octet-stream" },
-        body: blob,
-        credentials: "same-origin",
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.detail || httpErrorText(response.status));
-      const text = String(payload.text || "").trim();
-      if (!text) throw new Error("transcription vide");
-      const input = $("input");
-      input.value = input.value ? `${input.value} ${text}` : text;
-      input.focus();
-      micStatus(`dicté (${payload.engine || "local"})`);
-      window.setTimeout(() => micStatus(""), 4000);
-    } catch (error) {
-      micStatus(`dictée impossible : ${error.message}`);
-    }
+  recorder.addEventListener("error", () => stopDictation("erreur d'enregistrement"));
+  recorder.addEventListener("stop", () => {
+    finishDictation().catch(() => {});
   });
+  micStartedAt = Date.now();
+  micEndsAt = micStartedAt + micLimitMs();
   recorder.start();
-  button.classList.add("recording");
-  micStatus("enregistrement… cliquer pour arrêter");
+  const button = $("mic");
+  if (button) {
+    button.classList.add("recording");
+    button.setAttribute("aria-pressed", "true");
+  }
+  micBarShow(true);
+  micClockTick();
+  micTimer = setInterval(() => {
+    if (Date.now() >= micEndsAt) {
+      stopDictation(`arrêt automatique (${micClockText(micLimitMs())})`);
+      return;
+    }
+    micClockTick();
+  }, 250);
+  // La barre dit déjà l'état : une deuxième phrase au-dessus serait du bruit.
+  micStatus("");
+}
+
+async function toggleMic() {
+  if (recorder) {
+    stopDictation("arrêt demandé");
+    return;
+  }
+  await startDictation();
 }
 
 async function loadAudioCapabilities() {
@@ -2200,7 +2341,7 @@ async function loadAudioCapabilities() {
         .join(" · ");
       button.title = `Dicter — indisponible : ${reasons || "aucun moteur de dictée"}`;
     } else {
-      button.title = "Dicter (micro)";
+      button.title = "Dicter : enregistrer un message au micro";
     }
   } catch (error) {
     button.hidden = true;
@@ -2210,6 +2351,21 @@ async function loadAudioCapabilities() {
 function wireMic() {
   const button = $("mic");
   if (button) button.addEventListener("click", () => toggleMic().catch(() => {}));
+  const stop = $("mic-stop");
+  if (stop) stop.addEventListener("click", () => stopDictation("arrêt demandé"));
+  // Quatre sorties garanties, en plus du plafond de deux minutes : l'onglet caché,
+  // la page qui s'en va, un rechargement, et le passage à une autre session.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && (recorder || micStream)) {
+      stopDictation("fenêtre masquée");
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    if (recorder || micStream) stopDictation("page fermée");
+  });
+  window.addEventListener("beforeunload", () => {
+    if (recorder || micStream) stopDictation("page fermée");
+  });
   loadAudioCapabilities().catch(() => {});
 }
 
