@@ -189,3 +189,84 @@ vide dans le processus UH, UHB en mode `dev`.
 5. **Conséquence** — le libellé « Agent : exécute du code, portée non vérifiée »
    (`a992592`) était juste. Le profil « atelier » (confinement réel + interpréteur
    dédié) passe **avant** les points 1 à 5 de l'interface.
+
+
+---
+
+## Mesure 2.0 — microphone, 22/11 (lecture seule, avant tout code de dictée)
+
+Objectif du lot 2, point 2 : savoir **qui** utilise le micro avant d'écrire quoi que ce
+soit. Aucun réglage modifié, aucun enregistrement lancé, aucune sonde Python.
+
+### Méthode
+
+`Get-ItemProperty` (lecture) sur deux clés, sans écriture :
+
+```
+HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone
+HKCU\…\ConsentStore\microphone\NonPackaged
+```
+
+Pour chaque sous-clé : chemin de l'exécutable (`#` = `\`), `Value`, `LastUsedTimeStart`,
+`LastUsedTimeStop` (FILETIME → heure locale). `LastUsedTimeStop = 0` = accès encore
+ouvert (consigne : s'arrêter).
+
+### Résultat mesuré — NonPackaged
+
+| Exécutable | Début | Fin | Encore ouvert |
+| --- | --- | --- | --- |
+| `…\Programs\Python\Python311\python.exe` | 2026-11-14 18:08:11 | 2026-11-17 22:11:47 | **non** |
+| `…\NVIDIA Corporation\NvContainer\nvcontainer.exe` | 2026-11-17 19:11:36 | 2026-11-17 19:12:48 | non |
+| `…\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe` | 2026-11-17 19:10:03 | 2026-11-17 19:10:20 | non |
+| `…\Microsoft\Edge\Application\msedge.exe` | 2026-05-28 14:22:33 | 2026-05-28 14:22:41 | non |
+| `…\Google\Chrome\Application\chrome.exe` | 2026-09-28 21:43:52 | 2026-09-28 21:44:13 | non |
+| `…\obs-studio\bin\64bit\obs64.exe` | 2026-10-03 14:25:25 | 2026-10-03 14:25:29 | non |
+| `…\Adobe Premiere Pro 2026\Adobe Premiere Pro.exe` | 2026-09-07 15:48:50 | 2026-09-07 15:48:56 | non |
+| `…\Adobe Premiere Pro (Beta)\Adobe Premiere Pro (Beta).exe` | 2026-11-13 18:52:57 | 2026-11-13 18:53:28 | non |
+| `…\Steam\bin\cef\cef.win64\steamwebhelper.exe` | 2026-04-15 23:10:18 | 2026-04-16 01:18:06 | non |
+| `…\Vegas Pro 17.0\vegas170.exe` | 2026-04-19 13:56:10 | 2026-04-19 13:56:16 | non |
+| `…\NVIDIA Broadcast\NVIDIA Broadcast.exe` | 2026-06-14 17:00:50 | 2026-06-14 17:00:54 | non |
+| `H:\SteamLibrary\…\Skate.exe` | 2026-04-18 21:57:52 | 2026-04-18 22:29:55 | non |
+| `I:\SteamLibrary\…\GTA5_Enhanced.exe` | 2026-08-21 21:18:39 | 2026-08-21 21:18:41 | non |
+
+Aucune entrée `LastUsedTimeStop = 0` : **rien ne tient le micro** à l'instant de la
+mesure. **Aucune entrée datée du 22/11.**
+
+Empaquetées (Store) : `Prompt` par défaut ; `ScreenSketch`, `Photos`, `Camera` et
+`SoundRecorder` en `Allow`, sans horodatage. Aucune ne peut être le « python » observé.
+
+### Classification demandée
+
+| Question | Réponse |
+| --- | --- |
+| (a) le python de UH ? | **Non** — UH tourne sous `.venv\Scripts\python.exe` (3.10.11) : aucune entrée à ce chemin. |
+| (b) l'atelier `~/.uhb/atelier` ? | **Non** — ce venv a son propre `Scripts\python.exe` sous `%USERPROFILE%\.uhb` : aucune entrée. |
+| (c) un autre python ? | **Oui** — le Python système `…\Programs\Python\Python311\python.exe`, dernière utilisation 14/11 18:08 → 17/11 22:11. C'est **le même interpréteur que celui d'`execute_code`/UHB** (voir la section « Résultats du Point 0 » du 19/11) : c'est l'explication la plus probable du libellé « python » dans les réglages. |
+| Une entrée Edge/msedge ? | **Oui**, mais du 28/05 (8 s) : elle prouve qu'un accès micro **par le navigateur** est bien journalisé ici. Rien pour le 22/11. |
+
+### Corrélation avec les essais de dictée — **non mesurée**
+
+L'heure des essais n'est pas connue de cette session. Deux lectures, à trancher avec
+elle : (1) si les essais datent du 22/11, **aucun processus n'a réellement ouvert le
+micro** ce jour-là — l'échec est en amont (permission navigateur, `getUserMedia`
+refusé, dictée jamais déclenchée) ; (2) si l'entrée « python » vue dans les réglages
+date du 14–17/11, elle décrit un usage antérieur (UHB / `execute_code`), sans lien avec
+la dictée.
+
+**À fournir pour conclure** : l'heure approximative des essais du 22/11. La corrélation
+consiste à vérifier si `2026-11-14 18:08 — 2026-11-17 22:11` la contient.
+
+### Ce que la mesure ne dit pas
+
+- Le registre horodate l'**accès à la capacité**, pas le handle : il ne nomme ni script,
+  ni module, ni flux.
+- Elle ne prouve pas l'absence d'un handle ouvert par un tiers (outil de handles non
+  installé, hors périmètre).
+- Rien n'a été modifié, aucun processus touché, aucune dictée provoquée.
+
+### Décision
+
+Pas d'arrêt requis (aucun `Stop = 0`). Deux exigences pour le point 2 : l'indicateur
+« Micro actif » se pilote sur le **flux réel** (`track.readyState`, pistes live), et le
+test CDP doit prouver 0 piste live après arrêt, après F5 et à 120 s — le registre ne
+prouve pas, à lui seul, qu'un flux est fermé.
