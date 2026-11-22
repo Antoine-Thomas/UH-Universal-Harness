@@ -13,7 +13,7 @@ Conventions worth knowing:
 - versions marked *PyPI* below were actually published; the others exist only as
   tags or releases.
 
-## [Unreleased]
+## [1.9.1] — 2026-11-22
 
 ### Fixed
 
