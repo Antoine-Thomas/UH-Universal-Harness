@@ -60,7 +60,15 @@ def test_a_preset_chosen_in_the_header_survives_a_reload(
         expect(page.locator("#role-select")).to_have_value("analyste", timeout=15000)
         expect(page.locator("#role-select option:checked")).to_have_text("Analyste de données")
 
-        page.reload(wait_until="domcontentloaded")
+        with page.expect_response(
+            lambda response: (
+                response.request.method == "GET"
+                and "/api/sessions/" in response.url
+                and response.ok
+            ),
+            timeout=30000,
+        ):
+            page.reload(wait_until="domcontentloaded")
         expect(page.locator("#input")).to_be_visible(timeout=30000)
         expect(page.locator("#role-select option")).to_have_count(8, timeout=20000)
         expect(page.locator("#role-select")).to_have_value("analyste", timeout=20000)
@@ -75,7 +83,15 @@ def test_a_preset_chosen_in_the_header_survives_a_reload(
         assert (changed.value.json().get("role") or {}).get("id") == "vision"
 
         expect(page.locator("#role-select")).to_have_value("vision", timeout=15000)
-        page.reload(wait_until="domcontentloaded")
+        with page.expect_response(
+            lambda response: (
+                response.request.method == "GET"
+                and "/api/sessions/" in response.url
+                and response.ok
+            ),
+            timeout=30000,
+        ):
+            page.reload(wait_until="domcontentloaded")
         expect(page.locator("#input")).to_be_visible(timeout=30000)
         expect(page.locator("#role-select option")).to_have_count(8, timeout=20000)
         expect(page.locator("#role-select")).to_have_value("vision", timeout=20000)
