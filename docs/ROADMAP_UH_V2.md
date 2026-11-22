@@ -1903,11 +1903,24 @@ refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
 - [x] `lease_expired` / `lease_tick` sont purs et injectables (horloge, `stop`,
   `exit_now`) : `tests/test_web_lease.py`, 12 tests, dont « F5 (trou < TTL) n'arrête
   rien » et « UHB est arrêté avant la sortie du processus ».
-- [x] Preuve réelle (22/11) : `uh web --app --no-open` sur un `UH_HOME` jetable,
-  page pilotée par Playwright puis fermée — serveur à `200` tant que la page bat,
-  sorti **48 s** après la fermeture, code 0. Reste à refaire avec une vraie fenêtre
-  Edge et un UHB vivant : le `--no-uhb` de cette mesure ne prouve pas l'arrêt de
-  l'enfant, seulement la sortie du serveur.
+- [x] Preuve réelle, mesurée deux fois le 22/11 :
+  1. `uh web --app --no-open`, page pilotée par Playwright puis fermée : serveur
+     à `200` tant que la page bat, sorti **48 s** après la fermeture, code 0 — la
+     voie « visible » (bail de 45 s).
+  2. Vraie fenêtre **Edge `--app`** (`UH_BROWSER=msedge`, profil sous `UH_HOME`
+     jetable) avec un **UHB enfant vivant** (`/status` 200, mode `chat`, pid
+     suivi via `uhb.pid`) : fenêtre fermée, UH est sorti **305 s** après, code
+     **0**, journal `window closed: no lease for 302s (uhb stopped: True);
+     stopping uh web`. Ensuite : UHB `/status` = connexion refusée, port libéré,
+     pid enfant mort — l'enfant est bien arrêté AVANT la sortie du serveur.
+     Les 305 s sont la voie « cachée » (budget 300 s) : la fenêtre n'a jamais pu
+     être mise au premier plan dans cette session (`AppActivate` → `False`), donc
+     la page se déclarait `hidden`. Conséquence à connaître : une fenêtre ouverte
+     puis jamais focalisée garde UH et UHB jusqu'à 5 minutes après sa fermeture.
+- [x] Isolation de la mesure : les 8765/8101 de l'opérateur (son `uh web --app` et
+  son UHB, PIDs 26416 et 28412) n'ont été ni arrêtés ni modifiés ; la preuve a
+  utilisé 8798/8199 et un `UH_HOME` jetable (aucun pid file, jeton ou launcher
+  partagé).
 
 ### B. Passe CSS (`uh/web/static/style.css`, fin de fichier)
 
@@ -1949,7 +1962,7 @@ refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
   dépôt. UHB est en 0.3.0, `main` verte (run 44933734466, 21/11).
 - La « CI rouge de la PR UHB #20 » est périmée : #20 et #21 sont fusionnées avec CI
   verte (runs 44651677414 et 44933734466).
-- `README.md` annonce encore « 1128 tests, 1 skipped … measured 2026-11-13 » : le
-  compte n'est plus celui de la suite du jour, à rafraîchir à la prochaine release.
+- ~~`README.md` annonçait « 1128 tests … measured 2026-11-13 »~~ : corrigé le
+  22/11 (2029 passed, 2 skipped, mesurés sur la branche `feat/apply-nouveau-up-rapport`).
 - Confinement : le badge dit « dossier du run uniquement », jamais « sandbox »
   (voir la section atelier plus haut).
