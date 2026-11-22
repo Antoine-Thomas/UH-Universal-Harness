@@ -1,0 +1,118 @@
+/* Dossier UH/UHB — feuille de style d'impression (A4, Chromium).
+   Aucune ressource externe : polices système, aucune image distante. */
+
+:root {
+  --ink: #1b2a29;
+  --brand: #284543;
+  --teal: #0c9f93;
+  --teal-soft: #d9efec;
+  --gold: #fdc502;
+  --muted: #5d7370;
+  --line: #cfdfdc;
+  --panel: #f6faf9;
+  --good: #16a34a;
+  --bad: #dc2626;
+}
+
+@page {
+  size: A4;
+  margin: 20mm 16mm 18mm 16mm;
+}
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 10.2pt;
+  line-height: 1.52;
+  color: var(--ink);
+}
+
+h1 { font-size: 22pt; line-height: 1.2; margin: 0 0 6mm; color: var(--brand); }
+h2 {
+  font-size: 15.5pt; color: var(--brand); margin: 0 0 4mm;
+  padding-bottom: 2mm; border-bottom: 2px solid var(--teal);
+  break-before: page;
+}
+h2.first { break-before: auto; }
+h3 { font-size: 11.4pt; color: var(--teal); margin: 7mm 0 2.5mm; text-transform: none; break-after: avoid; }
+h4 { font-size: 10.4pt; margin: 5mm 0 1.5mm; color: var(--brand); }
+p { margin: 0 0 2.6mm; }
+ul, ol { margin: 0 0 3mm; padding-left: 5mm; }
+li { margin-bottom: 1.1mm; }
+code, .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.9pt; }
+a { color: var(--teal); text-decoration: none; }
+
+.small { font-size: 8.8pt; color: var(--muted); }
+.muted { color: var(--muted); }
+
+/* --- couverture ---------------------------------------------------------- */
+.cover { min-height: 232mm; display: flex; flex-direction: column; justify-content: space-between; break-after: page; }
+.cover .band { height: 6mm; background: var(--brand); border-radius: 2mm; margin-bottom: 10mm; }
+.cover .kicker { letter-spacing: .28em; text-transform: uppercase; font-size: 9pt; color: var(--teal); font-weight: 700; }
+.cover h1 { font-size: 33pt; margin: 4mm 0 5mm; }
+.cover .subtitle { font-size: 13pt; color: var(--muted); max-width: 150mm; line-height: 1.4; }
+.cover .meta { border-top: 1px solid var(--line); padding-top: 4mm; display: grid; grid-template-columns: 1fr 1fr; gap: 3mm 8mm; font-size: 9.4pt; }
+.cover .meta b { color: var(--brand); }
+.cover .badge { display: inline-block; background: var(--teal-soft); color: var(--brand); border: 1px solid var(--teal);
+  border-radius: 3mm; padding: 1.5mm 3mm; font-size: 8.6pt; font-weight: 700; }
+
+/* --- table des matières -------------------------------------------------- */
+.toc { margin-top: 2mm; }
+.toc .row { display: flex; align-items: baseline; gap: 2mm; padding: 1.7mm 0; border-bottom: 1px dotted var(--line); }
+.toc .num { width: 10mm; color: var(--teal); font-weight: 700; }
+.toc .label { flex: 1; }
+.toc .page { width: 9mm; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .sub .label { padding-left: 6mm; font-size: 9.4pt; color: var(--muted); }
+
+/* --- pastilles ----------------------------------------------------------- */
+.pill { display: inline-block; border-radius: 3mm; padding: .5mm 2.2mm; font-size: 8.4pt; font-weight: 700; white-space: nowrap; }
+.pill.done { color: var(--good); background: #e8f6ed; border: 1px solid var(--good); }
+.pill.open { color: var(--bad); background: #fdeaea; border: 1px solid var(--bad); }
+.pill.mid { color: #7a5200; background: #fdf0c2; border: 1px solid #7a5200; }
+
+/* --- tableaux ------------------------------------------------------------ */
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 5mm; font-size: 8.9pt; }
+thead { display: table-header-group; }
+th {
+  text-align: left; background: var(--panel); color: var(--brand);
+  border-bottom: 1.5px solid var(--teal); padding: 2mm 2mm; font-size: 8.6pt;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+td { padding: 1.8mm 2mm; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr { break-inside: avoid; }
+td.tight { width: 18mm; }
+td.state { width: 24mm; }
+table.kv td:first-child { width: 46mm; color: var(--brand); font-weight: 600; }
+
+/* --- encadrés ------------------------------------------------------------ */
+.callout { background: var(--panel); border-left: 3px solid var(--teal); padding: 3mm 4mm; margin: 3mm 0 5mm; break-inside: avoid; }
+.callout.warn { border-left-color: var(--bad); background: #fdf3f2; }
+.callout.gold { border-left-color: var(--gold); background: #fdf7e3; }
+.callout p:last-child { margin-bottom: 0; }
+
+/* --- schémas ------------------------------------------------------------- */
+figure { margin: 0 0 4mm; break-inside: avoid; text-align: center; }
+figure svg { width: 100%; height: auto; }
+figcaption { font-size: 8.8pt; color: var(--muted); margin-top: 2mm; text-align: left; }
+figure.full { break-before: page; }
+figure.full.first { break-before: auto; }
+.figure-notes { text-align: left; font-size: 9.4pt; color: var(--ink); margin: 1mm 0 0; }
+.figure-notes li { margin-bottom: .8mm; }
+figure.full h3 { text-align: left; margin-top: 0; }
+
+/* --- code / arborescence ------------------------------------------------- */
+pre.tree {
+  font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.1pt; line-height: 1.42;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 2mm;
+  padding: 3mm 4mm; white-space: pre-wrap; break-inside: avoid; margin: 2mm 0 4mm;
+}
+pre.tree b { color: var(--brand); }
+
+.keyfig { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; margin: 8mm 0 0; max-width: 150mm; }
+.keyfig div { border: 1px solid var(--line); border-radius: 2mm; padding: 3mm 4mm; background: var(--panel); }
+.keyfig b { display: block; font-size: 17pt; color: var(--teal); line-height: 1.1; }
+.keyfig span { font-size: 8.6pt; color: var(--muted); }
+.legend { display: flex; gap: 6mm; align-items: center; margin: 2mm 0 4mm; font-size: 9pt; }
+.legend .pill { margin-right: 1.5mm; }
