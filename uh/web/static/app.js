@@ -247,6 +247,13 @@ function appendMessage(role, text, messageId) {
 // no way out. Every failure shown in the thread goes through here: a sentence in
 // French, the technical text kept in a collapsible detail, and the one button that
 // fixes the usual cause. Messages already written for people pass through untouched.
+//
+// Two unrelated failures both arrive as 401, and the repair is opposite for each:
+// UH's own /api routes answer 401 when the page's token is stale (older tab, server
+// restarted on another port) - reloading is the fix; a model provider answers 401
+// inside a turn's `error` frame when it refuses the API key - reloading changes
+// nothing, the key has to be checked. `origin` is what tells them apart: "ui" for a
+// request the browser made to UH, "provider" for a failure reported by the turn.
 const HTTP_TEXTS = {
   400: "La demande n'a pas été comprise par UH. Reformulez-la ou rechargez la page.",
   401: "Cette page n'est plus reliée à UH (jeton périmé). Rechargez la page.",
@@ -262,16 +269,24 @@ const HTTP_TEXTS = {
   504: "Le fournisseur de modèle a mis trop de temps à répondre. Réessayez dans un instant.",
 };
 
-function httpErrorText(status) {
+// A provider refusal of the key is not UH refusing the page: same code, other text.
+const HTTP_TEXTS_PROVIDER = {
+  401: "Le fournisseur a refusé la clé. Vérifiez la clé de ce fournisseur dans le panneau « Fournisseurs », puis réessayez : recharger la page ne changerait rien.",
+};
+
+function httpErrorText(status, origin = "ui") {
   const code = Number(status) || 0;
+  if (origin === "provider" && HTTP_TEXTS_PROVIDER[code]) return HTTP_TEXTS_PROVIDER[code];
   const known = HTTP_TEXTS[code];
   if (known) return known;
   if (code >= 500) return HTTP_TEXTS[500];
   return "UH n'a pas pu terminer cette action. Rechargez la page, puis réessayez.";
 }
 
-// -> { text, actions[] } ; actions among "reload", "new", "allow".
-function humanizeError(raw) {
+// -> { text, actions[] } ; actions among "reload", "new", "allow", "keys".
+// `origin` is "ui" for a failure of a browser request to UH, "provider" when the
+// turn itself reported it (SSE `error` frame: the model or a service it called).
+function humanizeError(raw, origin = "ui") {
   const message = String(raw || "").trim();
   const http = message.match(/\bHTTP\s*(\d{3})\b/i);
   if (/WinError\s*100(53|54|60|61)|Failed to fetch|NetworkError|Load failed|ECONNRESET|connection (reset|refused|aborted)|socket|BrokenPipe/i.test(message)) {
@@ -291,8 +306,17 @@ function humanizeError(raw) {
   }
   if (http) {
     const code = Number(http[1]);
+    if (origin === "provider" && code === 401) {
+      // The key itself was refused: a reload would only replay the same key. The
+      // repair is a button to the panel that holds it, not a page refresh.
+      return { text: httpErrorText(code, "provider"), actions: ["keys"] };
+    }
     const actions = code === 422 ? ["new", "reload"] : ["reload"];
-    return { text: httpErrorText(code), actions };
+    return { text: httpErrorText(code, origin), actions };
+  }
+  // api() throws this wording on a local 401, before any HTTP code is visible.
+  if (origin === "ui" && /jeton p[ée]rim[ée]|invalid token/i.test(message)) {
+    return { text: HTTP_TEXTS[401], actions: ["reload"] };
   }
   return { text: message || "erreur inconnue", actions: [] };
 }
@@ -320,6 +344,14 @@ function decorateError(box, raw, info) {
         errorButton("Nouvelle session", "Repartir d'une conversation vide", () => {
           newSession().catch((error) => modelNote(error.message, "warn"));
         })
+      );
+    } else if (action === "keys") {
+      // The provider refused the key: the only useful gesture is opening the panel
+      // that holds it, and it must exist as a button - not as advice to type a URL.
+      row.appendChild(
+        errorButton("Vérifier la clé", "Ouvrir « Fournisseurs » pour vérifier la clé refusée", () =>
+          showPanelTab("keys")
+        )
       );
     } else if (action === "allow") {
       row.appendChild(
@@ -2424,7 +2456,9 @@ async function sendMessage(text) {
             // "Erreur du modèle" pushed people to check a provider key while the
             // broken part was a search endpoint.
             const label = data.source === "command" ? "Commande" : "Erreur du modèle";
-            const info = humanizeError(failed);
+            // Reported by the turn, not by the page's own request: a 401 here is the
+            // provider refusing the key, never a stale UI token.
+            const info = humanizeError(failed, "provider");
             const bubble = appendMessage("assistant", `${label} : ${info.text}`);
             bubble.classList.add("failed");
             bubble.setAttribute("role", "alert");
@@ -2487,7 +2521,9 @@ async function sendMessage(text) {
       // The bubble stays. Removing it is what made a failed turn look like the
       // question had been swallowed along with the answer.
       assistant.classList.add("failed");
-      const info = humanizeError(failed);
+      // This catch wraps the browser's own request to /api: a 401 raised here (the
+      // stream was refused before it opened) is a stale page token, so "ui".
+      const info = humanizeError(failed, "ui");
       assistantContent.textContent = `Erreur du modèle : ${info.text} Réessaie, ou choisis un autre modèle avec « ⋯ ».`;
       assistant.setAttribute("role", "alert");
       decorateError(assistant, failed, { actions: info.actions.length ? info.actions : ["reload"] });
