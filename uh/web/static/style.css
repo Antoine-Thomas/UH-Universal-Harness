@@ -2309,6 +2309,23 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
   .modal { max-width: 94vw; }
 }
 
+
+
+/* 11. Retour utilisateur (lot 2, point 1) : une seule barre par réponse, discrète,
+   révélée au survol ou au focus clavier, et permanente dès qu'un vote existe. */
+.text-feedback { opacity: 0; transition: opacity .15s ease; }
+.msg:hover .text-feedback, .text-feedback:focus-within, .text-feedback.voted { opacity: 1; }
+@media (hover: none) { .text-feedback { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .text-feedback { opacity: 1; transition: none; } }
+.text-feedback .feedback-vote { font-size: 13px; line-height: 1; min-width: 32px; padding: 2px 6px; }
+.text-feedback .feedback-vote[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--accent-soft); font-weight: 700;
+}
+.text-feedback .feedback-state { font-size: 11px; color: var(--muted); }
+/* La barre du texte ne doit jamais doubler celle d'un artefact (drawArtifacts la
+   retire à la création) ; si elle revient par un autre chemin, elle reste cachée. */
+.msg:has(.tool-artifact) .text-feedback { display: none; }
+
 /* 13. Autofill (23/11) : un bouton d'enregistrement inactif doit se voir inactif,
    sinon l'utilisateur croit que son formulaire vide va être envoyé. */
 .key-actions button:disabled,
