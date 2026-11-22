@@ -270,3 +270,68 @@ Pas d'arrêt requis (aucun `Stop = 0`). Deux exigences pour le point 2 : l'indic
 « Micro actif » se pilote sur le **flux réel** (`track.readyState`, pistes live), et le
 test CDP doit prouver 0 piste live après arrêt, après F5 et à 120 s — le registre ne
 prouve pas, à lui seul, qu'un flux est fermé.
+
+## Mesure 2.0 (suite) — le 22/11, et le python du 14 au 17/11
+
+### Quel navigateur `uh web --app` lance réellement
+
+Mesuré par exécution, pas par lecture : `find_chromium()` rend
+`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`, et
+`centered_position()` rend `--window-position=640,280` sur cet écran. L'ordre des
+candidats est Edge d'abord (`uh/web/browser.py`, `WINDOWS_CANDIDATES`), puis Chrome.
+
+### Relecture du registre (lecture seule, `reg query ... /s`)
+
+Trois entrées seulement portent un horodatage dans
+`HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone` :
+
+| exécutable | dernier début | dernière fin |
+| --- | --- | --- |
+| `…\Microsoft\Edge\Application\msedge.exe` | 2026-05-28 14:22:33 | 2026-05-28 14:22:41 |
+| `…\Google\Chrome\Application\chrome.exe` | 2026-09-28 21:43:52 | 2026-09-28 21:44:13 |
+| `…\Programs\Python\Python311\python.exe` | 2026-11-14 18:08:11 | 2026-11-17 22:11:47 |
+
+- **Aucune entrée du 22/11**, ni pour Edge, ni pour Chrome, ni pour la sous-clé
+  `Packaged` (qui n'existe pas sur ce poste).
+- **Aucune valeur `LastUsedTimeStop = 0`** : rien ne tient le micro à l'instant de la
+  lecture.
+
+### Ce que le code prouve, et ce que le registre ne peut pas dire
+
+`app.js` (l'ancien comme le nouveau) n'affiche `dictée impossible : …` qu'après un
+`getUserMedia` réussi, un `MediaRecorder` et un POST sur `/api/audio/transcribe` ; un
+refus du micro affiche `Micro refusé : …`. Le message vu à 17:32 prouve donc **une
+capture réelle**, alors que le registre ne l'attribue à aucun exécutable.
+
+Conclusion mesurée : sur ce poste, le ConsentStore **n'est pas un témoin fiable** d'une
+capture Chromium. Mécanisme : **non mesuré**. Hypothèses, non vérifiées :
+
+- Windows n'écrirait la paire qu'à la fermeture complète du processus, et Edge garde des
+  processus en arrière-plan après la fermeture de la fenêtre ;
+- la capture passerait par le service audio de Chromium, journalisée sous un autre
+  exécutable que l'hôte.
+
+Test décisif (proposé, **non exécuté** — il ouvre le vrai micro) : enregistrer 6 s dans
+la fenêtre `--app`, relire le registre immédiatement ; puis quitter complètement Edge et
+relire. Si la valeur ne bouge qu'après la sortie complète, l'hypothèse 1 est établie et
+l'absence du 22/11 s'explique sans nier la capture.
+
+### Le python du 14 au 17/11 : aucune trace dans les dépôts cités
+
+Recherche en lecture seule, sur la fenêtre exacte 14/11 18:08 → 17/11 22:11 :
+
+- `~/.uhb/runs` : **aucun run** — le plus ancien est `run-20261118-170921-c431ee`.
+- `~/.uhb` : un seul fichier modifié dans la fenêtre (`shutdown-token`).
+- `~/.uhb/atelier` : créé le **19/11 15:59** — il n'existait pas entre le 14 et le 17,
+  donc **aucun snippet confiné ne pouvait ouvrir le micro** à ces dates.
+- Sessions UH (`~/.uh/uh.db`) : **0 message** entre le 14 et le 18/11.
+- Mes propres commandes (Hermes, `state.db`) : **11 465 messages** relus sur la période ;
+  aucun ne contient `sounddevice`, `pyaudio`, `speech_recognition`, `waveIn`, `winmm`,
+  `dshow`, `wasapi`, `getUserMedia` ni `microphone`.
+- `…\Python311\Lib\site-packages` : **aucune** bibliothèque audio (`sounddevice`,
+  `pyaudio`, `soundcard`, `speech_recognition`, `torchaudio`) — rien ne pouvait importer
+  une capture sans avoir laissé un paquet.
+
+Mesuré : aucune trace dans les dépôts nommés. Non mesuré : **quel processus** a ouvert le
+micro. Le trou de confinement (point 3) **n'est pas démontré** : l'atelier n'existait pas
+à ces dates.
