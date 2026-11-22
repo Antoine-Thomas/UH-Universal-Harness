@@ -1903,8 +1903,11 @@ refaits : `centered_position()` + `--window-position` (`uh/web/browser.py`),
 - [x] `lease_expired` / `lease_tick` sont purs et injectables (horloge, `stop`,
   `exit_now`) : `tests/test_web_lease.py`, 12 tests, dont « F5 (trou < TTL) n'arrête
   rien » et « UHB est arrêté avant la sortie du processus ».
-- [ ] Preuve réelle : lancer `uh web --app`, fermer la fenêtre Edge, vérifier
-  qu'aucun `uhb` ne survit (le test unitaire prouve la décision, pas la fenêtre).
+- [x] Preuve réelle (22/11) : `uh web --app --no-open` sur un `UH_HOME` jetable,
+  page pilotée par Playwright puis fermée — serveur à `200` tant que la page bat,
+  sorti **48 s** après la fermeture, code 0. Reste à refaire avec une vraie fenêtre
+  Edge et un UHB vivant : le `--no-uhb` de cette mesure ne prouve pas l'arrêt de
+  l'enfant, seulement la sortie du serveur.
 
 ### B. Passe CSS (`uh/web/static/style.css`, fin de fichier)
 
