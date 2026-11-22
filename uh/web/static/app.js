@@ -179,20 +179,70 @@ async function deleteMessage(box) {
 // store, and a bubble you cannot name is a bubble you cannot delete.
 // Two thumbs on a text answer: same route, same journal, same honest sentence as an
 // image. The vote carries the message id so the journal can point at what was read.
-function textFeedback(box) {
+// --- feedback : ce qu'une réponse « dit » vraiment ------------------------------ //
+// Un message qui n'est qu'une image Markdown, un bloc de code ou une URL ne peut pas
+// être noté ni lu à voix haute : il n'y a pas de prose. Ce calcul est pur (aucun DOM)
+// et testé sous node ; l'UI ne fait que l'appliquer.
+// BEGIN feedbackText — testé sous node par tests/test_web_feedback_text.py
+function feedbackText(text) {
+  const source = String(text || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[#>*_`~|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = source ? source.split(" ").filter((word) => /\p{L}|\p{N}/u.test(word)).length : 0;
+  return { text: source, chars: source.length, words };
+}
+// END feedbackText
+
+// Une seule barre de retour par réponse, et seulement là où elle a un sens.
+function maybeFeedback(box, text) {
+  if (!box || box.classList.contains("failed") || box.classList.contains("system")) return;
+  const readable = feedbackText(text);
+  if (readable.chars < 20) return;
+  if (!box.querySelector(".text-feedback")) textFeedback(box, readable.words);
+  if (readable.words >= 3 && !box.querySelector(".answer-audio")) speakBox(box, text);
+}
+
+function dropFeedback(box) {
+  const bar = box && box.querySelector(".text-feedback");
+  if (bar) bar.remove();
+}
+
+// La barre du dernier message est révélée au survol/focus ; une réponse déjà votée
+// garde la sienne en permanence (l'état doit rester lisible), les autres disparaissent.
+function refreshFeedbackTargets() {
+  const assistants = [...$("messages").querySelectorAll(".msg.assistant")].filter(
+    (node) => !node.classList.contains("failed") && !node.classList.contains("system")
+  );
+  const last = assistants[assistants.length - 1] || null;
+  for (const node of assistants) {
+    const bar = node.querySelector(".text-feedback");
+    if (!bar) continue;
+    const voted = Boolean(bar.dataset.vote);
+    if (node !== last && !voted) bar.remove();
+    else bar.hidden = false;
+  }
+}
+
+function textFeedback(box, words) {
   const bar = el("div", "text-feedback");
-  const status = el("span", "tool-artifact-status");
+  bar.title = VOTE_NOTE;
+  const status = el("span", "feedback-state");
   const buttons = [];
-  for (const [vote, label, title] of [
-    ["up", "Utile", "réponse utile : notée comme exemple à reproduire"],
-    ["down", "Pas utile", "réponse à éviter : notée comme contre-exemple"],
+  // Icônes SVG du dépôt, pas des emoji : une face de bouton emoji prend la taille
+  // que la plateforme décide (règle mesurée le 19/11 sur la barre d'artefact).
+  for (const [vote, icon, label, accessible] of [
+    ["up", "up", "Utile", "Réponse utile"],
+    ["down", "down", "Pas utile", "Réponse à éviter"],
   ]) {
-    const button = el("button", "tool-artifact-btn", label);
-    button.type = "button";
-    button.title = title;
-    button.setAttribute("aria-label", title);
+    const button = artifactButton(icon, label, accessible, null, "feedback-vote");
     button.dataset.vote = vote;
     button.setAttribute("aria-pressed", "false");
+    if (vote === "down") button.classList.add("feedback-avoid");
     button.addEventListener("click", async () => {
       const current = bar.dataset.vote || "";
       const wanted = current === vote ? "none" : vote;
@@ -216,7 +266,10 @@ function textFeedback(box) {
           node.setAttribute("aria-pressed", active ? "true" : "false");
           node.classList.toggle("voted", active);
         }
-        status.textContent = wanted === "none" ? "vote retiré" : VOTE_NOTE;
+        bar.classList.toggle("voted", Boolean(bar.dataset.vote));
+        // L'état se lit en toutes lettres : la couleur seule ne dit rien à un lecteur d'écran.
+        status.textContent = wanted === "none" ? "" : wanted === "up" ? "noté : utile" : "noté : à éviter";
+        refreshFeedbackTargets();
       } catch (error) {
         status.textContent = `refusé : ${error.message}`;
       }
@@ -224,6 +277,7 @@ function textFeedback(box) {
     buttons.push(button);
     bar.appendChild(button);
   }
+  if (words !== undefined) bar.dataset.words = String(words);
   bar.appendChild(status);
   box.appendChild(bar);
   return bar;
@@ -232,16 +286,28 @@ function textFeedback(box) {
 // Read an answer aloud. The synthesis is what creates the sound, so the player only
 // appears once a file really exists - the conditional rule, applied to its origin.
 function speakBox(box, text) {
+  const readable = feedbackText(text);
+  // Pas de prose, pas de bouton : un appel à /api/audio/speak avec un texte vide
+  // produisait « voix impossible : text is required », trois fois de suite.
+  if (readable.words < 3) return null;
   const bar = el("div", "answer-audio");
   const button = el("button", "tool-artifact-btn", "Écouter");
   button.type = "button";
   button.title = "lire cette réponse à voix haute";
   button.setAttribute("aria-label", "lire cette réponse à voix haute");
+  // Un seul nœud de statut, réutilisé : la phrase d'erreur remplace, elle ne s'empile pas.
+  const status = el("span", "tool-artifact-status", "");
+  bar.appendChild(button);
+  bar.appendChild(status);
   button.addEventListener("click", async () => {
     if (button.disabled) return;
+    const current = feedbackText(text);
+    if (current.words < 3) {
+      status.textContent = "texte trop court pour être lu";
+      return;
+    }
     button.disabled = true;
-    const status = el("span", "tool-artifact-status", "synthèse…");
-    bar.appendChild(status);
+    status.textContent = "synthèse…";
     try {
       const payload = await api("/api/audio/speak", {
         method: "POST",
@@ -250,7 +316,7 @@ function speakBox(box, text) {
           session_id: state.sessionId || "",
         }),
       });
-      status.remove();
+      status.textContent = "";
       drawAudio(box, [payload], { sessionId: state.sessionId });
       bar.remove();
     } catch (error) {
@@ -258,8 +324,8 @@ function speakBox(box, text) {
       button.disabled = false;
     }
   });
-  bar.appendChild(button);
   box.appendChild(bar);
+  return bar;
 }
 
 function appendMessage(role, text, messageId) {
@@ -283,14 +349,13 @@ function appendMessage(role, text, messageId) {
     content.textContent = text;
   }
   box.appendChild(content);
-  if (role === "assistant") {
-    // Point 5 generalised: a text answer deserves the same two thumbs as an image,
-    // and the same honest sentence about what a vote does today.
-    textFeedback(box);
-    // P1-15: read the answer aloud. The player appears only once a sound exists.
-    speakBox(box, text);
-  }
   $("messages").appendChild(box);
+  if (role === "assistant") {
+    // Une seule barre, et seulement s'il y a de la prose : un message qui n'est
+    // qu'une image ou un statut n'a rien à noter ni à lire (lot 2, point 1).
+    maybeFeedback(box, text);
+    refreshFeedbackTargets();
+  }
   $("messages").scrollTop = $("messages").scrollHeight;
   return box;
 }
@@ -612,6 +677,8 @@ function drawArtifacts(container, artifacts, context) {
       el("div", "tool-artifact-note", "image non conservée : au-delà du plafond de taille")
     );
   }
+  const owner = container.closest ? container.closest(".msg") : null;
+  if (owner && container.querySelector(".tool-artifact")) dropFeedback(owner);
 }
 
 // ------------------------------------------------------------------ figures --
@@ -2530,6 +2597,7 @@ async function sendMessage(text) {
             const info = humanizeError(failed, "provider");
             const bubble = appendMessage("assistant", `${label} : ${info.text}`);
             bubble.classList.add("failed");
+            dropFeedback(bubble);
             bubble.setAttribute("role", "alert");
             if (info.text !== failed) decorateError(bubble, failed, info);
             else decorateError(bubble, failed, { actions: info.actions.length ? info.actions : ["reload"] });
@@ -2568,6 +2636,7 @@ async function sendMessage(text) {
             markServedModel(data, assistant);
           });
         } else if (event === "done") {
+          guardedStep("done-feedback", () => { maybeFeedback(assistant, assistantText); refreshFeedbackTargets(); });
           guardedStep("done", () => {
             if (!assistantText && !assistantContent.textContent.trim()) {
               // A bubble that disappears looks like the app ate the question.
