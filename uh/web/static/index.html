@@ -105,6 +105,14 @@
 
       <div id="attachments" class="attachments" aria-live="polite"></div>
       <p id="mic-status" class="mic-status" aria-live="polite" hidden></p>
+      <!-- L'etat du micro reste visible tant qu'il est ouvert : ce n'est pas une
+           notification qui s'efface, c'est un appareil en cours de capture. -->
+      <div id="mic-bar" class="mic-bar" role="status" aria-live="polite" hidden>
+        <span class="mic-dot" aria-hidden="true"></span>
+        <strong>Micro actif</strong>
+        <span id="mic-clock" class="mic-clock">0:00</span>
+        <button type="button" id="mic-stop" class="mic-stop">Arrêter</button>
+      </div>
 
       <form id="composer" class="composer">
         <div class="plus-wrap">
@@ -155,7 +163,15 @@
           </div>
         </div>
         <p id="media-warning" class="media-warning" hidden></p>
-        <button type="button" id="mic" class="icon-button" title="Dicter (micro)" aria-label="Dicter un message" hidden>🎙️</button>
+        <button type="button" id="mic" class="icon-button" title="Dicter : enregistrer un message au micro" aria-label="Dicter : enregistrer un message au micro" aria-pressed="false" hidden>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none"
+               stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+            <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"></path>
+            <path d="M12 18v3"></path>
+            <path d="M8.5 21h7"></path>
+          </svg>
+        </button>
         <button type="button" id="skill-open" class="skill-open" title="Attacher un skill à ce tour" aria-label="Skill">⚑</button>
         <button type="button" id="llm-open" class="skill-open" title="Réglages de la conversation" aria-label="Réglages de la conversation">🎚</button>
         <input id="files" name="files" class="visually-hidden" type="file" multiple

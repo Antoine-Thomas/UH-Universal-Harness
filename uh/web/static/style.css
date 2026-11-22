@@ -2326,6 +2326,31 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
    retire à la création) ; si elle revient par un autre chemin, elle reste cachée. */
 .msg:has(.tool-artifact) .text-feedback { display: none; }
 
+
+
+/* 12. Dictée (lot 2, point 2) : l'état du micro reste à l'écran tant qu'il est
+   ouvert, et « Arrêter » est un vrai bouton, pas une consigne à retenir. */
+.mic-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 8px; padding: 7px 12px;
+  border: 1px solid var(--danger); border-radius: var(--ctl-radius);
+  background: var(--danger-soft);
+}
+.mic-bar strong { font-size: 13px; }
+.mic-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
+@keyframes mic-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: no-preference) { .mic-dot { animation: mic-pulse 1.4s ease-in-out infinite; } }
+.mic-clock { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
+.mic-stop {
+  min-height: var(--ctl-h); padding: 0 12px; margin-left: auto;
+  border-radius: var(--ctl-radius); border: 1px solid var(--danger);
+  background: transparent; color: var(--danger); font: inherit; font-size: 13px; cursor: pointer;
+}
+.mic-stop:hover { background: var(--danger); color: var(--bg); }
+.mic-stop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#mic.recording { border-color: var(--danger); color: var(--danger); }
+#mic .icon { width: 16px; height: 16px; display: block; }
+
 /* 13. Autofill (23/11) : un bouton d'enregistrement inactif doit se voir inactif,
    sinon l'utilisateur croit que son formulaire vide va être envoyé. */
 .key-actions button:disabled,
