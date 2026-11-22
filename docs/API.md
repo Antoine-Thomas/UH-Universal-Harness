@@ -208,6 +208,15 @@ Frames follow the usual `event: <name>\ndata: <json>\n\n` shape.
 
 `POST …/stop` makes the stream end with `done`, not with an error.
 
+### Dictée : l'état du micro est un élément d'interface
+
+`#mic` (bouton Dicter) ouvre un enregistrement ; `#mic-bar` reste visible tant que des
+pistes sont vivantes, avec `#mic-clock` (temps écoulé, puis « arrêt dans … » sur les
+15 dernières secondes) et `#mic-stop` (« Arrêter »). Le client ferme les pistes dans un
+`finally` après un arrêt, un plafond de deux minutes, un onglet masqué, `pagehide`,
+`beforeunload`, une erreur d'enregistrement ou un changement de session. « Dicter »
+(enregistrer) et « Écouter » (synthèse de la réponse) sont deux commandes distinctes.
+
 ## Element ids used by the current interface
 
 `uh/web/static/index.html` + `app.js` rely on these ids; a replacement interface
@@ -217,6 +226,7 @@ contract of the bundled one:
 ```
 app-banner
 attach  attachments  command-chips  composer  files  folder-hint  mic  mic-status
+mic-bar  mic-clock  mic-stop
 project-add  project-path  projects-hint  projects-list  projects-refresh  projects-view
 runs-clean  runs-hint  runs-list  tab-projects
 plus-backdrop  plus-close  plus-empty  plus-filters  plus-import  plus-title
