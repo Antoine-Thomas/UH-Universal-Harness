@@ -6869,7 +6869,35 @@ async function bootStep(label, run) {
   }
 }
 
+// A closed window cannot say goodbye: `beforeunload` also fires on a reload, so a
+// hook there would kill the app on F5. The page therefore renews a lease while it
+// lives, and the server - only when IT opened the window (`--app`) - stops UHB and
+// exits once the lease has been silent. A reload leaves a gap of a second, well
+// under the TTL; a minimised window keeps beating but reports itself hidden, and the
+// server gives it a longer budget instead of killing a product the user still has open.
+const LEASE_BEAT_MS = 10000;
+function startLease() {
+  const beat = () => {
+    // Not api(): the beat is ambient, and a failing one (server already going down)
+    // must not paint a banner over the transcript.
+    fetch("/api/system/alive", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visible: document.visibilityState === "visible" }),
+    }).catch(() => {});
+  };
+  beat();
+  window.setInterval(beat, LEASE_BEAT_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") beat();
+  });
+}
+
 async function boot() {
+  // First, before any slow load: a boot that takes longer than the TTL must not read
+  // as a closed window.
+  startLease();
   wireLayout();
   wireAttachments();
   wireMic();
