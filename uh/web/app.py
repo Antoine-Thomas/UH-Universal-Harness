@@ -4114,6 +4114,7 @@ def run_server(
         print(f"uh web: {host}:{port} is used by another program; using {free}")
         port = free
 
+    managed_window = bool(app_window and open_browser)
     app = create_app(
         host=host,
         port=port,
@@ -4121,11 +4122,12 @@ def run_server(
         allow_terminal=allow_terminal,
         workspace=workspace,
         static_dir=static_dir,
-        app_window=app_window,
+        app_window=managed_window,
     )
     # The window this process opens is the only thing that keeps it alive: closing
     # it is the ordinary way to quit an app, and until now it left UHB running with
-    # no window to reach it. A server started by hand has no watchdog at all.
+    # no window to reach it. A server started by hand (or with --no-open) has no
+    # watchdog at all.
     start_lease_watchdog(app)
     if os.environ.get("UH_DEV_RELOAD") == "1":
         # A route added after the server started is a 404 until the process is

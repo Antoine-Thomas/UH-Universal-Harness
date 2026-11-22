@@ -230,3 +230,36 @@ def test_a_cross_site_page_cannot_hold_a_dead_window_open(
 
     assert asyncio.run(scenario()).status_code == 403
     assert app.state.lease_seen != 7_000.0
+
+
+def test_no_open_disables_the_watchdog_even_with_app_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`uh web --app --no-open` opens no window itself, so no lease watchdog may start."""
+    import uvicorn
+
+    from uh.web import app as web_app
+
+    monkeypatch.setenv("UH_HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir(parents=True, exist_ok=True)
+
+    seen_watchdogs: list[object] = []
+    monkeypatch.setattr(web_app, "_port_busy", lambda host, port: False)
+    monkeypatch.setattr(
+        web_app,
+        "start_lease_watchdog",
+        lambda application: seen_watchdogs.append(application) or None,
+    )
+    monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: None)
+
+    rc = web_app.run_server(
+        host="127.0.0.1",
+        port=8765,
+        open_browser=False,
+        app_window=True,
+        workspace=tmp_path,
+    )
+
+    assert rc == 0
+    assert len(seen_watchdogs) == 1
+    assert seen_watchdogs[0].state.app_window is False
