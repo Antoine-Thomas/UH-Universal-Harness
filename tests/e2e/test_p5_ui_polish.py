@@ -16,9 +16,7 @@ pytestmark = pytest.mark.e2e
 from .conftest import Server, open_app  # noqa: E402
 
 
-def test_the_quit_confirmation_is_a_modal_that_escape_closes(
-    browser, server: Server
-) -> None:
+def test_the_quit_confirmation_is_a_modal_that_escape_closes(browser, server: Server) -> None:
     """`window.confirm` blocked the page and could not be styled; the replacement is
     the same `.modal` as every other dialog, so Escape belongs to it - and only to it.
     """

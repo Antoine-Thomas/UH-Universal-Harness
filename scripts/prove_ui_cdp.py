@@ -74,7 +74,9 @@ def _luminance(rgb: tuple[float, float, float]) -> float:
     channels = []
     for value in rgb:
         channel = value / 255.0
-        channels.append(channel / 12.92 if channel <= 0.03928 else ((channel + 0.055) / 1.055) ** 2.4)
+        channels.append(
+            channel / 12.92 if channel <= 0.03928 else ((channel + 0.055) / 1.055) ** 2.4
+        )
     r, g, b = channels
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
@@ -141,7 +143,10 @@ class Server:
         deadline = time.time() + 30
         while time.time() < deadline:
             try:
-                if httpx.get(f"http://127.0.0.1:{self.port}/healthz", timeout=1.0).status_code == 200:
+                if (
+                    httpx.get(f"http://127.0.0.1:{self.port}/healthz", timeout=1.0).status_code
+                    == 200
+                ):
                     return self
             except Exception:  # noqa: BLE001 - not up yet is the normal case
                 time.sleep(0.2)
@@ -259,7 +264,9 @@ def main() -> int:
             page.wait_for_timeout(500)
 
             for theme in ("dark", "light"):
-                page.evaluate("(theme) => { document.documentElement.dataset.theme = theme; }", theme)
+                page.evaluate(
+                    "(theme) => { document.documentElement.dataset.theme = theme; }", theme
+                )
                 # `.msg` transitions its background over 200 ms: measuring during the
                 # fade reads the OLD panel colour against the NEW text colour, which
                 # is a transition artefact, not a contrast defect.
@@ -310,7 +317,9 @@ def main() -> int:
                         failures.append(
                             f"[{theme}] 1024px: tabs stayed on one row ({tabs['navHeight']}px)"
                         )
-                    page.screenshot(path=str(shots / f"cockpit-{theme}-{width}.png"), full_page=False)
+                    page.screenshot(
+                        path=str(shots / f"cockpit-{theme}-{width}.png"), full_page=False
+                    )
 
                 page.set_viewport_size({"width": 1280, "height": 900})
 
@@ -328,7 +337,9 @@ def main() -> int:
                 width_after = page.evaluate(
                     "() => Math.round(document.querySelector('#layout').getBoundingClientRect().width)"
                 )
-                print(f"[{theme}] Escape closed the modal; layout {width_before} -> {width_after}px")
+                print(
+                    f"[{theme}] Escape closed the modal; layout {width_before} -> {width_after}px"
+                )
                 if width_after != width_before:
                     failures.append(
                         f"[{theme}] Escape also resized the layout ({width_before} -> {width_after})"

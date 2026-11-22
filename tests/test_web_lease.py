@@ -118,9 +118,7 @@ def test_a_tick_asks_uhb_to_stop_before_the_process_goes(
     assert order == ["uhb", "exit:0"], "UHB is stopped before the server leaves"
 
 
-def test_a_tick_leaves_a_live_window_alone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_tick_leaves_a_live_window_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = make_app(tmp_path, monkeypatch)
     app.state.lease_seen = 1_000.0
     order: list[str] = []
@@ -193,9 +191,7 @@ def test_the_page_renews_its_lease(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     async def scenario():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url=BASE) as http:
-            return await http.post(
-                "/api/system/alive", json={"visible": False}, headers=AUTH
-            )
+            return await http.post("/api/system/alive", json={"visible": False}, headers=AUTH)
 
     response = asyncio.run(scenario())
 
@@ -205,9 +201,7 @@ def test_the_page_renews_its_lease(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert app.state.lease_visible is False
 
 
-def test_the_lease_route_needs_the_token(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_lease_route_needs_the_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = make_app(tmp_path, monkeypatch)
 
     async def scenario():
