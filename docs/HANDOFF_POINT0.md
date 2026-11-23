@@ -282,19 +282,55 @@ candidats est Edge d'abord (`uh/web/browser.py`, `WINDOWS_CANDIDATES`), puis Chr
 
 ### Relecture du registre (lecture seule, `reg query ... /s`)
 
-Trois entrées seulement portent un horodatage dans
-`HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone` :
+**Correction du 23/11** : la première lecture de ce document était **partielle** — le
+parseur sautait les blocs dont l'en-tête suivait une ligne vide, et n'affichait que trois
+entrées. Le registre en contient **quinze** avec un horodatage. Le tableau ci-dessous est
+la lecture complète, refaite deux fois (00:54:55 puis 01:34:23).
 
 | exécutable | dernier début | dernière fin |
 | --- | --- | --- |
-| `…\Microsoft\Edge\Application\msedge.exe` | 2026-05-28 14:22:33 | 2026-05-28 14:22:41 |
+| `…\Steam\bin\cef\cef.win64\steamwebhelper.exe` | 2026-04-15 23:10:18 | 2026-04-16 01:18:06 |
+| `…\Steam\steamapps\common\Vegas Pro 17.0\vegas170.exe` | 2026-04-19 13:56:10 | 2026-04-19 13:56:16 |
+| `H:\SteamLibrary\…\Skate\Skate.exe` | 2026-04-18 21:57:52 | 2026-04-18 22:29:55 |
+| `…\Microsoft\Edge\Application\msedge.exe` | 2026-05-28 14:22:33 | **2026-05-28 14:22:41** |
+| `…\NVIDIA Corporation\NVIDIA Broadcast.exe` | 2026-06-14 17:00:50 | 2026-06-14 17:00:54 |
+| `I:\SteamLibrary\…\GTA5_Enhanced.exe` | 2026-08-21 21:18:39 | 2026-08-21 21:18:41 |
+| `…\Adobe\Adobe Premiere Pro 2026\Adobe Premiere Pro.exe` | 2026-09-07 15:48:50 | 2026-09-07 15:48:56 |
+| `…\hermes\tools\ffmpeg-9.0.1-win32-x64\bin\ffmpeg.exe` | 2026-09-27 14:00:18 | 2026-09-27 14:00:34 |
 | `…\Google\Chrome\Application\chrome.exe` | 2026-09-28 21:43:52 | 2026-09-28 21:44:13 |
+| `…\obs-studio\bin\64bit\obs64.exe` | 2026-10-03 14:25:25 | 2026-10-03 14:25:29 |
+| `windows.immersivecontrolpanel` | 2026-10-03 21:39:11 | 2026-10-03 21:39:13 |
+| `…\Adobe\Adobe Premiere Pro (Beta)\…exe` | 2026-11-13 18:52:57 | 2026-11-13 18:53:28 |
+| `…\chocolatey\…\ffmpeg.exe` | **2026-11-17 19:10:03** | **2026-11-17 19:10:20** |
+| `…\NVIDIA Corporation\NvContainer\nvcontainer.exe` | 2026-11-17 19:11:36 | 2026-11-17 19:12:48 |
 | `…\Programs\Python\Python311\python.exe` | 2026-11-14 18:08:11 | 2026-11-17 22:11:47 |
 
-- **Aucune entrée du 22/11**, ni pour Edge, ni pour Chrome, ni pour la sous-clé
-  `Packaged` (qui n'existe pas sur ce poste).
-- **Aucune valeur `LastUsedTimeStop = 0`** : rien ne tient le micro à l'instant de la
-  lecture.
+- **Aucune entrée du 22/11 ni du 23/11**, ni dans `microphone`, ni dans `Packaged`
+  (sous-clé inexistante sur ce poste).
+- **Aucune valeur `LastUsedTimeStop = 0`** : rien ne tient le micro à l'instant de la lecture.
+- Nouvelle piste mesurée : le **17/11 à 19:10, ffmpeg (chocolatey) a capturé 17 s**, suivi
+  de `nvcontainer.exe` à 19:11:36. Le Python311 tourne jusqu'à 22:11 le même soir.
+
+### Protocole du 23/11 : trois relevés, dont un bloqué
+
+Protocole demandé : relever avant, après « Arrêter » (Edge encore ouvert), puis après
+sortie complète d'Edge.
+
+| relevé | heure | Edge (`msedge.exe`) | état |
+| --- | --- | --- | --- |
+| 1 — avant l'enregistrement | 23/11 00:54:55 | début 28/05 14:22:33, fin 28/05 14:22:41 | fenêtre `--app` ouverte (pid 5060) |
+| 2 — après « Arrêter » | 23/11 01:34:23 | **identique** | 19 processus `msedge.exe` encore vivants ; `uh web` déjà arrêté par le bail |
+| 3 — après sortie d'Edge | — | **non mesuré** | Edge n'a jamais quitté complètement : 19 processus restent |
+
+Ce que la mesure établit déjà : **la fin de capture n'écrit rien**. Le journal du serveur
+montre trois `POST /api/audio/transcribe … 200 OK` (donc trois dictées réussies, dont
+celle du tour #19), puis `window closed: no lease for 45s (uhb stopped: True); stopping uh
+web` — et à 01:34 le registre est identique au relevé de 00:54. Edge tournait toujours.
+
+Ce qui reste non mesuré : l'écriture a-t-elle lieu à la **sortie complète** du processus
+(hypothèse 1) ? Le relevé 3 exige que plus aucun `msedge.exe` ne tourne, ce qui n'était
+pas le cas et que je ne provoquerai pas moi-même : les 19 processus sont ceux du
+navigateur de l'utilisateur, pas les miens.
 
 ### Ce que le code prouve, et ce que le registre ne peut pas dire
 
@@ -331,6 +367,23 @@ Recherche en lecture seule, sur la fenêtre exacte 14/11 18:08 → 17/11 22:11 :
 - `…\Python311\Lib\site-packages` : **aucune** bibliothèque audio (`sounddevice`,
   `pyaudio`, `soundcard`, `speech_recognition`, `torchaudio`) — rien ne pouvait importer
   une capture sans avoir laissé un paquet.
+
+### Recherche élargie du 23/11 (autres programmes Python et historiques)
+
+- `%APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt` relu :
+  aucun script d'enregistrement. Le seul bloc audio est un **choix de périphérique** par
+  `AudioDeviceCmdlets` (`Get-AudioDevice` / `Set-AudioDevice`), qui ne capture rien.
+- `sounddevice 0.5.6` est installé… dans **Python310**, pas dans Python311 : une capture
+  par cette bibliothèque serait attribuée à `Python310\python.exe`, pas à l'entrée relevée.
+- Aucune bibliothèque audio dans Python311 (`Lib\site-packages`) ni dans le site utilisateur.
+- Positron est installé (`AppData\Local\Programs\Positron`) mais **aucun journal**
+  `AppData\Roaming\Positron\logs` n'existe : pas de trace d'exécution dans la fenêtre.
+- Un seul `.py` modifié entre le 14 et le 17/11 hors environnements (`Desktop\analyse_ventes.py`) :
+  zéro occurrence de `sound`, `audio`, `micro`, `whisper`, `wave`.
+- Nouvelle piste issue du registre complet : **ffmpeg (chocolatey) a capturé 17 s le
+  17/11 à 19:10:03**, suivi de `nvcontainer.exe` à 19:11:36 ; le Python311 s'arrête à
+  22:11:47. Une capture par ffmpeg (`-f dshow`) est donc **mesurée** ce soir-là ; le lien
+  avec l'entrée Python (traitement du fichier ?) reste **non mesuré**.
 
 Mesuré : aucune trace dans les dépôts nommés. Non mesuré : **quel processus** a ouvert le
 micro. Le trou de confinement (point 3) **n'est pas démontré** : l'atelier n'existait pas
