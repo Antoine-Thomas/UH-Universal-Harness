@@ -168,18 +168,22 @@ _MODEL_KEY = None
 def whisper_device() -> tuple[str, str]:
     """Sur quoi transcrire, décidé par la mesure — pas par l'espoir.
 
-    Le GPU ne sert que si ses trois DLL se chargent **et** qu'un banc l'a trouvé
-    nettement plus rapide (``voice-bench.json``). Sinon : CPU, ``int8``.
+    Le GPU ne sert que si ses trois DLL se chargent, qu'un banc l'a trouvé
+    nettement plus rapide (``voice-bench.json``) **et** que la VRAM libre tient au
+    moment de dicter (``MIN_FREE_VRAM_MB``). Cette dernière mesure est relue à
+    **chaque** appel : un chat qui vient de charger la carte rebascule la dictée sur
+    CPU sans redémarrer le serveur. Une mesure absente ou en erreur vaut refus.
     """
     from .. import voice_gpu
 
     try:
         bench = voice_gpu.read_bench() or {}
         if voice_gpu.cuda_available() and bench.get("gpu_wins"):
-            # Les DLL d'un wheel vivent dans le venv : Windows ne les trouve qu'une
-            # fois leurs dossiers déclarés, et c'est **avant** de charger le modèle.
-            voice_gpu.add_dll_directories()
-            return "cuda", "int8_float16"
+            if voice_gpu.vram_allows_dictation(voice_gpu.free_vram_mb()):
+                # Les DLL d'un wheel vivent dans le venv : Windows ne les trouve qu'une
+                # fois leurs dossiers déclarés, et c'est **avant** de charger le modèle.
+                voice_gpu.add_dll_directories()
+                return "cuda", "int8_float16"
     except Exception:  # noqa: BLE001 - une sonde qui échoue ne doit pas casser la dictée
         pass
     return "cpu", "int8"
