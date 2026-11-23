@@ -66,8 +66,12 @@ def free_vram_gb(machine: Dict[str, Any]) -> float:
     return max(0.0, vram - chat_vram_gb(machine))
 
 
-def local_stt_model(machine: Optional[Dict[str, Any]]) -> Tuple[str, str]:
+def local_stt_model(machine: Optional[Dict[str, Any]], cuda: bool = False) -> Tuple[str, str]:
     """Le plus gros modèle de dictée qui tient, et sur quoi il tourne.
+
+    ``cuda`` n'est vrai que si les bibliothèques CUDA se chargent réellement : un GPU
+    visible sans ``cublas64_12.dll`` fait échouer faster-whisper sur carte (mesuré ici),
+    donc on préfère le CPU à un modèle qui ne tournera pas.
 
     Un GPU avec de la VRAM libre après le chat fait tourner `small`/`medium` en
     `int8_float16` ; sinon on reste sur CPU en `int8`, plus lent mais sûr. Le modèle
@@ -76,9 +80,9 @@ def local_stt_model(machine: Optional[Dict[str, Any]]) -> Tuple[str, str]:
     """
     machine = machine or {}
     free = free_vram_gb(machine)
-    if machine.get("gpu") and free >= 5.0:
+    if cuda and machine.get("gpu") and free >= 5.0:
         return "medium", "int8_float16"
-    if machine.get("gpu") and free >= 2.5:
+    if cuda and machine.get("gpu") and free >= 2.5:
         return "small", "int8_float16"
     ram = float(machine.get("ram_gb") or 0.0)
     if ram >= 16.0:
@@ -123,7 +127,7 @@ def choose_voice_engines(
             }
         )
 
-    model, compute = local_stt_model(machine)
+    model, compute = local_stt_model(machine, bool(versions.get("cuda")))
 
     def local_stt() -> Dict[str, Any]:
         return {
@@ -132,8 +136,12 @@ def choose_voice_engines(
             "label": "faster-whisper (local)",
             "model": model,
             "compute": compute,
-            "reason": f"modèle {model} sur {'GPU' if compute.startswith('int8_float16') else 'CPU'},"
-            f" {compute}",
+            "reason": (
+                f"modèle {model} sur GPU, {compute}"
+                if compute.startswith("int8_float16")
+                else f"modèle {model} sur CPU, {compute}"
+                + (" (CUDA non chargeable sur ce poste)" if machine.get("gpu") else "")
+            ),
         }
 
     def cloud_stt() -> Dict[str, Any]:
@@ -293,6 +301,21 @@ def _package_version(name: str) -> Optional[str]:
         return None
 
 
+def cuda_available() -> bool:
+    """Vrai seulement si une bibliothèque CUDA se charge vraiment.
+
+    « Un GPU existe » n'est pas « faster-whisper peut s'en servir » : sans
+    ``cublas64_12.dll`` il échoue au chargement du modèle. Le plan doit le savoir.
+    """
+    try:
+        import ctypes
+
+        ctypes.WinDLL("cublas64_12.dll")
+        return True
+    except (OSError, AttributeError):
+        return False
+
+
 def detect_versions() -> Dict[str, Any]:
     """Ce qui est installé, avec les commandes qui ont servi — pour le rapport.
 
@@ -312,6 +335,7 @@ def detect_versions() -> Dict[str, Any]:
         "piper": bool(uh_audio.local.piper()),
         "ffmpeg": bool(uh_audio.ffmpeg_path()),
         "browser": str(uh_browser.find_chromium() or ""),
+        "cuda": cuda_available(),
     }
     versions["browser_name"] = (
         "Edge"
@@ -404,6 +428,7 @@ def plan_for_home(profile: str = "auto") -> Dict[str, Any]:
         "vram_gb": float(getattr(hardware, "vram_gb", 0.0) or 0.0),
     }
     keys = {"voxtral": uh_audio.mistral_key()}
+    machine["cuda"] = bool(versions.get("cuda"))
     plan = choose_voice_engines(profile, keys, versions, machine)
     plan["versions"] = versions
     plan["installation"] = installation_report(versions)

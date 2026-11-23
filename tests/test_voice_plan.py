@@ -72,14 +72,23 @@ def test_local_profile_without_local_engines_refuses_explicitly() -> None:
     assert plan["network_allowed"] is False
 
 
-def test_the_model_size_follows_the_measured_vram() -> None:
+def test_the_model_size_follows_the_measured_vram_when_cuda_really_works() -> None:
     """8 Go moins les 5 Go du chat 7B : `small`, pas `medium`."""
-    assert voice_plan.local_stt_model(GPU8) == ("small", "int8_float16")
+    assert voice_plan.local_stt_model(GPU8, cuda=True) == ("small", "int8_float16")
     big = {"tier": "xl", "gpu": "RTX 4090", "vram_gb": 24.0, "ram_gb": 64.0}
-    assert voice_plan.local_stt_model(big) == ("medium", "int8_float16")
-    assert voice_plan.local_stt_model(CPU16) == ("base", "int8")
+    assert voice_plan.local_stt_model(big, cuda=True) == ("medium", "int8_float16")
+    assert voice_plan.local_stt_model(CPU16, cuda=False) == ("base", "int8")
     small = {"tier": "medium", "gpu": "", "ram_gb": 8.0}
-    assert voice_plan.local_stt_model(small) == ("tiny", "int8")
+    assert voice_plan.local_stt_model(small, cuda=False) == ("tiny", "int8")
+
+
+def test_a_visible_gpu_without_cuda_stays_on_cpu() -> None:
+    """Mesuré ici : `cublas64_12.dll` absent, donc promettre du GPU ferait échouer."""
+    assert voice_plan.local_stt_model(GPU8, cuda=False) == ("base", "int8")
+    plan = voice_plan.choose_voice_engines("auto", NO_KEY, STT, GPU8)
+    assert plan["stt"]["compute"] == "int8"
+    assert "CPU" in plan["stt"]["reason"]
+    assert "CUDA" in plan["stt"]["reason"]
 
 
 def test_the_chat_model_vram_is_deducted_not_ignored() -> None:
