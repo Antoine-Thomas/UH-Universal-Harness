@@ -66,7 +66,11 @@ def free_vram_gb(machine: Dict[str, Any]) -> float:
     return max(0.0, vram - chat_vram_gb(machine))
 
 
-def local_stt_model(machine: Optional[Dict[str, Any]], cuda: bool = False) -> Tuple[str, str]:
+def local_stt_model(
+    machine: Optional[Dict[str, Any]],
+    cuda: bool = False,
+    bench: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str]:
     """Le plus gros modèle de dictée qui tient, et sur quoi il tourne.
 
     ``cuda`` n'est vrai que si les bibliothèques CUDA se chargent réellement : un GPU
@@ -74,16 +78,20 @@ def local_stt_model(machine: Optional[Dict[str, Any]], cuda: bool = False) -> Tu
     donc on préfère le CPU à un modèle qui ne tournera pas.
 
     Un GPU avec de la VRAM libre après le chat fait tourner `small`/`medium` en
-    `int8_float16` ; sinon on reste sur CPU en `int8`, plus lent mais sûr. Le modèle
-    n'est jamais plus gros que ce que la machine peut charger : c'est la règle du
-    dépôt (paliers mesurés, pas de plafond inventé).
+    `int8_float16` — mais seulement si une mesure a montré qu'il gagne (``bench``) :
+    sans chiffre, le CPU reste le défaut, parce qu'on ne promet pas une vitesse non
+    constatée. Le modèle n'est jamais plus gros que ce que la machine peut charger.
     """
     machine = machine or {}
     free = free_vram_gb(machine)
-    if cuda and machine.get("gpu") and free >= 5.0:
-        return "medium", "int8_float16"
-    if cuda and machine.get("gpu") and free >= 2.5:
-        return "small", "int8_float16"
+    # Le GPU ne prend la main qu'avec une mesure qui le donne gagnant : sans elle, on
+    # ne promet pas une vitesse qu'on n'a pas constatée (et on ne prend pas la place
+    # du modèle de chat).
+    if cuda and machine.get("gpu") and (bench or {}).get("gpu_wins"):
+        if free >= 5.0:
+            return "medium", "int8_float16"
+        if free >= 2.5:
+            return "small", "int8_float16"
     ram = float(machine.get("ram_gb") or 0.0)
     if ram >= 16.0:
         return "base", "int8"
@@ -95,11 +103,23 @@ def _install_stt_command() -> str:
     return f'"{sys.executable}" -m pip install "faster-whisper>=1.2" "huggingface-hub<1" "filelock<3.17"'
 
 
+def _cpu_note(machine: Dict[str, Any], cuda: bool, bench: Optional[Dict[str, Any]]) -> str:
+    """Pourquoi la dictée est sur CPU — une phrase, et elle est vraie."""
+    if not machine.get("gpu"):
+        return ""
+    if not cuda:
+        return " (CUDA non chargeable sur ce poste)"
+    if not (bench or {}).get("gpu_wins"):
+        return " (GPU prêt, mais aucune mesure gagnante : CPU par défaut)"
+    return ""
+
+
 def choose_voice_engines(
     profile: str,
     keys: Dict[str, Any],
     versions: Dict[str, Any],
     machine: Optional[Dict[str, Any]] = None,
+    bench: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Le plan vocal complet : moteurs, raisons, réseau autorisé, ce qui manque.
 
@@ -127,7 +147,8 @@ def choose_voice_engines(
             }
         )
 
-    model, compute = local_stt_model(machine, bool(versions.get("cuda")))
+    cuda = bool(versions.get("cuda"))
+    model, compute = local_stt_model(machine, cuda, bench)
 
     def local_stt() -> Dict[str, Any]:
         return {
@@ -139,8 +160,7 @@ def choose_voice_engines(
             "reason": (
                 f"modèle {model} sur GPU, {compute}"
                 if compute.startswith("int8_float16")
-                else f"modèle {model} sur CPU, {compute}"
-                + (" (CUDA non chargeable sur ce poste)" if machine.get("gpu") else "")
+                else f"modèle {model} sur CPU, {compute}" + _cpu_note(machine, cuda, bench)
             ),
         }
 
@@ -302,24 +322,15 @@ def _package_version(name: str) -> Optional[str]:
 
 
 def cuda_available() -> bool:
-    """Vrai seulement si une bibliothèque CUDA se charge vraiment.
+    """Vrai seulement si les trois DLL NVIDIA se chargent vraiment.
 
-    « Un GPU existe » n'est pas « faster-whisper peut s'en servir » : sans
-    ``cublas64_12.dll`` il échoue au chargement du modèle. Le plan doit le savoir.
+    « Un GPU existe » n'est pas « faster-whisper peut s'en servir ». La sonde vit
+    dans ``uh.voice_gpu`` : elle essaie ``cublas64_12``, ``cublasLt64_12`` **et**
+    ``cudnn64_9``, parce qu'une seule absente suffit à faire échouer le modèle.
     """
-    try:
-        import ctypes
+    from . import voice_gpu
 
-        # ``ctypes.WinDLL`` n'existe que sous Windows : typeshed ne le déclare pas
-        # ailleurs, et mypy sur Linux refuse l'accès direct (mesuré en CI le 23/11,
-        # job « ruff + mypy » : `Module has no attribute "WinDLL" [attr-defined]`).
-        windll = getattr(ctypes, "WinDLL", None)
-        if windll is None:
-            return False
-        windll("cublas64_12.dll")
-        return True
-    except (OSError, AttributeError):
-        return False
+    return voice_gpu.cuda_available()
 
 
 def detect_versions() -> Dict[str, Any]:
@@ -436,12 +447,18 @@ def plan_for_home(profile: str = "auto") -> Dict[str, Any]:
     }
     keys = {"voxtral": uh_audio.mistral_key()}
     machine["cuda"] = bool(versions.get("cuda"))
-    plan = choose_voice_engines(profile, keys, versions, machine)
+    from . import voice_gpu
+
+    bench = voice_gpu.read_bench()
+    plan = choose_voice_engines(profile, keys, versions, machine, bench)
     plan["versions"] = versions
     plan["installation"] = installation_report(versions)
     # L'interpréteur qui fait tourner CE serveur : les commandes d'installation le
     # nomment, sinon un `pip` pris au hasard dans le PATH installe ailleurs.
     plan["python_executable"] = sys.executable
+    # L'étape GPU n'apparaît que si elle a un sens : carte visible, DLL manquantes.
+    plan["gpu"] = voice_gpu.setup(machine)
+    plan["bench"] = bench
     return plan
 
 
