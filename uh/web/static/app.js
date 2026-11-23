@@ -2976,7 +2976,16 @@ function providerCard(row) {
   if (state.keyEntryAllowed) {
     const form = el("div", "provider-key-form");
     form.setAttribute("role", "group");
+    form.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (!event.target || event.target.tagName !== "INPUT") return;
+      event.preventDefault();
+      form.dispatchEvent(new Event("submit"));
+    });
     const input = providerInput("secret", "collez la clé (jamais réaffichée)");
+    // Pas de <label> visible ici : le nom accessible vient de aria-label, sinon le
+    // champ n'a que son placeholder — un champ muet pour un lecteur d'écran.
+    input.setAttribute("aria-label", `clé API de ${row.name}`);
     const submit = providerSaveButton(form, "Ajouter une clé");
     submit.disabled = true;
     input.addEventListener("input", () => {
@@ -3108,6 +3117,16 @@ function providerInput(kind, placeholder) {
 function providerForm() {
   const box = el("div", "custom-form");
   box.setAttribute("role", "group");
+  // Sans <form>, la touche Entrée n'envoie plus rien — et c'est une régression pour
+  // qui tape une URL et appuie sur Entrée. On la rétablit explicitement, sur les
+  // champs seulement : dans un textarea, Entrée doit rester un retour à la ligne.
+  box.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (!event.target || event.target.tagName !== "INPUT") return;
+    event.preventDefault();
+    box.dispatchEvent(new Event("submit"));
+  });
   return box;
 }
 

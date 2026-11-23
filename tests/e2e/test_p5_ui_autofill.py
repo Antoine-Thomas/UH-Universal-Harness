@@ -139,3 +139,71 @@ def test_save_stays_disabled_until_a_key_is_typed(browser, server: Server) -> No
         assert after is False, "« Enregistrer » reste inactif après une saisie"
     finally:
         context.close()
+
+
+def test_enter_in_a_text_field_still_saves(browser, server: Server) -> None:
+    """Sans <form>, Entrée doit continuer d'envoyer : c'est un geste acquis."""
+    context, page = open_keys_tab(browser, server)
+    sent: list[dict] = []
+
+    def capture(route):
+        sent.append({"url": route.request.url, "body": route.request.post_data})
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
+
+    page.route("**/api/providers/**", capture)
+    try:
+        page.click("#keys-view .provider-custom summary")
+        page.wait_for_selector("#keys-view .provider-custom input", timeout=10000)
+        first = page.locator("#keys-view .provider-custom input").first
+        first.fill("monserveur")
+        first.press("Enter")
+        page.wait_for_timeout(600)
+        posts = [entry for entry in sent if entry["url"].endswith("/api/providers/custom")]
+        assert posts, f"Entrée n'a rien envoyé (requêtes vues : {[e['url'] for e in sent]})"
+        assert "monserveur" in (posts[0]["body"] or "")
+    finally:
+        context.close()
+
+
+def test_tab_follows_the_visible_order(browser, server: Server) -> None:
+    context, page = open_keys_tab(browser, server)
+    try:
+        page.click("#keys-view .provider-custom summary")
+        page.wait_for_selector("#keys-view .provider-custom input", timeout=10000)
+        inputs = page.locator("#keys-view .provider-custom input")
+        inputs.first.focus()
+        page.keyboard.press("Tab")
+        focused = page.evaluate(
+            """() => {
+                const el = document.activeElement;
+                return { tag: el.tagName, placeholder: el.placeholder || '' };
+            }"""
+        )
+        assert focused["tag"] == "INPUT", focused
+        assert "https" in focused["placeholder"], f"Tab saute ailleurs : {focused}"
+        page.keyboard.press("Shift+Tab")
+        back = page.evaluate("() => document.activeElement.placeholder || ''")
+        assert back == inputs.first.get_attribute("placeholder"), f"Maj+Tab revient sur {back!r}"
+    finally:
+        context.close()
+
+
+def test_every_field_keeps_an_accessible_name(browser, server: Server) -> None:
+    """Un champ sans nom accessible est un champ muet pour un lecteur d'écran."""
+    context, page = open_keys_tab(browser, server)
+    try:
+        audit = page.evaluate(
+            """() => {
+                const nodes = [...document.querySelectorAll('#keys-view input')];
+                return nodes.map((el) => ({
+                  label: (el.labels && el.labels[0] ? el.labels[0].textContent : '').trim(),
+                  aria: (el.getAttribute('aria-label') || '').trim(),
+                  placeholder: el.placeholder || '',
+                }));
+            }"""
+        )
+        assert audit, "aucun champ trouvé dans le panneau"
+        mute = [entry for entry in audit if not (entry["label"] or entry["aria"])]
+        assert mute == [], f"champs sans nom accessible : {mute}"
+    finally:
+        context.close()
