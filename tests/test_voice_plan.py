@@ -1,0 +1,142 @@
+"""Le plan vocal : une décision pure, et l'interdiction de sortir sans clé.
+
+Les cas testés sont ceux du terrain : Voxtral 429, faster-whisper absent, machine
+8 Go. Aucun de ces tests ne parle au réseau ni n'installe quoi que ce soit.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from uh import voice_plan
+from uh.audio import AudioUnavailable
+
+KEY = {"voxtral": "sk-" + "x" * 40}
+NO_KEY = {"voxtral": ""}
+STT = {"faster_whisper": "1.2.1"}
+BOTH = {"faster_whisper": "1.2.1", "xtts": True, "piper": True}
+GPU8 = {"tier": "xl", "gpu": "RTX 3070 Ti", "vram_gb": 8.0, "ram_gb": 32.0}
+CPU16 = {"tier": "xl", "gpu": "", "vram_gb": 0.0, "ram_gb": 16.0}
+
+
+def test_local_profile_never_picks_the_cloud_engine() -> None:
+    plan = voice_plan.choose_voice_engines("local", KEY, BOTH, GPU8)
+    assert plan["stt"]["engine"] == "faster-whisper"
+    assert plan["tts"]["engine"] in {"xtts", "piper"}
+    assert plan["network_allowed"] is False
+
+
+def test_a_missing_key_means_no_cloud_engine_at_all() -> None:
+    plan = voice_plan.choose_voice_engines("cloud", NO_KEY, BOTH, GPU8)
+    assert plan["stt"]["engine"] != "voxtral"
+    assert plan["tts"]["engine"] != "voxtral"
+    assert plan["network_allowed"] is False
+
+
+def test_without_any_engine_the_plan_says_so_and_gives_the_command() -> None:
+    plan = voice_plan.choose_voice_engines("auto", NO_KEY, {}, GPU8)
+    assert plan["stt"]["engine"] is None
+    assert "faster-whisper" in plan["stt"]["reason"]
+    targets = {item["target"] for item in plan["install"]}
+    assert "faster-whisper" in targets
+    command = next(
+        item["command"] for item in plan["install"] if item["target"] == "faster-whisper"
+    )
+    assert "pip install" in command and "faster-whisper" in command
+
+
+def test_auto_prefers_the_local_engine_when_it_is_installed() -> None:
+    """Dictée locale dès qu'elle existe ; la voix, elle, suit ce qui est installé."""
+    plan = voice_plan.choose_voice_engines("auto", KEY, STT, GPU8)
+    assert plan["stt"]["engine"] == "faster-whisper"
+    # Aucune voix locale provisionnée : le TTS reste au cloud, avec une clé qui existe.
+    assert plan["tts"]["kind"] == "cloud"
+    assert plan["network_allowed"] is True
+
+    everything_local = voice_plan.choose_voice_engines("auto", KEY, BOTH, GPU8)
+    assert everything_local["stt"]["kind"] == "local"
+    assert everything_local["tts"]["kind"] == "local"
+    assert everything_local["network_allowed"] is False
+
+
+def test_cloud_profile_uses_the_cloud_only_with_a_key() -> None:
+    plan = voice_plan.choose_voice_engines("cloud", KEY, {}, GPU8)
+    assert plan["stt"]["engine"] == "voxtral"
+    assert plan["network_allowed"] is True
+
+
+def test_local_profile_without_local_engines_refuses_explicitly() -> None:
+    plan = voice_plan.choose_voice_engines("local", KEY, {}, GPU8)
+    assert plan["stt"]["engine"] is None
+    assert "locale" in plan["stt"]["reason"]
+    assert plan["network_allowed"] is False
+
+
+def test_the_model_size_follows_the_measured_vram() -> None:
+    """8 Go moins les 5 Go du chat 7B : `small`, pas `medium`."""
+    assert voice_plan.local_stt_model(GPU8) == ("small", "int8_float16")
+    big = {"tier": "xl", "gpu": "RTX 4090", "vram_gb": 24.0, "ram_gb": 64.0}
+    assert voice_plan.local_stt_model(big) == ("medium", "int8_float16")
+    assert voice_plan.local_stt_model(CPU16) == ("base", "int8")
+    small = {"tier": "medium", "gpu": "", "ram_gb": 8.0}
+    assert voice_plan.local_stt_model(small) == ("tiny", "int8")
+
+
+def test_the_chat_model_vram_is_deducted_not_ignored() -> None:
+    assert voice_plan.chat_vram_gb(GPU8) == 5.0
+    assert voice_plan.free_vram_gb(GPU8) == 3.0
+    assert voice_plan.chat_vram_gb(CPU16) == 0.0
+
+
+def test_the_plan_never_carries_the_key() -> None:
+    plan = voice_plan.choose_voice_engines("cloud", KEY, BOTH, GPU8)
+    blob = voice_plan.dump(plan)
+    assert "sk-" not in blob
+    assert "x" * 40 not in blob
+
+
+def test_the_installation_report_states_each_missing_piece() -> None:
+    versions = {
+        "python": "3.14.9",
+        "uh": "1.9.2",
+        "uhb": None,
+        "ollama": "ollama version 0.12.3",
+        "faster_whisper": None,
+        "xtts": False,
+        "piper": False,
+        "ffmpeg": True,
+        "browser": r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        "browser_name": "Edge",
+    }
+    rows = {row["name"]: row for row in voice_plan.installation_report(versions)}
+    assert rows["Python"]["state"] == "ok"
+    assert rows["UH"]["state"] == "ok"
+    assert rows["UHB"]["state"] == "missing" and rows["UHB"]["command"]
+    assert rows["faster-whisper"]["state"] == "missing"
+    assert "pip install" in rows["faster-whisper"]["command"]
+    assert rows["Edge"]["state"] == "ok"
+
+
+def test_an_old_python_is_flagged_for_update() -> None:
+    rows = {row["name"]: row for row in voice_plan.installation_report({"python": "3.8.10"})}
+    assert rows["Python"]["state"] == "update"
+
+
+def test_no_voice_call_leaves_the_machine_without_a_key(monkeypatch, tmp_path) -> None:
+    """Sans clé, `transcribe` ne doit appeler aucun moteur cloud — même pour essayer."""
+    from uh import audio
+
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+    monkeypatch.setattr(audio, "mistral_key", lambda: "")
+    monkeypatch.setattr(audio.local, "whisper_available", lambda: False)
+    called: list[str] = []
+
+    def forbidden(*args, **kwargs):
+        called.append("voxtral")
+        raise AssertionError("aucun appel réseau ne doit partir sans clé")
+
+    monkeypatch.setattr(audio.voxtral, "transcribe", forbidden)
+    with pytest.raises(AudioUnavailable) as error:
+        audio.transcribe(b"\x00" * 2048, filename="clip.webm", session_id="t")
+    assert called == []
+    assert "aucun moteur" in str(error.value)

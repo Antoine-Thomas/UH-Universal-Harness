@@ -2359,3 +2359,24 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
   opacity: .55; cursor: not-allowed; filter: saturate(.5);
 }
 .key-actions button:disabled:hover, .custom-form button:disabled:hover { filter: saturate(.5); }
+
+/* 14. Panneau Voix (lot 2, point 7) : dire le moteur, la raison, et ce qui manque. */
+.voice-panel { display: flex; flex-direction: column; gap: 10px; padding: 2px; }
+.voice-profile { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.voice-profile select { min-height: var(--ctl-h); border-radius: var(--ctl-radius); }
+.voice-engines { display: flex; flex-direction: column; gap: 4px; }
+.voice-heading { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-top: 6px; }
+.voice-engine { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.voice-engine-title { font-weight: 600; }
+.voice-engine-why { font-size: 12px; color: var(--muted); flex: 1 1 100%; }
+.voice-report { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.voice-report-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.voice-report-name { min-width: 96px; font-weight: 600; }
+.voice-report-version { color: var(--muted); font-size: 12px; }
+.voice-command { display: block; font-size: 12px; padding: 4px 8px; border-radius: 6px;
+  background: var(--bg-hover); overflow-x: auto; flex: 1 1 100%; }
+.voice-tests { display: flex; flex-direction: column; gap: 6px; }
+.voice-test-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.voice-test-name { min-width: 140px; }
+.voice-install { display: flex; flex-direction: column; gap: 6px; }
+.voice-install-output { max-height: 180px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
