@@ -87,7 +87,11 @@ def test_call_network_error_never_raises(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(httpx, "get", broken)
     out = WebSearchToolset(backoff=0.0).call("web_search", {"query": "test"})
-    assert out["error"].startswith("search failed after 3 attempt(s): ConnectError")
+    # Le nom du moteur est dans le message : « ça a échoué » et « DuckDuckGo a
+    # échoué trois fois, Brave n'étant pas configuré » appellent des réactions
+    # différentes.
+    assert out["error"].startswith("no engine answered:")
+    assert "duckduckgo: search failed after 3 attempt(s): ConnectError" in out["error"]
     assert out["type"] == "tool_error"
 
 
@@ -154,10 +158,13 @@ def test_call_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls["n"] == 3, "a 503 is a hiccup: the same request may work a second later"
 
 
-def test_call_empty_page_reports_throttle(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_call_empty_page_reports_what_happened(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Une page vide n'est pas un succès : la note nomme le moteur et ce qu'il a rendu."""
     monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResponse(text="<html></html>"))
     out = WebSearchToolset().call("web_search", {"query": "test"})
-    assert out["count"] == 0 and "throttled" in out["note"]
+    assert out["count"] == 0
+    assert "no results" in out["note"]
+    assert "duckduckgo: no result parsed" in out["note"]
 
 
 def test_registered_in_build_toolsets() -> None:

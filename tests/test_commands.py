@@ -192,4 +192,7 @@ def test_web_reports_search_errors(session: ChatSession, monkeypatch: pytest.Mon
 
     monkeypatch.setattr(httpx, "get", broken)
     result = commands.dispatch(session, "/web test")
-    assert result.err.startswith("web: search failed")
+    # L'échec nomme le moteur et sa cause : « search failed » sans nom laissait
+    # l'opérateur deviner lequel des quatre avait parlé.
+    assert result.err.startswith("web: no engine answered:")
+    assert "duckduckgo" in result.err
