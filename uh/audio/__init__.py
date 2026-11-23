@@ -328,8 +328,13 @@ def speak(
     voice: Optional[str] = None,
     session_id: str = "audio",
     reference_wav: Optional[Path] = None,
+    engine: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Text to a WAV file, first engine that answers wins.
+
+    ``engine`` restreint la chaîne à un moteur : c'est ce que fait « Tester » dans le
+    panneau Voix. Le test ne bascule donc pas silencieusement sur un autre moteur — il
+    dit pourquoi celui-là ne répond pas.
 
     ``voice`` is a saved Voxtral voice id (paid accounts only). ``reference_wav`` is
     the operator's own sample, used as ``ref_audio`` for Voxtral and as the speaker
@@ -341,37 +346,40 @@ def speak(
         raise AudioUnavailable("rien à dire : le texte est vide")
 
     attempts: List[str] = []
+    only = (engine or "").strip().lower()
     key = mistral_key()
-    if key:
+    if (not only or only == "voxtral") and key:
         try:
             wav = voxtral.speech(body, key, voice=voice, reference_wav=reference_wav)
             path = save_clip(session_id, wav, ".wav")
             return {"engine": "voxtral", **reference(path, engine="voxtral")}
         except Exception as exc:  # noqa: BLE001
             attempts.append(f"voxtral : {type(exc).__name__}: {exc}")
-    else:
+    elif not only or only == "voxtral":
         attempts.append(f"voxtral : {voxtral.KEY_ENV} absente")
 
-    if local.xtts_python() is not None:
+    if (not only or only == "xtts") and local.xtts_python() is not None:
         try:
             wav = local.xtts_speak(body, reference_wav)
             path = save_clip(session_id, wav, ".wav")
             return {"engine": "xtts", **reference(path, engine="xtts")}
         except Exception as exc:  # noqa: BLE001
             attempts.append(f"xtts : {type(exc).__name__}: {exc}")
-    else:
+    elif not only or only == "xtts":
         attempts.append("xtts : ~/.uhb/xtts absent")
 
-    if local.piper() is not None:
+    if (not only or only == "piper") and local.piper() is not None:
         try:
             wav = local.piper_speak(body)
             path = save_clip(session_id, wav, ".wav")
             return {"engine": "piper", **reference(path, engine="piper")}
         except Exception as exc:  # noqa: BLE001
             attempts.append(f"piper : {type(exc).__name__}: {exc}")
-    else:
+    elif not only or only == "piper":
         attempts.append("piper : binaire absent")
 
+    if only and not attempts:
+        attempts.append(f"{only} : moteur inconnu")
     raise AudioUnavailable("aucun moteur de voix disponible : " + " | ".join(attempts))
 
 

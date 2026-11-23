@@ -78,6 +78,10 @@ class HardwareProfile:
     os_name: str
     arch: str
     tier: str
+    #: VRAM de la carte, en Go. 0.0 quand il n'y a pas de GPU ou qu'il ne se mesure pas -
+    #: c'est une réponse, pas une erreur : le plan vocal s'en sert pour choisir un modèle
+    #: de dictée qui tient réellement.
+    vram_gb: float = 0.0
 
     @property
     def recommended_model(self) -> Optional[str]:
@@ -103,6 +107,7 @@ class HardwareProfile:
             "recommended_model": self.recommended_model,
             "recommended_budget": self.recommended_budget,
             "local_possible": self.local_possible,
+            "vram_gb": self.vram_gb,
         }
 
     def sentence(self) -> str:
@@ -223,6 +228,22 @@ def detect_gpu() -> Optional[str]:
     return None
 
 
+def detect_vram_gb() -> float:
+    """VRAM totale de la première carte, en Go (0.0 si elle ne se mesure pas).
+
+    ``nvidia-smi`` répond en MiB ; on arrondit au dixième. Aucun autre outil n'est
+    interrogé : inventer une VRAM serait pire que de n'en pas avoir.
+    """
+    text = _run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+    if not text:
+        return 0.0
+    try:
+        mib = float(text.splitlines()[0].strip().split()[0])
+    except (ValueError, IndexError):
+        return 0.0
+    return round(mib / 1024.0, 1)
+
+
 def classify(ram_gb: float, gpu: Optional[str], cores: int = 0) -> str:
     """The tier for a machine. A dedicated GPU is worth more than RAM for a 7B."""
     if ram_gb <= 0:
@@ -254,6 +275,7 @@ def detect() -> HardwareProfile:
         os_name=system,
         arch=machine,
         tier=classify(ram, gpu, cores),
+        vram_gb=detect_vram_gb() if gpu else 0.0,
     )
 
 
@@ -278,6 +300,7 @@ __all__ = [
     "classify",
     "detect",
     "detect_gpu",
+    "detect_vram_gb",
     "profile",
     "total_ram_gb",
 ]

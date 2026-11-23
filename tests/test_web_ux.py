@@ -125,6 +125,7 @@ def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
         "keys",
         "models",
         "local",
+        "voice",
     ):
         assert f'id="tab-{leaf}"' in pool, f"section {leaf} absente du réservoir"
     assert html.index('id="panel-subtabs"') > html.index('id="panel-pool"')
@@ -138,7 +139,9 @@ def test_the_tabs_separate_keys_local_ai_and_connections() -> None:
     assert 'leaves: ["decision", "role"]' in script
     assert 'leaves: ["tools", "conn", "uhb", "infra", "tasks", "extensions"]' in script
     assert 'leaves: ["memory", "telemetry", "data"]' in script
-    assert 'leaves: ["keys", "models", "local"]' in script
+    # La voix vit avec les modèles : c'est la même question (quel moteur, sur
+    # quelle machine), et le panneau Voix y répond.
+    assert 'leaves: ["keys", "models", "local", "voice"]' in script
     # The memory graph belongs to the brain, not to the UHB panel.
     memory_view = html[html.index('id="memory-view"') :]
     assert 'id="memory-graph"' in memory_view[:400], "le graphe est dans Cerveau & Mémoire"

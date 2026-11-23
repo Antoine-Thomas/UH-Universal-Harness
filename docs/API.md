@@ -68,6 +68,8 @@ come back", which nothing else in the product could.
 | GET | `/api/models/vision` | — | `{candidates: [{provider, model, modalities, context, tools}], total}` — les modèles **configurés** qui lisent une image, capacité mesurée auprès du fournisseur (jamais déduite du nom) |
 | GET | `/api/audio/capabilities` | — | `{engines: [{name, label, kind, clones, stt, tts, available, reason}], tts, stt, ffmpeg}` — chaque moteur dit pourquoi il ne peut pas tourner (P1-15) |
 | POST | `/api/audio/transcribe?session_id=&name=&language=` | **octets audio bruts** dans le corps (pas de multipart : pas de `python-multipart`) | `{text, engine, clip}` · `503` aucun moteur : le détail nomme chaque tentative. Le texte rendu entre dans le fil comme un message `user` ordinaire — aucun champ audio n'est stocké |
+| GET | `/api/voice/plan?profile=auto\|local\|cloud` | — | Plan vocal : `{profile, stt, tts, network_allowed, install[], machine{}, installation[], versions{}}`. Décision pure (`uh.voice_plan`) : aucun moteur cloud sans clé, aucun appel réseau, aucune installation |
+| POST | `/api/voice/install` | `{target: "faster-whisper", confirm: true}` | `{ok, output, command, version}` · `400` sans `confirm`, cible inconnue. Exécute **uniquement** l'installation de la dictée locale, après le clic ; rien ne part d'un rechargement |
 | POST | `/api/audio/speak` | `{text, session_id?, voice?, reference?}` | `{kind, source: {path, root: "uploads"}, url, name, mime, bytes, seconds, sha256, engine}` · `400` texte vide ou référence hors des envois · `503` aucun moteur (détail par tentative). Les octets vont dans `$UH_HOME/uploads/<session>/audio/` : le fil ne garde qu'une référence |
 | GET | `/api/audio/file?path=` | — | le clip (`audio/wav`), chemin résolu **sous `$UH_HOME/uploads`** uniquement · `404` hors racine ou disparu · `400` extension non audio |
 | POST | `/api/artifacts/trash/empty` | — | `{action: empty_trash, removed, memory_forgotten}` — ne touche jamais un dossier de run ; vider la corbeille **oublie** aussi les entrées mémoire des fichiers qu'elle contenait (P1-13) |
@@ -227,6 +229,7 @@ contract of the bundled one:
 app-banner
 attach  attachments  command-chips  composer  files  folder-hint  mic  mic-status
 mic-bar  mic-clock  mic-stop
+tab-voice  voice-panel  voice-view
 project-add  project-path  projects-hint  projects-list  projects-refresh  projects-view
 runs-clean  runs-hint  runs-list  tab-projects
 plus-backdrop  plus-close  plus-empty  plus-filters  plus-import  plus-title

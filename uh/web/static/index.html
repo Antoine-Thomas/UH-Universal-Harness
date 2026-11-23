@@ -223,6 +223,7 @@
         <button id="tab-keys" class="panel-subtab active" role="tab" aria-selected="true" aria-controls="keys-view">Fournisseurs</button>
         <button id="tab-models" class="panel-subtab" role="tab" aria-selected="false" aria-controls="models-view">Modèles</button>
         <button id="tab-local" class="panel-subtab" role="tab" aria-selected="false" aria-controls="local-view">IA locale</button>
+        <button id="tab-voice" class="panel-subtab" role="tab" aria-selected="false" aria-controls="voice-view">Voix</button>
       </div>
       <nav id="panel-subtabs" class="panel-subtabs" role="tablist" aria-label="Sections du groupe" hidden></nav>
       <div class="rightbar-scroll">
@@ -336,6 +337,11 @@
         </div>
         <div id="local-view" class="panel-view" role="tabpanel" aria-labelledby="tab-local" hidden>
           <div id="local-panel" class="local-panel"></div>
+        </div>
+        <div id="voice-view" class="panel-view" role="tabpanel" aria-labelledby="tab-voice" hidden>
+          <!-- Le moteur vocal est décidé côté serveur (`uh.voice_plan`) ; cette vue
+               l'affiche, dit pourquoi, et n'installe rien sans un clic explicite. -->
+          <div id="voice-panel" class="voice-panel" aria-busy="false"></div>
         </div>
         <div id="models-view" class="panel-view" role="tabpanel" aria-labelledby="tab-models" hidden>
           <div id="hardware-card" class="hardware-card"></div>
