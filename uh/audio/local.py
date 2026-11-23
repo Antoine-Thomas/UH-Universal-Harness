@@ -162,24 +162,49 @@ def whisper_available() -> bool:
 
 
 _MODEL = None  # loaded once: a dictation is short, reloading costs more than it saved
+_MODEL_KEY = None
+
+
+def whisper_device() -> tuple[str, str]:
+    """Sur quoi transcrire, décidé par la mesure — pas par l'espoir.
+
+    Le GPU ne sert que si ses trois DLL se chargent **et** qu'un banc l'a trouvé
+    nettement plus rapide (``voice-bench.json``). Sinon : CPU, ``int8``.
+    """
+    from .. import voice_gpu
+
+    try:
+        bench = voice_gpu.read_bench() or {}
+        if voice_gpu.cuda_available() and bench.get("gpu_wins"):
+            # Les DLL d'un wheel vivent dans le venv : Windows ne les trouve qu'une
+            # fois leurs dossiers déclarés, et c'est **avant** de charger le modèle.
+            voice_gpu.add_dll_directories()
+            return "cuda", "int8_float16"
+    except Exception:  # noqa: BLE001 - une sonde qui échoue ne doit pas casser la dictée
+        pass
+    return "cpu", "int8"
 
 
 def whisper_transcribe(clip: Path, *, language: str = "fr") -> str:
-    global _MODEL
+    global _MODEL, _MODEL_KEY
     from faster_whisper import WhisperModel  # imported here: optional dependency
 
-    if _MODEL is None:
+    device, compute = whisper_device()
+    key = (device, compute)
+    if _MODEL is None or _MODEL_KEY != key:
         _MODEL = WhisperModel(
             str(os.environ.get("UH_WHISPER_MODEL") or "base"),
-            device="cpu",
-            compute_type="int8",
+            device=device,
+            compute_type=compute,
         )
+        _MODEL_KEY = key
     segments, _info = _MODEL.transcribe(str(clip), language=language or None, vad_filter=True)
     return " ".join(segment.text.strip() for segment in segments).strip()
 
 
 __all__ = [
     "PIPER_DIR",
+    "whisper_device",
     "XTTS_VENV",
     "piper",
     "piper_speak",
