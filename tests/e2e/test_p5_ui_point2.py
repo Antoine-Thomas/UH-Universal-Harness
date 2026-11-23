@@ -49,6 +49,20 @@ INIT = """
       (count, stream) => count + stream.getTracks().filter((t) => t.readyState === "live").length,
       0
     );
+  // Photographie des pistes vivantes **au moment où la requête de transcription
+  // part** : c'est la seule mesure qui prouve que le micro est rendu avant le
+  // réseau, et pas seulement avant la fin du tour.
+  window.__uhLiveAtTranscribe = null;
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    try {
+      const target = String((input && input.url) || input || "");
+      if (target.includes("/api/audio/transcribe")) window.__uhLiveAtTranscribe = window.__uhLiveTracks();
+    } catch (error) {
+      // la mesure ne doit jamais casser la requête
+    }
+    return originalFetch(input, init);
+  };
 })();
 """
 
@@ -203,5 +217,33 @@ def test_a_quota_error_is_readable(fake_mic, server: Server) -> None:
         wait_until(page, "document.getElementById('mic-status').textContent.includes('429')")
         text = page.inner_text("#mic-status")
         assert "quota de dictée atteint" in text, text
+    finally:
+        context.close()
+
+
+def test_the_microphone_is_released_before_the_transcription_starts(
+    fake_mic, server: Server
+) -> None:
+    """Le voyant s'éteint à l'arrêt, pas à la fin du réseau.
+
+    La mesure est prise dans la page, à l'instant exact où `fetch` part vers
+    `/api/audio/transcribe` : à cet instant, aucune piste ne doit être vivante.
+    Avant le correctif, `releaseMic()` n'était appelé que dans le `finally` de
+    `finishDictation`, donc après la réponse du serveur — le voyant du navigateur
+    restait allumé pendant toute la transcription.
+    """
+    context, page = start(fake_mic, server)
+    try:
+        page.click("#mic")
+        page.wait_for_selector("#mic-bar:not([hidden])", timeout=10000)
+        assert page.evaluate("window.__uhLiveTracks()") == 1
+
+        page.click("#mic-stop")
+        wait_until(page, "window.__uhLiveAtTranscribe !== null")
+        live = page.evaluate("window.__uhLiveAtTranscribe")
+        assert live == 0, f"{live} piste(s) vivante(s) au départ de la transcription"
+
+        # Le texte arrive quand même : libérer plus tôt ne casse pas la dictée.
+        wait_until(page, "document.getElementById('input').value.includes('bonjour le monde')")
     finally:
         context.close()
