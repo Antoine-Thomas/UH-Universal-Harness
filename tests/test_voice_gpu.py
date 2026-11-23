@@ -9,6 +9,7 @@ connues. Le seul test qui parle à l'index PyPI est écarté du réseau par un f
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from uh import voice_gpu, voice_plan
 
@@ -123,3 +124,56 @@ def test_the_reason_says_the_gpu_is_ready_but_unmeasured() -> None:
     plan = voice_plan.choose_voice_engines("auto", {"voxtral": ""}, versions, GPU8)
     assert plan["stt"]["compute"] == "int8"
     assert "aucune mesure gagnante" in plan["stt"]["reason"]
+
+
+def test_dictation_stays_on_cpu_without_a_winning_bench(monkeypatch) -> None:
+    """Une carte qui se charge ne suffit pas : sans mesure gagnante, c'est le CPU."""
+    from uh.audio import local as stt
+
+    monkeypatch.setattr(voice_gpu, "read_bench", lambda: None)
+    monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    assert stt.whisper_device() == ("cpu", "int8")
+
+
+def test_dictation_takes_the_gpu_only_after_declaring_the_dll_directories(monkeypatch) -> None:
+    """Windows ne voit pas les DLL d'un wheel : les dossiers passent avant le modèle."""
+    from uh.audio import local as stt
+
+    order: list[str] = []
+    monkeypatch.setattr(voice_gpu, "read_bench", lambda: {"gpu_wins": True})
+    monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    monkeypatch.setattr(
+        voice_gpu, "add_dll_directories", lambda: order.append("dll") or ["nvidia/cublas/bin"]
+    )
+    assert stt.whisper_device() == ("cuda", "int8_float16")
+    assert order == ["dll"]
+
+
+def test_the_model_is_built_with_the_device_that_was_decided(monkeypatch) -> None:
+    import faster_whisper
+
+    from uh.audio import local as stt
+
+    built: list[tuple[str, str]] = []
+
+    class FakeModel:
+        def __init__(self, name, device, compute_type):
+            built.append((device, compute_type))
+
+        def transcribe(self, path, **kwargs):
+            return iter([]), None
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
+    monkeypatch.setattr(stt, "_MODEL", None)
+    monkeypatch.setattr(stt, "_MODEL_KEY", None)
+    monkeypatch.setattr(voice_gpu, "read_bench", lambda: {"gpu_wins": True})
+    monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    monkeypatch.setattr(voice_gpu, "add_dll_directories", lambda: [])
+
+    stt.whisper_transcribe(Path("clip.wav"))
+    assert built == [("cuda", "int8_float16")]
+
+    # Le banc suivant dit le contraire : le modèle est reconstruit sur CPU, pas réutilisé.
+    monkeypatch.setattr(voice_gpu, "read_bench", lambda: {"gpu_wins": False})
+    stt.whisper_transcribe(Path("clip.wav"))
+    assert built == [("cuda", "int8_float16"), ("cpu", "int8")]
