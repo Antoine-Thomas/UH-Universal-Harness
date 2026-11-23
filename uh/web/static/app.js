@@ -2974,14 +2974,14 @@ function providerCard(row) {
   }
 
   if (state.keyEntryAllowed) {
-    const form = el("form", "provider-key-form");
-    const input = document.createElement("input");
-    input.type = "password";
-    input.autocomplete = "off";
-    input.placeholder = "collez la clé (jamais réaffichée)";
-    input.className = "provider-key-input";
-    const submit = el("button", null, "Ajouter une clé");
-    submit.type = "submit";
+    const form = el("div", "provider-key-form");
+    form.setAttribute("role", "group");
+    const input = providerInput("secret", "collez la clé (jamais réaffichée)");
+    const submit = providerSaveButton(form, "Ajouter une clé");
+    submit.disabled = true;
+    input.addEventListener("input", () => {
+      submit.disabled = !input.value.trim();
+    });
     form.appendChild(input);
     form.appendChild(submit);
     form.addEventListener("submit", async (event) => {
@@ -3007,31 +3007,25 @@ function providerCard(row) {
 function customProviderForm() {
   const details = el("details", "provider-custom");
   details.appendChild(el("summary", null, "Ajouter un fournisseur personnalisé compatible OpenAI"));
-  const form = el("form", "custom-form");
+  const form = providerForm();
 
   const fields = [
-    ["name", "nom (a-z, 0-9, -, _)", "text"],
-    ["base_url", "https://… (http seulement en loopback)", "text"],
-    ["model", "identifiant du modèle", "text"],
-    ["key", "clé (facultative, jamais réaffichée)", "password"],
+    ["name", "nom (a-z, 0-9, -, _)", "nom du fournisseur", "text"],
+    ["base_url", "URL de base (https… ; http seulement en loopback)", "https://…", "text"],
+    ["model", "identifiant du modèle", "ex. mistral-small-latest", "text"],
+    ["key", "clé (facultative, jamais réaffichée)", "clé API", "secret"],
   ];
   const inputs = {};
-  for (const [field, placeholder, type] of fields) {
-    const input = document.createElement("input");
-    input.type = type;
-    input.name = field;
-    input.placeholder = placeholder;
-    input.autocomplete = "off";
-    if (type === "password") input.className = "provider-key-input";
+  for (const [field, label, placeholder, kind] of fields) {
+    const input = providerInput(kind, placeholder);
     inputs[field] = input;
     const row = el("label", "custom-field");
-    row.appendChild(el("span", null, field));
+    row.appendChild(el("span", null, label));
     row.appendChild(input);
     form.appendChild(row);
   }
 
-  const submit = el("button", null, "Create");
-  submit.type = "submit";
+  const submit = providerSaveButton(form, "Créer");
   const status = el("span", "test-result", "");
   form.appendChild(submit);
   form.appendChild(status);
@@ -3064,7 +3058,7 @@ function renderProviders(rows) {
   box.textContent = "";
   if (state.keyEntryAllowed) box.appendChild(customProviderForm());
   if (!rows.length) {
-    box.appendChild(el("div", "panel-hint", "no provider in the catalogue"));
+    box.appendChild(el("div", "panel-hint", "aucun fournisseur dans le catalogue"));
     return;
   }
   for (const row of rows) box.appendChild(providerCard(row));
@@ -3085,25 +3079,70 @@ function keyCard(title, badgeText, badgeClass) {
   return card;
 }
 
-function keyField(form, label, { type = "text", placeholder = "", value = "" } = {}) {
+// Un champ de fournisseur ne doit jamais ressembler à un champ de connexion : c'est
+// ainsi que le gestionnaire de mots de passe d'Edge a rempli « model » et « account »
+// avec une URL, et les champs secrets avec des points. Trois leviers, ensemble :
+// aucun <form> (un formulaire + un mot de passe = une page de login pour Chromium), des
+// noms et ids qui ne veulent rien dire pour lui, et `autocomplete="new-password"` sur
+// les secrets — Chromium ignore « off » sur un type=password.
+let providerFieldSeq = 0;
+
+function providerInput(kind, placeholder) {
+  const input = document.createElement("input");
+  input.type = kind === "secret" ? "password" : "text";
+  providerFieldSeq += 1;
+  input.id = `uh-field-${providerFieldSeq}`;
+  input.name = `uh_field_${providerFieldSeq}`;
+  input.value = "";
+  input.placeholder = placeholder;
+  input.autocomplete = kind === "secret" ? "new-password" : "off";
+  input.spellcheck = false;
+  input.setAttribute("autocapitalize", "off");
+  input.setAttribute("autocorrect", "off");
+  if (kind === "secret") input.className = "provider-key-input";
+  return input;
+}
+
+// Un conteneur, pas un formulaire : la touche Entrée n'envoie plus rien et le
+// gestionnaire de mots de passe n'a plus de formulaire à reconnaître.
+function providerForm() {
+  const box = el("div", "custom-form");
+  box.setAttribute("role", "group");
+  return box;
+}
+
+function providerSaveButton(container, label) {
+  const button = el("button", null, label);
+  button.type = "button";
+  button.addEventListener("click", () => container.dispatchEvent(new Event("submit")));
+  return button;
+}
+
+function keyField(form, label, { secret = false, placeholder = "", value = "" } = {}) {
   const row = el("label", "custom-field");
   row.appendChild(el("span", null, label));
-  const input = document.createElement("input");
-  input.type = type;
-  input.placeholder = placeholder;
-  input.value = value;
-  input.autocomplete = "off";
-  if (type === "password") input.className = "provider-key-input";
+  const input = providerInput(secret ? "secret" : "text", placeholder);
+  // Une valeur venue du serveur (identifiant de compte) s'affiche ; un secret jamais.
+  if (value && !secret) input.value = value;
   row.appendChild(input);
   form.appendChild(row);
   return input;
 }
 
-function keyActions(form, label) {
+function keyActions(form, label, secret) {
   const actions = el("div", "key-actions");
-  const submit = el("button", null, label);
-  submit.type = "submit";
+  const submit = providerSaveButton(form, label);
   const result = el("span", "test-result", "");
+  // « Enregistrer » reste désactivé tant qu'il n'y a pas de secret à envoyer : un
+  // champ vide rempli par le navigateur ne peut donc pas être stocké par mégarde.
+  if (secret) {
+    submit.disabled = !secret.value.trim();
+    const sync = () => {
+      submit.disabled = !secret.value.trim();
+    };
+    secret.addEventListener("input", sync);
+    secret.addEventListener("change", sync);
+  }
   actions.appendChild(submit);
   actions.appendChild(result);
   form.appendChild(actions);
@@ -3166,16 +3205,16 @@ function cloudflareCard(section) {
   }
 
   if (state.keyEntryAllowed) {
-    const form = el("form", "custom-form");
+    const form = providerForm();
     const account = keyField(form, "account", {
       placeholder: "32 caractères hexadécimaux",
       value: section.account_id || "",
     });
     const token = keyField(form, "token", {
-      type: "password",
+      secret: true,
       placeholder: "jeton API (jamais réaffiché)",
     });
-    const result = keyActions(form, "Enregistrer");
+    const result = keyActions(form, "Enregistrer", token);
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const typed = token.value;
@@ -3223,12 +3262,12 @@ function deepseekCard(section) {
   }
 
   if (state.keyEntryAllowed) {
-    const form = el("form", "custom-form");
+    const form = providerForm();
     const key = keyField(form, "key", {
-      type: "password",
+      secret: true,
       placeholder: "clé API (jamais réaffichée)",
     });
-    const result = keyActions(form, "Enregistrer");
+    const result = keyActions(form, "Enregistrer", key);
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const typed = key.value;
@@ -3303,7 +3342,7 @@ function presetCard(data) {
     el("div", "provider-meta", "Choisissez-en un, collez la clé, enregistrez : rien n'est stocké avant."),
   );
 
-  const form = el("form", "custom-form");
+  const form = providerForm();
   const row = el("label", "custom-field");
   row.appendChild(el("span", null, "préréglage"));
   const select = document.createElement("select");
@@ -3339,12 +3378,12 @@ function presetCard(data) {
   form.appendChild(note);
 
   const inputs = {
-    name: keyField(form, "name", { placeholder: "openai" }),
-    base_url: keyField(form, "base_url", { placeholder: "https://…" }),
-    model: keyField(form, "model", { placeholder: "model id" }),
-    key: keyField(form, "key", { type: "password", placeholder: "clé API (jamais réaffichée)" }),
+    name: keyField(form, "nom", { placeholder: "openai" }),
+    base_url: keyField(form, "URL de base", { placeholder: "https://…" }),
+    model: keyField(form, "modèle", { placeholder: "identifiant du modèle" }),
+    key: keyField(form, "clé", { secret: true, placeholder: "clé API (jamais réaffichée)" }),
   };
-  const result = keyActions(form, "Enregistrer");
+  const result = keyActions(form, "Enregistrer", inputs.key);
 
   let native = null;
   const lockFields = (locked) => {
@@ -3368,7 +3407,7 @@ function presetCard(data) {
     note.textContent = blocked
       ? blocked.note
       : native
-        ? `${native.label} ships with UH: paste the key, there is no URL to set.`
+        ? `${native.label} est fourni avec UH : collez la clé, il n'y a pas d'URL à régler.`
         : "";
     note.className = blocked ? "provider-meta warn" : "provider-meta";
     lockFields(Boolean(native));
@@ -7268,7 +7307,8 @@ function mcpSection(servers, note) {
 function mcpConnectModal(initial) {
   const backdrop = el("div", "modal-backdrop");
   const modal = el("div", "modal mcp-connect");
-  const form = el("form", "modal-form");
+  const form = el("div", "modal-form");
+  form.setAttribute("role", "group");
   form.appendChild(el("p", "modal-title", "Connecter un serveur MCP"));
   form.appendChild(
     el(
@@ -7278,11 +7318,18 @@ function mcpConnectModal(initial) {
     )
   );
 
+  let mcpFieldSeq = 0;
   const field = (label, placeholder, multiline = false) => {
     const wrap = el("label", "cloud-field");
     wrap.appendChild(el("span", "cloud-label", label));
     const input = multiline ? document.createElement("textarea") : document.createElement("input");
     input.className = multiline ? "modal-area" : "cloud-input";
+    mcpFieldSeq += 1;
+    // Nom et id neutres : « token » et « url » dans un formulaire, c'est une page de
+    // connexion pour le gestionnaire de mots de passe du navigateur.
+    input.id = `uh-mcp-field-${mcpFieldSeq}`;
+    input.name = `uh_mcp_field_${mcpFieldSeq}`;
+    input.spellcheck = false;
     if (multiline) input.rows = 3;
     else {
       input.type = "text";
@@ -7329,6 +7376,7 @@ function mcpConnectModal(initial) {
   url.input.type = "url";
   const token = field("Jeton (optionnel, jamais réaffiché)", "••••", false);
   token.input.type = "password";
+  token.input.autocomplete = "new-password";
   const insecureWrap = el("label", "cloud-field");
   const insecure = document.createElement("input");
   insecure.type = "checkbox";

@@ -2308,3 +2308,12 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
   .msg { max-width: 100%; }
   .modal { max-width: 94vw; }
 }
+
+/* 13. Autofill (23/11) : un bouton d'enregistrement inactif doit se voir inactif,
+   sinon l'utilisateur croit que son formulaire vide va être envoyé. */
+.key-actions button:disabled,
+.provider-key-form button:disabled,
+.custom-form button:disabled {
+  opacity: .55; cursor: not-allowed; filter: saturate(.5);
+}
+.key-actions button:disabled:hover, .custom-form button:disabled:hover { filter: saturate(.5); }
