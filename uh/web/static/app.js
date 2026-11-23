@@ -3185,13 +3185,26 @@ function renderRouterSettings(settings) {
   box.appendChild(status);
 }
 
+// BEGIN providerBadge — testé sous node par tests/test_web_provider_badge.py
+// Trois états, trois phrases : une entrée maison n'est pas « non vérifiée », elle
+// n'est pas au catalogue du tout ; et une entrée du catalogue pas encore vérifiée
+// n'est pas « personnalisée ». Les confondre apprenait au lecteur à se méfier du
+// mauvais fournisseur.
+function providerStatus(row) {
+  const custom = Boolean(row && row.custom === true);
+  const verified = String((row && row.verified) || "unverified").toLowerCase() === "verified";
+  if (custom) return { status: "custom", label: "personnalisé" };
+  if (verified) return { status: "verified", label: "vérifié" };
+  return { status: "unverified", label: "non vérifié" };
+}
+// END providerBadge
+
 function providerCard(row) {
   const card = el("div", "provider-card");
   const head = el("div", "provider-head");
   head.appendChild(el("span", "provider-name", row.name));
-  const status = row.custom ? "custom" : row.verified;
-  const statusLabel = status === "verified" ? "vérifié" : "personnalisé";
-  const badge = el("span", `badge ${status === "verified" ? "ok" : "warn"}`, statusLabel);
+  const { status, label } = providerStatus(row);
+  const badge = el("span", `badge ${status === "verified" ? "ok" : "warn"}`, label);
   head.appendChild(badge);
   if (row.in_chain) head.appendChild(el("span", "badge hl", "dans la chaîne"));
   card.appendChild(head);
