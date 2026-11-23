@@ -114,9 +114,12 @@ def test_save_stays_disabled_until_a_key_is_typed(browser, server: Server) -> No
 
         # On tape une valeur : le bouton s'active. La route est interceptée pour que
         # rien de faux n'entre dans la configuration du serveur de test.
-        page.route("**/api/providers/**", lambda route: route.fulfill(
-            status=200, content_type="application/json", body=json.dumps({"ok": True})
-        ))
+        page.route(
+            "**/api/providers/**",
+            lambda route: route.fulfill(
+                status=200, content_type="application/json", body=json.dumps({"ok": True})
+            ),
+        )
         page.evaluate(
             """() => {
                 const block = [...document.querySelectorAll('#keys-view .custom-form')]
