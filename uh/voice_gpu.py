@@ -69,8 +69,14 @@ def libs() -> Dict[str, bool]:
 
 
 def cuda_available() -> bool:
-    """Vrai seulement si les trois DLL se chargent dans ce processus."""
+    """Vrai seulement si les trois DLL se chargent **après** avoir déclaré leurs dossiers.
+
+    Windows ne voit pas les DLL d'un wheel installé : il faut ``os.add_dll_directory``
+    sur ``nvidia/cublas/bin`` et ``nvidia/cudnn/bin``. Sans cet appel, une machine
+    correctement équipée répondrait « CUDA absent » — mesuré sur ce poste.
+    """
     try:
+        add_dll_directories()
         return all(libs().values())
     except Exception:  # pragma: no cover - ctypes absent (POSIX)
         return False
