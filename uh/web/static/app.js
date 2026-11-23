@@ -9529,8 +9529,14 @@ function renderVoicePanel(plan, caps) {
     const install = el("div", "voice-install");
     install.appendChild(el("div", "voice-heading", "Dictée locale (faster-whisper)"));
     install.appendChild(el("p", "panel-hint", missing.why || ""));
+    // Nommer l'interpréteur qui installe : un `pip` du PATH installerait ailleurs.
+    const where = el("p", "panel-hint voice-python", "Installation dans l'interpréteur de ce serveur : ");
+    where.appendChild(el("code", "voice-command", plan.python_executable || "?"));
+    install.appendChild(where);
     // La commande est affichée telle quelle : elle peut être copiée sans ce bouton.
-    install.appendChild(el("code", "voice-command", missing.command));
+    const command = el("code", "voice-command", missing.command);
+    command.id = "voice-install-command";
+    install.appendChild(command);
     const run = el("button", "data-button primary", "Installer la dictée locale");
     run.type = "button";
     run.id = "voice-install-run";

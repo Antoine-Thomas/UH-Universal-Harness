@@ -6,6 +6,8 @@ Les cas testés sont ceux du terrain : Voxtral 429, faster-whisper absent, machi
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from uh import voice_plan
@@ -149,3 +151,63 @@ def test_no_voice_call_leaves_the_machine_without_a_key(monkeypatch, tmp_path) -
         audio.transcribe(b"\x00" * 2048, filename="clip.webm", session_id="t")
     assert called == []
     assert "aucun moteur" in str(error.value)
+
+
+def test_the_install_command_names_the_interpreter_running_the_server(monkeypatch) -> None:
+    """Un `pip` du PATH installerait dans un autre Python que celui du serveur."""
+    monkeypatch.setattr(voice_plan.sys, "executable", r"C:\autre\venv\Scripts\python.exe")
+    command = voice_plan._install_stt_command()
+    assert command.startswith('"C:\\autre\\venv\\Scripts\\python.exe" -m pip install'), command
+    assert "faster-whisper" in command
+
+
+def test_a_server_started_from_another_venv_names_that_venv(tmp_path) -> None:
+    """Preuve réelle : un second interpréteur affiche SA commande, pas la nôtre."""
+    import os
+    import subprocess
+    import sys
+    import sysconfig
+
+    repo = Path(__file__).resolve().parents[1]
+    venv_dir = tmp_path / "autre-venv"
+    made = subprocess.run(
+        [sys.executable, "-m", "venv", "--without-pip", str(venv_dir)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if made.returncode != 0:
+        pytest.skip(f"venv secondaire impossible ici : {made.stderr.strip()[:120]}")
+    other = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not other.exists():
+        pytest.skip("interpréteur du venv secondaire introuvable")
+    # Ce venv est nu : on lui rend visibles les paquets du venv du dépôt, pour que
+    # `import uh` fonctionne tel quel, sans rien installer.
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(repo), sysconfig.get_paths()["purelib"]])
+    code = (
+        "import sys; from uh import voice_plan; "
+        "print(sys.executable); print(voice_plan._install_stt_command())"
+    )
+    run = subprocess.run(
+        [str(other), "-c", code], env=env, capture_output=True, text=True, encoding="utf-8"
+    )
+    if run.returncode != 0:
+        pytest.skip(f"le second interpréteur n'importe pas le module : {run.stderr.strip()[:160]}")
+    lines = [line.strip() for line in run.stdout.strip().splitlines()]
+    assert lines[0] == str(other)
+    assert lines[1].startswith(f'"{other}" -m pip install'), lines[1]
+
+
+def test_the_plan_names_this_interpreter_and_no_path_pip() -> None:
+    """Invariant : toute commande `pip` du plan vise CE python, jamais le PATH."""
+    import sys
+
+    plan = voice_plan.plan_for_home("auto")
+    assert plan["python_executable"] == sys.executable
+    for item in plan["install"]:
+        if "pip install" in item["command"]:
+            assert item["command"].startswith(f'"{sys.executable}"'), item["command"]
+    for row in plan["installation"]:
+        if "pip install" in row["command"]:
+            assert row["command"].startswith(f'"{sys.executable}"'), row["command"]

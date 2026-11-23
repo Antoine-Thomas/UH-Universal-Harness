@@ -327,6 +327,7 @@ def detect_versions() -> Dict[str, Any]:
 
     versions: Dict[str, Any] = {
         "python": platform.python_version(),
+        "executable": sys.executable,
         "uh": _package_version("uh-harness"),
         "uhb": _package_version("uhb-harness"),
         "ollama": _run_version(["ollama", "--version"]),
@@ -367,7 +368,7 @@ def installation_report(versions: Dict[str, Any]) -> List[Dict[str, str]]:
         "UH",
         "ok" if versions.get("uh") else "missing",
         str(versions.get("uh") or "absent"),
-        "" if versions.get("uh") else 'pip install -e ".[web]"',
+        "" if versions.get("uh") else f'"{sys.executable}" -m pip install -e ".[web]"',
     )
     add(
         "UHB",
@@ -432,6 +433,9 @@ def plan_for_home(profile: str = "auto") -> Dict[str, Any]:
     plan = choose_voice_engines(profile, keys, versions, machine)
     plan["versions"] = versions
     plan["installation"] = installation_report(versions)
+    # L'interpréteur qui fait tourner CE serveur : les commandes d'installation le
+    # nomment, sinon un `pip` pris au hasard dans le PATH installe ailleurs.
+    plan["python_executable"] = sys.executable
     return plan
 
 
