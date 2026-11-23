@@ -208,6 +208,53 @@ def test_a_retry_in_the_same_turn_does_not_draw_the_chart_twice() -> None:
     assert not session.history[-1].get("artifacts"), "la seconde bulle n'herite pas d'un doublon"
 
 
+# --------------------------------------------------------------------------- #
+# Lot F: un dessin est une illustration, pas une photo (constat du 23/11 : le
+# modele a presente un trace matplotlib comme « la photo de moutons generee »).
+# --------------------------------------------------------------------------- #
+def test_a_drawing_is_labelled_an_illustration_not_a_photo() -> None:
+    session = session_with(
+        [tool_message("execute_code", {"images": [{"mime": "image/png", "data_url": PNG_URL}]})]
+    )
+
+    payloads = session._tool_images(0)
+
+    assert payloads and payloads[0]["note"] == "illustration vectorielle, pas une photo"
+
+
+def test_the_label_reaches_the_tool_message_the_model_re_reads() -> None:
+    """Le cadre suffit à l'opérateur ; le modèle, lui, relit le message d'outil."""
+    session = session_with(
+        [tool_message("execute_code", {"images": [{"mime": "image/png", "data_url": PNG_URL}]})]
+    )
+
+    session._tool_images(0)
+
+    image = json.loads(session.history[0]["content"])["images"][0]
+    assert image["rendering"] == "illustration vectorielle, pas une photo"
+    assert "data_url" not in image, "le base64 ne revient pas avec l'étiquette"
+
+
+def test_an_image_from_a_provider_is_not_called_a_drawing() -> None:
+    """L'étiquette décrit `execute_code`, pas toute image : une photo reste une photo."""
+    from uh import images as uh_images
+
+    payload = uh_images.Artifact(mime="image/png", data=PNG).as_payload()
+
+    assert "note" not in payload, "un artefact sans note ne doit pas en inventer une"
+
+
+def test_the_system_prompt_forbids_calling_a_drawing_a_photo(tmp_path: Path) -> None:
+    """La consigne est lue par le modèle au tour : on l'assert sur le prompt RENDU."""
+    from uh.console import system_message
+
+    content = system_message(tmp_path)["content"]
+
+    assert "illustration vectorielle, pas une photo" in content
+    assert "not a photograph" in content
+    assert "never present it as a photo" in content
+
+
 def test_two_different_charts_in_one_turn_are_both_kept() -> None:
     """Deduplication is by bytes, not by count: two different images stay two."""
     other = base64.b64decode(
