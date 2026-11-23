@@ -17,7 +17,13 @@ KEY = {"voxtral": "sk-" + "x" * 40}
 NO_KEY = {"voxtral": ""}
 STT = {"faster_whisper": "1.2.1"}
 BOTH = {"faster_whisper": "1.2.1", "xtts": True, "piper": True}
-GPU8 = {"tier": "xl", "gpu": "RTX 3070 Ti", "vram_gb": 8.0, "ram_gb": 32.0}
+GPU8 = {
+    "tier": "xl",
+    "gpu": "RTX 3070 Ti",
+    "vram_gb": 8.0,
+    "free_vram_mb": 3072,
+    "ram_gb": 32.0,
+}
 CPU16 = {"tier": "xl", "gpu": "", "vram_gb": 0.0, "ram_gb": 16.0}
 
 
@@ -78,7 +84,7 @@ def test_the_model_size_follows_the_measured_vram_when_cuda_really_works() -> No
     """8 Go moins les 5 Go du chat 7B : `small`, pas `medium`."""
     winning = {"gpu_wins": True}
     assert voice_plan.local_stt_model(GPU8, cuda=True, bench=winning) == ("small", "int8_float16")
-    big = {"tier": "xl", "gpu": "RTX 4090", "vram_gb": 24.0, "ram_gb": 64.0}
+    big = {"tier": "xl", "gpu": "RTX 4090", "vram_gb": 24.0, "free_vram_mb": 12288, "ram_gb": 64.0}
     assert voice_plan.local_stt_model(big, cuda=True, bench=winning) == (
         "medium",
         "int8_float16",
@@ -86,6 +92,37 @@ def test_the_model_size_follows_the_measured_vram_when_cuda_really_works() -> No
     assert voice_plan.local_stt_model(CPU16, cuda=False) == ("base", "int8")
     small = {"tier": "medium", "gpu": "", "ram_gb": 8.0}
     assert voice_plan.local_stt_model(small, cuda=False) == ("tiny", "int8")
+
+
+def test_a_measured_vram_under_the_threshold_keeps_the_dictation_on_cpu() -> None:
+    """La règle du panneau est celle de la dictée : sous 1,5 Go, CPU — et le chiffre est dit."""
+    tight = dict(GPU8, free_vram_mb=900)
+    plan = voice_plan.choose_voice_engines(
+        "auto", NO_KEY, dict(STT, cuda=True), tight, {"gpu_wins": True}
+    )
+    assert plan["stt"]["compute"] == "int8"
+    assert "0,9 Go libres" in plan["stt"]["reason"]
+    assert "1,5 Go" in plan["stt"]["reason"], plan["stt"]["reason"]
+    assert plan["machine"]["free_vram_mb"] == 900
+
+
+def test_with_just_enough_vram_the_gpu_takes_the_smallest_model() -> None:
+    """Entre 1,5 et 2,5 Go : la carte reste utilisable, pour le plus petit modèle."""
+    just_enough = dict(GPU8, free_vram_mb=2008)
+    assert voice_plan.local_stt_model(just_enough, cuda=True, bench={"gpu_wins": True}) == (
+        "base",
+        "int8_float16",
+    )
+
+
+def test_an_absent_vram_measure_refuses_the_gpu_in_the_plan_too() -> None:
+    """Même règle que `whisper_device` : une mesure absente vaut refus, jamais une promesse."""
+    unmeasured = {"tier": "xl", "gpu": "RTX 3070 Ti", "vram_gb": 8.0, "ram_gb": 32.0}
+    plan = voice_plan.choose_voice_engines(
+        "auto", NO_KEY, dict(STT, cuda=True), unmeasured, {"gpu_wins": True}
+    )
+    assert plan["stt"]["compute"] == "int8"
+    assert "non mesurée" in plan["stt"]["reason"]
 
 
 def test_a_visible_gpu_without_cuda_stays_on_cpu() -> None:
