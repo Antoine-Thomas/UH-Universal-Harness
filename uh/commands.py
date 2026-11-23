@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import difflib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from . import sandbox
 
@@ -324,33 +324,49 @@ def _cmd_tools(session: "ChatSession", _args: str) -> CommandResult:
 
 
 def _cmd_web(session: "ChatSession", args: str) -> CommandResult:
-    """``/web <query>`` searches; ``/web`` alone serves the browser UI.
+    """``/web <query>`` searches; ``/web image <query>`` looks for images.
 
     Two jobs on one name because they are the same intent from the user's side:
     "the web". The query path is the direct toolset call - no model, nothing
     stored; the no-argument path starts the UI in a background thread so the
     console keeps working.
+
+    ``/web image`` is honest about what it can do: it uses a real image engine when
+    one is configured (Brave), and says so plainly when none is - it never answers
+    a web search in place of images, and never sends a request it cannot make.
     """
     query = args.strip()
-    if query:
-        return _web_search(session, query)
-    return _web_ui(session)
+    if not query:
+        return _web_ui(session)
+    lowered = query.lower()
+    for prefix in ("image", "images"):
+        if lowered == prefix:
+            return _web_images(session, "")
+        if lowered.startswith(f"{prefix} "):
+            return _web_images(session, query[len(prefix) :].strip())
+    return _web_search(session, query)
 
 
-def _web_search(session: "ChatSession", query: str) -> CommandResult:
-    """Run the web_search toolset directly - no model call, nothing stored."""
+def _web_toolset(session: "ChatSession") -> Any:
+    """Le toolset de recherche de la session, ou un neuf — jamais deux politiques."""
     toolset = (session.toolsets or {}).get("web_search")
     if toolset is None:
         from .toolsets.web_search import WebSearchToolset
 
         toolset = WebSearchToolset()
+    return toolset
+
+
+def _web_search(session: "ChatSession", query: str) -> CommandResult:
+    """Run the web_search toolset directly - no model call, nothing stored."""
+    toolset = _web_toolset(session)
     result = toolset.call("web_search", {"query": query})
     if result.get("error"):
         return CommandResult(err=f"web: {result['error']}")
     results = result.get("results") or []
     if not results:
         return CommandResult(out=f"web: {result.get('note') or 'no results'}")
-    lines = [f"web search: {result.get('query', query)}"]
+    lines = [f"web search: {result.get('query', query)} ({result.get('engine', 'moteur')})"]
     for position, item in enumerate(results, 1):
         lines.append(f"  {position}. {item.get('title', '')}")
         lines.append(f"     {item.get('url', '')}")
@@ -358,6 +374,43 @@ def _web_search(session: "ChatSession", query: str) -> CommandResult:
         if snippet:
             lines.append(f"     {snippet[:160]}")
     return CommandResult(out="\n".join(lines))
+
+
+def _web_images(session: "ChatSession", query: str) -> CommandResult:
+    """``/web image`` : un moteur d'images configuré, ou une phrase qui le dit."""
+    toolset = _web_toolset(session)
+    engines = list(getattr(toolset, "image_engines", lambda: [])() or [])
+    if not engines:
+        # Rien n'est configuré : on ne lance aucune recherche web à la place, et on
+        # ne fait pas semblant — la phrase dit quoi ajouter, et où.
+        return CommandResult(out="web image: " + _NO_IMAGE_ENGINE)
+    if not query:
+        return CommandResult(
+            out=(
+                "web image: moteur(s) configuré(s) : "
+                + ", ".join(engines)
+                + "\n  usage : /web image <recherche>"
+            )
+        )
+    result = toolset.call("web_image_search", {"query": query})
+    if result.get("error"):
+        return CommandResult(err=f"web image: {result['error']}")
+    results = result.get("results") or []
+    if not results:
+        return CommandResult(out=f"web image: {result.get('note') or 'aucune image'}")
+    lines = [f"web images: {result.get('query', query)} ({result.get('engine', 'moteur')})"]
+    for position, item in enumerate(results, 1):
+        lines.append(f"  {position}. {item.get('title', '')}")
+        lines.append(f"     image  {item.get('image', '')}")
+        lines.append(f"     page   {item.get('url', '')}")
+    return CommandResult(out="\n".join(lines))
+
+
+#: La phrase exacte quand aucun moteur d'images n'est configuré : pas de promesse muette.
+_NO_IMAGE_ENGINE = (
+    "aucun moteur d'images configuré (il faut une clé Brave : BRAVE_API_KEY, "
+    "ou [search] brave_key dans keys.toml)"
+)
 
 
 def _web_ui(session: "ChatSession") -> CommandResult:
@@ -543,9 +596,9 @@ REGISTRY: tuple[SlashCommand, ...] = (
     SlashCommand("tools", "List active toolsets and their tools", _cmd_tools, group="Info"),
     SlashCommand(
         "web",
-        "Search the web, or start the browser UI",
+        "Search the web (image <query> for images), or start the browser UI",
         _cmd_web,
-        args_hint="[query]",
+        args_hint="[query | image <query>]",
         group="Info",
     ),
     SlashCommand("clear", "Clear the conversation, keep the session", _cmd_clear, group="Session"),

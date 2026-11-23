@@ -107,6 +107,32 @@ def has_key(name: str) -> bool:
     return bool(entry and entry.get("key"))
 
 
+def read_search() -> dict[str, str]:
+    """Les réglages des moteurs de recherche, section ``[search]`` de ``keys.toml``.
+
+    Même fichier 0600 que les clés de fournisseurs, et pour la même raison : une clé de
+    recherche n'a rien à faire dans ``config.toml``, qui se copie et se colle dans un
+    ticket. Un moteur dont la clé manque n'est simplement pas candidat — la valeur
+    n'est utilisée que si elle est une chaîne non vide.
+    """
+    path = keys_path()
+    if not path.is_file():
+        return {}
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    section = data.get("search")
+    if not isinstance(section, dict):
+        return {}
+    return {
+        str(key): str(value).strip()
+        for key, value in section.items()
+        if isinstance(value, str) and value.strip()
+    }
+
+
 def _dump(providers: dict[str, dict[str, Any]]) -> str:
     lines = [HEADER.rstrip("\n"), ""]
     for name in sorted(providers):
