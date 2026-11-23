@@ -76,9 +76,13 @@ def test_local_profile_without_local_engines_refuses_explicitly() -> None:
 
 def test_the_model_size_follows_the_measured_vram_when_cuda_really_works() -> None:
     """8 Go moins les 5 Go du chat 7B : `small`, pas `medium`."""
-    assert voice_plan.local_stt_model(GPU8, cuda=True) == ("small", "int8_float16")
+    winning = {"gpu_wins": True}
+    assert voice_plan.local_stt_model(GPU8, cuda=True, bench=winning) == ("small", "int8_float16")
     big = {"tier": "xl", "gpu": "RTX 4090", "vram_gb": 24.0, "ram_gb": 64.0}
-    assert voice_plan.local_stt_model(big, cuda=True) == ("medium", "int8_float16")
+    assert voice_plan.local_stt_model(big, cuda=True, bench=winning) == (
+        "medium",
+        "int8_float16",
+    )
     assert voice_plan.local_stt_model(CPU16, cuda=False) == ("base", "int8")
     small = {"tier": "medium", "gpu": "", "ram_gb": 8.0}
     assert voice_plan.local_stt_model(small, cuda=False) == ("tiny", "int8")

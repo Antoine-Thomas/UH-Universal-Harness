@@ -2360,6 +2360,11 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
 }
 .key-actions button:disabled:hover, .custom-form button:disabled:hover { filter: saturate(.5); }
 
+.voice-gpu .voice-command, #voice-install-command {
+  white-space: pre-wrap; word-break: break-word; font-size: 11.5px; line-height: 1.45;
+}
+.voice-last-report { white-space: pre-wrap; }
+
 /* 14. Panneau Voix (lot 2, point 7) : dire le moteur, la raison, et ce qui manque. */
 .voice-panel { display: flex; flex-direction: column; gap: 10px; padding: 2px; }
 .voice-profile { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

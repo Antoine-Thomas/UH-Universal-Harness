@@ -86,6 +86,33 @@ def wait_until(page, expression: str, timeout: int = 20000) -> None:
     raise AssertionError(f"condition jamais vraie : {expression}")
 
 
+GPU_PLAN = dict(PLAN)
+GPU_PLAN["gpu"] = {
+    "show": True,
+    "label": "Activer la dictée sur GPU",
+    "missing": ["cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll"],
+    "driver": "572.16",
+    "source": "paquets NVIDIA officiels de PyPI (aucun binaire tiers)",
+    "packages": ["nvidia-cublas-cu12==12.9.2.10", "nvidia-cudnn-cu12==9.28.1.4"],
+    "download": "553 Mo + 696 Mo",
+    "disk": "897 Go libres sur le disque de UH ; environ 3,5 Go seront pris par l'installation",
+    "command": '"C:\\autre\\venv\\Scripts\\python.exe" -m pip install --no-deps '
+    "nvidia-cublas-cu12==12.9.2.10 nvidia-cudnn-cu12==9.28.1.4",
+    "verify": "après l'installation, UH vérifie par un chargement réel puis une transcription",
+    "third_party": {
+        "label": "archive « libs » de whisper-standalone-win (Purfview)",
+        "note": "binaire tiers, à vérifier avant usage",
+        "url": "https://github.com/Purfview/whisper-standalone-win/releases",
+    },
+}
+GPU_PLAN["machine"] = {
+    "tier": "xl",
+    "gpu": "NVIDIA GeForce RTX 3070 Ti",
+    "vram_gb": 8.0,
+    "ram_gb": 64.0,
+}
+
+
 def open_voice_tab(browser, server: Server, plan: dict | None = None):
     context, page = open_app(browser, server)
     if plan is not None:
@@ -199,5 +226,103 @@ def test_local_profile_refuses_the_cloud_engine(browser, server: Server) -> None
         assert not any("Voxtral" in title for title in titles), titles
         text = page.text_content("#voice-panel") or ""
         assert "locale" in text.lower()
+    finally:
+        context.close()
+
+
+def test_gpu_step_announces_everything_before_the_click(browser, server: Server) -> None:
+    """Source, taille, disque, pilote, commande : lisibles sans rien installer."""
+    context, page = open_voice_tab(browser, server, plan=GPU_PLAN)
+    calls: list[str] = []
+
+    def capture(route):
+        calls.append(route.request.url)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "ok": False,
+                    "installed": True,
+                    "output": "",
+                    "verification": {
+                        "ok": False,
+                        "cuda": False,
+                        "steps": [
+                            {"name": "DLL NVIDIA", "ok": False, "detail": "cudnn64_9.dll absente"},
+                            {
+                                "name": "ctranslate2",
+                                "ok": False,
+                                "detail": "aucune carte CUDA visible",
+                            },
+                        ],
+                    },
+                }
+            ),
+        )
+
+    page.route("**/api/voice/install-gpu", capture)
+    try:
+        text = page.text_content("#voice-panel") or ""
+        assert "Activer la dictée sur GPU" in text
+        assert "572.16" in text, "le pilote détecté doit être affiché"
+        assert "nvidia-cublas-cu12==12.9.2.10" in text
+        assert "553 Mo + 696 Mo" in text
+        assert "Go" in text
+        shown = page.inner_text("#voice-gpu-command")
+        assert shown.startswith(f'"{PLAN["python_executable"]}" -m pip install'), shown
+        assert "binaire tiers" in text, "l'archive tierce doit être étiquetée"
+
+        page.wait_for_timeout(800)
+        assert calls == [], f"une installation est partie sans clic : {calls}"
+
+        page.click("#voice-gpu-run")
+        page.wait_for_selector("#voice-gpu-output:not([hidden])", timeout=15000)
+        page.wait_for_timeout(600)
+        assert len(calls) == 1, calls
+        # La vérification réelle a échoué : l'écran doit dire que la dictée reste sur CPU.
+        output = page.inner_text("#voice-gpu-output")
+        assert "cudnn64_9.dll absente" in output
+        assert "reste sur CPU" in output
+    finally:
+        context.close()
+
+
+def test_the_bench_is_offered_and_its_verdict_is_shown(browser, server: Server) -> None:
+    plan = dict(GPU_PLAN)
+    plan["gpu"] = None
+    plan["bench"] = {
+        "ok": True,
+        "gpu_wins": False,
+        "reason": "GPU 9,1 s contre CPU 6,4 s : le gain n'est pas net",
+    }
+    context, page = open_voice_tab(browser, server, plan=plan)
+    calls: list[dict] = []
+
+    def capture(route):
+        calls.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "ok": True,
+                    "gpu_wins": True,
+                    "reason": "GPU 3,2 s contre CPU 6,4 s : le GPU gagne",
+                }
+            ),
+        )
+
+    page.route("**/api/voice/bench", capture)
+    try:
+        text = page.text_content("#voice-panel") or ""
+        assert "gain n'est pas net" in text, "le dernier verdict doit être relu"
+        page.wait_for_timeout(600)
+        assert calls == []
+        page.click("#voice-bench-run")
+        page.wait_for_selector("#voice-bench-output:not([hidden])", timeout=15000)
+        page.wait_for_timeout(500)
+        assert calls == [{"confirm": True}], calls
+        assert "GPU gagne" in page.inner_text("#voice-bench-output")
     finally:
         context.close()

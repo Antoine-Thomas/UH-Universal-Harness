@@ -1703,6 +1703,70 @@ def create_app(
 
         return await asyncio.to_thread(run)
 
+    @app.post("/api/voice/install-gpu", dependencies=[Depends(require_token)])
+    async def voice_install_gpu(payload: dict) -> dict:
+        """Installe les DLL CUDA **après un clic**, puis vérifie par un chargement réel.
+
+        Le corps doit porter ``{"confirm": true}``. Sans lui, la route refuse : rien ne
+        part d'un rechargement de page. Après installation, ``voice_gpu.verify()``
+        charge CUDA dans un sous-processus neuf ; un échec n'est pas une exception,
+        c'est un rapport — et la dictée reste sur CPU.
+        """
+        body = payload or {}
+        if body.get("confirm") is not True:
+            raise HTTPException(
+                status_code=400, detail="confirmation requise : rien n'est installé"
+            )
+        from .. import voice_gpu
+
+        command = [sys.executable, "-m", "pip", "install", "--no-deps", *voice_gpu.GPU_PACKAGES]
+
+        def run() -> dict:
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=1800,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                return {
+                    "ok": False,
+                    "output": f"{type(exc).__name__}: {exc}",
+                    "command": " ".join(command),
+                    "verification": None,
+                }
+            tail = ((result.stdout or "") + (result.stderr or "")).strip().splitlines()[-25:]
+            installed = result.returncode == 0
+            verification = voice_gpu.verify() if installed else None
+            return {
+                "ok": installed and bool(verification and verification.get("ok")),
+                "installed": installed,
+                "output": "\n".join(tail),
+                "command": " ".join(command),
+                "verification": verification,
+            }
+
+        return await asyncio.to_thread(run)
+
+    @app.post("/api/voice/bench", dependencies=[Depends(require_token)])
+    async def voice_bench(payload: dict) -> dict:
+        """Mesure CPU contre GPU sur un échantillon de 10 s, et enregistre le verdict.
+
+        Rien ne tourne sans ``{"confirm": true}`` : le banc charge deux modèles et prend
+        des minutes. Le verdict est écrit dans ``$UH_HOME/voice-bench.json`` et le plan
+        ne passe sur GPU que si ce fichier dit que le GPU gagne nettement.
+        """
+        body = payload or {}
+        if body.get("confirm") is not True:
+            raise HTTPException(status_code=400, detail="confirmation requise : aucun banc lancé")
+        from .. import voice_gpu
+
+        return await asyncio.to_thread(voice_gpu.bench)
+
     @app.post("/api/audio/speak", dependencies=[Depends(require_token)])
     async def audio_speak(payload: dict) -> dict:
         """Text in, one WAV file out, with the reference the thread keeps instead of bytes."""
