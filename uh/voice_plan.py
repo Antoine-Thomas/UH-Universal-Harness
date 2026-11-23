@@ -310,7 +310,13 @@ def cuda_available() -> bool:
     try:
         import ctypes
 
-        ctypes.WinDLL("cublas64_12.dll")
+        # ``ctypes.WinDLL`` n'existe que sous Windows : typeshed ne le déclare pas
+        # ailleurs, et mypy sur Linux refuse l'accès direct (mesuré en CI le 23/11,
+        # job « ruff + mypy » : `Module has no attribute "WinDLL" [attr-defined]`).
+        windll = getattr(ctypes, "WinDLL", None)
+        if windll is None:
+            return False
+        windll("cublas64_12.dll")
         return True
     except (OSError, AttributeError):
         return False
