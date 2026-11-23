@@ -151,7 +151,9 @@ def test_the_memory_tab_never_promises_a_button_it_cannot_honour() -> None:
     """RAG has no route and SiYuan has no client: the tab says so, it does not act."""
     script = APP.read_text(encoding="utf-8")
 
-    assert "RAG not built yet" in script
+    # Le fond du contrat est « l'onglet le dit », pas la langue : la phrase est en
+    # francais depuis le lot E, et l'assertion porte sur le texte servi.
+    assert "RAG pas encore indexé" in script
     assert "README.md" in script
     assert "memory_write" in script, "MEMORY.md absence explains how it appears"
     assert "reindex" not in script.lower(), "no fake reindex button"
@@ -180,8 +182,8 @@ def test_the_decision_tab_reads_the_recorded_payload() -> None:
 def test_the_decision_tab_says_when_uhb_was_not_consulted() -> None:
     script = APP.read_text(encoding="utf-8")
 
-    assert "UHB was not consulted" in script
-    assert "not applied to the turn" in script, "the on-demand plan must be labelled as a plan"
+    assert "UHB n'a pas été consulté" in script
+    assert "non appliqué au tour" in script, "the on-demand plan must be labelled as a plan"
 
 
 @KEEP
@@ -878,14 +880,22 @@ def test_interactive_borders_and_text_reach_wcag_aa_in_both_themes() -> None:
     light_page, light_panel = "#eef6f5", "#ffffff"
     dark_page, dark_panel = "#1c302e", "#284543"
 
+    # La bordure de contrôle était à 4,37:1 sur blanc : sous le 4,5:1 que l'opérateur
+    # suit, alors qu'elle n'a besoin que de 3:1 pour la norme. Le seuil est donc relevé
+    # à 4,5 sur toutes les surfaces claires où un contrôle se pose.
+    for surface in (light_page, light_panel, "#d9efec", "#eef4f2"):
+        assert _contrast(_token(root, "--control-border"), surface) >= 4.5
     for surface in (light_page, light_panel):
-        assert _contrast(_token(root, "--control-border"), surface) >= 3.0
         assert _contrast(_token(root, "--link"), surface) >= 4.5
         assert _contrast(_token(root, "--muted"), surface) >= 4.5
+    for surface in (dark_page, dark_panel, "#22403d"):
+        assert _contrast(_token(dark, "--control-border"), surface) >= 4.5
     for surface in (dark_page, dark_panel):
-        assert _contrast(_token(dark, "--control-border"), surface) >= 3.0
         assert _contrast(_token(dark, "--link"), surface) >= 4.5
         assert _contrast(_token(dark, "--muted"), surface) >= 4.5
+    # Sur l'accent doux sombre (#2a5450) la bordure reste à 3,79:1 : au-dessus du 3:1
+    # qu'exige un composant d'interface, et c'est dit ici plutôt que tu.
+    assert _contrast(_token(dark, "--control-border"), "#2a5450") >= 3.0
     assert _contrast(_token(root, "--on-accent"), _token(root, "--accent")) >= 4.5
     assert (
         _contrast(_token(dark, "--brand-gold"), dark_panel) >= 3.0
