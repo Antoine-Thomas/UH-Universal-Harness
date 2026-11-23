@@ -2020,6 +2020,19 @@ Constat de mesure à ne pas oublier : le ConsentStore du micro **ne témoigne pa
 captures Chromium sur ce poste (aucune entrée datée du 22/11 alors qu'une capture a eu
 lieu). Détail et test décisif : `docs/HANDOFF_POINT0.md`, section « Mesure 2.0 (suite) ».
 
+### Retours terrain du 23/11 — six points, dans l'ordre imposé
+
+Chaque point a un critère de preuve explicite ; rien n'est « fait » sans lui.
+
+| # | constat | critère de preuve | état |
+| --- | --- | --- | --- |
+| 1 | **Faille** : le gestionnaire de mots de passe d'Edge remplit `model`, `account` et les champs secrets du panneau Fournisseurs | 4 tests CDP : aucun `<form>` ne contient de secret, champs secrets vides + `new-password`, noms neutres et uniques, « Enregistrer » inactif tant que la clé est vide. Les tests échouent sur le code d'avant, passent sur celui d'après. Captures clair + sombre | **livré** (`b68c508`) |
+| 2 | `Failed to fetch` sur Écouter/Dicter après l'arrêt du serveur par le bail | journal serveur montrant l'arrêt ; message « UH ne répond plus : le serveur est arrêté ou redémarré » + bouton « Recharger » sur toute action qui échoue au réseau, jamais le texte brut | à faire |
+| 3 | Recherche web coupée par le débit de DuckDuckGo HTML (`no results parsed`) | moteurs configurables (Brave API, Tavily, SearXNG loopback, DuckDuckGo en dernier), clé dans `keys.toml`, ordre réglable dans le panneau Outils ; échec explicite rendu au modèle ; backoff + cache court ; `/web image` = vraie recherche d'images ou message clair. Tests : 429, HTML vide, timeout, ordre de repli, aucune clé loguée | à faire |
+| 4 | Rendu présenté comme « photo » alors que c'est matplotlib | planificateur (point 5) qui étiquette toujours « illustration vectorielle, pas une photo » au niveau 3 ; prompt système de l'Atelier ; test sur la réponse | à faire |
+| 5 | DeepSeek répond 400 avant la bascule omniroute | cause mesurée (payload, outils, normalisation du fil) et réponse « défaut d'UH ou du fournisseur » ; aucune correction sans cause | à faire |
+| 6 | Restes d'anglais visibles (`Ask UH`, `Allow remote (free) providers`, `Test connection`, `keys are write-only`, libellés `name`/`base_url`/…) | tout texte visible en français ; test qui échoue sur une chaîne anglaise visible nouvelle | à faire |
+
 ### Tests e2e instables connus (à stabiliser avant la CI)
 
 Deux tests d'interface échouent par intermittence sous charge, jamais seuls. Ils ne
