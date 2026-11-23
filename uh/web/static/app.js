@@ -2277,6 +2277,11 @@ async function finishDictation() {
   recorderChunks = [];
   recorder = null;
   micStopReason = "";
+  // Le voyant s'éteint **ici**, au moment où l'enregistrement s'arrête : la
+  // transcription peut prendre des secondes, et faire attendre le navigateur pour
+  // rendre le micro laissait une pastille rouge sur un micro déjà muet. Le
+  // `finally` ci-dessous rappelle `releaseMic`, qui est idempotent (pistes nulles).
+  releaseMic();
   const mime = (recorderRef && recorderRef.mimeType) || "audio/webm";
   try {
     if (reason === "page fermée" || reason === "changement de session") {
