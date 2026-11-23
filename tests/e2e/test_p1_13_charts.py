@@ -98,3 +98,67 @@ def test_the_live_artifacts_event_draws_the_chart_in_the_bubble(
         assert page.locator("#messages .msg.failed").count() == 0
     finally:
         context.close()
+
+
+#: Lot F : ce que la bulle DIT du rendu. Le 23/11, un tracé matplotlib a été
+#: présenté comme « la photo de moutons générée » ; l'étiquette est donc portée par
+#: l'artefact lui-même, pas par une consigne que le modèle peut oublier.
+LABEL = "illustration vectorielle, pas une photo"
+ILLUSTRATION = dict(ARTIFACT, note=LABEL)
+LABELLED_SSE = (
+    "event: open\ndata: {}\n\n"
+    'event: token\ndata: {"text": "Voici le tracé."}\n\n'
+    "event: artifacts\ndata: " + json.dumps({"images": [ILLUSTRATION]}) + "\n\n"
+    "event: done\ndata: {}\n\n"
+)
+
+
+def seed_illustration(home: Path) -> str:
+    home.mkdir(parents=True, exist_ok=True)
+    with Store(home / "uh.db") as store:
+        session_id = store.create_session(title="illustration", model="stub:1b", provider="ollama")
+        store.append_message(session_id, {"role": "user", "content": "dessine un mouton"})
+        store.append_message(
+            session_id,
+            {"role": "assistant", "content": "Voici le tracé.", "artifacts": [ILLUSTRATION]},
+        )
+    return session_id
+
+
+def test_a_stored_drawing_says_it_is_an_illustration(make_server, browser, tmp_path: Path) -> None:
+    """La légende survit au rechargement : elle vit dans le message, pas dans le rendu."""
+    seed_illustration(tmp_path / "home")
+    server = make_server("home")
+    context, page = open_app(browser, server)
+    try:
+        page.locator(f"#messages {CHART}").first.wait_for(state="visible", timeout=15000)
+        caption = page.locator("#messages .tool-artifact-note").first
+        caption.wait_for(state="visible", timeout=10000)
+        assert LABEL in (caption.text_content() or ""), page.inner_text("#messages")
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector("#input", timeout=30000)
+        again = page.locator("#messages .tool-artifact-note").first
+        again.wait_for(state="visible", timeout=20000)
+        assert LABEL in (again.text_content() or "")
+    finally:
+        context.close()
+
+
+def test_the_live_turn_labels_the_drawing_too(make_server, browser, tmp_path: Path) -> None:
+    server = make_server("home")
+    context, page = open_app(browser, server)
+    page.route(
+        "**/api/sessions/*/chat",
+        lambda route: route.fulfill(
+            status=200, headers={"Content-Type": "text/event-stream"}, body=LABELLED_SSE
+        ),
+    )
+    try:
+        page.fill("#input", "dessine un mouton")
+        page.press("#input", "Enter")
+        page.locator(f"#messages {CHART}").first.wait_for(state="visible", timeout=20000)
+        caption = page.locator("#messages .tool-artifact-note").first
+        caption.wait_for(state="visible", timeout=10000)
+        assert LABEL in (caption.text_content() or "")
+    finally:
+        context.close()

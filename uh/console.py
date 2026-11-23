@@ -305,7 +305,9 @@ def system_message(workspace: Path, extra_system: str = "", role: Optional[dict]
         "directory only, so a Desktop path is written but never shown, and the user "
         "sees a path instead of a picture). Never answer such a request "
         "with a tutorial about which library to install: the image is displayed in the "
-        "conversation, next to your answer. "
+        "conversation, next to your answer. What that drawing IS: an illustration "
+        "produced by code, not a photograph - call it « illustration vectorielle, pas "
+        "une photo » and never present it as a photo or a generated image. "
         "You can also reach external tools through the configured MCP servers - including "
         "cloud storage such as AWS S3 - and you know where this harness keeps its own "
         "files: the map below is authoritative, never guess a path. "
@@ -898,7 +900,13 @@ class ChatSession:
                 mime = uh_images.sniff_mime(data)
                 if not mime:
                     continue
-                payload = uh_images.Artifact(mime=mime, data=data).as_payload()
+                # Un rendu qui sort d'`execute_code` est une ILLUSTRATION : le code a
+                # dessine, il n'a pas photographie. L'etiquette voyage avec l'image
+                # (sous le cadre, pour l'operateur) et avec le message d'outil (pour
+                # le modele), sinon le tour suivant la reappelle « photo ».
+                payload = uh_images.Artifact(
+                    mime=mime, data=data, note=uh_images.ILLUSTRATION_NOTE
+                ).as_payload()
                 # Provenance, server-side only: "Poubelle" must delete a real file,
                 # and the page must never receive a filesystem path to fetch. It is
                 # not sent to the model either - the tool message itself is what the
@@ -923,6 +931,9 @@ class ChatSession:
                     if isinstance(image, dict) and image.get("data_url"):
                         image.pop("data_url", None)
                         image["attached"] = "image jointe a la reponse (base64 retire du contexte)"
+                        # Ce que le modele LIRA au prochain tour : une illustration,
+                        # jamais une photo. Sans ce champ il ne voit qu'un fichier.
+                        image["rendering"] = uh_images.ILLUSTRATION_NOTE
                 message["content"] = json.dumps(result, ensure_ascii=False)
         return payloads
 
