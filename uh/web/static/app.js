@@ -212,6 +212,23 @@ function dropFeedback(box) {
   if (bar) bar.remove();
 }
 
+// BEGIN failedBubble — testé sous node par tests/test_web_failed_bubble.py
+// Une bulle qui a échoué n'a rien à noter ni à lire à voix haute. Le drapeau
+// `failed` est posé **avant** que quoi que ce soit d'autre la touche, et tout
+// contrôle déjà présent est retiré : un « Écouter » sur une réponse coupée
+// proposait de lire une erreur.
+function markFailed(box) {
+  if (!box) return box;
+  box.classList.add("failed");
+  if (box.setAttribute) box.setAttribute("role", "alert");
+  for (const selector of [".text-feedback", ".answer-audio"]) {
+    const node = box.querySelector && box.querySelector(selector);
+    if (node && node.remove) node.remove();
+  }
+  return box;
+}
+// END failedBubble
+
 // La barre du dernier message est révélée au survol/focus ; une réponse déjà votée
 // garde la sienne en permanence (l'état doit rester lisible), les autres disparaissent.
 function refreshFeedbackTargets() {
@@ -2801,9 +2818,9 @@ async function sendMessage(text) {
             // provider refusing the key, never a stale UI token.
             const info = humanizeError(failed, "provider");
             const bubble = appendMessage("assistant", `${label} : ${info.text}`);
-            bubble.classList.add("failed");
-            dropFeedback(bubble);
-            bubble.setAttribute("role", "alert");
+            // `failed` d'abord : c'est le drapeau qui interdit la barre de vote et
+            // le bouton « Écouter » (posés par `maybeFeedback`, qui le lit).
+            markFailed(bubble);
             if (info.text !== failed) decorateError(bubble, failed, info);
             else decorateError(bubble, failed, { actions: info.actions.length ? info.actions : ["reload"] });
             if (data.partial) {
@@ -2841,11 +2858,16 @@ async function sendMessage(text) {
             markServedModel(data, assistant);
           });
         } else if (event === "done") {
-          guardedStep("done-feedback", () => { maybeFeedback(assistant, assistantText); refreshFeedbackTargets(); });
+          // Un tour qui a échoué ne reçoit ni vote ni « Écouter » : le flux peut
+          // envoyer `error` puis `done`, et c'est `failed` qui tranche, pas l'ordre.
+          guardedStep("done-feedback", () => {
+            if (!failed) maybeFeedback(assistant, assistantText);
+            refreshFeedbackTargets();
+          });
           guardedStep("done", () => {
             if (!assistantText && !assistantContent.textContent.trim()) {
               // A bubble that disappears looks like the app ate the question.
-              assistant.classList.add("failed");
+              markFailed(assistant);
               assistantContent.textContent =
                 "Le modèle n'a rien renvoyé. Réessaie, ou choisis un autre modèle avec « ⋯ ».";
             } else {
@@ -2863,12 +2885,11 @@ async function sendMessage(text) {
       failed = error.message || "erreur inconnue";
       // The bubble stays. Removing it is what made a failed turn look like the
       // question had been swallowed along with the answer.
-      assistant.classList.add("failed");
+      markFailed(assistant);
       // This catch wraps the browser's own request to /api: a 401 raised here (the
       // stream was refused before it opened) is a stale page token, so "ui".
       const info = humanizeError(failed, "ui");
       assistantContent.textContent = `Erreur du modèle : ${info.text} Réessaie, ou choisis un autre modèle avec « ⋯ ».`;
-      assistant.setAttribute("role", "alert");
       decorateError(assistant, failed, { actions: info.actions.length ? info.actions : ["reload"] });
     }
   } finally {
