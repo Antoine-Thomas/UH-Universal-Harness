@@ -1544,7 +1544,7 @@ async function uploadFiles(files) {
     try {
       await uploadFile(file);
     } catch (error) {
-      appendMessage("system", `attachment refused: ${file.name} — ${error.message}`);
+      appendMessage("system", `pièce jointe refusée : ${file.name} — ${error.message}`);
     }
   }
 }
@@ -1951,7 +1951,7 @@ async function deleteSession(session) {
 // source of truth for the sidebar.
 async function newFolder() {
   if (!state.sessionId) {
-    $("folder-hint").textContent = "open a session first";
+    $("folder-hint").textContent = "ouvrez d'abord une session";
     setTimeout(() => { $("folder-hint").textContent = ""; }, 4000);
     return;
   }
@@ -2938,7 +2938,7 @@ function wireSearch() {
         row.addEventListener("click", () => openSession(hit.session_id));
         box.appendChild(row);
       }
-      if (!data.hits.length) box.appendChild(el("div", "meta", "no match"));
+      if (!data.hits.length) box.appendChild(el("div", "meta", "aucun résultat"));
       box.hidden = false;
     }, 220);
   });
@@ -3044,9 +3044,9 @@ async function fetchProviders() {
   const data = await api("/api/providers");
   state.keyEntryAllowed = Boolean(data.key_entry_allowed);
   // The banner depends on the answer, so it is set after it, not when opening.
-  $("providers-hint").textContent = state.keyEntryAllowed
-    ? "keys are write-only: only a masked hint is shown"
-    : "read-only: key entry needs a loopback bind";
+  // L'en-tête garde le canal d'état (chargement, erreur) : une phrase y était
+  // tronquée à ~40 px. La politique des clés se lit en tête de liste, plus bas.
+  $("providers-hint").textContent = "";
   if (!state.presets) {
     try {
       state.presets = await api("/api/providers/presets");
@@ -3117,7 +3117,7 @@ function renderRouterSettings(settings) {
   allow.type = "checkbox";
   allow.checked = Boolean(settings.allow_remote);
   allowLabel.appendChild(allow);
-  allowLabel.appendChild(el("span", null, "Allow remote (free) providers"));
+  allowLabel.appendChild(el("span", null, "Autoriser les fournisseurs distants (gratuits)"));
   box.appendChild(allowLabel);
 
   const warning = el("p", "settings-warning", settings.warning || "");
@@ -3126,7 +3126,7 @@ function renderRouterSettings(settings) {
   consent.type = "checkbox";
   consent.checked = Boolean(settings.consent);
   consentLabel.appendChild(consent);
-  consentLabel.appendChild(el("span", null, "I understand and consent"));
+  consentLabel.appendChild(el("span", null, "Je comprends et je consens"));
   warning.hidden = !allow.checked;
   consentLabel.hidden = !allow.checked;
   box.appendChild(warning);
@@ -3140,18 +3140,18 @@ function renderRouterSettings(settings) {
     consentLabel.hidden = !allow.checked;
   });
   save.addEventListener("click", async () => {
-    status.textContent = "saving…";
+    status.textContent = "enregistrement…";
     try {
       const updated = await api("/api/router/settings", {
         method: "PUT",
         body: JSON.stringify({ allow_remote: allow.checked, consent: consent.checked }),
       });
-      status.textContent = "saved";
+      status.textContent = "enregistré";
       status.className = "test-result ok";
       renderRouterSettings(updated);
       await loadProviders();
     } catch (error) {
-      status.textContent = `error: ${error.message}`;
+      status.textContent = `erreur : ${error.message}`;
       status.className = "test-result warn";
     }
   });
@@ -3164,21 +3164,22 @@ function providerCard(row) {
   const head = el("div", "provider-head");
   head.appendChild(el("span", "provider-name", row.name));
   const status = row.custom ? "custom" : row.verified;
-  const badge = el("span", `badge ${status === "verified" ? "ok" : "warn"}`, status);
+  const statusLabel = status === "verified" ? "vérifié" : "personnalisé";
+  const badge = el("span", `badge ${status === "verified" ? "ok" : "warn"}`, statusLabel);
   head.appendChild(badge);
-  if (row.in_chain) head.appendChild(el("span", "badge hl", "in chain"));
+  if (row.in_chain) head.appendChild(el("span", "badge hl", "dans la chaîne"));
   card.appendChild(head);
   card.appendChild(
-    el("div", "provider-meta", `${row.keys} key(s) · ${row.model || "no model configured"}`),
+    el("div", "provider-meta", `${row.keys === 1 ? "1 clé" : `${row.keys} clés`} · ${row.model || "aucun modèle configuré"}`),
   );
   card.appendChild(el("div", "provider-url", row.base_url || ""));
 
   const testRow = el("div", "provider-test");
-  const testButton = el("button", null, "Test connection");
+  const testButton = el("button", null, "Tester la connexion");
   testButton.type = "button";
   const testResult = el("span", "test-result", "");
   testButton.addEventListener("click", async () => {
-    testResult.textContent = "testing…";
+    testResult.textContent = "test en cours…";
     try {
       const result = await api(`/api/providers/${encodeURIComponent(row.name)}/test`, {
         method: "POST",
@@ -3188,7 +3189,7 @@ function providerCard(row) {
         : `échec : ${result.error_kind}${result.status ? ` — ${httpErrorText(result.status)}` : ""}`;
       testResult.className = `test-result ${result.ok ? "ok" : "warn"}`;
     } catch (error) {
-      testResult.textContent = `failed: ${error.message}`;
+      testResult.textContent = `échec : ${error.message}`;
       testResult.className = "test-result warn";
     }
   });
@@ -3322,7 +3323,7 @@ function customProviderForm() {
       details.open = false;
       await loadProviders();
     } catch (error) {
-      status.textContent = `error: ${error.message}`;
+      status.textContent = `erreur : ${error.message}`;
       status.className = "test-result warn";
     }
   });
@@ -3334,6 +3335,17 @@ function customProviderForm() {
 function renderProviders(rows) {
   const box = $("providers-list");
   box.textContent = "";
+  // La politique des clés est une phrase lisible, pas un pictogramme : en tête de
+  // liste elle ne peut pas être coupée, et elle dit exactement ce qui est stocké.
+  box.appendChild(
+    el(
+      "p",
+      "panel-hint provider-key-policy",
+      state.keyEntryAllowed
+        ? "Les clés sont en écriture seule : seule une fin masquée est affichée."
+        : "Lecture seule : la saisie d'une clé exige une écoute en loopback.",
+    ),
+  );
   if (state.keyEntryAllowed) box.appendChild(customProviderForm());
   if (!rows.length) {
     box.appendChild(el("div", "panel-hint", "aucun fournisseur dans le catalogue"));
@@ -3494,11 +3506,11 @@ function cloudflareCard(section) {
 
   if (state.keyEntryAllowed) {
     const form = providerForm();
-    const account = keyField(form, "account", {
+    const account = keyField(form, "compte", {
       placeholder: "32 caractères hexadécimaux",
       value: section.account_id || "",
     });
-    const token = keyField(form, "token", {
+    const token = keyField(form, "jeton", {
       secret: true,
       placeholder: "jeton API (jamais réaffiché)",
     });
@@ -3523,7 +3535,7 @@ function cloudflareCard(section) {
         });
         await loadProviders();
       } catch (error) {
-        result.textContent = `error: ${error.message}`;
+        result.textContent = `erreur : ${error.message}`;
         result.className = "test-result warn";
       }
     });
@@ -3539,7 +3551,7 @@ function deepseekCard(section) {
       "div",
       "provider-meta",
       section.configured
-        ? `${(section.key_hints || []).length} key(s) · ${(section.key_hints || []).join(", ")}`
+        ? `${(section.key_hints || []).length === 1 ? "1 clé" : `${(section.key_hints || []).length} clés`} · ${(section.key_hints || []).join(", ")}`
         : "non configuré",
     ),
   );
@@ -3551,7 +3563,7 @@ function deepseekCard(section) {
 
   if (state.keyEntryAllowed) {
     const form = providerForm();
-    const key = keyField(form, "key", {
+    const key = keyField(form, "clé", {
       secret: true,
       placeholder: "clé API (jamais réaffichée)",
     });
@@ -3568,7 +3580,7 @@ function deepseekCard(section) {
         });
         await loadProviders();
       } catch (error) {
-        result.textContent = `error: ${error.message}`;
+        result.textContent = `erreur : ${error.message}`;
         result.className = "test-result warn";
       }
     });
@@ -3605,7 +3617,7 @@ function omnirouteCard(section) {
         result.className = "test-result ok";
         await loadProviders();
       } catch (error) {
-        result.textContent = `error: ${error.message}`;
+        result.textContent = `erreur : ${error.message}`;
         result.className = "test-result warn";
       }
     });
@@ -3735,7 +3747,7 @@ function presetCard(data) {
       result.className = "test-result ok";
       await loadProviders();
     } catch (error) {
-      result.textContent = `error: ${error.message}`;
+      result.textContent = `erreur : ${error.message}`;
       result.className = "test-result warn";
     }
   });
@@ -3748,7 +3760,7 @@ function renderKeysPanel(keys) {
   const box = $("keys-priority");
   box.textContent = "";
   if (!keys) {
-    box.appendChild(el("div", "panel-hint", "key state unavailable"));
+    box.appendChild(el("div", "panel-hint", "état des clés indisponible"));
     return;
   }
   if (state.keyEntryAllowed) box.appendChild(presetCard(state.presets));
@@ -3777,7 +3789,7 @@ async function loadCapabilities() {
           "hardware-model-meta",
           `context ${Math.round(data.recommended_budget / 1000)}k · ${installed.includes(
             data.recommended_model
-          ) ? "installed" : pulling.includes(data.recommended_model) ? "downloading…" : "not installed"}`
+          ) ? "installed" : pulling.includes(data.recommended_model) ? "téléchargement…" : "pas installé"}`
         )
       );
       if (!installed.includes(data.recommended_model) && !pulling.includes(data.recommended_model)) {
@@ -3843,13 +3855,13 @@ async function loadCapabilities() {
         el(
           "p",
           "hardware-warning",
-          "No local model fits here: configure a remote provider in the Providers tab."
+          "Aucun modèle local ne tient ici : configurez un fournisseur distant dans l'onglet Fournisseurs."
         )
       );
     }
   } catch (error) {
     box.textContent = "";
-    box.appendChild(el("div", "panel-hint", `error: ${error.message}`));
+    box.appendChild(el("div", "panel-hint", `erreur : ${error.message}`));
   }
 }
 
@@ -3980,7 +3992,7 @@ async function loadUhb() {
   });
   box.appendChild(stopUhb);
 
-  const test = el("button", "hardware-pull", "Test routing");
+  const test = el("button", "hardware-pull", "Tester le routage");
   const out = el("div", "uhb-decision");
   test.addEventListener("click", async () => {
     const prompt = $("input").value.trim() || "test";
@@ -3995,7 +4007,7 @@ async function loadUhb() {
         el(
           "p",
           "uhb-line",
-          `${plan.complexity} · ${plan.reason || "no reason given"}`
+          `${plan.complexity} · ${plan.reason || "aucune raison donnée"}`
         )
       );
       for (const candidate of plan.chain || []) {
@@ -4008,7 +4020,7 @@ async function loadUhb() {
         row.appendChild(el("span", "uhb-tier", tier));
         out.appendChild(row);
       }
-      if (!(plan.chain || []).length) out.appendChild(el("p", "panel-hint", "no chain"));
+      if (!(plan.chain || []).length) out.appendChild(el("p", "panel-hint", "aucune chaîne"));
     } catch (error) {
       out.appendChild(el("p", "panel-hint", `route: ${error.message}`));
     } finally {
@@ -4057,7 +4069,7 @@ function memorySection(title) {
 function memoryNoteList(notes, reader) {
   const list = el("div", "memory-note-list");
   if (!notes.length) {
-    list.appendChild(el("p", "panel-hint", "no notes in this wiki"));
+    list.appendChild(el("p", "panel-hint", "aucune note dans ce wiki"));
     return list;
   }
   for (const note of notes) {
@@ -4065,12 +4077,12 @@ function memoryNoteList(notes, reader) {
     row.appendChild(el("span", "memory-note-name", note.path));
     row.appendChild(el("span", "memory-note-meta", `${Math.round(note.size / 1024)} KB`));
     row.addEventListener("click", async () => {
-      reader.textContent = "loading…";
+      reader.textContent = "chargement…";
       try {
         const data = await api(`/api/memory/wiki/${note.path}`);
         reader.textContent = data.text;
       } catch (error) {
-        reader.textContent = `error: ${error.message}`;
+        reader.textContent = `erreur : ${error.message}`;
       }
     });
     list.appendChild(row);
@@ -4095,7 +4107,7 @@ async function runMemorySearch(query, results) {
     const data = await api(`/api/memory/search?q=${encodeURIComponent(query)}`);
     results.textContent = "";
     if (!data.hits.length) {
-      results.appendChild(el("p", "panel-hint", "no hit"));
+      results.appendChild(el("p", "panel-hint", "aucun résultat"));
       return;
     }
     for (const kind of ["wiki", "session", "memory"]) {
@@ -4110,7 +4122,7 @@ async function runMemorySearch(query, results) {
       }
     }
   } catch (error) {
-    results.textContent = `error: ${error.message}`;
+    results.textContent = `erreur : ${error.message}`;
   }
 }
 
@@ -4136,7 +4148,7 @@ async function loadMemory() {
       el(
         "p",
         "memory-banner",
-        "UHB offline: the wiki folder and UH's own store still work; RAG and SiYuan do not."
+        "UHB hors ligne : le dossier wiki et le store d'UH fonctionnent encore ; RAG et SiYuan non."
       )
     );
   }
@@ -4147,7 +4159,7 @@ async function loadMemory() {
   const input = el("input", "memory-search-input");
   input.id = "memory-search";
   input.name = "memory-search";
-  input.placeholder = "search the wiki, MEMORY.md and the sessions";
+  input.placeholder = "chercher dans le wiki, MEMORY.md et les sessions";
   input.setAttribute("aria-label", "Rechercher dans la mémoire");
   const go = el("button", null, "Rechercher");
   go.type = "submit";
@@ -4178,7 +4190,7 @@ async function loadMemory() {
     wiki.appendChild(memoryNoteList(listing.notes || [], reader));
     wiki.appendChild(reader);
   } else {
-    wiki.appendChild(el("p", "panel-hint", data.wiki.reason || "no wiki found"));
+    wiki.appendChild(el("p", "panel-hint", data.wiki.reason || "aucun wiki trouvé"));
   }
   box.appendChild(wiki);
 
@@ -4192,13 +4204,13 @@ async function loadMemory() {
         data.memory.path
       )
     );
-    if (!sections.length) memory.appendChild(el("p", "panel-hint", "the file exists but has no content"));
+    if (!sections.length) memory.appendChild(el("p", "panel-hint", "le fichier existe mais est vide"));
   } else {
     memory.appendChild(
       el(
         "p",
         "panel-hint",
-        "MEMORY.md not created yet - it appears after the first memory_write."
+        "MEMORY.md n'existe pas encore — il apparaît au premier memory_write."
       )
     );
   }
@@ -4218,7 +4230,7 @@ async function loadMemory() {
   rag.appendChild(
     stateBlock(
       [
-        ["index", ragBuilt ? `built (${ragState.source || ragState.via || "disk"})` : "not built"],
+        ["index", ragBuilt ? `indexé (${ragState.source || ragState.via || "disque"})` : "pas indexé"],
         ["size", size],
         ["chunks", ragState.chunks],
         ["documents", ragState.documents],
@@ -4232,7 +4244,7 @@ async function loadMemory() {
       el(
         "p",
         "panel-hint",
-        "RAG not built yet - the index is compiled from your own notes; see uhb/services/rag/README.md."
+        "RAG pas encore indexé — l'index se compile à partir de vos propres notes ; voir uhb/services/rag/README.md."
       )
     );
   }
@@ -4242,7 +4254,7 @@ async function loadMemory() {
   const reloadState = el("p", "memory-state-note", "");
   reload.addEventListener("click", async () => {
     reload.disabled = true;
-    reload.textContent = "reloading…";
+    reload.textContent = "rechargement…";
     reloadState.className = "memory-state-note";
     reloadState.textContent = "";
     const answer = await apiResult("/api/memory/rag/reload", { method: "POST" });
@@ -4262,9 +4274,9 @@ async function loadMemory() {
     const body = answer.body || {};
     reloadState.className = "memory-state-note memory-error";
     if (body.kind === "service_offline") {
-      reloadState.textContent = body.hint || "the RAG service is not running";
+      reloadState.textContent = body.hint || "le service RAG ne tourne pas";
     } else if (body.kind === "uhb_offline") {
-      reloadState.textContent = "UHB offline - memory actions unavailable";
+      reloadState.textContent = "UHB hors ligne — actions mémoire indisponibles";
     } else {
       reloadState.textContent = body.error || `rechargement impossible : ${httpErrorText(answer.status)}`;
     }
@@ -4300,7 +4312,7 @@ async function loadMemory() {
   const note = el("p", "memory-state-note", "");
   load.addEventListener("click", async () => {
     load.disabled = true;
-    load.textContent = "loading…";
+    load.textContent = "chargement…";
     note.className = "memory-state-note";
     note.textContent = "";
     list.textContent = "";
@@ -4319,17 +4331,17 @@ async function loadMemory() {
         row.appendChild(el("span", "memory-block-content", String(block.content || "")));
         list.appendChild(row);
       }
-      if (!blocks.length) list.appendChild(el("p", "panel-hint", "no block for this path"));
+      if (!blocks.length) list.appendChild(el("p", "panel-hint", "aucun bloc pour ce chemin"));
       return;
     }
     const body = answer.body || {};
     note.className = "memory-state-note memory-error";
     if (body.kind === "config_missing") {
-      note.textContent = body.hint || "SIYUAN_TOKEN not set";
+      note.textContent = body.hint || "SIYUAN_TOKEN n'est pas défini";
     } else if (body.kind === "auth") {
-      note.textContent = "SiYuan rejected the token - check SIYUAN_TOKEN";
+      note.textContent = "SiYuan a refusé le jeton — vérifiez SIYUAN_TOKEN";
     } else if (body.kind === "uhb_offline") {
-      note.textContent = "UHB offline - memory actions unavailable";
+      note.textContent = "UHB hors ligne — actions mémoire indisponibles";
     } else {
       note.textContent = body.error || `blocs indisponibles : ${httpErrorText(answer.status)}`;
     }
@@ -4607,7 +4619,7 @@ function renderDecision(data, reload) {
       "decision-note",
       "Le second cerveau (UHB) n'a pas été consulté pour ce tour : le modèle a répondu seul, sans conseil de routage."
     );
-    absent.title = String(prompt.note || "UHB was not consulted for this turn: no uhb_route call");
+    absent.title = String(prompt.note || "UHB n'a pas été consulté pour ce tour : aucun appel uhb_route");
     promptBody.appendChild(absent);
   }
   box.appendChild(decisionBlock("Votre demande", promptBody));
@@ -4644,7 +4656,7 @@ function renderDecision(data, reload) {
       "decision-note",
       "Aucun ordre de repli prévu : le second cerveau n'a pas planifié ce tour, donc un seul modèle a été essayé."
     );
-    none.title = "no chain: UHB did not plan this turn";
+    none.title = "aucune chaîne : UHB n'a pas planifié ce tour";
     chainBody.appendChild(none);
   }
   box.appendChild(decisionBlock("Modèles essayés, dans l'ordre", chainBody));
@@ -4761,7 +4773,7 @@ function renderDecision(data, reload) {
         method: "POST",
         body: JSON.stringify({ prompt: promptText }),
       });
-      out.appendChild(el("p", "decision-note", "not applied to the turn: a plan only"));
+      out.appendChild(el("p", "decision-note", "non appliqué au tour : un plan seulement"));
       for (const candidate of plan.chain || []) {
         const row = el("div", "uhb-candidate");
         row.appendChild(tierDot(candidate.tier));
@@ -5445,7 +5457,7 @@ function wireRole() {
 
 function openProviders() {
   $("layout").classList.remove("right-collapsed");
-  $("providers-hint").textContent = "loading…";
+  $("providers-hint").textContent = "chargement…";
   loadProviders().catch((error) => {
     // Keep whatever is on screen: an emptied list plus "error" reads as "you have
     // no providers", which is a different - and false - statement.
@@ -7257,7 +7269,7 @@ async function showRemoteBanner() {
   const data = await api("/api/system/capabilities");
   if (data.tier !== "small" && data.tier !== "remote") return;
   const banner = $("remote-banner");
-  banner.textContent = `UH runs remote on this device (${data.tier} tier). Configure a provider in the ⚙ panel.`;
+  banner.textContent = `UH tourne à distance sur cet appareil (palier ${data.tier}). Configurez un fournisseur dans le panneau ⚙.`;
   banner.hidden = false;
 }
 

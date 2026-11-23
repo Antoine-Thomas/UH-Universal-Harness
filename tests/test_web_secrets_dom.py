@@ -139,7 +139,7 @@ def test_the_page_never_receives_a_stored_key() -> None:
     # cleared after a save), never a value read from the API.
     for marker in ("input.value = data.key", "value = section.key", "value = key."):
         assert marker not in APP_JS, f"a stored key could land in the DOM: {marker}"
-    assert "keys are write-only: only a masked hint is shown" in APP_JS
+    assert "Les clés sont en écriture seule" in APP_JS
 
 
 def test_the_key_file_itself_is_owner_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

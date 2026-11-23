@@ -30,7 +30,7 @@
       </div>
       <input id="search" name="search" class="search" type="search" placeholder="Rechercher dans les messages…" autocomplete="off">
       <div class="folder-bar">
-        <button id="new-folder" class="ghost-button" title="Name a folder, then file sessions into it">+ Folder</button>
+        <button id="new-folder" class="ghost-button" title="Nommez un dossier, puis rangez-y vos sessions">+ Dossier</button>
         <span id="folder-hint" class="panel-hint"></span>
       </div>
       <ul id="session-list" class="session-list"></ul>
@@ -38,13 +38,13 @@
       <footer class="sidebar-foot">
         <span id="status-provider">…</span>
         <span id="install-badge" class="install-badge" title=""></span>
-        <button id="providers-open" class="icon-button" title="Providers" aria-label="Providers">⚙</button>
-        <button id="theme-toggle" class="icon-button" title="Toggle theme" aria-label="Toggle theme">◐</button>
+        <button id="providers-open" class="icon-button" title="Fournisseurs" aria-label="Fournisseurs">⚙</button>
+        <button id="theme-toggle" class="icon-button" title="Changer de thème" aria-label="Changer de thème">◐</button>
       </footer>
     </aside>
 
     <div class="splitter" id="splitter-left" role="separator" aria-orientation="vertical"
-         tabindex="0" aria-label="Resize the sessions column" title="Drag to resize · double-click to reset"></div>
+         tabindex="0" aria-label="Redimensionner la colonne des sessions" title="Glissez pour redimensionner · double-clic pour réinitialiser"></div>
 
     <main class="main">
       <header class="topbar">
@@ -92,7 +92,7 @@
       <div id="setup-banner" class="setup-banner" role="status" hidden></div>
 
       <div id="terminal-warning" class="warning" role="status" aria-live="polite" hidden>
-        Terminal toolset is ENABLED: the model can run shell commands in the workspace.
+        Outil terminal ACTIVÉ : le modèle peut lancer des commandes shell dans l'espace de travail.
       </div>
       <div id="version-warning" class="warning" role="status" aria-live="polite" hidden></div>
 
@@ -176,13 +176,13 @@
         <button type="button" id="llm-open" class="skill-open" title="Réglages de la conversation" aria-label="Réglages de la conversation">🎚</button>
         <input id="files" name="files" class="visually-hidden" type="file" multiple
                accept=".txt,.md,.markdown,.csv,.json,.yaml,.yml,.toml,.log,.py,.js,.ts,.html,.css,.sh,.ps1,.pdf,.png,.jpg,.jpeg,.webp,.gif,.mp4,.mov,.webm,.mkv">
-        <textarea id="input" name="message" rows="1" placeholder="Ask UH…  (Ctrl/Cmd-K for commands · drop a file here)" autocomplete="off"></textarea>
+        <textarea id="input" name="message" rows="1" placeholder="Demandez à UH…  (Ctrl/Cmd-K pour les commandes · déposez un fichier ici)" autocomplete="off"></textarea>
         <button type="submit" id="send">Envoyer</button>
       </form>
     </main>
 
     <div class="splitter" id="splitter-right" role="separator" aria-orientation="vertical"
-         tabindex="0" aria-label="Resize the configuration column" title="Drag to resize · double-click to reset"></div>
+         tabindex="0" aria-label="Redimensionner la colonne de configuration" title="Glissez pour redimensionner · double-clic pour réinitialiser"></div>
 
     <aside class="rightbar" id="providers-panel" aria-label="Configuration">
       <header class="panel-head" id="panel-head">
