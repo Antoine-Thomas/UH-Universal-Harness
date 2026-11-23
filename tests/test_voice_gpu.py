@@ -11,6 +11,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from uh import voice_gpu, voice_plan
 
 GPU8 = {"tier": "xl", "gpu": "NVIDIA GeForce RTX 3070 Ti", "vram_gb": 8.0, "ram_gb": 64.0}
@@ -150,7 +152,9 @@ def test_dictation_takes_the_gpu_only_after_declaring_the_dll_directories(monkey
 
 
 def test_the_model_is_built_with_the_device_that_was_decided(monkeypatch) -> None:
-    import faster_whisper
+    # faster-whisper est un extra optionnel : sans lui, ce test n'a rien à remplacer.
+    # Sur la CI il n'est pas installé, et l'import direct faisait échouer 12 jobs.
+    faster_whisper = pytest.importorskip("faster_whisper")
 
     from uh.audio import local as stt
 
