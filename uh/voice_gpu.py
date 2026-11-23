@@ -58,10 +58,17 @@ def libs() -> Dict[str, bool]:
     """Chaque DLL, **chargée pour de vrai** : un fichier présent ne prouve rien."""
     import ctypes
 
+    # ``ctypes.WinDLL`` n'existe que sous Windows : typeshed ne le déclare pas
+    # ailleurs, et mypy sur Linux refuse l'accès direct (mesuré en CI le 23/11 :
+    # `Module has no attribute "WinDLL" [attr-defined]`, qui rendait #50 à #55
+    # rouges). Les clés restent celles du catalogue, toutes à False hors Windows.
+    windll = getattr(ctypes, "WinDLL", None)
+    if windll is None:
+        return {name: False for name in GPU_LIBS}
     found: Dict[str, bool] = {}
     for name in GPU_LIBS:
         try:
-            ctypes.WinDLL(name)
+            windll(name)
             found[name] = True
         except (OSError, AttributeError):
             found[name] = False
