@@ -38,6 +38,12 @@ FETCH_TIMEOUT = 10.0
 
 MARKDOWN_IMAGE = re.compile(r"!\[([^\]]*)\]\((https?://[^)\s]+)\)")
 
+#: Ce qu'un dessin produit par du code EST, et ce qu'il n'est pas. Constat du 23/11 :
+#: le modèle a présenté un tracé matplotlib comme « la photo de moutons générée ».
+#: L'étiquette est portée par l'artefact (donc affichée sous l'image) ET par le
+#: message d'outil que le modèle relit, sinon il la réinvente au tour suivant.
+ILLUSTRATION_NOTE = "illustration vectorielle, pas une photo"
+
 _SIGNATURES: Tuple[Tuple[bytes, str], ...] = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
     (b"\xff\xd8\xff", "image/jpeg"),
