@@ -87,6 +87,11 @@ def start(browser, server: Server, *, cap_ms: int | None = None):
         page.add_init_script(f"window.UH_MIC_MAX_MS = {cap_ms};")
     page.goto(server.url, wait_until="domcontentloaded")
     page.wait_for_selector("#input", timeout=30000)
+    # `#splash` couvre l'écran au démarrage. Sur un runner Windows lent il est encore
+    # là quand les contrôles deviennent visibles et il intercepte les clics (flake
+    # mesuré en CI : `click`/`fill` en timeout de 30 s). On attend sa disparition
+    # avant tout clic sur `#mic`.
+    page.wait_for_selector("#splash", state="hidden", timeout=30000)
     # Sans moteur configuré, le bouton est masqué par les capacités : on l'affiche
     # pour éprouver l'enregistrement lui-même, qui ne dépend pas du moteur.
     page.evaluate("document.getElementById('mic').hidden = false")
@@ -131,6 +136,7 @@ def test_a_reload_while_recording_leaves_no_live_track(fake_mic, server: Server)
         page.evaluate("sessionStorage.setItem('uhMicStops', '0')")
         page.reload(wait_until="domcontentloaded")
         page.wait_for_selector("#input", timeout=30000)
+        page.wait_for_selector("#splash", state="hidden", timeout=30000)
         page.wait_for_timeout(500)
         stops = page.evaluate("Number(sessionStorage.getItem('uhMicStops') || 0)")
         assert stops >= 1, "pagehide doit fermer les pistes avant que la page meure"
