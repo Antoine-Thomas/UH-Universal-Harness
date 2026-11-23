@@ -320,7 +320,19 @@ function speakBox(box, text) {
       drawAudio(box, [payload], { sessionId: state.sessionId });
       bar.remove();
     } catch (error) {
-      status.textContent = `voix impossible : ${error.message}`;
+      const failure = humanizeError(error.message, "ui");
+      // Hors ligne : la phrase du serveur qui ne répond plus, et un bouton utile.
+      // Sinon : le préfixe « voix impossible » reste, il dit de quoi on parle.
+      status.textContent = failure.offline ? failure.text : `voix impossible : ${failure.text}`;
+      if (failure.offline) {
+        const reload = el("button", "data-button", "Recharger");
+        reload.type = "button";
+        reload.addEventListener("click", () => window.location.reload());
+        status.appendChild(document.createTextNode(" "));
+        status.appendChild(reload);
+        button.disabled = false;
+        return;
+      }
       button.disabled = false;
     }
   });
@@ -404,15 +416,51 @@ function httpErrorText(status, origin = "ui") {
 // -> { text, actions[] } ; actions among "reload", "new", "allow", "keys".
 // `origin` is "ui" for a failure of a browser request to UH, "provider" when the
 // turn itself reported it (SSE `error` frame: the model or a service it called).
+// BEGIN offlineFailure
+// Deux pannes différentes, deux phrases : le navigateur qui ne joint pas UH, et le
+// fournisseur qui coupe. « Failed to fetch » n'est jamais montré — mesuré sur le
+// terrain du 23/11, c'est ce que l'écran affichait sur Écouter et Dicter.
+function offlineFailureText(origin) {
+  return origin === "ui"
+    ? "UH ne répond plus : le serveur est arrêté ou redémarré."
+    : "La connexion a été coupée avant la fin de la réponse. Le fournisseur est peut-être injoignable ou redémarré.";
+}
+// END offlineFailure
+
+// BEGIN versionWarning
+// Une interface et un serveur qui ne portent pas la même version, c'est le motif où
+// un bouton appelle une route qui n'existe pas. Mais sur un checkout de dev, c'est
+// NORMAL : l'interface vient du dépôt, le serveur annonce la version du paquet. Le
+// bandeau ne doit donc jamais s'allumer là — mesuré sur ce poste, il le faisait.
+function versionWarning(pageVersion, bundleBuild, servedVersion, editable) {
+  if (editable || !servedVersion) return { hidden: true, text: "" };
+  if (pageVersion && pageVersion !== servedVersion) {
+    return {
+      hidden: false,
+      text:
+        `Interface ${pageVersion} servie par un serveur ${servedVersion} : une ancienne instance ` +
+        "occupe encore le port. Ferme cette fenêtre et relance « uh web ».",
+    };
+  }
+  if (bundleBuild && bundleBuild !== servedVersion) {
+    return {
+      hidden: false,
+      text:
+        `UH a été mis à jour (interface ${bundleBuild}, serveur ${servedVersion}) : ` +
+        "recharge la page pour charger le code du serveur.",
+    };
+  }
+  return { hidden: true, text: "" };
+}
+// END versionWarning
+
 function humanizeError(raw, origin = "ui") {
   const message = String(raw || "").trim();
   const http = message.match(/\bHTTP\s*(\d{3})\b/i);
-  if (/WinError\s*100(53|54|60|61)|Failed to fetch|NetworkError|Load failed|ECONNRESET|connection (reset|refused|aborted)|socket|BrokenPipe/i.test(message)) {
-    return {
-      text: "La connexion a été coupée avant la fin de la réponse. UH ou le fournisseur est peut-être redémarré ou injoignable.",
-      actions: ["reload"],
-    };
-  }
+  const offline = /WinError\s*100(53|54|60|61)|Failed to fetch|NetworkError|Load failed|ECONNRESET|connection (reset|refused|aborted)|BrokenPipe/i.test(
+    message,
+  );
+  if (offline) return { text: offlineFailureText(origin), actions: ["reload"], offline: true };
   if (/timed? ?out|timeout|délai/i.test(message) && !http) {
     return { text: "Le fournisseur a mis trop de temps à répondre. Réessayez dans un instant.", actions: ["reload"] };
   }
@@ -998,18 +1046,14 @@ async function loadStatus() {
   }
   const warning = $("version-warning");
   if (warning) {
-    const stalePage = Boolean(pageVersion && servedVersion && pageVersion !== servedVersion);
-    const staleBundle = Boolean(bundleBuild && servedVersion && bundleBuild !== servedVersion);
-    warning.hidden = !stalePage && !staleBundle;
-    if (stalePage) {
-      warning.textContent =
-        `Interface ${pageVersion} servie par un serveur ${servedVersion} : une ancienne instance ` +
-        "occupe encore le port. Ferme cette fenêtre et relance « uh web ».";
-    } else if (staleBundle) {
-      warning.textContent =
-        `UH a été mis à jour (interface ${bundleBuild}, serveur ${servedVersion}) : ` +
-        "recharge la page pour charger le code du serveur.";
-    }
+    const verdict = versionWarning(
+      pageVersion,
+      bundleBuild,
+      servedVersion,
+      Boolean(status.install && status.install.editable),
+    );
+    warning.hidden = verdict.hidden;
+    warning.textContent = verdict.text;
   }
   if (status.provider_error) {
     // Say it once, in the tooltip: a missing provider is a configuration fact,
