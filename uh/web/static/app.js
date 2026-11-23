@@ -5141,7 +5141,7 @@ const TAB_GROUPS = {
   decision: { label: "Décision", leaves: ["decision", "role"] },
   tools: { label: "Outils & Connexions", leaves: ["tools", "conn", "uhb", "infra", "tasks", "extensions"] },
   brain: { label: "Cerveau & Mémoire", leaves: ["memory", "telemetry", "data"] },
-  models: { label: "Modèles & Fournisseurs", leaves: ["keys", "models", "local"] },
+  models: { label: "Modèles & Fournisseurs", leaves: ["keys", "models", "local", "voice"] },
 };
 const TAB_GROUP_OF = {};
 for (const [group, meta] of Object.entries(TAB_GROUPS)) {
@@ -5186,6 +5186,7 @@ function showPanelTab(name) {
   for (const [tab, view] of [
     ["keys", "keys-view"],
     ["local", "local-view"],
+    ["voice", "voice-view"],
     ["models", "models-view"],
     ["uhb", "uhb-view"],
     ["memory", "memory-view"],
@@ -5257,6 +5258,7 @@ function showPanelTab(name) {
   }
   if (name === "conn") loadConnections().catch(() => {});
   if (name === "local") loadLocalPanel().catch(() => {});
+  if (name === "voice") loadVoicePanel().catch(() => {});
   if (name === "data") loadData().catch(() => {});
 }
 
@@ -5543,6 +5545,7 @@ function wireProviders() {
   $("tab-keys").addEventListener("click", () => showPanelTab("keys"));
   $("tab-local").addEventListener("click", () => showPanelTab("local"));
   $("tab-models").addEventListener("click", () => showPanelTab("models"));
+  $("tab-voice").addEventListener("click", () => showPanelTab("voice"));
   $("tab-uhb").addEventListener("click", () => showPanelTab("uhb"));
   $("tab-memory").addEventListener("click", () => showPanelTab("memory"));
   $("tab-decision").addEventListener("click", () => showPanelTab("decision"));
@@ -9371,5 +9374,187 @@ async function attachSelectedFile() {
     if (hint) hint.textContent = `pièce jointe refusée : ${error.message || error}`;
   } finally {
     if (button) button.disabled = false;
+  }
+}
+
+// ------------------------------------------------------------------ voix -- //
+// Le plan vocal vient du serveur (`uh.voice_plan`) : la page ne choisit pas le moteur,
+// elle montre le choix, sa raison, et ce qui manque. Trois gestes seulement, tous
+// explicites : changer de profil, vérifier l'installation, tester/installer un moteur.
+
+const VOICE_PROFILE_LABELS = [
+  ["auto", "Automatique (local d'abord)"],
+  ["local", "IA locale seulement"],
+  ["cloud", "Cloud d'abord"],
+];
+const VOICE_STATE = {
+  ok: ["badge ok", "OK"],
+  update: ["badge warn", "à mettre à jour"],
+  missing: ["badge bad", "manquant"],
+};
+
+async function loadVoicePanel() {
+  const box = $("voice-panel");
+  if (!box) return;
+  box.setAttribute("aria-busy", "true");
+  try {
+    const [plan, caps] = await Promise.all([
+      api(`/api/voice/plan?profile=${encodeURIComponent(state.voiceProfile || "auto")}`),
+      api("/api/audio/capabilities").catch(() => ({ engines: [] })),
+    ]);
+    renderVoicePanel(plan, caps);
+  } catch (error) {
+    box.textContent = "";
+    box.appendChild(el("p", "panel-hint", `plan vocal indisponible : ${error.message}`));
+  } finally {
+    box.setAttribute("aria-busy", "false");
+  }
+}
+
+function voiceEngineLine(part) {
+  const row = el("div", "voice-engine");
+  row.appendChild(el("span", "voice-engine-title", part.engine ? part.label : "aucun moteur"));
+  row.appendChild(el("span", "badge " + (part.kind === "local" ? "ok" : part.kind === "cloud" ? "hl" : "bad"),
+    part.kind === "local" ? "local" : part.kind === "cloud" ? "cloud" : "—"));
+  row.appendChild(el("span", "voice-engine-why", part.reason || ""));
+  return row;
+}
+
+function renderVoicePanel(plan, caps) {
+  const box = $("voice-panel");
+  if (!box) return;
+  box.textContent = "";
+
+  const profileRow = el("div", "voice-profile");
+  profileRow.appendChild(el("span", "voice-label", "Profil"));
+  const select = document.createElement("select");
+  select.id = "voice-profile-select";
+  select.setAttribute("aria-label", "Profil des moteurs vocaux");
+  for (const [value, label] of VOICE_PROFILE_LABELS) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    if (value === plan.profile) option.selected = true;
+    select.appendChild(option);
+  }
+  select.addEventListener("change", () => {
+    state.voiceProfile = select.value;
+    loadVoicePanel().catch(() => {});
+  });
+  profileRow.appendChild(select);
+  box.appendChild(profileRow);
+
+  const engines = el("div", "voice-engines");
+  engines.appendChild(el("div", "voice-heading", "Dictée"));
+  engines.appendChild(voiceEngineLine(plan.stt || {}));
+  engines.appendChild(el("div", "voice-heading", "Voix"));
+  engines.appendChild(voiceEngineLine(plan.tts || {}));
+  box.appendChild(engines);
+
+  const machine = plan.machine || {};
+  const machineLine = [
+    machine.tier ? `palier ${machine.tier}` : "",
+    machine.gpu ? `${machine.gpu} (${machine.vram_gb || 0} Go)` : "sans GPU",
+    machine.free_vram_gb !== undefined ? `${machine.free_vram_gb} Go libres après le chat` : "",
+    machine.ram_gb ? `${machine.ram_gb} Go RAM` : "",
+  ].filter(Boolean).join(" · ");
+  box.appendChild(el("p", "panel-hint", machineLine || "machine non mesurée"));
+
+  // --- Vérifier mon installation -------------------------------------------- //
+  const check = el("button", "data-button", "Vérifier mon installation");
+  check.type = "button";
+  const report = el("div", "voice-report", "");
+  report.hidden = true;
+  check.addEventListener("click", () => {
+    report.hidden = false;
+    report.textContent = "";
+    for (const row of plan.installation || []) {
+      const state = VOICE_STATE[row.state] || VOICE_STATE.missing;
+      const line = el("div", "voice-report-row");
+      line.appendChild(el("span", "voice-report-name", row.name));
+      line.appendChild(el("span", state[0], state[1]));
+      line.appendChild(el("span", "voice-report-version", row.version || ""));
+      if (row.command) {
+        const code = el("code", "voice-command", row.command);
+        line.appendChild(code);
+      }
+      report.appendChild(line);
+    }
+  });
+  box.appendChild(check);
+  box.appendChild(report);
+
+  // --- Tester la voix, moteur par moteur ------------------------------------ //
+  const tests = el("div", "voice-tests");
+  tests.appendChild(el("div", "voice-heading", "Tester la voix"));
+  const testStatus = el("p", "panel-hint", "");
+  for (const engine of caps.engines || []) {
+    if (!engine.tts) continue;
+    const line = el("div", "voice-test-row");
+    line.appendChild(el("span", "voice-test-name", engine.label));
+    line.appendChild(
+      el("span", "panel-hint", engine.available ? "" : engine.reason || "indisponible")
+    );
+    const button = el("button", "data-button", "Tester");
+    button.type = "button";
+    if (!engine.available) button.disabled = true;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      testStatus.textContent = `test de ${engine.label}…`;
+      try {
+        const clip = await api("/api/audio/speak", {
+          method: "POST",
+          body: JSON.stringify({
+            text: "Bonjour, ceci est un test de la voix.",
+            session_id: state.sessionId || "",
+            engine: engine.name,
+          }),
+        });
+        testStatus.textContent = `${engine.label} : OK · ${Math.round((clip.bytes || 0) / 1024)} Ko`;
+      } catch (error) {
+        testStatus.textContent = `${engine.label} : ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+    line.appendChild(button);
+    tests.appendChild(line);
+  }
+  tests.appendChild(testStatus);
+  box.appendChild(tests);
+
+  // --- Installer la dictée locale ------------------------------------------- //
+  const missing = (plan.install || []).find((item) => item.target === "faster-whisper");
+  if (missing) {
+    const install = el("div", "voice-install");
+    install.appendChild(el("div", "voice-heading", "Dictée locale (faster-whisper)"));
+    install.appendChild(el("p", "panel-hint", missing.why || ""));
+    // La commande est affichée telle quelle : elle peut être copiée sans ce bouton.
+    install.appendChild(el("code", "voice-command", missing.command));
+    const run = el("button", "data-button primary", "Installer la dictée locale");
+    run.type = "button";
+    run.id = "voice-install-run";
+    const out = el("pre", "voice-install-output", "");
+    out.hidden = true;
+    run.addEventListener("click", async () => {
+      run.disabled = true;
+      out.hidden = false;
+      out.textContent = "installation en cours… (cela peut prendre une minute)";
+      try {
+        const result = await api("/api/voice/install", {
+          method: "POST",
+          body: JSON.stringify({ target: "faster-whisper", confirm: true }),
+        });
+        out.textContent = `${result.ok ? "installation terminée" : "installation échouée"}\n${result.output || ""}`;
+        if (result.ok) await loadVoicePanel();
+      } catch (error) {
+        out.textContent = `refusé : ${error.message}`;
+      } finally {
+        run.disabled = false;
+      }
+    });
+    install.appendChild(run);
+    install.appendChild(out);
+    box.appendChild(install);
   }
 }

@@ -1639,6 +1639,70 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return result
 
+    # -- voix : quel moteur, et pourquoi ---------------------------------- #
+    # Le plan est une décision pure (`uh.voice_plan`) : cette route ne fait que la
+    # rendre visible. Rien n'y est installé, rien n'y part sur le réseau.
+    @app.get("/api/voice/plan", dependencies=[Depends(require_token)])
+    async def voice_plan(profile: str = "auto") -> dict:
+        from .. import voice_plan as planner
+
+        return await asyncio.to_thread(planner.plan_for_home, profile)
+
+    @app.post("/api/voice/install", dependencies=[Depends(require_token)])
+    async def voice_install(payload: dict) -> dict:
+        """Installe un moteur vocal **après un clic explicite**, et rien d'autre.
+
+        Le corps doit porter ``{"target": "...", "confirm": true}``. Sans
+        ``confirm``, la route refuse : une installation ne part jamais d'un
+        rechargement de page ni d'un appel de fond.
+        """
+        body = payload or {}
+        target = str(body.get("target") or "").strip()
+        if body.get("confirm") is not True:
+            raise HTTPException(
+                status_code=400, detail="confirmation requise : rien n'est installé"
+            )
+        if target != "faster-whisper":
+            raise HTTPException(status_code=400, detail=f"cible inconnue : {target or '(vide)'}")
+        from .. import voice_plan as planner
+
+        command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "faster-whisper>=1.2",
+            "huggingface-hub<1",
+            "filelock<3.17",
+        ]
+
+        def run() -> dict:
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=900,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                return {
+                    "ok": False,
+                    "output": f"{type(exc).__name__}: {exc}",
+                    "command": " ".join(command),
+                }
+            tail = ((result.stdout or "") + (result.stderr or "")).strip().splitlines()[-25:]
+            return {
+                "ok": result.returncode == 0,
+                "output": "\n".join(tail),
+                "command": " ".join(command),
+                "version": planner._package_version("faster-whisper"),
+            }
+
+        return await asyncio.to_thread(run)
+
     @app.post("/api/audio/speak", dependencies=[Depends(require_token)])
     async def audio_speak(payload: dict) -> dict:
         """Text in, one WAV file out, with the reference the thread keeps instead of bytes."""
@@ -1661,6 +1725,7 @@ def create_app(
                 voice=str(body.get("voice") or "") or None,
                 session_id=str(body.get("session_id") or "audio"),
                 reference_wav=reference_wav,
+                engine=str(body.get("engine") or "").strip() or None,
             )
         except uh_audio.AudioUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
