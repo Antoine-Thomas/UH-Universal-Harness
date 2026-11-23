@@ -9393,6 +9393,10 @@ const VOICE_STATE = {
   missing: ["badge bad", "manquant"],
 };
 
+// Le dernier résultat d'une action (installation GPU, mesure) doit survivre au
+// rafraîchissement du panneau : on le garde ici et on le réaffiche à chaque rendu.
+let voiceLastReport = null;
+
 async function loadVoicePanel() {
   const box = $("voice-panel");
   if (!box) return;
@@ -9562,5 +9566,121 @@ function renderVoicePanel(plan, caps) {
     install.appendChild(run);
     install.appendChild(out);
     box.appendChild(install);
+  }
+
+  // --- Dictée sur GPU -------------------------------------------------- //
+  // L'étape n'existe que si une carte est visible ET qu'une DLL NVIDIA manque ; le
+  // serveur l'a déjà décidé (`plan.gpu`). Rien ne s'installe avant le clic.
+  const gpu = plan.gpu;
+  if (gpu && gpu.show) {
+    const panel = el("div", "voice-install voice-gpu");
+    panel.appendChild(el("div", "voice-heading", gpu.label));
+    panel.appendChild(
+      el("p", "panel-hint", `Pilote NVIDIA détecté : ${gpu.driver}. DLL manquantes : ${(gpu.missing || []).join(", ")}.`),
+    );
+    panel.appendChild(el("p", "panel-hint", `Source : ${gpu.source}.`));
+    panel.appendChild(
+      el("p", "panel-hint", `${(gpu.packages || []).join(" · ")} — téléchargement ${gpu.download}.`),
+    );
+    panel.appendChild(el("p", "panel-hint", gpu.disk));
+    const where = el("p", "panel-hint voice-python", "Installation dans l'interpréteur de ce serveur : ");
+    where.appendChild(el("code", "voice-command", plan.python_executable || "?"));
+    panel.appendChild(where);
+    const command = el("code", "voice-command", gpu.command);
+    command.id = "voice-gpu-command";
+    panel.appendChild(command);
+    panel.appendChild(el("p", "panel-hint", gpu.verify));
+    if (gpu.third_party) {
+      panel.appendChild(
+        el("p", "panel-hint", `Option secondaire : ${gpu.third_party.label} — ${gpu.third_party.note}.`),
+      );
+    }
+    const run = el("button", "data-button primary", "Activer la dictée sur GPU");
+    run.type = "button";
+    run.id = "voice-gpu-run";
+    const out = el("pre", "voice-install-output", "");
+    out.hidden = true;
+    run.addEventListener("click", async () => {
+      run.disabled = true;
+      out.hidden = false;
+      out.textContent = "installation en cours… (environ 1,2 Go à télécharger)";
+      try {
+        const result = await api("/api/voice/install-gpu", {
+          method: "POST",
+          body: JSON.stringify({ confirm: true }),
+        });
+        const lines = [];
+        if (!result.installed) {
+          lines.push(`installation échouée`);
+          if (result.output) lines.push(result.output);
+        } else {
+          for (const step of (result.verification && result.verification.steps) || []) {
+            lines.push(`${step.ok ? "OK" : "ÉCHEC"} — ${step.name}${step.detail ? ` : ${step.detail}` : ""}`);
+          }
+          lines.push(
+            result.ok
+              ? "CUDA se charge et transcrit : la dictée peut passer sur GPU après une mesure."
+              : "la dictée reste sur CPU : CUDA ne s'est pas chargé, la raison est ci-dessus.",
+          );
+        }
+        voiceLastReport = { id: "voice-gpu-output", text: lines.join("\n") };
+        await loadVoicePanel();
+      } catch (error) {
+        out.textContent = `refusé : ${error.message}`;
+      } finally {
+        run.disabled = false;
+      }
+    });
+    panel.appendChild(run);
+    panel.appendChild(out);
+    box.appendChild(panel);
+  }
+
+  // --- Mesure CPU contre GPU ------------------------------------------- //
+  const hardware = plan.machine || {};
+  if (hardware.gpu) {
+    const benchBox = el("div", "voice-install voice-bench");
+    benchBox.appendChild(el("div", "voice-heading", "Mesurer avant de choisir"));
+    benchBox.appendChild(
+      el(
+        "p",
+        "panel-hint",
+        "Un échantillon de 10 s, deux fois : base int8 sur CPU, base int8_float16 sur GPU. " +
+          "Le GPU ne prend la main que s'il gagne nettement, sinon la dictée reste sur CPU.",
+      ),
+    );
+    const verdict = plan.bench && plan.bench.reason ? plan.bench.reason : "";
+    if (verdict) benchBox.appendChild(el("p", "panel-hint voice-bench-verdict", verdict));
+    const runBench = el("button", "data-button", "Mesurer CPU contre GPU");
+    runBench.type = "button";
+    runBench.id = "voice-bench-run";
+    const benchOut = el("pre", "voice-install-output", "");
+    benchOut.hidden = true;
+    runBench.addEventListener("click", async () => {
+      runBench.disabled = true;
+      benchOut.hidden = false;
+      benchOut.textContent = "mesure en cours… (chargement des modèles, quelques minutes)";
+      try {
+        const result = await api("/api/voice/bench", {
+          method: "POST",
+          body: JSON.stringify({ confirm: true }),
+        });
+        voiceLastReport = { id: "voice-bench-output", text: result.reason || "mesure terminée" };
+        await loadVoicePanel();
+      } catch (error) {
+        benchOut.textContent = `refusé : ${error.message}`;
+      } finally {
+        runBench.disabled = false;
+      }
+    });
+    benchBox.appendChild(runBench);
+    benchBox.appendChild(benchOut);
+    box.appendChild(benchBox);
+  }
+
+  if (voiceLastReport && voiceLastReport.text) {
+    const last = el("pre", "voice-install-output voice-last-report", voiceLastReport.text);
+    last.id = voiceLastReport.id;
+    box.appendChild(last);
   }
 }
