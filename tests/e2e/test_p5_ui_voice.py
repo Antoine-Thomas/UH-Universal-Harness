@@ -37,6 +37,7 @@ PLAN = {
         "reason": "XTTS-v2 provisionné : synthèse et clonage locaux",
     },
     "network_allowed": False,
+    "python_executable": "C:\\autre\\venv\\Scripts\\python.exe",
     "machine": {
         "tier": "xl",
         "gpu": "RTX 3070 Ti",
@@ -48,7 +49,8 @@ PLAN = {
         {
             "target": "faster-whisper",
             "label": "Installer la dictée locale (faster-whisper)",
-            "command": '"C:\\Python\\python.exe" -m pip install "faster-whisper>=1.2"',
+            "command": '"C:\\autre\\venv\\Scripts\\python.exe" -m pip install '
+            '"faster-whisper>=1.2"',
             "why": "sans lui, la dictée dépend d'un service cloud et de son quota",
         }
     ],
@@ -60,7 +62,8 @@ PLAN = {
             "name": "faster-whisper",
             "state": "missing",
             "version": "absent",
-            "command": '"C:\\Python\\python.exe" -m pip install "faster-whisper>=1.2"',
+            "command": '"C:\\autre\\venv\\Scripts\\python.exe" -m pip install '
+            '"faster-whisper>=1.2"',
         },
         {
             "name": "Edge",
@@ -158,6 +161,13 @@ def test_no_installation_starts_without_the_click(browser, server: Server) -> No
 
     page.route("**/api/voice/install", capture)
     try:
+        # La commande affichée vise l'interpréteur annoncé par le serveur, pas un
+        # `pip` trouvé dans le PATH : sinon le raccourci installe dans un autre Python.
+        interpreter = page.text_content("#voice-panel .voice-python") or ""
+        assert PLAN["python_executable"] in interpreter, interpreter
+        shown = page.inner_text("#voice-install-command")
+        assert shown.startswith(f'"{PLAN["python_executable"]}" -m pip install'), shown
+
         # Rien n'a été cliqué : aucun appel ne doit être parti.
         page.wait_for_timeout(800)
         assert calls == [], f"une installation est partie sans clic : {calls}"
