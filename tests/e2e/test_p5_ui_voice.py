@@ -43,6 +43,7 @@ PLAN = {
         "gpu": "RTX 3070 Ti",
         "vram_gb": 8.0,
         "free_vram_gb": 3.0,
+        "free_vram_mb": 3072,
         "ram_gb": 63.9,
     },
     "install": [
@@ -143,6 +144,29 @@ def test_the_panel_names_the_engine_and_why(browser, server: Server) -> None:
         assert all(reasons), reasons
         assert page.eval_on_selector_all("#voice-profile-select", "els => els.length") == 1
         assert "palier" in text or "sans GPU" in text
+    finally:
+        context.close()
+
+
+def test_the_panel_shows_the_measured_free_vram_in_gigabytes(browser, server: Server) -> None:
+    """La VRAM libre affichée est la MESURE du serveur, dite en Go — pas la fiche technique."""
+    context, page = open_voice_tab(browser, server, plan=PLAN)
+    try:
+        text = page.text_content("#voice-panel") or ""
+        assert "3,0 Go libres mesurés" in text, text
+    finally:
+        context.close()
+
+
+def test_the_panel_says_when_the_free_vram_is_not_measured(browser, server: Server) -> None:
+    """Pas de mesure n'est pas « 0 Go » : le panneau l'écrit, il n'invente pas un chiffre."""
+    unmeasured = json.loads(json.dumps(PLAN))
+    unmeasured["machine"]["free_vram_mb"] = None
+    context, page = open_voice_tab(browser, server, plan=unmeasured)
+    try:
+        text = page.text_content("#voice-panel") or ""
+        assert "VRAM libre non mesurée" in text, text
+        assert "Go libres mesurés" not in text, text
     finally:
         context.close()
 

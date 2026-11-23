@@ -66,6 +66,29 @@ def free_vram_gb(machine: Dict[str, Any]) -> float:
     return max(0.0, vram - chat_vram_gb(machine))
 
 
+def measured_free_vram_gb(machine: Dict[str, Any]) -> Optional[float]:
+    """La VRAM libre **mesurée** (``free_vram_mb``), en Go ; ``None`` si absente.
+
+    C'est cette valeur-là qui décide, pas la place théorique : la garde se relit au
+    moment de dicter (``uh.audio.local.whisper_device``), donc le panneau doit lire
+    le même chiffre et dire lequel. ``""`` ou une valeur non numérique valent absence.
+    """
+    value = (machine or {}).get("free_vram_mb")
+    if value is None or value == "":
+        return None
+    try:
+        return float(value) / 1024.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _min_free_vram_mb() -> int:
+    """Le seuil, lu sur le module qui porte la garde — une seule définition."""
+    from . import voice_gpu
+
+    return int(voice_gpu.MIN_FREE_VRAM_MB)
+
+
 def local_stt_model(
     machine: Optional[Dict[str, Any]],
     cuda: bool = False,
@@ -77,21 +100,26 @@ def local_stt_model(
     visible sans ``cublas64_12.dll`` fait échouer faster-whisper sur carte (mesuré ici),
     donc on préfère le CPU à un modèle qui ne tournera pas.
 
-    Un GPU avec de la VRAM libre après le chat fait tourner `small`/`medium` en
-    `int8_float16` — mais seulement si une mesure a montré qu'il gagne (``bench``) :
-    sans chiffre, le CPU reste le défaut, parce qu'on ne promet pas une vitesse non
-    constatée. Le modèle n'est jamais plus gros que ce que la machine peut charger.
+    Le GPU ne prend la main qu'avec une mesure qui le donne gagnant (``bench``) **et**
+    une VRAM libre mesurée au-dessus de ``MIN_FREE_VRAM_MB`` : une mesure absente vaut
+    refus, exactement comme dans ``whisper_device``. La taille du modèle suit le chiffre
+    mesuré, jamais la place théorique de la fiche technique.
     """
     machine = machine or {}
-    free = free_vram_gb(machine)
-    # Le GPU ne prend la main qu'avec une mesure qui le donne gagnant : sans elle, on
-    # ne promet pas une vitesse qu'on n'a pas constatée (et on ne prend pas la place
-    # du modèle de chat).
-    if cuda and machine.get("gpu") and (bench or {}).get("gpu_wins"):
-        if free >= 5.0:
+    measured = measured_free_vram_gb(machine)
+    if (
+        cuda
+        and machine.get("gpu")
+        and (bench or {}).get("gpu_wins")
+        and measured is not None
+        and measured * 1024.0 >= _min_free_vram_mb()
+    ):
+        if measured >= 5.0:
             return "medium", "int8_float16"
-        if free >= 2.5:
+        if measured >= 2.5:
             return "small", "int8_float16"
+        # Entre 1,5 et 2,5 Go : la carte reste utilisable, mais pour le plus petit.
+        return "base", "int8_float16"
     ram = float(machine.get("ram_gb") or 0.0)
     if ram >= 16.0:
         return "base", "int8"
@@ -104,13 +132,26 @@ def _install_stt_command() -> str:
 
 
 def _cpu_note(machine: Dict[str, Any], cuda: bool, bench: Optional[Dict[str, Any]]) -> str:
-    """Pourquoi la dictée est sur CPU — une phrase, et elle est vraie."""
+    """Pourquoi la dictée est sur CPU — une phrase, et elle est vraie.
+
+    Quand le GPU est refusé faute de place, la phrase porte le **chiffre mesuré** :
+    « insuffisant » sans nombre oblige l'opérateur à deviner ce qu'il doit libérer.
+    """
     if not machine.get("gpu"):
         return ""
     if not cuda:
         return " (CUDA non chargeable sur ce poste)"
     if not (bench or {}).get("gpu_wins"):
         return " (GPU prêt, mais aucune mesure gagnante : CPU par défaut)"
+    measured = measured_free_vram_gb(machine)
+    if measured is None:
+        return " (VRAM libre non mesurée au moment de dicter : CPU par défaut)"
+    if measured * 1024.0 < _min_free_vram_mb():
+        text = (
+            f" (VRAM insuffisante : {measured:.1f} Go libres, sous le seuil de "
+            f"{_min_free_vram_mb() / 1024.0:.1f} Go — dictée sur CPU)"
+        )
+        return text.replace(".", ",")
     return ""
 
 
@@ -286,6 +327,9 @@ def choose_voice_engines(
             "gpu": machine.get("gpu") or "",
             "vram_gb": float(machine.get("vram_gb") or 0.0),
             "free_vram_gb": round(free_vram_gb(machine), 1),
+            # La VRAM libre **mesurée** (nvidia-smi), celle que la garde relit à chaque
+            # dictée : ``None`` veut dire « pas de mesure », jamais « zéro ».
+            "free_vram_mb": machine.get("free_vram_mb"),
             "ram_gb": float(machine.get("ram_gb") or 0.0),
         },
     }
@@ -449,6 +493,10 @@ def plan_for_home(profile: str = "auto") -> Dict[str, Any]:
     machine["cuda"] = bool(versions.get("cuda"))
     from . import voice_gpu
 
+    # La garde se décide sur une mesure PRISE MAINTENANT, relue à chaque ouverture du
+    # panneau comme à chaque dictée : ``None`` (nvidia-smi absent, muet, en erreur) est
+    # une réponse, et elle vaut refus.
+    machine["free_vram_mb"] = voice_gpu.free_vram_mb()
     bench = voice_gpu.read_bench()
     plan = choose_voice_engines(profile, keys, versions, machine, bench)
     plan["versions"] = versions

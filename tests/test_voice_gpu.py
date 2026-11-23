@@ -15,7 +15,13 @@ import pytest
 
 from uh import voice_gpu, voice_plan
 
-GPU8 = {"tier": "xl", "gpu": "NVIDIA GeForce RTX 3070 Ti", "vram_gb": 8.0, "ram_gb": 64.0}
+GPU8 = {
+    "tier": "xl",
+    "gpu": "NVIDIA GeForce RTX 3070 Ti",
+    "vram_gb": 8.0,
+    "free_vram_mb": 3072,
+    "ram_gb": 64.0,
+}
 
 
 def test_the_three_required_libraries_are_probed_not_assumed() -> None:
@@ -134,6 +140,8 @@ def test_dictation_stays_on_cpu_without_a_winning_bench(monkeypatch) -> None:
 
     monkeypatch.setattr(voice_gpu, "read_bench", lambda: None)
     monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    # La VRAM, elle, est large : ce test mesure la seule cause « banc », pas la VRAM.
+    monkeypatch.setattr(voice_gpu, "free_vram_mb", lambda: 8000)
     assert stt.whisper_device() == ("cpu", "int8")
 
 
@@ -144,11 +152,83 @@ def test_dictation_takes_the_gpu_only_after_declaring_the_dll_directories(monkey
     order: list[str] = []
     monkeypatch.setattr(voice_gpu, "read_bench", lambda: {"gpu_wins": True})
     monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    monkeypatch.setattr(voice_gpu, "free_vram_mb", lambda: 2000)
     monkeypatch.setattr(
         voice_gpu, "add_dll_directories", lambda: order.append("dll") or ["nvidia/cublas/bin"]
     )
     assert stt.whisper_device() == ("cuda", "int8_float16")
     assert order == ["dll"]
+
+
+def test_free_vram_is_read_from_nvidia_smi(monkeypatch) -> None:
+    """La garde lit ``memory.free``, pas ``memory.used`` : deux colonnes différentes."""
+    calls: list[list[str]] = []
+
+    class Result:
+        stdout = "2008\n"
+
+    def fake_run(command, **kwargs):
+        calls.append(list(command))
+        return Result()
+
+    monkeypatch.setattr(voice_gpu.subprocess, "run", fake_run)
+    assert voice_gpu.free_vram_mb() == 2008
+    assert calls and "--query-gpu=memory.free" in calls[0]
+
+
+def test_an_unavailable_measure_is_none_and_never_zero(monkeypatch) -> None:
+    """``nvidia-smi`` absent n'est pas « 0 Mo libres » : c'est « on ne sait pas »."""
+
+    def boom(command, **kwargs):
+        raise FileNotFoundError("nvidia-smi")
+
+    monkeypatch.setattr(voice_gpu.subprocess, "run", boom)
+    assert voice_gpu.free_vram_mb() is None
+    assert voice_gpu.vram_text(None) == "VRAM libre non mesurée"
+
+
+def test_the_guard_threshold_is_one_and_a_half_gigabyte() -> None:
+    assert voice_gpu.MIN_FREE_VRAM_MB == 1536
+    assert voice_gpu.vram_allows_dictation(900) is False
+    assert voice_gpu.vram_allows_dictation(1535) is False
+    assert voice_gpu.vram_allows_dictation(1536) is True
+    assert voice_gpu.vram_allows_dictation(2000) is True
+    assert voice_gpu.vram_allows_dictation(None) is False
+
+
+def test_dictation_refuses_the_card_when_vram_is_short(monkeypatch) -> None:
+    from uh.audio import local as stt
+
+    monkeypatch.setattr(voice_gpu, "read_bench", lambda: {"gpu_wins": True})
+    monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    monkeypatch.setattr(voice_gpu, "free_vram_mb", lambda: 900)
+    assert stt.whisper_device() == ("cpu", "int8")
+
+
+def test_dictation_refuses_the_card_without_a_measure(monkeypatch) -> None:
+    from uh.audio import local as stt
+
+    monkeypatch.setattr(voice_gpu, "read_bench", lambda: {"gpu_wins": True})
+    monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    monkeypatch.setattr(voice_gpu, "free_vram_mb", lambda: None)
+    assert stt.whisper_device() == ("cpu", "int8")
+
+
+def test_a_vram_drop_between_two_dictations_falls_back_to_cpu(monkeypatch) -> None:
+    """La garde est RELUE à chaque dictée : 2 000 Mo puis 900 Mo, et le second tour est CPU.
+
+    C'est la preuve que la décision n'est pas prise une fois au démarrage : sans ce test,
+    une garde mémorisée passerait tous les autres.
+    """
+    from uh.audio import local as stt
+
+    readings = iter([2000, 900, 900])
+    monkeypatch.setattr(voice_gpu, "read_bench", lambda: {"gpu_wins": True})
+    monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    monkeypatch.setattr(voice_gpu, "add_dll_directories", lambda: [])
+    monkeypatch.setattr(voice_gpu, "free_vram_mb", lambda: next(readings))
+    assert stt.whisper_device() == ("cuda", "int8_float16")
+    assert stt.whisper_device() == ("cpu", "int8")
 
 
 def test_the_model_is_built_with_the_device_that_was_decided(monkeypatch) -> None:
@@ -172,6 +252,7 @@ def test_the_model_is_built_with_the_device_that_was_decided(monkeypatch) -> Non
     monkeypatch.setattr(stt, "_MODEL_KEY", None)
     monkeypatch.setattr(voice_gpu, "read_bench", lambda: {"gpu_wins": True})
     monkeypatch.setattr(voice_gpu, "cuda_available", lambda: True)
+    monkeypatch.setattr(voice_gpu, "free_vram_mb", lambda: 2000)
     monkeypatch.setattr(voice_gpu, "add_dll_directories", lambda: [])
 
     stt.whisper_transcribe(Path("clip.wav"))

@@ -46,6 +46,11 @@ BENCH_NAME = "voice-bench.json"
 #: Une mesure n'a de valeur que si le GPU gagne nettement : en dessous, on garde CPU.
 GPU_MUST_WIN_BY = 0.75
 
+#: Sous cette VRAM **libre**, la dictée ne prend pas la carte : le modèle de chat doit
+#: garder la place qu'il occupe. Mesure du 23/11 : Whisper ne coûte que 278 Mo, mais un
+#: chat de 6,4 Go sur 8 Go ne laisse aucune marge, et c'est l'état qui compte.
+MIN_FREE_VRAM_MB = 1536
+
 _WHEEL_SIZES: Dict[str, str] = {}
 
 
@@ -332,11 +337,15 @@ def write_bench(payload: Dict[str, Any]) -> None:
         pass
 
 
-def vram_used_mb() -> Optional[int]:
-    """La VRAM utilisée, lue par ``nvidia-smi`` ; ``None`` si indisponible."""
+def _memory_mb(field: str) -> Optional[int]:
+    """Une colonne mémoire de ``nvidia-smi``, en Mo ; ``None`` si la mesure échoue.
+
+    ``nvidia-smi`` absent, en erreur ou muet : c'est un refus, jamais un zéro (un zéro
+    se lirait « 0 Mo libres » alors qu'on ne sait rien).
+    """
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+            ["nvidia-smi", f"--query-gpu={field}", "--format=csv,noheader,nounits"],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -352,6 +361,32 @@ def vram_used_mb() -> Optional[int]:
         except ValueError:
             continue
     return None
+
+
+def vram_used_mb() -> Optional[int]:
+    """La VRAM utilisée, lue par ``nvidia-smi`` ; ``None`` si indisponible."""
+    return _memory_mb("memory.used")
+
+
+def free_vram_mb() -> Optional[int]:
+    """La VRAM **libre**, relue à chaque dictée — jamais mémorisée.
+
+    C'est la règle de la garde : la carte se décide sur l'état de la machine au moment
+    où l'on parle, pas sur celui du démarrage. ``None`` vaut refus.
+    """
+    return _memory_mb("memory.free")
+
+
+def vram_allows_dictation(free_mb: Optional[int]) -> bool:
+    """La carte n'est autorisée que sur une mesure **présente et suffisante**."""
+    return free_mb is not None and free_mb >= MIN_FREE_VRAM_MB
+
+
+def vram_text(free_mb: Optional[int]) -> str:
+    """Les Go libres en français, ou « non mesurée » — la phrase que lit l'opérateur."""
+    if free_mb is None:
+        return "VRAM libre non mesurée"
+    return f"{free_mb / 1024:.1f} Go libres".replace(".", ",")
 
 
 def sample(seconds: float = 10.0) -> tuple[Optional[Path], str]:

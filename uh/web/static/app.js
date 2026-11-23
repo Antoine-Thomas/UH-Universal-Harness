@@ -9500,9 +9500,16 @@ function renderVoicePanel(plan, caps) {
   box.appendChild(engines);
 
   const machine = plan.machine || {};
+  // La VRAM libre est une MESURE (nvidia-smi), relue à chaque ouverture : elle se dit
+  // en Go avec sa provenance, et « non mesurée » est une réponse, jamais un zéro.
+  const freeMeasured =
+    machine.free_vram_mb === null || machine.free_vram_mb === undefined
+      ? ""
+      : `${(machine.free_vram_mb / 1024).toFixed(1).replace(".", ",")} Go libres mesurés`;
   const machineLine = [
     machine.tier ? `palier ${machine.tier}` : "",
     machine.gpu ? `${machine.gpu} (${machine.vram_gb || 0} Go)` : "sans GPU",
+    machine.gpu && !freeMeasured ? "VRAM libre non mesurée" : freeMeasured,
     machine.free_vram_gb !== undefined ? `${machine.free_vram_gb} Go libres après le chat` : "",
     machine.ram_gb ? `${machine.ram_gb} Go RAM` : "",
   ].filter(Boolean).join(" · ");
