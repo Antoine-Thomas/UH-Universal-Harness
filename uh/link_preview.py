@@ -34,11 +34,15 @@ import socket
 import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import Callable, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 
+from ._compat import tomllib
+from .config import uh_home
+from .images import sniff_mime
 from .media_proxy import MediaRefused, is_public
 
 #: Un aperçu lit une page publique, en clair ou chiffré. Rien d'autre.
@@ -564,9 +568,152 @@ def preview(
     )
 
 
+# --------------------------------------------------------------------------- #
+# l'image d'un article
+# --------------------------------------------------------------------------- #
+#: Une vignette d'aperçu, pas un film : 2 Mo, et le type par les octets.
+IMAGE_MAX_BYTES = 2 * 1024 * 1024
+#: Ce qu'une page a le droit d'afficher. Le SVG n'y est pas : c'est un document
+#: qui peut porter du script, pas une image à poser dans un `<img>`.
+IMAGE_MIME = ("image/png", "image/jpeg", "image/gif", "image/webp")
+
+
+@dataclass(frozen=True)
+class ImageData:
+    """Les octets d'une image d'aperçu, et le type que les octets déclarent."""
+
+    mime: str
+    data: bytes
+    final_url: str
+
+
+def fetch_image(
+    raw: str,
+    *,
+    resolver: Optional[Resolver] = None,
+    transport: Optional[httpx.BaseTransport] = None,
+    timeout: float = TIMEOUT,
+    deadline: float = TOTAL_DEADLINE,
+    max_bytes: int = IMAGE_MAX_BYTES,
+) -> ImageData:
+    """L'image d'un article, récupérée avec les mêmes gardes que la page.
+
+    Même résolution, mêmes refus d'adresses, même épinglage, mêmes redirections
+    revalidées : seul le plafond change (2 Mo) et le fait que le type est décidé
+    par les octets. ``robots.txt`` n'est pas consulté ici — il régit l'accès aux
+    pages, et l'image est demandée par la page elle-même.
+    """
+    stop = time.monotonic() + deadline
+    pin(raw, resolver=resolver)  # refus immédiat d'une adresse non publique
+    _final_pin, final_url, _declared, body, _hops = _fetch(
+        raw,
+        resolver=resolver,
+        transport=transport,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        stop=stop,
+    )
+    mime = sniff_mime(body)
+    if mime is None or mime not in IMAGE_MIME:
+        raise PreviewRefused(
+            "format refusé : JPEG, PNG, WebP ou GIF attendu (un SVG n'est pas une image affichable)"
+        )
+    return ImageData(mime=mime, data=body, final_url=final_url)
+
+
+# --------------------------------------------------------------------------- #
+# provenance : la règle du serveur, pas seulement celle de la page
+# --------------------------------------------------------------------------- #
+ORIGINS = ("tool", "operator", "click")
+#: Rôles de message qui prouvent une provenance.
+_PROOF_ROLE = {"tool": "tool", "operator": "user"}
+
+
+def provenance_ok(
+    url: str, origin: str, messages: Optional[List[Dict[str, Any]]]
+) -> Tuple[bool, str]:
+    """``(autorisé, raison)`` — le serveur ne croit pas l'origine sur parole.
+
+    * ``click`` — l'opérateur a cliqué : c'est le consentement, rien à vérifier ;
+    * ``tool`` — l'adresse doit figurer dans un **résultat d'outil de cette
+      session**. Un modèle qui écrit une URL ne peut donc pas la faire récupérer
+      en prétendant qu'elle vient d'un outil ;
+    * ``operator`` — l'adresse doit figurer dans un **message de l'opérateur**.
+
+    Ce contrôle est un renfort : seul le navigateur appelle ces routes, et la CSP
+    l'empêche d'exécuter du script étranger. Il ferme le cas où une page
+    parviendrait quand même à déclencher la requête.
+    """
+    label = (origin or "").strip().lower()
+    if label not in ORIGINS:
+        return False, "origine inconnue : « tool », « operator » ou « click » attendu"
+    if label == "click":
+        return True, ""
+    needle = (url or "").strip()
+    if not needle:
+        return False, "adresse vide"
+    role = _PROOF_ROLE[label]
+    for message in messages or []:
+        if str(message.get("role") or "") != role:
+            continue
+        if needle in str(message.get("content") or ""):
+            return True, ""
+    if label == "tool":
+        return False, (
+            "cette adresse ne figure dans aucun résultat d'outil de cette session : "
+            "cliquez sur « Aperçu » pour la demander"
+        )
+    return False, (
+        "cette adresse ne figure dans aucun de vos messages : "
+        "cliquez sur « Aperçu » pour la demander"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# l'interrupteur
+# --------------------------------------------------------------------------- #
+SETTINGS_FILE = "link-previews.toml"
+#: Ce que la page affiche à la première activation, mot pour mot.
+SENTENCE = "UH contactera ces sites depuis votre machine ; ils verront votre adresse IP."
+
+
+def settings_path() -> Path:
+    return uh_home() / SETTINGS_FILE
+
+
+def load_enabled() -> bool:
+    """Désactivé par défaut : un fichier absent vaut ``False``."""
+    path = settings_path()
+    if not path.is_file():
+        return False
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return data.get("enabled") is True
+
+
+def save_enabled(enabled: bool) -> Path:
+    path = settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    value = "true" if enabled else "false"
+    body = "# Aperçus de liens : désactivés par défaut, activés par l'opérateur.\n"
+    path.write_text(body + f"enabled = {value}\n", encoding="utf-8")
+    return path
+
+
 __all__ = [
     "ALLOWED_SCHEMES",
+    "IMAGE_MAX_BYTES",
+    "ImageData",
+    "ORIGINS",
+    "SENTENCE",
     "TOTAL_DEADLINE",
+    "fetch_image",
+    "load_enabled",
+    "provenance_ok",
+    "save_enabled",
+    "settings_path",
     "DEFAULT_PORTS",
     "MAX_BYTES",
     "MAX_REDIRECTS",
