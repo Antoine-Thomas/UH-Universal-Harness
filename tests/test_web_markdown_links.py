@@ -19,7 +19,7 @@ MARKDOWN = ROOT / "uh" / "web" / "static" / "markdown.js"
 NODE = shutil.which("node")
 
 
-def render(cases: list[str]) -> list[str]:
+def render(cases: list[str], artifacts: list[str] | None = None) -> list[str]:
     script = (
         'import { renderMarkdown } from "'
         + MARKDOWN.as_uri()
@@ -27,7 +27,10 @@ def render(cases: list[str]) -> list[str]:
         + "const cases = "
         + json.dumps(cases)
         + ";\n"
-        + "for (const text of cases) console.log(renderMarkdown(text));\n"
+        + "const options = "
+        + json.dumps({"artifacts": artifacts or []})
+        + ";\n"
+        + "for (const text of cases) console.log(renderMarkdown(text, options));\n"
     )
     result = subprocess.run(
         ["node", "--input-type=module", "-e", script], capture_output=True, text=True
@@ -115,6 +118,49 @@ def test_a_bare_url_in_code_is_never_a_link() -> None:
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_an_image_that_names_an_artifact_disappears() -> None:
+    # Le cas de la capture : la figure du cochon est déjà dessinée juste en
+    # dessous, et « ![cochon](cochon.png) » restait écrit au-dessus.
+    (html,) = render(["Voici le cochon.\n\n![cochon](cochon.png)"], artifacts=["cochon.png"])
+    assert html == "<p>Voici le cochon.</p>"
+    assert "![" not in html and "<img" not in html
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_an_image_that_is_not_an_artifact_becomes_a_text_link() -> None:
+    (html,) = render(["![photo](photo.jpg)"])
+    assert html == '<p><a href="photo.jpg">photo</a></p>'
+    assert "<img" not in html
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_an_external_image_is_a_link_never_an_img() -> None:
+    # La politique de sécurité n'autorise que img-src 'self' data: : une image
+    # distante ne peut pas s'afficher, et l'interface ne doit pas l'injecter.
+    (html,) = render(["![un chat](https://exemple.fr/chat.png)"])
+    assert (
+        '<a href="https://exemple.fr/chat.png" target="_blank" rel="noopener noreferrer">un chat</a>'
+        in html
+    )
+    assert "<img" not in html
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_an_image_url_that_must_not_be_fetched_stays_text() -> None:
+    data_url, javascript = render(["![x](data:image/png;base64,AAA)", "![x](javascript:alert(1))"])
+    assert "<a " not in data_url and "<img" not in data_url
+    assert "data:image/png" in data_url
+    assert "<a " not in javascript and "<img" not in javascript
+    assert "javascript:alert(1)" in javascript
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_an_image_in_code_is_never_touched() -> None:
+    (html,) = render(["Le code `![a](a.png)` reste du code"], artifacts=["a.png"])
+    assert "<code>![a](a.png)</code>" in html
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_an_existing_link_is_not_nested() -> None:
     (html,) = render(["[Connexions](https://example.com/x)"])
     assert html.count("<a ") == 1
@@ -129,3 +175,15 @@ def test_the_source_keeps_the_rule() -> None:
     assert "function autolink(" in source and "BARE_URL" in source
     assert 'rel="noopener noreferrer"' in source
     assert "javascript:" not in source.split("function autolink(")[1].split("function ")[0]
+    # Une image Markdown ne devient jamais <img>, et son nom d'artefact est connu.
+    assert "function imageLink(" in source and "MARKDOWN_IMAGE" in source
+
+
+def test_the_page_hands_the_artifact_names_to_the_renderer() -> None:
+    """Le retrait du texte brut ne vaut que si `app.js` transmet les noms."""
+    lines = (ROOT / "uh" / "web" / "static" / "app.js").read_text(encoding="utf-8").splitlines()
+    calls = [index for index, line in enumerate(lines) if "renderMarkdown(" in line]
+    assert len(calls) == 4, calls
+    for index in calls:
+        window = " ".join(lines[index : index + 2])
+        assert "artifacts" in window, lines[index]

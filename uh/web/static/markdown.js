@@ -96,14 +96,46 @@ function linkTabs(escaped) {
     .join("");
 }
 
+// Une image Markdown ne devient JAMAIS une balise <img> : la politique de
+// sécurité n'autorise que « self » et data:, et une image distante doit passer
+// par un proxy. Et si la cible est un artefact que le message porte déjà (même
+// nom de fichier), la syntaxe disparaît : c'est le « ![cochon](cochon.png) »
+// resté affiché au-dessus de l'image. Sinon elle devient un lien texte.
+const MARKDOWN_IMAGE = /!\[([^\]\n]*)\]\(([^)\s]+)\)/g;
+
+function baseName(target) {
+  const cleaned = target.split("#")[0].split("?")[0];
+  return cleaned.split(/[\\/]/).pop();
+}
+
+function imageLink(alt, target, artifacts) {
+  if (artifacts.has(baseName(target))) return "";
+  const label = alt.trim() || baseName(target);
+  if (/^https?:\/\//i.test(target)) {
+    return `<a href="${target}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  }
+  // Un chemin de la même origine, ou un simple nom de fichier : le lien reste
+  // chez UH. Rien d'autre — ni data:, ni javascript:, ni file: — n'est lié : la
+  // syntaxe reste alors affichée telle quelle, sans lien.
+  if (/^\/(?!\/)/.test(target) || /^[\w.\-]+(\/[\w.\-]+)*$/.test(target)) {
+    return `<a href="${target}">${label}</a>`;
+  }
+  return null;
+}
+
 // Inline formatting, applied to ALREADY escaped text.
-function renderInline(escaped) {
+function renderInline(escaped, artifacts = new Set()) {
   // Inline code first: its content is protected from further formatting.
   const codes = [];
   let text = escaped.replace(/`([^`\n]+)`/g, (_match, code) => {
     codes.push(code);
     return `\u0000${codes.length - 1}\u0000`;
   });
+  // Images avant les liens : « ![alt](cible) » contient « [alt](cible) ».
+  text = text.replace(
+    MARKDOWN_IMAGE,
+    (match, alt, target) => imageLink(alt, target, artifacts) ?? match,
+  );
   // Links: [label](url) - http/https/mailto open a new tab, a same-origin path
   // (/?panel=conn) opens in place: that is what a deep link from the model is.
   text = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (match, label, url) => {
@@ -121,8 +153,11 @@ function renderInline(escaped) {
 }
 
 // Block structure: fenced code, headings, lists, quotes, hr, paragraphs.
-export function renderMarkdown(source) {
+export function renderMarkdown(source, options = {}) {
   const lines = String(source ?? "").replace(/\r\n/g, "\n").split("\n");
+  // Les artefacts que le message porte déjà : une image Markdown qui les nomme
+  // disparaît, puisqu'elle est déjà dessinée juste en dessous.
+  const artifacts = new Set((options.artifacts || []).map((name) => String(name)));
   const html = [];
   let paragraph = [];
   let list = null; // { ordered: bool, items: string[] }
@@ -132,20 +167,23 @@ export function renderMarkdown(source) {
 
   const flushParagraph = () => {
     if (paragraph.length) {
-      html.push(`<p>${renderInline(paragraph.join(" "))}</p>`);
+      const body = renderInline(paragraph.join(" "), artifacts);
+      // Une image retirée (artefact déjà dessiné) laisse un paragraphe vide : il
+      // ne s'affiche pas.
+      if (body) html.push(`<p>${body}</p>`);
       paragraph = [];
     }
   };
   const flushList = () => {
     if (list) {
       const tag = list.ordered ? "ol" : "ul";
-      html.push(`<${tag}>${list.items.map((item) => `<li>${renderInline(item)}</li>`).join("")}</${tag}>`);
+      html.push(`<${tag}>${list.items.map((item) => `<li>${renderInline(item, artifacts)}</li>`).join("")}</${tag}>`);
       list = null;
     }
   };
   const flushQuote = () => {
     if (quote.length) {
-      html.push(`<blockquote><p>${renderInline(quote.join(" "))}</p></blockquote>`);
+      html.push(`<blockquote><p>${renderInline(quote.join(" "), artifacts)}</p></blockquote>`);
       quote = [];
     }
   };
@@ -183,7 +221,7 @@ export function renderMarkdown(source) {
     if (heading) {
       flushAll();
       const level = heading[1].length;
-      html.push(`<h${level}>${renderInline(escapeHtml(heading[2]))}</h${level}>`);
+      html.push(`<h${level}>${renderInline(escapeHtml(heading[2]), artifacts)}</h${level}>`);
       continue;
     }
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
