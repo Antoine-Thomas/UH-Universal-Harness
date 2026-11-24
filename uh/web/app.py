@@ -37,7 +37,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, attachments, turnlog
+from .. import __version__, attachments, media_proxy, media_store, turnlog
 from .. import commands as uh_commands
 from .. import config as uh_config
 from .. import roles as uh_roles
@@ -73,6 +73,10 @@ CSP = (
     "frame-ancestors 'none'"
 )
 LOOPBACK_NAMES = {"127.0.0.1", "localhost", "::1", "[::1]"}
+#: La seule route qui sert des octets venus d'ailleurs, et la seule qui se met en
+#: cache côté navigateur : une vignette change rarement, une réponse d'API jamais.
+THUMB_PATH = "/api/media/thumb"
+THUMB_MAX_AGE = 86400
 #: Methods that change something. A cookie is ambient authority: the browser
 #: attaches it to any request a page makes, so these are refused when the only
 #: credential is the cookie and the request does not prove it came from us.
@@ -513,6 +517,10 @@ def create_app(
     app.state.clock = time.monotonic
     app.state.lease_seen = time.monotonic()
     app.state.lease_visible = True
+    # Les vignettes distantes : un cache borné et un débit borné, tous les deux
+    # sous $UH_HOME. La route /api/media/thumb est le seul consommateur.
+    app.state.media_cache = media_store.ThumbCache(uh_config.uh_home() / "media-cache")
+    app.state.media_limiter = media_store.RateLimiter()
 
     if provider_factory is None:
         from ..cli import _make_provider as provider_factory  # lazy: avoids a cycle
@@ -600,11 +608,15 @@ def create_app(
                 request.url.path,
                 request.headers.get("referer") or "-",
             )
-        response.headers["Content-Security-Policy"] = CSP
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Cache-Control"] = "no-store"
+        if request.url.path != THUMB_PATH:
+            # Une vignette porte ses propres en-têtes : CSP `sandbox` (une image
+            # n'exécute rien) et cache privé, puisqu'elle change rarement. La CSP
+            # de la page et le no-store ne s'appliquent qu'au reste.
+            response.headers["Content-Security-Policy"] = CSP
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     # A replacement interface (--static-dir) is served exactly like the bundled
@@ -656,6 +668,42 @@ def create_app(
         routes.
         """
         return {"app": "uh", "version": __version__}
+
+    # -- remote thumbnails -------------------------------------------------- #
+    @app.get(THUMB_PATH, dependencies=[Depends(require_token)])
+    async def media_thumb(request: Request, url: str, session: str = "") -> Response:
+        """Une vignette distante, récupérée une fois, servie par UH.
+
+        La page ne parle jamais à un tiers : elle demande cette route, et la CSP
+        reste ``img-src 'self' data:``. Ce que le proxy accepte de récupérer —
+        https, port 443, hôtes connus, DNS résolu puis IP épinglée, aucune
+        redirection, 2 Mo, type décidé par les magic bytes — est dans
+        :mod:`uh.media_proxy`. Ici : le jeton, le débit, le cache.
+        """
+        allowed, reason = app.state.media_limiter.allow(session)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
+        cache = app.state.media_cache
+        hit = cache.get(url)
+        if hit is None:
+            try:
+                thumb = await asyncio.to_thread(media_proxy.fetch, url)
+            except media_proxy.MediaRefused as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            cache.put(url, mime=thumb.mime, data=thumb.data)
+            hit = media_store.Cached(mime=thumb.mime, data=thumb.data)
+        return Response(
+            content=hit.data,
+            media_type=hit.mime,
+            headers={
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": "inline",
+                # Une image n'exécute rien : même si un SVG passait un jour, il ne
+                # serait pas interprété dans le contexte de la page.
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "Cache-Control": f"private, max-age={THUMB_MAX_AGE}",
+            },
+        )
 
     # -- icon fallbacks ---------------------------------------------------- #
     # Declared in index.html as data URIs, so a healthy page never asks for
