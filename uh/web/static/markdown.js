@@ -28,22 +28,70 @@ const TAB_LINKS = [
   [/\bSecond brain\b/g, "/?panel=uhb"],
 ];
 
+// A short answer, a search result: /web renders its results as plain text, so a
+// bare address has to become clickable — an address one cannot open is useless.
+const BARE_URL = /https?:\/\/\S+/gi;
+
+// Punctuation that belongs to the sentence, not to the address: in "(see
+// https://example.fr/a)" the closing parenthesis closes the sentence, unless the
+// address opened one itself (Wikipedia links contain parentheses). Quotes and
+// angle brackets arrive escaped, hence the entities in the list.
+const TRAILING_PUNCTUATION = /[.,;:!?'"»”’]/;
+const TRAILING_ENTITY = /&(?:quot|#39|gt|lt);$/;
+const CLOSING = { ")": "(", "]": "[", "}": "{" };
+
+function occurrences(text, character) {
+  return text.split(character).length - 1;
+}
+
+// Split what belongs to the address from the punctuation that follows it.
+function splitTrailing(url) {
+  let head = url;
+  for (;;) {
+    // Entités d'abord, et un caractère à la fois : « "…x". » finit par un point
+    // qui cache l'entité, et une entité finit elle-même par un point-virgule.
+    const entity = head.match(TRAILING_ENTITY);
+    if (entity) {
+      head = head.slice(0, -entity[0].length);
+      continue;
+    }
+    const last = head.slice(-1);
+    if (TRAILING_PUNCTUATION.test(last)) {
+      head = head.slice(0, -1);
+      continue;
+    }
+    if (last in CLOSING && occurrences(head, CLOSING[last]) < occurrences(head, last)) {
+      head = head.slice(0, -1);
+      continue;
+    }
+    return [head, url.slice(head.length)];
+  }
+}
+
+// Fail-closed: only http and https become a link, never javascript: or data: —
+// and those cannot even take this shape, since BARE_URL demands the scheme.
+function autolink(raw) {
+  const [url, tail] = splitTrailing(raw);
+  if (!/^https?:\/\/./i.test(url)) return raw;
+  return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
+}
+
 function linkTabs(escaped) {
   // Existing anchors are kept whole (nesting one inside another is invalid HTML),
-  // and a bare URL is protected so "example.com/Connexions" stays a URL.
+  // and a bare URL is tokenised so that "example.com/Connexions" stays a URL.
   return escaped
     .split(/(<a\s[^>]*>[\s\S]*?<\/a>)/)
     .map((part, index) => {
       if (index % 2 === 1) return part;
       const urls = [];
-      let out = part.replace(/https?:\/\/\S+/g, (match) => {
+      let out = part.replace(BARE_URL, (match) => {
         urls.push(match);
         return `\u0001${urls.length - 1}\u0001`;
       });
       for (const [pattern, href] of TAB_LINKS) {
         out = out.replace(pattern, (match) => `<a href="${href}">${match}</a>`);
       }
-      return out.replace(/\u0001(\d+)\u0001/g, (_match, i) => urls[Number(i)]);
+      return out.replace(/\u0001(\d+)\u0001/g, (_match, i) => autolink(urls[Number(i)]));
     })
     .join("");
 }
