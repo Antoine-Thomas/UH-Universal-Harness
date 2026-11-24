@@ -2284,3 +2284,200 @@ défaut CSS mineur. Le reste est inscrit ci-dessous, non implémenté.
 - `window.confirm` / `window.prompt` restants (skill, run, tâche, renommages) :
   conversion au composant modal, reportée du lot 1.
 - `POST /services/ensure` côté UHB : toujours absent (dépôt UHB, hors de ce lot).
+
+## P5-UI lot 3 — retours du 24/11 (main `90a5763`, v1.9.2)
+
+État, preuves et pièges d'environnement : `docs/HANDOFF_LOT_E.md`.
+
+### Point de situation (vérifié le 24/11 sur `main`, `90a5763`)
+
+- **Liens** : `uh/web/static/markdown.js` ne rend cliquable que `[texte](url)`
+  (:61-67) et les noms d'onglet (:18-29). `linkTabs` (:31-49) protège les URL
+  nues par des jetons puis les restaure **en texte** (:46) : une URL nue — donc
+  la sortie de `/web` — reste du texte.
+- **Images Markdown** : aucune règle image dans `markdown.js`. Côté serveur,
+  `MARKDOWN_IMAGE` (`uh/images.py:39`) n'accepte que `http(s)`, et
+  `_from_markdown` (:267) récupère les octets **sans retirer la référence** :
+  `![x](https://…)` affiche le texte brut **en plus** de l'image. Une cible
+  relative (`![cochon](cochon.png)`) n'est reconnue par personne.
+- **`/web`** : `search()` (`uh/toolsets/web_search.py:452`) renvoie
+  `{title, url, snippet}` et la bulle l'affiche en texte. `/web image`
+  n'a qu'un moteur, Brave Images (`image_engines()` :494) : sans clé, rien.
+- **CSP** : `img-src 'self' data:` (`uh/web/app.py:71`) — aucune vignette
+  externe ne peut s'afficher. La réponse est un proxy de miniatures côté
+  serveur, jamais un assouplissement de la CSP.
+- **SSRF** : `uh/images.py::check_url` / `_host_is_local` (:109-145) décide sur
+  l'hôte **littéral**, avec un commentaire assumé (« a hostname we do not
+  resolve »). Insuffisant pour un proxy qui récupère des URL venues du web.
+- **Rendu** : `execute_code` + matplotlib pour tout modèle (`uh/intent.py`);
+  seul `ILLUSTRATION_NOTE` (`uh/images.py:45`) est honnête. Le planificateur du
+  lot 2 (point 5, lignes 2166-2195) n'existe pas.
+- **Raccourci** : la capture de l'opérateur dit « paquet installé · 1.9.2 ».
+  Mesuré : le `uh` du `PATH` est `Python310/Scripts/uh.exe` et charge
+  `Python310/Lib/site-packages/uh` (copie du 22/11 17:10), pas le dépôt.
+
+### G1 — Liens cliquables partout (petit, sûr)
+
+Constat : voir `markdown.js` ci-dessus ; la ponctuation finale d'une URL et les
+URL entre parenthèses sont les deux cas qui cassent un autolink naïf.
+
+- [ ] Autolink des `http(s)://` nues, `<a href target="_blank"
+  rel="noopener noreferrer">`, jamais dans un bloc de code, un code inline ni
+  une ancre existante (réutiliser le mécanisme de jetons).
+- [ ] Ponctuation finale exclue (`. , ; : ! ? » "` et la parenthèse fermante
+  d'une URL mise entre parenthèses).
+- [ ] Échappement conservé : `&`, `"`, `<` restent des entités ; `javascript:`
+  et `data:` ne sont jamais liés (liste blanche http/https/mailto actuelle).
+- [ ] Test node : URL en fin de phrase, entre parenthèses, avec `&`, `"`, `<`,
+  et une URL dans un bloc de code (inchangée).
+
+Critère de preuve : la sortie de `/web` devient cliquable (CDP + capture clair
+et sombre) ; contre-épreuve — le test échoue sur le `markdown.js` d'avant.
+
+### G4 — Plus de `![x](y.png)` brut (petit, sûr)
+
+Constat : ci-dessus. Deux cas, pas un : la référence d'un artefact déjà affiché
+(`cochon.png`) et la référence distante (`https://…`) que le serveur a déjà
+téléchargée mais dont le texte reste.
+
+- [ ] Si la cible est un artefact présent dans le message (même nom de fichier),
+  la syntaxe est retirée du texte.
+- [ ] Sinon elle devient un **lien texte** vers l'image (`alt` = libellé),
+  jamais un `<img>` externe direct : la CSP ne bouge pas.
+- [ ] Jamais dans un bloc de code ; l'`alt` n'est pas perdu.
+
+Critère de preuve : test node + CDP — une réponse avec artefact n'affiche plus
+la syntaxe, une réponse sans artefact affiche un lien ; contre-épreuve sur
+l'ancien fichier.
+
+### G2 — Résultats web en cartes + galerie d'images libres de droits
+
+Constat : sortie texte de `/web`, un seul moteur d'images (Brave, avec clé),
+aucune route de vignettes (`thumb` absent de `uh/web/app.py`), et un
+récupérateur durci mais à hôte littéral dans `uh/images.py`.
+
+- [ ] Sortie structurée (type « liens ») rendue en cartes : titre cliquable,
+  domaine, extrait.
+- [ ] Images : moteurs **sans clé** avec licence — Openverse (CC), Wikimedia
+  Commons — puis Brave Images si clé. **Mesurer chaque API avant de promettre** :
+  champs rendus (miniature, licence, auteur), plafond de débit anonyme. Aucune
+  affirmation sans appel réel (aujourd'hui : zéro mesure, zéro code).
+- [ ] Chaque vignette : `alt`, licence, auteur, lien vers la page source,
+  domaine. « Libre de droits » seulement si l'API le dit, sinon « licence
+  inconnue ».
+- [ ] `GET /api/media/thumb` : jeton + garde Origin/CSRF comme les autres
+  routes ; hôtes autorisés = ceux des moteurs configurés (`upload.wikimedia.org`,
+  `i.ytimg.com`, hôtes Openverse/Brave à confirmer par mesure) ; JPEG/PNG/WebP/GIF
+  seulement, **SVG refusé** ; ≤ 2 Mo ; délai court ; **résolution DNS puis refus
+  de toute IP privée / loopback / lien-local / métadonnées cloud** ; connexion
+  épinglée sur l'IP résolue ; redirections non suivies (ou revalidées à chaque
+  saut) ; sans cookies ni Referer ; cache disque borné ; débit limité par
+  session. La CSP ne change pas.
+- [ ] Écrire dans le code pourquoi la règle diffère de `_host_is_local` : le
+  proxy résout et épingle, l'ancienne fonction non (son commentaire le dit).
+- [ ] Confidentialité documentée : les sites distants voient l'IP du serveur UH,
+  pas le navigateur.
+- [ ] Relecture sécurité **avant** d'écrire la route (surface réseau neuve).
+
+Tests SSRF refusés : `127.0.0.1`, `169.254.169.254`, un nom qui résout vers une
+IP privée, une redirection vers une IP privée, un SVG, une image > 2 Mo, un hôte
+hors liste. Critère de preuve : ces tests verts, plus une galerie réelle avec
+licence et auteur affichés (captures clair et sombre).
+
+### G3 — Cartes vidéo YouTube
+
+Constat : zéro occurrence de `youtube`, `oembed`, `ytimg` dans `uh/` (24/11).
+
+- [ ] Pour une URL YouTube : oEmbed (**sans clé**) → titre, chaîne, miniature ;
+  carte avec miniature via le proxy, titre cliquable.
+- [ ] Durée et description **seulement si disponibles** : la description
+  complète demande l'API YouTube Data avec clé ; sans clé, la carte le dit.
+- [ ] Clic = nouvel onglet YouTube ; **aucun iframe** (`default-src 'none'`
+  inchangé).
+- [ ] Mesurer l'oEmbed réel avant de promettre quoi que ce soit.
+
+Critère de preuve : une URL YouTube donne une carte avec titre, chaîne et
+miniature ; les champs impossibles s'affichent « non disponible » ; aucune
+requête d'iframe dans la console réseau.
+
+### G5 — Dessiner avec la vraie capacité du modèle (lot 2, point 5)
+
+Constat : un modèle cloud puissant et un petit modèle local reçoivent le même
+chemin (`execute_code` + matplotlib).
+
+- [ ] Échelle choisie par capacité **vérifiée** et affichée (« pourquoi cet
+  outil ») : (1) génération par un fournisseur d'images configuré ; (2) diffusion
+  locale (ComfyUI/SD, LoRA) si détectée et si la VRAM le permet ; (3) SVG riche
+  écrit par un modèle cloud capable ; (4) matplotlib en dernier recours.
+- [ ] Le SVG est servi **comme image** : jamais dans le DOM, jamais de
+  `<script>`, `Content-Type: image/svg+xml`, en-tête
+  `Content-Security-Policy: sandbox`, assainisseur à liste blanche.
+- [ ] Honnêteté : un SVG n'est pas une photo ; légende « illustration SVG,
+  modèle X ». « réaliste / photoréaliste » sans fournisseur d'images → réponse
+  claire « je ne peux pas produire une photo ici », puis ce qui est possible et
+  comment configurer un fournisseur.
+- [ ] Le prompt système d'Atelier dépend de la capacité du modèle, pas d'une
+  liste unique.
+
+Critère de preuve : même demande « dessine un cochon réaliste » avec un modèle
+local et un modèle cloud → outils différents, raison affichée, légende honnête
+(captures des deux).
+
+### G6 — Le raccourci lance l'ancien paquet 1.9.2 (urgent pour l'opérateur)
+
+Constat mesuré le 24/11 :
+
+- le `uh` du `PATH` est `%LOCALAPPDATA%/Programs/Python/Python310/Scripts/uh.exe`,
+  `uh --version` → `1.9.2`, et les modules viennent de
+  `Python310/Lib/site-packages/uh` (copie réelle du 22/11 17:10) ; le dépôt, lui,
+  est importé en éditable depuis `.venv` ;
+- `uh/shortcut.py:174` fait `Get-Command uh`, puis `& $uh.Source web --app`
+  (:195) : le lanceur ne fixe ni interpréteur ni dépôt ;
+- le `.lnk` passe `-WindowStyle Hidden` (:404-406) ; le filtre d'arrêt cherche
+  `-m uh.cli web` (:184) alors que 8 processus résiduels tournent en `-m uh web`
+  (18/11 → 22/11) : aucun n'est arrêté ;
+- `tests/test_shortcut.py:273-279` n'asserte que la chaîne du filtre CIM : aucun
+  test ne lie le lancement à un interpréteur ;
+- c'était déjà écrit (lignes 126-128 : « the shortcut currently runs whatever
+  `uh` is on PATH », `--from-checkout` proposé) et jamais fait.
+
+- [ ] (a) Note de version (1.9.3 **ou** 1.10.0 : l'opérateur choisit) listant
+  tout ce qui est fusionné depuis v1.9.2.
+- [ ] (b) Procédure exacte **et réversible** pour que le raccourci lance le
+  dépôt (venv explicite) ou la nouvelle version, pied de page affichant
+  l'origine ; retour arrière en une commande.
+- [ ] (c) Un test qui échoue si le lanceur n'utilise pas l'interpréteur annoncé
+  (chemin absolu interpolé, consigné dans `uh-web.log`), avec contre-épreuve :
+  le test est rouge sur le lanceur actuel.
+- [ ] Rien de publié, rien de modifié sur la machine de l'opérateur : il publie
+  et installe lui-même.
+
+Critère de preuve : `--dry-run` qui montre le chemin absolu de l'interpréteur et
+la racine visée ; test rouge avant / vert après ; `uh-web.log` nomme
+l'interpréteur et le dépôt ou le paquet servi.
+
+### G7 — Éléments cités par une autre IA : vérifiés, pas recopiés
+
+| Affirmation | Verdict (24/11) | Preuve |
+|---|---|---|
+| « parité de fallback des sessions web » | **Introuvable** ; ne rien inscrire sans définition de l'opérateur | zéro occurrence de « parité » dans ce fichier ; les seules entrées sont `docs/JALON7.md:127` (commandes console/CLI) et `docs/SLASH_COMMANDS.md:63` (console/CLI/web sur `providers_admin`) — aucun rapport avec un fallback de sessions web |
+| « masquage de la console du raccourci Windows » à faire | **Déjà livré**, rien à planifier | `uh/shortcut.py:404-406` (`-WindowStyle Hidden`), `tests/test_shortcut.py:157`, lignes 70 et 91 de ce fichier |
+| fichier `uh/tools/web_search.py` | Faux | le fichier est `uh/toolsets/web_search.py` ; `uh/tools/` n'existe pas |
+| outil `run_command` | Faux pour le chat | `run_command` existe comme fonction des tâches planifiées (`uh/schedule.py:158`) ; l'outil de l'agent est `execute_code` |
+
+### Règles du lot 3 (identiques aux lots 1 et 2)
+
+Aucun push, aucun `--no-verify`, rien toucher à l'authentification ni à
+`~/.gitconfig`, `gh` non relancé, aucun processus tué qui n'ait été lancé par
+l'agent, `basetemp` de pytest hors dépôt, jamais `uv run` dans le dépôt,
+`PYTHONPATH` vide, tout texte visible en français, aucune écriture dans les
+compétences / la mémoire / le profil sans GO explicite.
+
+Une branche par point, un commit par sujet, contre-épreuve pour chaque test,
+suites complètes + `ruff` + `mypy`, captures clair et sombre. Ne promettre que
+ce qui est mesuré : une capacité non vérifiée s'écrit « non vérifiée ».
+
+### Ordre imposé
+
+`G1 + G4` (sûrs) → `G6` (note + procédure) → `G2 + G3` (surface réseau neuve :
+relecture sécurité **avant** le code) → `G5`.
