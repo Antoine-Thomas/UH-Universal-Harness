@@ -2511,6 +2511,48 @@ l'application elle-même (`/favicon.ico` → 204, `uh/web/app.py:665-673`).
 **Dépend de G2** : `/api/media/thumb` doit exister avant, sinon l'icône et
 l'image d'aperçu n'ont pas de chemin.
 
+**Livré au 24/11 (branche `feat/g8-link-previews`)** — `uh/link_preview.py` et
+`tests/test_link_preview.py`, 47 tests verts, 2 sauts réseau marqués `network` :
+
+- adresses : nom résolu, refus dès qu'**une** réponse n'est pas publique —
+  neuf formes pièges couvertes (`::ffff:127.0.0.1`, `::ffff:169.254.169.254`,
+  `0.0.0.0`, `100.64.0.0/10`, `fc00::/7`, `fe80::/10`, multicast, `::`) ;
+  connexion sur l'IP épinglée, nom conservé en `Host` et en SNI ;
+- TLS **exercé** : certificat local pour `example.com` accepté, certificat pour
+  un autre nom refusé ; garde-fou de source interdisant `verify=False`,
+  `CERT_NONE`, `check_hostname = False` ; passage réseau réel
+  (`UH_NETWORK_TESTS=1`) sur `example.com`, épinglé, vert ;
+- redirections : suivies **revalidées** (schéma, port, résolution, adresse
+  publique à chaque saut), bornées à 3, `https → http` refusé, et
+  **`robots.txt` relu chez l'hôte de chaque saut** (test : `a.example` redirige
+  vers `b.example`, dont le robots interdit → refus, page jamais demandée) ;
+- taille : 512 Ko **après décompression** (`iter_bytes`, pas `iter_raw`) ;
+- `robots.txt` selon la RFC 9309 §2.3.1.4 (vérifiée) : 4xx autorise, **5xx et
+  injoignable interdisent**, autre statut refuse ;
+- délai total de 15 s pour l'aperçu entier, vérifié à chaque morceau ;
+- extraction bornée : `title`, `og:title`, `og:description`, `og:image`,
+  `link rel=icon` ; le corps ne sort jamais du module.
+
+**Divergence assumée entre les deux gardes, et pourquoi** : `media_proxy` **refuse
+toute redirection** et n'accepte que quatre hôtes mesurés ; `link_preview` **suit
+les redirections** en les revalidant, sur des sites arbitraires. La raison est la
+nature de la demande : une vignette est une adresse qu'on a déjà décidée (le
+catalogue d'Openverse, Commons, YouTube), donc un 302 y est un signal douteux ;
+un aperçu part d'une adresse quelconque, où `http → https` et `www` sont le cas
+courant, et refuser tout saut rendrait la fonction inutilisable. Ce qui ne
+change pas : mêmes règles d'adresse, même épinglage, même plafond.
+
+**Décision du 24/11 sur l'image d'aperçu (phase 4)** : `/api/media/thumb` n'a que
+quatre hôtes, donc l'`og:image` d'un article y serait refusée. Route dédiée
+`GET /api/link/image` réutilisant la récupération gardée de `link_preview`
+(adresses publiques, IP épinglée, redirections revalidées, sans cookies),
+**JPEG/PNG/WebP/GIF reconnus par les octets**, SVG refusé, 2 Mo, cache borné,
+jeton + garde d'origine + budget par session. `media_proxy` n'est **pas** modifié.
+
+**Interrupteur « Aperçus de liens »** : désactivé par défaut ; à la première
+activation, la phrase affichée est « UH contactera ces sites depuis votre machine ;
+ils verront votre adresse IP. »
+
 - [ ] Aperçu **automatique** seulement pour (a) les URL renvoyées par l'outil de
   recherche UH, (b) les URL collées par l'opérateur. Une URL écrite librement par
   le modèle n'obtient qu'un bouton « Aperçu » : **aucune requête sans clic**.

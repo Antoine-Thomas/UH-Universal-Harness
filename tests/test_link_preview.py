@@ -567,6 +567,76 @@ def test_a_redirect_from_https_to_http_is_refused() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# redirection vers un autre domaine : robots.txt et domaine affiché
+# --------------------------------------------------------------------------- #
+def _resolver_everywhere(host: str, port: int, **kwargs: object) -> List[tuple]:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PUBLIC, port))]
+
+
+def test_robots_txt_is_read_again_on_the_host_a_redirect_points_to() -> None:
+    """a.example -> b.example : c'est l'interdiction de **b** qui s'applique.
+
+    Contrôler seulement l'URL de départ laisserait un site interdit se faire lire
+    par un 302 : le robots.txt de ``a`` est vide, celui de ``b`` interdit
+    ``/article``, et la page de ``b`` ne doit jamais être demandée.
+    """
+    recorder = Recorder(
+        {
+            ("a.example", "/robots.txt"): (404, {}, b""),
+            ("a.example", "/"): (
+                302,
+                {"location": "http://b.example/article", "content-type": "text/html"},
+                b"",
+            ),
+            ("b.example", "/robots.txt"): (
+                200,
+                {"content-type": "text/plain"},
+                b"User-agent: *\nDisallow: /article\n",
+            ),
+            ("b.example", "/article"): ok("<title>interdit chez lui</title>"),
+        }
+    )
+
+    with pytest.raises(link_preview.PreviewRefused) as caught:
+        link_preview.preview(
+            "http://a.example/", resolver=_resolver_everywhere, transport=recorder.transport
+        )
+
+    assert "robots.txt interdit" in str(caught.value)
+    assert "b.example" in str(caught.value), "le refus nomme l'hôte fautif"
+    assert ("b.example", "/article") not in recorder.seen, "la page interdite n'est pas lue"
+
+
+def test_the_page_reports_the_final_domain_after_a_cross_domain_redirect() -> None:
+    """La carte doit afficher le domaine **lu**, pas celui qu'on a suivi.
+
+    ``url`` garde l'adresse d'origine (pour la mention « redirigé depuis … »),
+    ``final_url`` et ``host`` décrivent ce qui a réellement été lu.
+    """
+    recorder = Recorder(
+        {
+            ("a.example", "/robots.txt"): (404, {}, b""),
+            ("a.example", "/"): (
+                302,
+                {"location": "http://b.example/article", "content-type": "text/html"},
+                b"",
+            ),
+            ("b.example", "/robots.txt"): (404, {}, b""),
+            ("b.example", "/article"): ok("<title>chez b</title>"),
+        }
+    )
+
+    page = link_preview.preview(
+        "http://a.example/", resolver=_resolver_everywhere, transport=recorder.transport
+    )
+
+    assert page.url == "http://a.example/"
+    assert page.final_url == "http://b.example/article"
+    assert page.host == "b.example", "le domaine affiché est celui de la page lue"
+    assert page.title == "chez b"
+
+
+# --------------------------------------------------------------------------- #
 # taille après décompression
 # --------------------------------------------------------------------------- #
 def test_a_gzip_body_that_grows_past_the_cap_is_refused() -> None:

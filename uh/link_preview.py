@@ -250,8 +250,13 @@ def _fetch(
     timeout: float,
     max_bytes: int,
     stop: float,
+    guard: Optional[Callable[[Pinned, str], None]] = None,
 ) -> Tuple[Pinned, str, str, bytes, int]:
     """Récupère la page en suivant les redirections **une par une, revalidées**.
+
+    ``guard`` est appelé pour **chaque** saut, avant la requête : c'est ce qui
+    fait relire ``robots.txt`` chez l'hôte de destination. Contrôler seulement
+    l'URL de départ laisserait un site interdit se faire lire par un 302.
 
     Rend (épinglage final, url finale, type déclaré, octets, nombre de sauts).
     """
@@ -259,6 +264,8 @@ def _fetch(
     current = pinned
     final = raw
     for hop in range(MAX_REDIRECTS + 1):
+        if guard is not None:
+            guard(current, urlsplit(final).path or "/")
         reply = _request_once(current, transport=transport, timeout=timeout, stop=stop)
         try:
             if reply.is_redirect:
@@ -501,24 +508,27 @@ def preview(
     du corps comptent dans le même budget.
     """
     stop = time.monotonic() + deadline
-    pinned = pin(raw, resolver=resolver)
+    pin(raw, resolver=resolver)  # refus immédiat d'une adresse non publique
     notes: List[str] = []
-    state = "non-demandé"
-    if check_robots:
-        path = urlsplit(raw).path or "/"
-        allowed, state = _robots_allows(
-            pinned.scheme,
-            pinned,
+    states: List[str] = []
+
+    def guard(current: Pinned, path: str) -> None:
+        """robots.txt, chez **cet** hôte, pour **ce** chemin."""
+        if not check_robots:
+            return
+        allowed, checked = _robots_allows(
+            current.scheme,
+            current,
             path,
             resolver=resolver,
             transport=transport,
             timeout=timeout,
             stop=stop,
         )
+        if not states:
+            states.append(checked)
         if not allowed:
-            raise PreviewRefused(f"robots.txt interdit cette page : {path}")
-        if state == "absent":
-            notes.append("robots.txt absent (4xx) : accès autorisé")
+            raise PreviewRefused(f"robots.txt interdit cette page : {current.host}{path}")
 
     final_pin, final_url, content_type, body, hops = _fetch(
         raw,
@@ -527,7 +537,11 @@ def preview(
         timeout=timeout,
         max_bytes=max_bytes,
         stop=stop,
+        guard=guard,
     )
+    state = states[0] if states else "non-demandé"
+    if state == "absent":
+        notes.append("robots.txt absent (4xx) : accès autorisé")
     declared = (content_type or "").split(";")[0].strip().lower()
     if declared and "html" not in declared and "xml" not in declared:
         raise PreviewRefused(f"type refusé : {declared} (HTML attendu)")
