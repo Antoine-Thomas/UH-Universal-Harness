@@ -2155,6 +2155,22 @@ def create_app(
                     name = str(event.get("name") or "tool")
                     tool_since[name] = time.perf_counter()
                     turnlog.event("tool_start", turn=turn_id, tool=name)
+                elif kind == "answer":
+                    # La provenance voyage avec la réponse : la page ne devine pas
+                    # si une URL vient d'un résultat d'outil, de l'opérateur ou du
+                    # modèle. Absente ou inconnue, elle vaut « model » : c'est le
+                    # refus par défaut, et c'est ce qui interdit une requête avant
+                    # un clic. Un aperçu ne doit jamais faire échouer un tour.
+                    try:
+                        with _store(app) as preview_store:
+                            links = link_preview.classify(
+                                link_preview.urls_in(str(event.get("content") or "")),
+                                preview_store.get_messages(session["id"]),
+                            )
+                        if links:
+                            event["links"] = links
+                    except Exception:  # noqa: BLE001 - jamais bloquant
+                        pass
                 elif kind == "tool_result":
                     name = str(event.get("name") or "tool")
                     began = tool_since.pop(name, None)

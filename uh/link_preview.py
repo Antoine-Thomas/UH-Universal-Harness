@@ -569,6 +569,91 @@ def preview(
 
 
 # --------------------------------------------------------------------------- #
+# provenance des URL d'une réponse
+# --------------------------------------------------------------------------- #
+#: Une URL nue dans du texte. Volontairement large : c'est la normalisation qui
+#: décide ensuite, pas la forme écrite.
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>\"'`)\]]+", re.IGNORECASE)
+
+
+def normalize(raw: str) -> Optional[str]:
+    """La forme comparable d'une URL, ou ``None`` si ce n'en est pas une.
+
+    Deux URL qui désignent la même ressource doivent se comparer égales, sinon un
+    modèle contourne la règle en changeant un caractère : ``HTTPS://Exemple.com``
+    et ``https://exemple.com`` sont la même page. On retire donc l'identifiant,
+    le fragment et les ports par défaut, et on baisse schéma et hôte. Le chemin
+    et la requête gardent leur casse : ils distinguent deux ressources.
+    """
+    value = (raw or "").strip().rstrip(".,;:!?)»\"'")
+    if not value:
+        return None
+    parts = urlsplit(value)
+    scheme = (parts.scheme or "").lower()
+    if scheme not in ALLOWED_SCHEMES:
+        return None
+    host = (parts.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return None
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    default = DEFAULT_PORTS[scheme]
+    suffix = "" if not port or port == default else f":{port}"
+    path = parts.path or "/"
+    query = f"?{parts.query}" if parts.query else ""
+    return f"{scheme}://{host}{suffix}{path}{query}"
+
+
+def urls_in(text: str) -> List[str]:
+    """Les URL d'un texte, dans l'ordre, sans doublon normalisé."""
+    seen: List[str] = []
+    keys = set()
+    for match in _URL_IN_TEXT.finditer(str(text or "")):
+        candidate = normalize(match.group(0).rstrip(".,;:!?)»\"'"))
+        if candidate and candidate not in keys:
+            keys.add(candidate)
+            seen.append(candidate)
+    return seen
+
+
+def _messages_text(messages: Optional[List[Dict[str, Any]]], role: str) -> List[str]:
+    found: List[str] = []
+    for message in messages or []:
+        if str(message.get("role") or "") != role:
+            continue
+        found.extend(urls_in(str(message.get("content") or "")))
+    return found
+
+
+def classify(urls: List[str], messages: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
+    """Pour chaque URL : ``tool``, ``operator`` ou ``model`` — jamais deviné.
+
+    Une provenance inconnue ou absente vaut **``model``** : c'est le refus par
+    défaut, et c'est ce qui fait qu'une URL écrite par le modèle n'est récupérée
+    qu'après un clic. La comparaison se fait sur la forme **normalisée**, donc
+    changer un caractère d'une URL de résultat d'outil ne lui hérite pas de sa
+    provenance.
+    """
+    from_tool = set(_messages_text(messages, "tool"))
+    from_operator = set(_messages_text(messages, "user"))
+    found: List[Dict[str, str]] = []
+    for raw in urls or []:
+        key = normalize(raw)
+        if not key:
+            continue
+        if key in from_tool:
+            origin = "tool"
+        elif key in from_operator:
+            origin = "operator"
+        else:
+            origin = "model"
+        found.append({"url": key, "origin": origin})
+    return found
+
+
+# --------------------------------------------------------------------------- #
 # l'image d'un article
 # --------------------------------------------------------------------------- #
 #: Une vignette d'aperçu, pas un film : 2 Mo, et le type par les octets.
@@ -704,6 +789,9 @@ def save_enabled(enabled: bool) -> Path:
 
 __all__ = [
     "ALLOWED_SCHEMES",
+    "classify",
+    "normalize",
+    "urls_in",
     "IMAGE_MAX_BYTES",
     "ImageData",
     "ORIGINS",
