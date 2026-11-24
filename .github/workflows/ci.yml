@@ -77,12 +77,17 @@ jobs:
     name: e2e / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     # Le plafond couvre l'installation (checkout, Python, dépendances, Chromium) PLUS la
-    # suite. Mesuré : 67 tests -> 11 min 40 s de job sur Windows (`e9de54e`), 71 tests ->
-    # coupé à 15 min 07 (`c394831`) alors que les 69 premiers points étaient verts. La
-    # suite a donc besoin de plus que les 12 minutes que laissaient l'installation.
-    # 20 minutes rendent la marge visible ; ce n'est pas un délai de test allongé, c'est
-    # le budget d'un job dont le contenu a grossi.
-    timeout-minutes: 20
+    # suite, et il dépend de l'OS — c'est mesuré, pas supposé :
+    #   * ubuntu-latest : suite complète en ~6 min pour 105 tests (CI du 24/11) ;
+    #   * windows-latest : la même suite était encore à **61 % après 25 min 29 s**
+    #     quand le plafond l'a coupée (PR #275). 25,5 / 0,61 -> ~42 min pour la suite
+    #     entière sur ce runner, soit trois fois ce poste (105 tests en 14 min).
+    # 60 minutes laissent ~1,4x de marge à Windows ; Linux garde 20 minutes, qui
+    # suffisent largement et ne changent donc rien pour lui.
+    # Ce n'est pas un délai de test allongé : c'est le budget du job. Les délais des
+    # tests eux-mêmes (30 s, etc.) ne sont pas touchés.
+    # `matrix` est autorisé dans `timeout-minutes` (référence des contextes GitHub).
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -105,7 +110,9 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: End-to-end suite (excluded from the default run)
-        run: pytest -o addopts="" -m e2e -q
+        # `--durations=20` : si Windows reste lent, le prochain run dit *quels*
+        # fichiers coûtent le temps, au lieu de le deviner une deuxième fois.
+        run: pytest -o addopts="" -m e2e -q --durations=20
 
       - name: Upload the turn journal on failure
         if: failure()
