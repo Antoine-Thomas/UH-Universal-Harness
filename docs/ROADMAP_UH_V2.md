@@ -2324,14 +2324,29 @@ Constat : l'e2e CI du 23/11 19:52 est **rouge** — 1 failed, 96 passed, 3 skipp
 (`Page.expect_response: Timeout 30000ms exceeded`). C'est le deuxième test e2e
 instable déjà noté (voir « Tests e2e instables connus », lot 2).
 
-- [ ] Trouver la **cause** réelle : condition de course, ordre des requêtes, état
+- [x] Trouver la **cause** réelle : condition de course, ordre des requêtes, état
   partagé entre deux tests, doublon de `GET /api/sessions/`.
-- [ ] Corriger à la source. **Aucune** relance automatique, aucun `sleep`, aucune
+- [x] Corriger à la source. **Aucune** relance automatique, aucun `sleep`, aucune
   attente allongée : ce sont des masques, pas des correctifs.
-- [ ] Branche `fix/e2e-p3-14-role-stable`, contre-épreuve : le test échoue sur le
+- [x] Branche `fix/e2e-p3-14-role-stable`, contre-épreuve : le test échoue sur le
   code d'avant, passe après.
-- [ ] 20 passages consécutifs en local, **et** sous charge (suite e2e complète en
+- [x] 20 passages consécutifs en local, **et** sous charge (suite e2e complète en
   parallèle d'un autre processus), puis la CI.
+
+**Livré** (branche `fix/e2e-p3-14-role-stable`, PR #61, CI verte 22/22 le 24/11).
+Cause trouvée et mesurée, pas déduite :
+le harnais ne lisait la sortie du serveur que jusqu'à la ligne qui porte l'URL,
+puis plus personne, alors que `uh web` écrit chaque requête sur ce tuyau. Une
+fois le tuyau plein, les threads du serveur se figent dans `logging.emit` et le
+serveur ne répond plus à rien — trois threads bloqués, 5,8 Ko en attente,
+`/healthz` en timeout, puis 0,70 s dès qu'on vide le tuyau. Correctif :
+`tests/e2e/conftest.py` draine le tuyau pendant toute la vie du serveur ;
+contre-épreuve `tests/e2e/test_server_output.py` (200 requêtes puis une, échoue
+sur l'ancien harnais par `httpx.ReadTimeout` en 14,8 s). Mesures : 1 échec sur 6
+passages sous charge avant, 20/20 après, suite complète sous charge 105 passed.
+Le même rouge révélait une seconde attente écrite à date fixe dans
+`tests/e2e/test_keys_dom.py` : elle attend maintenant la réponse du `DELETE` et
+l'apparition de la ligne, et la CI est passée à 22/22 jobs verts.
 
 Critère de preuve : 20/20 en local, 20/20 sous charge, CI e2e verte sur la PR de
 ce point. Aucune fonctionnalité neuve avant.
