@@ -14,6 +14,7 @@ from __future__ import annotations
 import difflib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional
+from urllib.parse import urlsplit
 
 from . import sandbox
 
@@ -26,6 +27,9 @@ class CommandResult:
     out: str = ""  # printed on stdout
     err: str = ""  # printed on stderr
     exit: bool = False  # leave the console
+    #: Charge utile structurée pour l'interface (cartes web, galerie d'images) :
+    #: le terminal garde `out`, la page lit `cards`. Aucune des deux ne devine.
+    cards: Optional[dict] = None
 
     @property
     def empty(self) -> bool:
@@ -357,6 +361,24 @@ def _web_toolset(session: "ChatSession") -> Any:
     return toolset
 
 
+def _domain(url: Any) -> str:
+    """Le domaine affiché sur une carte : le nom d'hôte, jamais l'URL entière."""
+    try:
+        return (urlsplit(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+#: Huit résultats : une galerie lisible, et sous la limite de débit du proxy.
+WEB_CARDS = 8
+
+#: La phrase qui remplace l'ancien refus : les moteurs sans clé existent.
+NO_IMAGE_ENGINE = (
+    "aucun moteur d'images avec clé configuré ; Openverse et Wikimedia Commons "
+    "sont interrogés sans clé (licence et auteur affichés avec chaque image)"
+)
+
+
 def _web_search(session: "ChatSession", query: str) -> CommandResult:
     """Run the web_search toolset directly - no model call, nothing stored."""
     toolset = _web_toolset(session)
@@ -367,50 +389,118 @@ def _web_search(session: "ChatSession", query: str) -> CommandResult:
     if not results:
         return CommandResult(out=f"web: {result.get('note') or 'no results'}")
     lines = [f"web search: {result.get('query', query)} ({result.get('engine', 'moteur')})"]
+    cards: list[dict] = []
     for position, item in enumerate(results, 1):
-        lines.append(f"  {position}. {item.get('title', '')}")
-        lines.append(f"     {item.get('url', '')}")
+        title = str(item.get("title") or "")
+        url = str(item.get("url") or "")
         snippet = " ".join(str(item.get("snippet") or "").split())
+        lines.append(f"  {position}. {title}")
+        lines.append(f"     {url}")
         if snippet:
             lines.append(f"     {snippet[:160]}")
-    return CommandResult(out="\n".join(lines))
+        if url:
+            cards.append(
+                {"title": title, "url": url, "domain": _domain(url), "snippet": snippet[:240]}
+            )
+    payload = {
+        "kind": "web",
+        "query": str(result.get("query") or query),
+        "engine": str(result.get("engine") or ""),
+        "results": cards,
+        "failed": {str(name): str(reason) for name, reason in (result.get("failed") or {}).items()},
+    }
+    return CommandResult(out="\n".join(lines), cards=payload)
 
 
 def _web_images(session: "ChatSession", query: str) -> CommandResult:
-    """``/web image`` : un moteur d'images configuré, ou une phrase qui le dit."""
+    """``/web image`` : Brave si une clé existe, sinon Openverse et Commons.
+
+    Les moteurs sans clé rendent la licence et l'auteur avec chaque image : la
+    carte ne peut donc pas se tromper sur ce point. Si aucun résultat ne revient,
+    on le dit avec la raison — jamais une recherche web à la place.
+    """
     toolset = _web_toolset(session)
     engines = list(getattr(toolset, "image_engines", lambda: [])() or [])
-    if not engines:
-        # Rien n'est configuré : on ne lance aucune recherche web à la place, et on
-        # ne fait pas semblant — la phrase dit quoi ajouter, et où.
-        return CommandResult(out="web image: " + _NO_IMAGE_ENGINE)
     if not query:
+        available = [f"{name} (clé)" for name in engines] + ["openverse", "wikimedia (sans clé)"]
         return CommandResult(
             out=(
-                "web image: moteur(s) configuré(s) : "
-                + ", ".join(engines)
+                "web image: moteur(s) : "
+                + ", ".join(available)
                 + "\n  usage : /web image <recherche>"
-            )
+            ),
+            cards={"kind": "images", "query": "", "results": [], "failed": {}},
         )
-    result = toolset.call("web_image_search", {"query": query})
-    if result.get("error"):
-        return CommandResult(err=f"web image: {result['error']}")
-    results = result.get("results") or []
-    if not results:
-        return CommandResult(out=f"web image: {result.get('note') or 'aucune image'}")
-    lines = [f"web images: {result.get('query', query)} ({result.get('engine', 'moteur')})"]
-    for position, item in enumerate(results, 1):
-        lines.append(f"  {position}. {item.get('title', '')}")
-        lines.append(f"     image  {item.get('image', '')}")
-        lines.append(f"     page   {item.get('url', '')}")
-    return CommandResult(out="\n".join(lines))
+    if engines:
+        result = toolset.call("web_image_search", {"query": query})
+        if result.get("error"):
+            return CommandResult(err=f"web image: {result['error']}")
+        results = result.get("results") or []
+        if not results:
+            return CommandResult(out=f"web image: {result.get('note') or 'aucune image'}")
+        engine = str(result.get("engine") or ", ".join(engines))
+        lines = [f"web images: {result.get('query', query)} ({engine})"]
+        cards: list[dict] = []
+        for position, item in enumerate(results, 1):
+            page = str(item.get("url") or "")
+            image = str(item.get("image") or "")
+            lines.append(f"  {position}. {item.get('title', '')}")
+            lines.append(f"     image  {image}")
+            lines.append(f"     page   {page}")
+            if image:
+                cards.append(
+                    {
+                        "title": str(item.get("title") or ""),
+                        "thumb": image,
+                        "page": page,
+                        "domain": _domain(page),
+                        "licence": "",
+                        "author": "",
+                        "provider": engine,
+                    }
+                )
+        return CommandResult(
+            out="\n".join(lines),
+            cards={
+                "kind": "images",
+                "query": str(result.get("query") or query),
+                "results": cards,
+                "failed": {},
+            },
+        )
+    # Aucune clé : les moteurs sans clé prennent le relais.
+    from . import image_search
 
-
-#: La phrase exacte quand aucun moteur d'images n'est configuré : pas de promesse muette.
-_NO_IMAGE_ENGINE = (
-    "aucun moteur d'images configuré (il faut une clé Brave : BRAVE_API_KEY, "
-    "ou [search] brave_key dans keys.toml)"
-)
+    found = image_search.search_images(query, limit=WEB_CARDS, language="fr")
+    cards = [
+        {
+            "title": hit.title,
+            "thumb": hit.thumb,
+            "page": hit.page,
+            "domain": hit.domain,
+            "licence": hit.licence,
+            "author": hit.author,
+            "provider": hit.provider,
+        }
+        for hit in found.hits
+    ]
+    if not cards:
+        reasons = "; ".join(f"{name} : {reason}" for name, reason in found.failed.items())
+        return CommandResult(
+            out=f"web image: aucune image ({reasons or 'aucun résultat'})",
+            cards={"kind": "images", "query": query, "results": [], "failed": found.failed},
+        )
+    lines = [f"web images: {query} ({', '.join(found.engines)})"]
+    for position, card in enumerate(cards, 1):
+        licence = card["licence"] or "inconnue"
+        author = card["author"] or "inconnu"
+        lines.append(f"  {position}. {card['title']}")
+        lines.append(f"     licence {licence} - auteur {author}")
+        lines.append(f"     page    {card['page']}")
+    return CommandResult(
+        out="\n".join(lines),
+        cards={"kind": "images", "query": query, "results": cards, "failed": found.failed},
+    )
 
 
 def _web_ui(session: "ChatSession") -> CommandResult:

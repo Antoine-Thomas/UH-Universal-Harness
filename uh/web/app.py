@@ -37,7 +37,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, attachments, media_proxy, media_store, turnlog
+from .. import __version__, attachments, media_proxy, media_store, turnlog, video_preview
 from .. import commands as uh_commands
 from .. import config as uh_config
 from .. import roles as uh_roles
@@ -704,6 +704,31 @@ def create_app(
                 "Cache-Control": f"private, max-age={THUMB_MAX_AGE}",
             },
         )
+
+    # -- video card --------------------------------------------------------- #
+    @app.get("/api/media/video", dependencies=[Depends(require_token)])
+    async def media_video(url: str, session: str = "") -> dict:
+        """La carte d'une vidéo YouTube, par oEmbed : aucun iframe, aucune clé.
+
+        Ni durée ni description : la réponse oEmbed n'en a pas, et la carte le
+        dit (`has_description: false`) au lieu de laisser croire qu'elle les a.
+        """
+        allowed, reason = app.state.media_limiter.allow(f"video:{session}")
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
+        card, problem = await asyncio.to_thread(video_preview.preview, url)
+        if card is None:
+            raise HTTPException(status_code=400, detail=problem)
+        return {
+            "kind": "video",
+            "title": card.title,
+            "channel": card.channel,
+            "channel_url": card.channel_url,
+            "thumb": card.thumb,
+            "page": card.page,
+            "description": card.description,
+            "has_description": card.has_description,
+        }
 
     # -- icon fallbacks ---------------------------------------------------- #
     # Declared in index.html as data URIs, so a healthy page never asks for
@@ -2127,6 +2152,11 @@ def create_app(
                     else:
                         emit({"type": "token", "text": body})
                         emit({"type": "answer", "content": body})
+                        # La même réponse en cartes : le terminal garde son texte,
+                        # la page dessine les résultats (titre, domaine, extrait),
+                        # les vignettes et la licence. Rien n'est deviné côté page.
+                        if getattr(result, "cards", None):
+                            emit({"type": "cards", "cards": result.cards})
                 else:
                     session_obj.run_text(text, images=turn_images or None)
             except Exception as exc:  # noqa: BLE001 - reported to the browser
