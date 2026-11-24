@@ -340,14 +340,77 @@ def test_the_web_image_command_prints_the_image_and_its_page() -> None:
     assert "https://page.example/mouton" in result.out
 
 
-def test_the_web_image_command_without_an_engine_refuses_and_sends_nothing() -> None:
-    """La promesse muette est le défaut d'origine : `/web image` doit dire qu'il ne peut pas."""
+def test_the_web_image_command_uses_the_keyless_engines_when_no_key_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sans clé Brave, Openverse et Commons répondent — et aucune recherche web.
+
+    L'ancien refus (« aucun moteur d'images configuré ») est devenu faux le jour
+    où deux moteurs sans clé ont existé : le refus muet a donc disparu, pas la
+    règle qui l'accompagnait (jamais une recherche texte à la place d'images).
+    """
+    from uh import commands, image_search
+
+    hit = image_search.Hit(
+        title="le cochon",
+        thumb="https://api.openverse.org/v1/images/x/thumb/",
+        page="https://www.flickr.com/photos/1",
+        domain="www.flickr.com",
+        licence="by 2.0",
+        author="pilllpat",
+        provider="flickr",
+    )
+    monkeypatch.setattr(
+        image_search,
+        "search_images",
+        lambda *_args, **_kwargs: image_search.Result(
+            hits=[hit], failed={}, engines=["openverse"]
+        ),
+    )
+    transport = Transport({})
+    result = commands._cmd_web(_session(toolset(transport)), "image cochons")
+
+    assert not result.err, result.err
+    assert "https://www.flickr.com/photos/1" in result.out
+    assert "by 2.0" in result.out and "pilllpat" in result.out
+    assert result.cards is not None and result.cards["kind"] == "images"
+    assert result.cards["results"][0]["licence"] == "by 2.0"
+    assert transport.calls == [], "aucune recherche web à la place des images"
+
+
+def test_the_web_image_command_says_why_when_the_keyless_engines_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from uh import commands, image_search
+
+    monkeypatch.setattr(
+        image_search,
+        "search_images",
+        lambda *_args, **_kwargs: image_search.Result(
+            hits=[], failed={"openverse": "HTTP 500"}, engines=[]
+        ),
+    )
+    result = commands._cmd_web(_session(toolset(Transport({}))), "image cochons")
+
+    assert "aucune image" in result.out
+    assert "openverse" in result.out, "la raison est nommée, pas cachée"
+
+
+def test_the_web_search_command_carries_structured_cards() -> None:
+    """Le terminal garde son texte ; la page reçoit les mêmes résultats en cartes."""
     from uh import commands
 
-    transport = Transport({})
-    result = commands._cmd_web(_session(toolset(transport)), "image moutons")
-    assert "aucun moteur d'images" in (result.out or "")
-    assert transport.calls == []
+    transport = Transport({DDG_ENDPOINT: FakeResponse(text=SAMPLE_HTML)})
+    result = commands._cmd_web(_session(toolset(transport)), "cochon")
+
+    assert result.cards is not None
+    assert result.cards["kind"] == "web"
+    assert result.cards["results"], "au moins une carte"
+    first = result.cards["results"][0]
+    assert first["url"] == "https://example.com/page"
+    assert first["domain"] == "example.com"
+    assert first["title"] == "Example Page"
+    assert "example snippet" in first["snippet"]
 
 
 def test_the_web_image_command_alone_stays_a_web_search() -> None:
