@@ -2205,7 +2205,7 @@ def cmd_dream(args: argparse.Namespace) -> int:
     return EXIT_FAILURE
 
 
-def cmd_install_shortcut(_args: argparse.Namespace) -> int:
+def cmd_install_shortcut(args: argparse.Namespace) -> int:
     """Windows-only: a desktop shortcut that starts the web UI in one click."""
     from . import shortcut
 
@@ -2219,14 +2219,20 @@ def cmd_install_shortcut(_args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return EXIT_FAILURE
+    from_checkout = bool(getattr(args, "from_checkout", False))
     try:
-        created = shortcut.install()
+        created = shortcut.install(from_checkout=from_checkout)
     except shortcut.ShortcutError as exc:
         print(f"uh install-shortcut: {exc}", file=sys.stderr)
         return EXIT_FAILURE
     print(f"shortcut: {created.link}")
     print(f"  launcher: {created.script}")
     print(f"  icon: {created.icon}")
+    if from_checkout:
+        # Nommé, pas supposé : c'est cet interpréteur que le lanceur exécute, et
+        # c'est lui qui décide de la version que l'interface annonce.
+        print(f"  interpréteur épinglé : {shortcut.checkout_python()}")
+        print("  le pied de page doit afficher « dépôt » et le commit, pas « paquet installé »")
     print("  double-click to open the web UI; no admin rights, nothing starts at boot")
     return EXIT_OK
 
@@ -2796,9 +2802,14 @@ def build_parser() -> argparse.ArgumentParser:
     token_sub.add_parser("show", help="print the token, creating it on first use")
     token_sub.add_parser("rotate", help="replace the token; existing clients stop working")
 
-    sub.add_parser(
+    install_shortcut = sub.add_parser(
         "install-shortcut",
         help="create a desktop shortcut to the web UI (Windows only)",
+    )
+    install_shortcut.add_argument(
+        "--from-checkout",
+        action="store_true",
+        help="pin the checkout's .venv interpreter in the launcher, not the `uh` on PATH",
     )
 
     uninstall = sub.add_parser(

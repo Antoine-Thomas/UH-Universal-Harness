@@ -8,7 +8,10 @@ Windows, no Desktop). Nothing here needs a real Desktop or a real ``.lnk``.
 
 from __future__ import annotations
 
+import json
+import os
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -247,7 +250,7 @@ def test_the_cli_prints_the_created_path(
     created = shortcut.Install(
         script=tmp_path / "uh-web.ps1", icon=tmp_path / "uh-web.ico", link=tmp_path / "UH web.lnk"
     )
-    monkeypatch.setattr(shortcut, "install", lambda: created)
+    monkeypatch.setattr(shortcut, "install", lambda **_: created)
 
     assert cli.main(["install-shortcut"]) == 0
 
@@ -261,7 +264,7 @@ def test_the_cli_turns_a_shortcut_error_into_one_line(
 ) -> None:
     monkeypatch.setattr(shortcut, "windows", lambda: True)
 
-    def boom() -> shortcut.Install:
+    def boom(**_kwargs: object) -> shortcut.Install:
         raise shortcut.ShortcutError("powershell failed: access denied")
 
     monkeypatch.setattr(shortcut, "install", boom)
@@ -275,8 +278,98 @@ def test_the_launcher_clears_a_previous_web_before_starting() -> None:
     script = shortcut.script_text()
 
     assert "-m uh.cli web" in script, "match on our module, never on python.exe"
+    # Les instances réelles tournent en `-m uh web` : un filtre qui ne connaît que
+    # `-m uh.cli web` les laisse tenir le port, et le nouveau serveur meurt sur bind.
+    assert "'*-m uh web*'" in script
     assert "Stop-Process" in script
     assert "web --app" in script
     assert script.index("Stop-Process") < script.index("web --app"), (
         "kill first, then start: the other order loses the port"
     )
+
+
+# --------------------------------------------------------------------------- #
+# the checkout launcher: pinning the interpreter, not hoping for the PATH
+# --------------------------------------------------------------------------- #
+def test_the_checkout_launcher_pins_the_interpreter_it_names() -> None:
+    """Le lanceur nomme un interpréteur : il ne le cherche pas dans le PATH."""
+    python = shortcut.checkout_python()
+    if python is None:
+        pytest.skip("pas de .venv dans ce dépôt")
+
+    text = shortcut.script_text(from_checkout=True)
+
+    assert f"$uhPython = '{python}'" in text
+    assert "& $uhPython -m uh.cli web --app @args" in text
+    assert "Get-Command uh" not in text, "aucune résolution par le PATH : le dépôt est épinglé"
+    assert shortcut.LAUNCHER_MARKER in text
+    text.encode("ascii")  # PowerShell 5.1 lit un BOM comme de l'ANSI
+
+
+def test_the_pinned_interpreter_loads_this_checkout(tmp_path: Path) -> None:
+    """Le test qui échoue si le lanceur exécute un autre interpréteur.
+
+    Il lance l'interpréteur annoncé par le lanceur et vérifie deux choses : que
+    c'est bien lui qui s'exécute, et que le module ``uh`` qu'il importe vient du
+    dépôt — pas d'un ``site-packages``. Un lanceur qui pointerait sur le Python
+    du système, ou sur une copie installée, ferait échouer cette assertion.
+
+    Le processus est lancé HORS du dépôt : depuis la racine, Python ajoute le
+    dossier courant à ``sys.path`` et importerait ce ``uh``-ci quel que soit
+    l'interpréteur — la mesure ne prouverait rien (constaté sur le Python 3.10 du
+    poste, qui charge `site-packages` quand on le lance ailleurs).
+    """
+    python = shortcut.checkout_python()
+    root = shortcut.checkout_root()
+    if python is None or root is None:
+        pytest.skip("pas de .venv dans ce dépôt")
+
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    where = subprocess.run(
+        [str(python), "-c", "import json,sys,uh;print(json.dumps([sys.executable, uh.__file__]))"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(tmp_path),
+        timeout=60,
+    )
+    assert where.returncode == 0, where.stderr
+
+    executable, package = json.loads(where.stdout)
+    assert Path(executable).resolve() == python.resolve(), (
+        "le lanceur annonce un interpréteur, un autre s'exécute"
+    )
+    assert Path(package).resolve().is_relative_to(root), f"uh importé hors du dépôt : {package}"
+    assert "site-packages" not in package
+
+
+def test_a_checkout_without_a_virtualenv_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shortcut, "checkout_python", lambda: None)
+
+    with pytest.raises(shortcut.ShortcutError, match="no checkout interpreter"):
+        shortcut.script_text(from_checkout=True)
+
+
+def test_the_cli_names_the_pinned_interpreter(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    seen: dict[str, object] = {}
+    created = shortcut.Install(
+        script=tmp_path / "uh-web.ps1", icon=tmp_path / "uh-web.ico", link=tmp_path / "UH web.lnk"
+    )
+
+    def fake_install(**kwargs: object) -> shortcut.Install:
+        seen.update(kwargs)
+        return created
+
+    monkeypatch.setattr(shortcut, "windows", lambda: True)
+    monkeypatch.setattr(shortcut, "install", fake_install)
+
+    assert cli.main(["install-shortcut", "--from-checkout"]) == 0
+
+    assert seen.get("from_checkout") is True
+    out = capsys.readouterr().out
+    python = shortcut.checkout_python()
+    if python is not None:
+        assert str(python) in out, "l'interpréteur épinglé doit être affiché"
+        assert "dépôt" in out
