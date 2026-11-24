@@ -127,8 +127,16 @@ Les retours du 24/11 viennent de la **capture** de l'opérateur (pied de page
 
 ## 7. Ordre et règles du lot 3
 
-`G1 + G4` (petits, sûrs) → `G6` (note + procédure) → `G2 + G3` (surface réseau
-neuve, relecture sécurité **avant** le code) → `G5`.
+`G0` (CI e2e verte : 1 échec le 23/11, `test_p3_14_role.py`, cause à trouver,
+pas de `sleep` ni de relance) → `G1 + G4` (petits, sûrs) → `G6` (note +
+procédure) → `G2 + G3` (surface réseau neuve, relecture sécurité **avant** le
+code) → `G5`.
+
+Cette branche (`docs/handoff-lot3`) est **locale** : le `pre-push` du dépôt
+refuse tout push sans `UH_PUSH_OK=1` posé par l'opérateur dans son propre
+terminal, et le laisser poser par l'agent annulerait la barrière installée après
+l'incident du 19/11. C'est l'opérateur qui pousse, ouvre la PR et fusionne
+depuis l'interface web de GitHub.
 
 Une branche par point, un commit par sujet, contre-épreuve pour chaque test
 (le test échoue avant le correctif), suites complètes + `ruff` + `mypy`, captures
