@@ -357,7 +357,24 @@ function speakBox(box, text) {
   return bar;
 }
 
-function appendMessage(role, text, messageId) {
+// Les noms de fichiers que le message porte déjà comme artefacts. Une image
+// Markdown qui les nomme est retirée du texte : elle est dessinée juste en
+// dessous, et le « ![cochon](cochon.png) » brut restait affiché au-dessus.
+function artifactNames(artifacts) {
+  if (!Array.isArray(artifacts)) return [];
+  const names = [];
+  for (const artifact of artifacts) {
+    if (!artifact || typeof artifact !== "object") continue;
+    const source = artifact.source || {};
+    for (const candidate of [artifact.name, source.relative, source.path]) {
+      if (typeof candidate !== "string" || !candidate) continue;
+      names.push(candidate.split(/[\\/]/).pop());
+    }
+  }
+  return names.filter(Boolean);
+}
+
+function appendMessage(role, text, messageId, artifacts) {
   const box = el("div", `msg ${role}`);
   if (messageId !== undefined && messageId !== null) {
     box.dataset.messageId = messageId;
@@ -373,7 +390,7 @@ function appendMessage(role, text, messageId) {
   // user and system text stays literal so it always shows exactly what was typed.
   if (role === "assistant") {
     content.classList.add("md");
-    content.innerHTML = renderMarkdown(text);
+    content.innerHTML = renderMarkdown(text, { artifacts: artifactNames(artifacts) });
   } else {
     content.textContent = text;
   }
@@ -994,7 +1011,7 @@ function renderHistory(messages) {
       if (card) fillToolCard(card, message.content || "");
       else toolCard(message.name || "tool", null, message.content || "");
     } else {
-      const box = appendMessage(role, message.content || "", message.id);
+      const box = appendMessage(role, message.content || "", message.id, message.artifacts);
       if (role === "user" && message.turn) turnBadge(box, message.turn);
       if (Array.isArray(message.artifacts) && message.artifacts.length) {
         drawArtifacts(box, message.artifacts);
@@ -2693,6 +2710,9 @@ async function sendMessage(text) {
   // null on a bubble whose content node had already been swapped out.
   const assistantContent = assistant.querySelector(".content") || assistant.appendChild(el("div", "content"));
   let assistantText = "";
+  // Les fichiers que ce tour attache : leur nom retire du texte l'image Markdown
+  // qui les désigne, puisque le dessin est déjà là.
+  const artifactFiles = [];
   let openCard = null;
   // Set when the turn failed. The finally block used to re-fetch the store and
   // redraw the transcript on every outcome - so a 500 erased the question and the
@@ -2793,6 +2813,14 @@ async function sendMessage(text) {
             // Bytes the server already fetched and bounded: the page draws them
             // from the message, it never asks a third party for anything.
             drawArtifacts(assistant, data.images);
+            for (const name of artifactNames(data.images)) artifactFiles.push(name);
+            // Le texte peut avoir été rendu avant l'image : on le rend à nouveau,
+            // sinon « ![cochon](cochon.png) » reste écrit au-dessus du dessin.
+            if (assistantText) {
+              assistantContent.innerHTML = renderMarkdown(assistantText, {
+                artifacts: artifactFiles,
+              });
+            }
             $("messages").scrollTop = $("messages").scrollHeight;
           });
         } else if (event === "mode_refused") {
@@ -2849,7 +2877,7 @@ async function sendMessage(text) {
               assistantText = body;
               assistantContent.textContent = body;
               assistantContent.classList.add("md");
-              assistantContent.innerHTML = renderMarkdown(body);
+              assistantContent.innerHTML = renderMarkdown(body, { artifacts: artifactFiles });
             }
           });
         } else if (event === "answer_meta") {
@@ -2874,7 +2902,9 @@ async function sendMessage(text) {
               // The stream was appended as plain text; swap in the Markdown
               // rendering now that the answer is complete.
               assistantContent.classList.add("md");
-              assistantContent.innerHTML = renderMarkdown(assistantText);
+              assistantContent.innerHTML = renderMarkdown(assistantText, {
+                artifacts: artifactFiles,
+              });
             }
           });
         }
