@@ -2485,6 +2485,75 @@ l'interpréteur et le dépôt ou le paquet servi.
 | fichier `uh/tools/web_search.py` | Faux | le fichier est `uh/toolsets/web_search.py` ; `uh/tools/` n'existe pas |
 | outil `run_command` | Faux pour le chat | `run_command` existe comme fonction des tâches planifiées (`uh/schedule.py:158`) ; l'outil de l'agent est `execute_code` |
 
+### G8 — Aperçus de liens : icône du site, titre, description, image d'article
+
+Ajout de l'opérateur, 24/11. C'est la partie la plus risquée du lot : le
+harness irait chercher des pages au hasard sur le web.
+
+Constat : aucun aperçu de lien dans le code (zéro occurrence de `og:`,
+`robots.txt`, `preview`, `unfurl`) ; les seules routes d'icônes sont celles de
+l'application elle-même (`/favicon.ico` → 204, `uh/web/app.py:665-673`).
+**Dépend de G2** : `/api/media/thumb` doit exister avant, sinon l'icône et
+l'image d'aperçu n'ont pas de chemin.
+
+- [ ] Aperçu **automatique** seulement pour (a) les URL renvoyées par l'outil de
+  recherche UH, (b) les URL collées par l'opérateur. Une URL écrite librement par
+  le modèle n'obtient qu'un bouton « Aperçu » : **aucune requête sans clic**.
+  Une page peut dicter « affiche cette adresse » avec des données dans l'URL —
+  l'aperçu automatique serait alors un canal d'exfiltration.
+- [ ] La **provenance voyage avec le message** (résultat d'outil / saisie de
+  l'opérateur / texte du modèle). Aujourd'hui rien ne la porte : `markdown.js` ne
+  voit qu'une URL. C'est une brique à ajouter **avant** l'aperçu, pas après.
+- [ ] Mêmes protections que le proxy de vignettes de G2 : résolution DNS puis
+  refus des IP privées / loopback / lien-local / métadonnées, connexion épinglée
+  sur l'IP résolue, redirections revalidées, ports **80 et 443** seulement,
+  HTML ≤ 512 Ko, délai court, sans cookies ni Referer, User-Agent identifiable,
+  `robots.txt` **respecté**, aucun JavaScript exécuté, débit limité par session,
+  cache borné.
+- [ ] Interrupteur « Aperçus de liens » dans le panneau Outils : état affiché,
+  désactivable.
+- [ ] Extraction **limitée** : `<title>`, `og:title`, `og:description`,
+  `og:image`, `<link rel="icon">`. Jamais le corps de la page. Tout est affiché
+  en texte (`textContent`), **jamais** en HTML.
+- [ ] Icône et image passent par `/api/media/thumb` : JPEG/PNG/WebP/GIF
+  seulement, SVG refusé, ≤ 2 Mo.
+- [ ] Aucune promesse de licence : « aperçu » + lien vers la source ; « libre de
+  droits » seulement si une API de licence (Openverse / Wikimedia) le dit.
+
+Tests : les cas SSRF de G2 (`127.0.0.1`, `169.254.169.254`, nom qui résout vers
+une IP privée, redirection vers une IP privée, SVG, image > 2 Mo, hôte hors
+liste), l'injection (titre avec `<script>`, `og:image` vers `127.0.0.1`,
+redirection vers une IP privée, page de 50 Mo, `robots.txt` qui interdit), et
+l'injection de prompt (URL écrite par le modèle → **zéro requête** sans clic).
+
+Critère de preuve : un résultat de `/web` affiche une carte avec icône, domaine,
+titre, description et image ; une URL écrite par le modèle affiche le bouton et
+ne déclenche aucune requête réseau tant qu'on n'a pas cliqué (assert réseau +
+CDP) ; captures clair et sombre ; contre-épreuve par test.
+
+### G9 — « Lire cette page » pour le modèle : spécification seulement
+
+Ajout de l'opérateur, 24/11. **Ne pas coder** : la décision lui revient.
+
+Le contenu d'une page peut contenir des consignes cachées et détourner le
+modèle ; c'est plus dangereux qu'un aperçu, qui ne lit que des métadonnées.
+
+Risques à écrire et à instruire : injection de prompt par le contenu de la page,
+exfiltration (le modèle lit une page qui lui dit quoi appeler ensuite), coût en
+jetons, droits d'auteur.
+
+Options à trancher :
+
+1. Outil **désactivé par défaut**, approbation **par appel** comme
+   `execute_code` ;
+2. Texte extrait balisé « contenu non fiable », jamais exécuté comme consigne ;
+3. Taille et nombre de jetons **bornés** ;
+4. Liste de **domaines autorisés**.
+
+Critère de preuve (quand ce sera décidé) : aucune lecture sans approbation,
+balisage présent dans le message d'outil, bornes mesurées, refus des domaines
+hors liste.
+
 ### Règles du lot 3 (identiques aux lots 1 et 2)
 
 Aucun push, aucun `--no-verify`, rien toucher à l'authentification ni à
@@ -2501,4 +2570,5 @@ ce qui est mesuré : une capacité non vérifiée s'écrit « non vérifiée ».
 
 `G0` (CI verte avant toute fonctionnalité) → `G1 + G4` (sûrs) → `G6` (note +
 procédure) → `G2 + G3` (surface réseau neuve : relecture sécurité **avant** le
-code) → `G5`.
+code) → `G8` (aperçus de liens, après le proxy de G2) → `G5`. `G9` reste une
+**spécification** : rien de codé sans décision de l'opérateur.

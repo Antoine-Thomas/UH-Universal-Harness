@@ -130,7 +130,15 @@ Les retours du 24/11 viennent de la **capture** de l'opérateur (pied de page
 `G0` (CI e2e verte : 1 échec le 23/11, `test_p3_14_role.py`, cause à trouver,
 pas de `sleep` ni de relance) → `G1 + G4` (petits, sûrs) → `G6` (note +
 procédure) → `G2 + G3` (surface réseau neuve, relecture sécurité **avant** le
-code) → `G5`.
+code) → `G8` (aperçus de liens, après le proxy de G2) → `G5`. `G9` (« lire
+cette page » pour le modèle) est une **spécification** : aucun code sans
+décision de l'opérateur.
+
+G8 et G9 sont un ajout de l'opérateur du 24/11, déjà inscrit en roadmap. Deux
+points à ne pas découvrir en route : l'aperçu automatique n'est permis que pour
+une URL **issue de l'outil de recherche** ou **collée par l'opérateur** — la
+provenance doit donc voyager avec le message, ce que rien ne fait aujourd'hui ;
+et l'icône comme l'image d'aperçu passent par `/api/media/thumb`, donc par G2.
 
 Cette branche (`docs/handoff-lot3`) est **locale** : le `pre-push` du dépôt
 refuse tout push sans `UH_PUSH_OK=1` posé par l'opérateur dans son propre
