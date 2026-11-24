@@ -209,6 +209,20 @@ def test_an_ipv6_answer_is_bracketed_in_the_pinned_url() -> None:
     assert calls[0].url.host == ipv6
 
 
+def test_the_accept_header_stays_permissive() -> None:
+    """Openverse répond 406 à une liste stricte : `Accept` doit rester large.
+
+    Mesuré le 24/11 sur api.openverse.org/v1/images/<id>/thumb/ : la liste
+    exacte des quatre types donne 406, `image/*` donne 200. Le type réel est de
+    toute façon décidé par les magic bytes.
+    """
+    transport, calls = transport_for()
+
+    media_proxy.fetch(URL, resolver=resolver_for(PUBLIC), transport=transport)
+
+    assert "*/*" in calls[0].headers["accept"]
+
+
 def test_the_default_allow_list_is_the_measured_one() -> None:
     assert set(media_proxy.ALLOWED_HOSTS) == {
         "api.openverse.org",
