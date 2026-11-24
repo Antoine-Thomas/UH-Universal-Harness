@@ -363,9 +363,7 @@ def test_the_web_image_command_uses_the_keyless_engines_when_no_key_is_configure
     monkeypatch.setattr(
         image_search,
         "search_images",
-        lambda *_args, **_kwargs: image_search.Result(
-            hits=[hit], failed={}, engines=["openverse"]
-        ),
+        lambda *_args, **_kwargs: image_search.Result(hits=[hit], failed={}, engines=["openverse"]),
     )
     transport = Transport({})
     result = commands._cmd_web(_session(toolset(transport)), "image cochons")
