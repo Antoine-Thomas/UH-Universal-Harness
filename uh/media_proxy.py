@@ -201,7 +201,10 @@ def fetch(
             # `Host` porte le nom : c'est ce que le serveur distant attend.
             "Host": pinned.host,
             "User-Agent": USER_AGENT,
-            "Accept": "image/png,image/jpeg,image/webp,image/gif",
+            # `Accept` reste large : Openverse répond **406** à une liste stricte
+            # (`image/png,image/jpeg,…`) et 200 à `image/*` — mesuré le 24/11. Le
+            # type est de toute façon décidé par les magic bytes, pas par l'en-tête.
+            "Accept": "image/*,*/*;q=0.5",
             "Accept-Encoding": "identity",
             # Un client par appel, et pas de connexion réutilisée : une poignée
             # gardée en vie contournerait la vérification de l'adresse.
