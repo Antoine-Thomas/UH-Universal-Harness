@@ -16,6 +16,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from playwright.sync_api import expect
 
 from .conftest import Server, open_app
 
@@ -78,19 +79,31 @@ def test_a_key_never_reaches_the_dom_and_can_be_deleted(
         assert CANARY not in journal_file.read_text(encoding="utf-8", errors="replace")
 
     # The masked hint is shown, with the delete button that was missing.
+    # Le panneau rend ses lignes après son GET /api/providers : compter la liste une
+    # seule fois, à date fixe, lisait l'état d'avant le rendu — c'est l'échec de
+    # `e2e / windows-latest` du 24/11 (« no row for the stored key »), reproduit de
+    # façon déterministe en retardant cette réponse de 3 s. On attend la ligne.
     rows = page.locator(".key-row")
-    assert rows.count() >= 1, "no row for the stored key: nothing can be deleted"
-    assert page.get_by_role("button", name="Supprimer la clé 1 de deepseek").is_visible()
+    expect(rows).to_have_count(1, timeout=15000)
+    remove = page.get_by_role("button", name="Supprimer la clé 1 de deepseek")
+    expect(remove).to_be_visible(timeout=15000)
 
     page.on("dialog", lambda dialog: dialog.accept())
-    page.get_by_role("button", name="Supprimer la clé 1 de deepseek").click()
-    page.wait_for_timeout(2000)
+    # La suppression est asynchrone : la réponse du DELETE est le seul repère sûr
+    # avant d'interroger le serveur, pas un délai de deux secondes.
+    with page.expect_response(
+        lambda response: (
+            response.request.method == "DELETE"
+            and f"/api/providers/{PROVIDER}/keys" in response.url
+        )
+    ) as deleted:
+        remove.click()
+    assert deleted.value.ok, deleted.value.status
 
     remaining = httpx.get(f"{server.base}/api/providers", headers=auth, timeout=10).json()
     keys = (remaining.get("keys") or {}).get(PROVIDER) or {}
     assert not keys.get("key_hints"), f"the key is still stored: {keys}"
-    page.wait_for_timeout(300)
-    assert page.locator(".key-row").count() == 0, "the row must disappear without a reload"
+    expect(rows).to_have_count(0, timeout=15000)
     context.close()
 
 
