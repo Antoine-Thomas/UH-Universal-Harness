@@ -101,6 +101,62 @@ python -c "import uh; print(uh.__file__)"   # must be inside the checkout
 A second `uh web` on another port is no longer a silent fallback: it says which
 instance already holds 8765 and exits 0 (`/healthz` is how it knows).
 
+### Le raccourci qui lance le dépôt (option `--from-checkout`)
+
+L'autre route, sans toucher au Python du système : le lanceur **épingle**
+l'interpréteur du dépôt au lieu de chercher `uh` dans le PATH.
+
+```powershell
+# depuis le dépôt, avec l'interpréteur qui a servi à l'installer
+uh install-shortcut --from-checkout
+```
+
+Le fichier généré (`$UH_HOME\uh-web.ps1`) contient alors deux lignes qui disent
+tout ce qu'il fera :
+
+```powershell
+$uhPython = 'C:\...\UH-Universal-Harness\.venv\Scripts\python.exe'
+& $uhPython -m uh.cli web --app @args
+```
+
+Il n'y a plus de `Get-Command uh` : soit cet interpréteur existe et il démarre,
+soit le lanceur affiche son chemin et s'arrête. C'est ce qui garantit que la
+fenêtre montre le code du dossier — le pied de page affiche `dépôt` avec le
+chemin du paquet et le commit (`/api/setup` : `origin`, `commit`, `dirty`),
+et non `paquet installé · <version>`.
+
+**Réversible en une commande**, sans rien réinstaller :
+
+```powershell
+uh install-shortcut          # même fichier, résolution par le PATH à nouveau
+```
+
+Le raccourci du Bureau ne bouge pas, aucun réglage système n'est modifié, rien
+ne démarre au démarrage de la session.
+
+**Vérifier** ce que le lanceur exécute vraiment :
+
+```powershell
+Select-String -Path "$HOME\.uh\uh-web.ps1" -Pattern 'uhPython|uh.Source'
+$env:PYTHONPATH = ''
+C:\ ; <l'interpréteur affiché ci-dessus> -c "import uh; print(uh.__file__)"
+```
+
+Lancer cette vérification **hors du dépôt** est essentiel : depuis la racine,
+Python ajoute le dossier courant à `sys.path` et importe le `uh` d'à côté quel
+que soit l'interpréteur. Mesuré le 24/11 sur ce poste — les deux interpréteurs
+donnent la même réponse depuis le dépôt, et deux réponses différentes depuis
+`C:\Users\searc` :
+
+```
+.venv\Scripts\python.exe            -> C:\...\UH-Universal-Harness\uh\__init__.py
+Python310\python.exe (le PATH)      -> C:\...\Python310\lib\site-packages\uh\__init__.py
+```
+
+Le test `tests/test_shortcut.py::test_the_pinned_interpreter_loads_this_checkout`
+fait exactement cette mesure, hors du dépôt, et échoue si l'interpréteur annoncé
+par le lanceur n'est pas celui qui charge le dépôt.
+
 ## Clean manual upgrade (Windows)
 
 `uh upgrade` does this itself. Run the sequence by hand when it cannot: pip answers
