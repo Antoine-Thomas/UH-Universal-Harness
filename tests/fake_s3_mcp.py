@@ -220,6 +220,12 @@ class _Presigner:
             self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
             self._thread.start()
         expiry = int(time.time() + max(float(ttl), 0.0))
+        if ttl <= 0:
+            # A zero-second link must be expired the moment it is handed out, not a
+            # tick later: truncating `now` to an int leaves a window where
+            # `time.time() > expiry` is still false. A test that raced that window
+            # failed on a loaded CI runner, which is a bug in the fake, not the test.
+            expiry -= 1
         signature = _sign(bucket, key, expiry)
         address = self._server.server_address
         host, port = str(address[0]), int(address[1])

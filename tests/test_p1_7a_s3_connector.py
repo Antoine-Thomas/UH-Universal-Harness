@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import contextlib
 import sys
-import time
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Tuple
 
@@ -155,7 +154,13 @@ def test_an_object_is_written_then_read_back(home: Path) -> None:
 
 
 def test_a_presigned_link_expires(home: Path) -> None:
-    """The link works, then stops working: both halves are observed."""
+    """One link serves the object, another is already dead: no clock to race.
+
+    The first version asked for a one-second link, fetched it, slept, fetched it
+    again - and on a loaded CI runner the first fetch arrived after the deadline.
+    Two links, each with its own lifetime, make the same proof without depending
+    on how fast the machine is.
+    """
     connect()
 
     with toolset() as (_client, tools):
@@ -165,18 +170,25 @@ def test_a_presigned_link_expires(home: Path) -> None:
                 {"bucket": BUCKET, "key": "lien.md", "content": "contenu"},
             )
         )
-        signed = payload(
+        live = payload(
             tools.call(
                 f"mcp__{NAME}__presigned_url",
-                {"bucket": BUCKET, "key": "lien.md", "expires_in": 1},
+                {"bucket": BUCKET, "key": "lien.md", "expires_in": 60},
+            )
+        )
+        # A second link that is already dead when it is handed out: the refusal is
+        # observed without racing a clock, which is what broke on a loaded runner
+        # when this test used `expires_in: 1` and a sleep.
+        expired = payload(
+            tools.call(
+                f"mcp__{NAME}__presigned_url",
+                {"bucket": BUCKET, "key": "lien.md", "expires_in": 0},
             )
         )
 
-        assert signed["url"].startswith("http://127.0.0.1:")
-        fresh = httpx.get(signed["url"], timeout=5.0)
-
-        time.sleep(1.2)
-        stale = httpx.get(signed["url"], timeout=5.0)
+        assert live["url"].startswith("http://127.0.0.1:")
+        fresh = httpx.get(live["url"], timeout=5.0)
+        stale = httpx.get(expired["url"], timeout=5.0)
 
         # The object itself is untouched: the link expired, the data did not.
         still = payload(
