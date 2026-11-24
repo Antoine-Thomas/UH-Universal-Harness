@@ -49,7 +49,12 @@ DEFAULT_PORTS = {"http": 80, "https": 443}
 MAX_BYTES = 512 * 1024
 #: Un 301 http->https, un slash final, un www : trois sauts couvrent le réel.
 MAX_REDIRECTS = 3
+#: Par requête : délai de connexion, puis délai de lecture.
 TIMEOUT = 6.0
+#: Pour l'aperçu entier — robots.txt, redirections et corps compris. Un serveur
+#: qui répond un octet toutes les cinq secondes ne dépasse aucun des délais
+#: ci-dessus ; il ne doit pas pour autant tenir la page ouverte indéfiniment.
+TOTAL_DEADLINE = 15.0
 USER_AGENT = "UH-Universal-Harness (+https://github.com/Antoine-Thomas/UH-Universal-Harness)"
 
 TITLE_MAX = 200
@@ -178,6 +183,7 @@ def _request_once(
     *,
     transport: Optional[httpx.BaseTransport],
     timeout: float,
+    stop: float,
 ) -> httpx.Response:
     request = httpx.Request(
         "GET",
@@ -193,9 +199,14 @@ def _request_once(
         },
         extensions={"sni_hostname": pinned.host},
     )
+    # Le budget total rogne le délai de cette requête : sans cela, trois
+    # redirections à six secondes chacune dépasseraient déjà le plafond.
+    remaining = stop - time.monotonic()
+    if remaining <= 0:
+        raise PreviewRefused("délai total dépassé avant la requête")
     client = httpx.Client(
         transport=transport or httpx.HTTPTransport(retries=0),
-        timeout=timeout,
+        timeout=min(timeout, remaining),
         follow_redirects=False,
     )
     try:
@@ -205,13 +216,25 @@ def _request_once(
         raise PreviewRefused(f"hôte injoignable : {type(exc).__name__}: {exc}") from exc
 
 
-def _read_capped(reply: httpx.Response, max_bytes: int) -> bytes:
+def _read_capped(reply: httpx.Response, max_bytes: int, *, stop: float) -> bytes:
+    """Les octets, bornés — **après** décompression, et dans le délai total.
+
+    ``iter_bytes`` rend le corps décodé (gzip inclus), là où ``iter_raw``
+    rendrait les octets du fil : le plafond porte donc bien sur ce qu'un serveur
+    peut réellement faire gonfler. On demande ``identity``, mais un serveur peut
+    l'ignorer, et c'est ce cas que compte la mesure.
+
+    Un serveur qui répond un octet à la fois n'atteint jamais un délai par
+    requête : le budget total, vérifié à chaque morceau, est ce qui l'arrête.
+    """
     declared = int(reply.headers.get("content-length") or 0)
     if declared > max_bytes:
         raise PreviewRefused(f"page trop lourde annoncée : {declared} octets")
     chunks: List[bytes] = []
     total = 0
     for chunk in reply.iter_bytes():
+        if time.monotonic() > stop:
+            raise PreviewRefused("délai total dépassé pendant la lecture")
         total += len(chunk)
         if total > max_bytes:
             raise PreviewRefused(f"page trop lourde : plus de {max_bytes} octets")
@@ -226,6 +249,7 @@ def _fetch(
     transport: Optional[httpx.BaseTransport],
     timeout: float,
     max_bytes: int,
+    stop: float,
 ) -> Tuple[Pinned, str, str, bytes, int]:
     """Récupère la page en suivant les redirections **une par une, revalidées**.
 
@@ -235,7 +259,7 @@ def _fetch(
     current = pinned
     final = raw
     for hop in range(MAX_REDIRECTS + 1):
-        reply = _request_once(current, transport=transport, timeout=timeout)
+        reply = _request_once(current, transport=transport, timeout=timeout, stop=stop)
         try:
             if reply.is_redirect:
                 location = reply.headers.get("location")
@@ -247,12 +271,17 @@ def _fetch(
                 # résolution, adresse publique. C'est ici qu'un 302 vers
                 # 127.0.0.1 tombe.
                 target = urljoin(final, location)
-                current = pin(target, resolver=resolver)
+                revalidated = pin(target, resolver=resolver)
+                if current.scheme == "https" and revalidated.scheme == "http":
+                    # Un site chiffré qui renvoie vers du clair ne fait pas
+                    # « un saut de plus » : il rend la page lisible en chemin.
+                    raise PreviewRefused("redirection refusée : https -> http")
+                current = revalidated
                 final = target
                 continue
             if reply.status_code != 200:
                 raise PreviewRefused(f"réponse HTTP {reply.status_code}")
-            body = _read_capped(reply, max_bytes)
+            body = _read_capped(reply, max_bytes, stop=stop)
             return current, final, reply.headers.get("content-type", ""), body, hop
         finally:
             reply.close()
@@ -298,12 +327,22 @@ def _robots_allows(
     resolver: Optional[Resolver],
     transport: Optional[httpx.BaseTransport],
     timeout: float,
+    stop: float,
 ) -> Tuple[bool, str]:
-    """``(autorisé, état)`` — état : ``absent``, ``allowed`` ou ``disallowed``.
+    """``(autorisé, état)`` — état : ``allowed``, ``absent``, ``forbidden``,
+    ``disallowed``.
 
-    Un robots.txt **injoignable** n'est pas une interdiction : on autorise, et la
-    note le dit. Bloquer tout aperçu parce qu'un site ne répond pas au chemin
-    ``/robots.txt`` transformerait une panne en censure.
+    Suit la RFC 9309 (§2.3.1.4, vérifiée le 24/11) : « if the robots.txt file is
+    unreachable due to server or network errors, this means the robots.txt file
+    is undefined and the crawler MUST assume complete disallow ». Donc :
+
+    * **4xx** — le fichier n'existe pas : accès autorisé (état ``absent``) ;
+    * **5xx, ou injoignable** — disallow complet, et l'aperçu est refusé ;
+    * autre statut (3xx non suivi, 1xx…) — traité comme indisponible, donc
+      refusé : en cas de doute sur un fichier qui *restreint*, on ne devine pas.
+
+    La version précédente autorisait sur 5xx et sur erreur réseau : c'était un
+    écart avec la norme, dans le sens permissif.
     """
     key = f"{scheme}://{pinned.host_header}"
     cached = _ROBOTS.get(key)
@@ -314,18 +353,26 @@ def _robots_allows(
         robots_url = f"{scheme}://{pinned.host}/robots.txt"
         try:
             final_pin = pin(robots_url, resolver=resolver)
-            reply = _request_once(final_pin, transport=transport, timeout=timeout)
-        except PreviewRefused:
-            _ROBOTS[key] = (now + ROBOTS_TTL, [], "absent")
-            return True, "absent"
+            reply = _request_once(final_pin, transport=transport, timeout=timeout, stop=stop)
+        except PreviewRefused as exc:
+            _ROBOTS[key] = (now + ROBOTS_TTL, [], "forbidden")
+            raise PreviewRefused(
+                f"robots.txt injoignable, disallow complet (RFC 9309) : {exc}"
+            ) from exc
         try:
-            if reply.status_code != 200:
+            status = reply.status_code
+            if 400 <= status < 500:
                 _ROBOTS[key] = (now + ROBOTS_TTL, [], "absent")
                 return True, "absent"
-            text = _read_capped(reply, 64 * 1024).decode("utf-8", "replace")
+            if status != 200:
+                _ROBOTS[key] = (now + ROBOTS_TTL, [], "forbidden")
+                raise PreviewRefused(
+                    f"robots.txt indisponible (HTTP {status}), disallow complet (RFC 9309)"
+                )
+            text = _read_capped(reply, 64 * 1024, stop=stop).decode("utf-8", "replace")
         except PreviewRefused:
-            _ROBOTS[key] = (now + ROBOTS_TTL, [], "absent")
-            return True, "absent"
+            _ROBOTS[key] = (now + ROBOTS_TTL, [], "forbidden")
+            raise
         finally:
             reply.close()
         rules, _wildcard = _robots_rules(text)
@@ -444,27 +491,42 @@ def preview(
     timeout: float = TIMEOUT,
     max_bytes: int = MAX_BYTES,
     check_robots: bool = True,
+    deadline: float = TOTAL_DEADLINE,
 ) -> Page:
     """Un aperçu de ``raw``, ou :class:`PreviewRefused`.
 
     ``resolver`` et ``transport`` existent pour les tests : le chemin par défaut
     résout vraiment et se connecte vraiment, sur l'adresse épinglée.
+    ``deadline`` borne l'aperçu **entier** : robots.txt, redirections et lecture
+    du corps comptent dans le même budget.
     """
+    stop = time.monotonic() + deadline
     pinned = pin(raw, resolver=resolver)
     notes: List[str] = []
     state = "non-demandé"
     if check_robots:
         path = urlsplit(raw).path or "/"
         allowed, state = _robots_allows(
-            pinned.scheme, pinned, path, resolver=resolver, transport=transport, timeout=timeout
+            pinned.scheme,
+            pinned,
+            path,
+            resolver=resolver,
+            transport=transport,
+            timeout=timeout,
+            stop=stop,
         )
         if not allowed:
             raise PreviewRefused(f"robots.txt interdit cette page : {path}")
         if state == "absent":
-            notes.append("robots.txt injoignable : aperçu autorisé")
+            notes.append("robots.txt absent (4xx) : accès autorisé")
 
     final_pin, final_url, content_type, body, hops = _fetch(
-        raw, resolver=resolver, transport=transport, timeout=timeout, max_bytes=max_bytes
+        raw,
+        resolver=resolver,
+        transport=transport,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        stop=stop,
     )
     declared = (content_type or "").split(";")[0].strip().lower()
     if declared and "html" not in declared and "xml" not in declared:
@@ -490,6 +552,7 @@ def preview(
 
 __all__ = [
     "ALLOWED_SCHEMES",
+    "TOTAL_DEADLINE",
     "DEFAULT_PORTS",
     "MAX_BYTES",
     "MAX_REDIRECTS",
