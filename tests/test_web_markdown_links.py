@@ -56,10 +56,62 @@ def test_code_is_never_turned_into_a_link() -> None:
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
-def test_a_url_that_contains_a_tab_name_is_left_alone() -> None:
+def test_a_bare_url_becomes_a_clickable_link() -> None:
     (html,) = render(["voir https://example.com/Connexions"])
-    assert "<a " not in html
-    assert "https://example.com/Connexions" in html
+    assert html.count("<a ") == 1
+    assert (
+        '<a href="https://example.com/Connexions" target="_blank" '
+        'rel="noopener noreferrer">https://example.com/Connexions</a>' in html
+    )
+    # Le nom d'onglet dans l'adresse ne devient pas un second lien.
+    assert "?panel=" not in html
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+@pytest.mark.parametrize(
+    ("text", "href"),
+    [
+        # Fin de phrase : le point reste dans la phrase.
+        ("Voir https://exemple.fr/page.", "https://exemple.fr/page"),
+        # Entre parenthèses : la fermeture appartient à la phrase.
+        ("Voir (https://exemple.fr/page).", "https://exemple.fr/page"),
+        # Parenthèses ouvertes par l'adresse elle-même : elles restent dedans.
+        (
+            "https://fr.wikipedia.org/wiki/Python_(langage_de_programmation)",
+            "https://fr.wikipedia.org/wiki/Python_(langage_de_programmation)",
+        ),
+        # Esperluette : le href porte l'entité, jamais un & nu.
+        ("https://exemple.fr/a?x=1&y=2", "https://exemple.fr/a?x=1&amp;y=2"),
+    ],
+)
+def test_the_link_stops_where_the_address_stops(text: str, href: str) -> None:
+    (html,) = render([text])
+    assert html.count("<a ") == 1, html
+    assert f'href="{href}"' in html, html
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_a_quote_or_an_angle_bracket_never_enters_the_link() -> None:
+    quoted, bracketed = render(['Voir "https://exemple.fr/x".', "Voir <https://exemple.fr/y>"])
+    assert 'href="https://exemple.fr/x"' in quoted
+    assert "&quot;" not in quoted.split("<a ")[1].split("</a>")[0]
+    assert 'href="https://exemple.fr/y"' in bracketed
+    assert "&gt;" not in bracketed.split("<a ")[1].split("</a>")[0]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_only_http_and_https_become_links() -> None:
+    html = render(["javascript:alert(1) data:text/html,x file:///etc/passwd"])
+    assert "<a " not in "\n".join(html)
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_a_bare_url_in_code_is_never_a_link() -> None:
+    inline, fenced = render(
+        ["Le code `https://exemple.fr` reste du code", "```\nhttps://exemple.fr\n```"]
+    )
+    assert "<a " not in inline and "https://exemple.fr" in inline
+    assert "<a " not in fenced
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
@@ -73,3 +125,7 @@ def test_the_source_keeps_the_rule() -> None:
     assert "const TAB_LINKS" in source
     assert '"/?panel=conn"' in source and '"/?panel=local"' in source
     assert "linkTabs(" in source
+    # L'autolien des adresses nues, avec la même sûreté que les liens Markdown.
+    assert "function autolink(" in source and "BARE_URL" in source
+    assert 'rel="noopener noreferrer"' in source
+    assert "javascript:" not in source.split("function autolink(")[1].split("function ")[0]
