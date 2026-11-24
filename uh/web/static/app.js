@@ -2,6 +2,7 @@
 // Served under a strict CSP: no inline script, no inline style, no eval.
 
 import { renderMarkdown } from "./markdown.js";
+import { drawCards, maybeVideoCard } from "./cards.js";
 
 const state = {
   sessionId: null,
@@ -396,6 +397,7 @@ function appendMessage(role, text, messageId, artifacts) {
   }
   box.appendChild(content);
   $("messages").appendChild(box);
+  if (role === "assistant") maybeVideoCard(box, text, { session: state.sessionId });
   if (role === "assistant") {
     // Une seule barre, et seulement s'il y a de la prose : un message qui n'est
     // qu'une image ou un statut n'a rien à noter ni à lire (lot 2, point 1).
@@ -2808,6 +2810,11 @@ async function sendMessage(text) {
               toolCard(data.name, null, data.content);
             }
           });
+        } else if (event === "cards") {
+          guardedStep("cards", () => {
+            drawCards(assistant, data.cards, { session: state.sessionId });
+            $("messages").scrollTop = $("messages").scrollHeight;
+          });
         } else if (event === "artifacts") {
           guardedStep("artifacts", () => {
             // Bytes the server already fetched and bounded: the page draws them
@@ -2905,6 +2912,7 @@ async function sendMessage(text) {
               assistantContent.innerHTML = renderMarkdown(assistantText, {
                 artifacts: artifactFiles,
               });
+              maybeVideoCard(assistant, assistantText, { session: state.sessionId });
             }
           });
         }

@@ -2389,3 +2389,68 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
 .voice-test-name { min-width: 140px; }
 .voice-install { display: flex; flex-direction: column; gap: 6px; }
 .voice-install-output { max-height: 180px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+
+/* --- cartes : résultats web, galerie d'images, vidéo ---------------------- */
+/* Même palette que le reste : le panneau, la bordure, l'accent. Rien de neuf. */
+.cards { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+.web-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.web-card .card-title { display: block; font-weight: 600; color: var(--link); text-decoration: none; }
+.web-card .card-title:hover, .web-card .card-title:focus-visible { text-decoration: underline; }
+.card-meta { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.card-domain { font-family: var(--mono); }
+.card-snippet { margin: 6px 0 0; font-size: 13px; color: var(--text); }
+.card-licence { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.card-source { color: var(--link); }
+.card-provider { font-family: var(--mono); }
+.card-note { margin: 2px 0 0; font-size: 12px; color: var(--muted); font-style: italic; }
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.gallery-item {
+  margin: 0;
+  background: var(--tool);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.gallery-img { display: block; width: 100%; height: 130px; object-fit: cover; background: var(--accent-soft); }
+.gallery-item figcaption { padding: 8px 10px; }
+.gallery-item .card-title { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.gallery-item.unavailable .gallery-img { opacity: 0.25; }
+.gallery-item.unavailable::after {
+  content: "vignette indisponible (voir la raison ci-dessous)";
+  display: block;
+  padding: 0 10px 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.video-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 10px 0 4px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.video-thumb { width: 160px; height: 90px; object-fit: cover; border-radius: 6px; background: var(--accent-soft); }
+.video-body { display: flex; flex-direction: column; gap: 4px; }
+.video-body .card-title { color: var(--link); font-weight: 600; text-decoration: none; }
+.video-body .card-title:hover { text-decoration: underline; }
+.video-body .notice-action { align-self: flex-start; }
+
+@media (max-width: 720px) {
+  .video-card { flex-direction: column; }
+  .video-thumb { width: 100%; height: auto; }
+}
