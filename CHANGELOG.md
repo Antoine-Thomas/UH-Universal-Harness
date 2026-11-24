@@ -15,14 +15,86 @@ Conventions worth knowing:
 
 ## [Unreleased]
 
+Rien : les deux entrées qui étaient ici sont passées dans la 1.9.3 ci-dessous.
+
+## [1.9.3] — à publier (numéro à confirmer : 1.10.0 si la galerie d'images de G2
+entre dans la même version)
+
+Tout ce qui est sur `main` depuis `v1.9.2`, plus ce que portent les PR du lot 3
+(G0, G1, G4, G6) — la note ne devient vraie qu'une fois ces PR fusionnées.
+
+### Added
+
+- **Dictée GPU** (`uh/voice_gpu.py`, `uh/voice_plan.py`) : le plan de voix nomme
+  le moteur qui sert (`cpu`, `cuda`), pourquoi, et ce qui manque ; la VRAM libre
+  est relue à chaque dictée au lieu d'être supposée ; « GPU » n'est promis
+  qu'après un chargement CUDA réussi. Garde dynamique de VRAM livrée ; les quatre
+  combinaisons CPU/GPU × base/small ne sont **pas** mesurées (deux mesures
+  existent, sur une tonalité).
+- **Recherche web en chaîne** (`uh/toolsets/web_search.py`) : Brave → Tavily →
+  SearXNG → DuckDuckGo, avec `failed` par moteur ; `/web image` reste Brave seul
+  (clé requise) et l'interface le dit au lieu de promettre des photos.
+- **Rendu honnête** (`uh/images.py`) : un dessin produit par du code porte
+  « illustration vectorielle, pas une photo », sous le cadre et dans le message
+  d'outil que le modèle relit.
+- **Une adresse nue devient un lien** (`uh/web/static/markdown.js`) : la sortie de
+  `/web` est du texte brut ; `http(s)://…` y devient un lien (nouvel onglet,
+  `rel="noopener noreferrer"`), ponctuation finale exclue, jamais dans un bloc de
+  code ni dans un lien existant, jamais `javascript:` ni `data:`.
+- **Le raccourci qui lance le dépôt** (`uh/shortcut.py`, `uh/cli.py`) :
+  `uh install-shortcut --from-checkout` épingle l'interpréteur de `.venv` dans
+  `uh-web.ps1` au lieu de chercher `uh` dans le PATH ; réversible par
+  `uh install-shortcut`, sans réinstaller. Procédure et vérification :
+  `docs/INSTALL.md`.
+- **Origine visible** (`uh/web/app.py`) : `/api/setup` et le pied de page donnent
+  `origin` (`dépôt` ou `paquet installé`), le chemin du paquet, `python`, le
+  commit et l'état `dirty`.
+
+### Changed
+
+- **Panneaux en français, contrastes relevés** (`style.css`, `app.js`) : textes
+  traduits, bordure des contrôles à 4.5:1.
+- **Une barre de retour par réponse** : `Écouter` n'apparaît que sur de la vraie
+  prose ; une réponse en échec ne garde ni vote ni bouton.
+- **Messages d'erreur séparés** : « UH ne répond plus » (serveur arrêté, avec un
+  bouton Recharger) et l'échec du fournisseur ne sont plus la même phrase ; la
+  bannière de mise à jour ne s'allume plus sur un dépôt de développement.
+- **Vignettes et cartes** : rien n'est promis tant que G2/G3 ne sont pas livrés ;
+  la CSP ne bouge pas et aucune image distante n'est chargée par la page.
+
 ### Fixed
 
-- **Le chien de garde du bail ne s'arme plus sans fenêtre** (`uh/web/app.py`) : il
-  exige `--app` **et** `open_browser` (`managed_window`). `uh web --app --no-open`
-  (CI, tests, headless) ne s'arrête plus tout seul après 45 s sans battement de
-  bail. Test : `test_no_open_disables_the_watchdog_even_with_app_window`.
-- **e2e `test_p3_14_role.py`** : attente explicite des `GET /api/sessions/` au
-  rechargement de rôle, qui rendait Playwright instable sous Windows et Ubuntu.
+- **e2e rouge par tuyau saturé** (`tests/e2e/conftest.py`) : le harnais ne lisait
+  la sortie du serveur que jusqu'à la ligne qui porte l'URL ; une fois le tuyau
+  plein, les threads du serveur se figent dans `logging.emit` et le serveur ne
+  répond plus à rien — 30 s d'attente dans `test_p3_14_role`. Un fil draine la
+  sortie pendant toute la vie du serveur ; contre-épreuve
+  `tests/e2e/test_server_output.py`.
+- **Attentes écrites à date fixe** (`tests/e2e/test_keys_dom.py`) : la ligne de la
+  clé et la réponse du `DELETE` sont attendues, plus comptées après un délai.
+- **Panneau Fournisseurs pris pour un formulaire de connexion** (PR #45) : plus de
+  `<form>` autour d'un champ secret, noms neutres, `autocomplete="new-password"`,
+  bouton désactivé tant que le champ est vide — Edge ne préremplit plus `model`,
+  `account`, `key` et `token`.
+- **Un `![x](y.png)` ne reste plus écrit au-dessus de l'image**
+  (`uh/images.py`, `uh/web/static/markdown.js`) : la référence disparaît quand les
+  octets sont affichés, et devient un lien texte sinon — jamais `<img>` distant.
+- **Le chien de garde du bail** ne s'arme plus sans fenêtre (`--app` **et**
+  `open_browser`).
+- **Le micro est relâché à l'arrêt de l'enregistrement**, pas à la réponse du
+  réseau.
+- **`WinDLL` et les DLL NVIDIA** sont chargés par nom : `voice_gpu` type-check
+  hors Windows et la sonde ne dépend plus de l'ordre de recherche.
+
+### Tests
+
+- `tests/e2e/test_links_in_the_page.py` : une adresse nue est cliquée pour de vrai
+  et s'ouvre dans un nouvel onglet, dans la vraie page.
+- `tests/e2e/test_images_in_the_page.py` : une réponse qui porte l'artefact
+  n'affiche plus le texte brut, et aucun `<img>` distant n'apparaît.
+- `tests/test_shortcut.py::test_the_pinned_interpreter_loads_this_checkout` :
+  lance l'interpréteur annoncé par le lanceur, hors du dépôt, et échoue s'il ne
+  charge pas le `uh` du dossier.
 
 ## [1.9.2] — 2026-11-22 *(PyPI — référence stable)*
 
