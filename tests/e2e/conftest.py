@@ -16,6 +16,7 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -63,6 +64,8 @@ class Server:
         self.url = ""
         self.lines: list[str] = []
         self.proc: subprocess.Popen | None = None
+        #: Le fil qui vide le tuyau du serveur jusqu'à sa mort (voir ``_pump``).
+        self._reader: threading.Thread | None = None
 
     @property
     def base(self) -> str:
@@ -93,19 +96,57 @@ class Server:
             encoding="utf-8",
             errors="replace",
         )
-        deadline = time.time() + 45
         assert self.proc.stdout is not None
+        # Vider le tuyau dès maintenant, et jusqu'à la mort du serveur : c'est le
+        # seul moyen de ne pas le bloquer (voir `_pump`).
+        self._reader = threading.Thread(target=self._pump, name="uh-e2e-server-output", daemon=True)
+        self._reader.start()
+        deadline = time.time() + 45
+        scanned = 0  # index de la prochaine ligne que la boucle doit relire
         while time.time() < deadline:
-            line = self.proc.stdout.readline()
-            if not line:
+            while scanned < len(self.lines):
+                match = re.search(
+                    rf"(http://127\.0\.0\.1:{self.port}/\?token=\S+)", self.lines[scanned]
+                )
+                scanned += 1
+                if match:
+                    self.url = match.group(1)
+                    self.wait_ready()
+                    return self
+            time.sleep(0.05)
+            # Un serveur mort avant son URL ne mérite pas 45 s d'attente.
+            if self.proc.poll() is not None and scanned >= len(self.lines):
                 break
-            self.lines.append(line)
-            match = re.search(rf"(http://127\.0\.0\.1:{self.port}/\?token=\S+)", line)
-            if match:
-                self.url = match.group(1)
-                self.wait_ready()
-                return self
         raise AssertionError("server never printed its URL:\n" + "".join(self.lines[-12:]))
+
+    def _pump(self) -> None:
+        """Lire la sortie du serveur jusqu'à EOF, en gardant les dernières lignes.
+
+        ``start()`` ne lisait ce tuyau que jusqu'à la ligne qui porte l'URL, puis
+        plus personne. Or ``uh web`` écrit chaque requête (journal d'accès
+        d'uvicorn) sur ce tuyau : quand il est plein, les threads se bloquent dans
+        ``logging.emit`` et le serveur cesse de répondre à **tout**.
+
+        Mesuré le 24/11 sur le test qui échouait : trois threads bloqués dans
+        ``logging.emit``, 5,8 Ko en attente dans le tuyau, ``/healthz`` (sans
+        authentification) en timeout à 3,5 s, puis **0,70 s** dès qu'on vide le
+        tuyau. C'était le rouge e2e du 23/11 — ``test_p3_14_role``, second
+        rechargement : le GET des messages n'arrivait jamais, et le test attendait
+        30 s une réponse que le serveur ne pouvait plus produire.
+        """
+        stream = self.proc.stdout if self.proc else None
+        if stream is None:
+            return
+        try:
+            for line in stream:
+                self.lines.append(line)
+                # Un serveur bavard ne doit pas faire grossir la mémoire du test.
+                # Jamais avant l'URL : `start()` lit la liste par index, et couper
+                # la tête décalerait cet index pendant la recherche.
+                if self.url and len(self.lines) > 4000:
+                    del self.lines[:2000]
+        except (ValueError, OSError):  # tuyau fermé par `stop()`
+            return
 
     def wait_ready(self, timeout: float = 30.0) -> "Server":
         """Block until uvicorn really answers, not until it prints its URL.
@@ -136,6 +177,16 @@ class Server:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:  # pragma: no cover - stubborn child
                 self.proc.kill()
+        # Le fil de lecture s'arrête de lui-même sur EOF ; on ferme et on l'attend
+        # pour ne pas laisser un thread qui tient le tuyau d'un test à l'autre.
+        try:
+            if self.proc.stdout is not None:
+                self.proc.stdout.close()
+        except OSError:  # pragma: no cover - already closed
+            pass
+        if self._reader is not None:
+            self._reader.join(timeout=2)
+            self._reader = None
         self.proc = None
 
 
