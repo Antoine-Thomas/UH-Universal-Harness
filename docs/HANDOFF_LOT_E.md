@@ -1,163 +1,148 @@
-# Handoff — après le lot 2 (voix, GPU) et le premier volet de D
+# Handoff — après le lot E, avant le lot 3
 
-Écrit avant un `/new`, pour qu'une session neuve reprenne sans rien deviner.
-Ce fichier ne raconte pas l'histoire : il donne l'état, les preuves et l'ordre des
-chantiers restants.
+Écrit le 24/11 sur `main` `90a5763`, pour un `/new`. Ce fichier donne l'état, les
+preuves et l'ordre des chantiers ; il ne raconte pas l'histoire. Il est la
+référence de la **partie B** du prompt « lot 3 ».
 
-## 1. État des branches (tout est local, rien n'est poussé)
+Son contenu précédent (l'état d'avant le lot E) reste dans l'historique git :
+tout ce qu'il listait comme à faire est livré, et la section 2 le nomme.
+
+## 1. Le dépôt, tel qu'il est
 
 ```text
-* 143200a feat(web): say that UH stopped answering, and stop crying wolf on a checkout   <- HEAD
-* b9ba3cb feat(voice): dictation follows the measured device, DLL paths first
-* eae71aa docs(roadmap): the GPU dictation step, and the measure that gates it
-* 39cbb7b feat(voice): offer the GPU dictation step, and verify it by loading CUDA
-* 57e9e5c fix(voice): the install command names the interpreter that serves the UI
-* 087f29a fix(voice): only promise the GPU when CUDA actually loads
-* 84b4d08 docs(roadmap): voice engine plan delivered, with its proof
-* 3a7205e feat(voice): say which engine serves the voice, why, and what is missing
-* 1e07684 docs(roadmap): the six field returns of 23/11, each with its proof criterion
-* 4a80a63 docs(handoff): the full registry table, the three readings, and the ffmpeg lead
-* 3ab99ac docs(roadmap): the two unstable e2e tests, with the one measurement we have
-* d0b01cb docs(roadmap): lot 2 points 1 and 2, with their measurements
-* 69cf3c9 feat(web): the microphone never survives its context
-* 8040230 docs(handoff): the registry cannot witness a browser capture, and the python has no trace
-* 068e160 feat(web): one feedback bar per answer, and "Ecouter" only on real text
-* 4746893 docs(handoff): who held the microphone, measured, before any dictation code
-* 65b07ee docs(dossier): architecture, roadmap and modules as a paginated PDF
-* 4746bf1 docs(readme): 2030 tests, measured on 1d6be9d
-* a354c60 docs(roadmap): P5-UI lot 2 (eight points), and the state after PR #44
-* 50ba243 docs(changelog): fix the 1.9.2 lease entry, and record PR #44
-* a0e2e23 Fix/p5ui autofill main (#45)        <- main / origin/main (squash de l'autofill)
+branche   main, à jour sur origin/main
+HEAD      90a5763  fix(ui): three distinct labels for the provider badge  (24/11 01:40)
+arbre     propre (git status --short ne renvoie rien)
+poussé    tout ; aucune branche locale en avance sur origin/main
+restes    backup/pre-amend-c006690, docs/update-roadmap-post-pr44 : anciennes,
+          non fusionnées, non poussées, laissées telles quelles
+venv      .venv, Python 3.10.11, `uh` importé en éditable depuis le dépôt
 ```
 
-Branche courante : `feat/p5ui-d-offline-copy` (volet 1 de D), posée sur `feat/voice-gpu`.
-La pile est linéaire sur `main` (`a0e2e23`), rebasée le 23/11 avec
-`--onto main 1d6be9d --update-refs`, les trois commits d'autofill supprimés (contenu déjà
-dans main). Tags de sauvegarde : `backup/<branche>-avant-rebase` (5 tags).
+Les retours du 24/11 viennent de la **capture** de l'opérateur (pied de page
+« paquet installé · 1.9.2 »), pas de ce dépôt : voir G6 et la section 5.
 
-### Ordre de poussée (et de fusion) — chaque PR vise la branche du dessous
+## 2. Livré depuis v1.9.2 — vérifié dans le code, pas dans les messages
 
-| Branche | PR vers | Contenu |
+| Commit | Ce que le code fait maintenant | Où |
 |---|---|---|
-| `docs/dossier-architecture` | `main` | dossier d'architecture (sources ; le PDF n'est pas suivi) |
-| `feat/p5ui-lot2-point1` | `docs/dossier-architecture` | une barre de retour par réponse, « Écouter » conditionné |
-| `feat/p5ui-lot2-point2` | `feat/p5ui-lot2-point1` | micro : arrêt garanti dans toutes les sorties |
-| `feat/p5ui-lot2-point7` | `feat/p5ui-lot2-point2` | moteur vocal décidé, panneau Voix, commandes nominatives |
-| `feat/voice-gpu` | `feat/p5ui-lot2-point7` | étape GPU + vérification réelle + banc |
-| `feat/p5ui-d-offline-copy` | `feat/voice-gpu` | « UH ne répond plus » + `Recharger`, bandeau désarmé en dev |
+| `71c35d0` | Chaîne de moteurs web : Brave → Tavily → SearXNG → DuckDuckGo HTML. Un moteur sans clé n'est **pas candidat** (aucun appel réseau) ; un échec n'arrête pas la chaîne et son nom reste dans `failed`. `/web image` n'a qu'un moteur : Brave Images. | `uh/toolsets/web_search.py` (`engine_chain` :213, `search` :452, `image_engines` :494, `search_images` :502) |
+| `c5b8f8d` | Textes des panneaux en français, bordure de contrôle remontée à 4,5:1. | `uh/web/static/index.html`, `style.css` |
+| `9da68d3` | Un dessin produit par `execute_code` est étiqueté : `ILLUSTRATION_NOTE` voyage avec l'artefact (sous le cadre) **et** avec le message d'outil que le modèle relit. | `uh/images.py:45`, `uh/console.py:900-940` |
+| `6824770` | Garde VRAM **relue à chaque dictée** (`MIN_FREE_VRAM_MB` = 1 536) ; sous le seuil, ou si `nvidia-smi` ne répond pas, la dictée passe en CPU `int8` et le panneau nomme les Go mesurés. | `uh/voice_gpu.py`, `uh/audio/local.py` |
+| `7e16856` | Le micro est libéré à l'arrêt de l'enregistrement, pas à la réponse du réseau. | `uh/web/static/app.js` |
+| `39e2a0d` | Une bulle en échec ne garde ni vote ni « Écouter ». | `uh/web/static/app.js` |
+| `90a5763` | Trois libellés distincts pour la pastille fournisseur (au lieu d'un seul). | `uh/web/static/app.js` |
+| `0601fe6` | L'e2e attend la disparition du splash avant de cliquer dans la suite micro. | `tests/e2e/` |
 
-Règles de fusion tenues : `UH_PUSH_OK=1` est posé par l'opérateur, jamais par l'agent ;
-pas de `gh` ; pas de squash ; on ne supprime pas une branche de base avant que la
-suivante soit fusionnée.
+## 3. Mesuré
 
-## 2. Bilan mesuré
+- **Suite unitaire** : `2114 passed, 2 skipped, 104 deselected` en 415,95 s
+  (`…/hermes/cache/scratch/uh-suite-codex.log`, 24/11 01:06). Le log précède le
+  commit `90a5763` de 34 min ; celui-ci ne touche qu'un libellé de pastille et
+  n'a pas été rejoué.
+- **e2e en CI, 23/11 19:52** : `1 failed, 96 passed, 3 skipped`. L'échec est
+  `tests/e2e/test_p3_14_role.py::test_a_preset_chosen_in_the_header_survives_a_reload`
+  (`Page.expect_response: Timeout 30000ms exceeded`), `scratch/e2e49.log`.
+  **La CI était rouge à cette date** ; une attente explicite existe depuis
+  `1d6be9d` (PR #44), la mesure n'a pas été refaite.
+- **e2e local, 23/11 15:06** : `99 passed` en 13 min 39 (`uh-e2e-d2.log`), avant
+  les derniers commits de la pile.
+- `ruff check`, `ruff format --check`, `mypy` : verts à la dernière passe du lot E,
+  aucune mesure refaite le 24/11.
 
-### Ce qui est vert
+## 4. Non mesuré — à ne pas présenter autrement
 
-- **Unitaire : 2073 passed, 2 skipped, 99 deselected** (exit 0) — `uh-suite-d2.log`.
-- **e2e : 99 passed en 13 min 39** (exit 0) — `uh-e2e-d2.log`.
-- `ruff check`, `ruff format --check` et `mypy` verts (87 fichiers source).
-- Commit `143200a` : texte hors ligne + bandeau de version désarmé sur un checkout de
-  développement, avec contre-épreuve (garde `editable` retirée → test rouge).
+- **Les 4 combinaisons CPU/GPU × base/small** sur une vraie phrase, chat chargé :
+  le script existe (`scratch/bench4.py` : `cpu_base`, `cpu_small`, `gpu_base`,
+  `gpu_small`) et n'a **jamais rendu** (cache Hugging Face stable 45 min, GPU
+  occupé par le chat ; processus arrêté par l'agent).
+- Seules **deux** mesures existent, sur une **tonalité de 10 s**, donc en débit :
+  CPU `int8` 4,21 s, GPU `int8_float16` 0,96 s, VRAM 2 008 Mo (delta 278 Mo),
+  `scratch/bench-out.json`. Ce n'est pas une mesure de qualité.
+- La fidélité de transcription sur de la parole réelle : une phrase SAPI française
+  a été générée (`scratch/sapi-fr.wav`), le banc n'a pas été lancé.
+- Openverse, Wikimedia Commons, oEmbed YouTube : **aucun code, aucune mesure**
+  (voir G2, G3).
+- Le relevé 3 du registre micro reste non mesuré ; `docs/HANDOFF_POINT0.md` le dit.
 
-### La voix et le GPU, tels que mesurés
+## 5. Pièges payés une fois chacun
 
-- `cublas64_12`, `cublasLt64_12`, `cudnn64_9` : **introuvables avant**
-  `os.add_dll_directory`, **les trois se chargent après** sur les dossiers
-  `nvidia/{cublas,cudnn,cuda_nvrtc}/bin` du venv. `ctranslate2.get_cuda_device_count()`
-  rend **1**. Ce défaut-là était réel : une machine correctement équipée aurait répondu
-  « CUDA absent » indéfiniment.
-- `voice_gpu.verify()` réel : 4 étapes OK, transcription d'un échantillon de 1 s
-  **3,5 s sur GPU** (chargement du modèle inclus).
-- Banc 10 s tonalité, chat **non chargé** : CPU `int8` **4,21 s**, GPU `int8_float16`
-  **0,96 s**, VRAM après passage GPU **2 008 Mo**, delta **278 Mo**.
-- Panneau Voix : moteur + raison, ligne machine, « Vérifier mon installation » (état,
-  version, commande), « Tester la voix » par moteur, installation après clic seulement,
-  et toute commande `pip` nominative — `"<sys.executable>" -m pip install …`, prouvé par
-  un test qui lance le plan depuis **un second venv**.
+- `basetemp` de pytest **hors dépôt** ; jamais `uv run` dans ce dépôt (il a déjà
+  vidé une partie du venv) ; `PYTHONPATH` vide.
+- e2e instables connus : rechargement de rôle (`test_p3_14_role.py`) et splash.
+  Toujours un `UH_HOME` jetable pour les tests ; le vrai `~/.uh` ne se touche pas.
+- **Deux UH sur cette machine** : une copie réelle dans
+  `%LOCALAPPDATA%/Programs/Python/Python310/Lib/site-packages/uh` (1.9.2,
+  installée le 22/11 17:10) et le dépôt importé en éditable depuis `.venv`. Le
+  `uh` du `PATH` est `Python310/Scripts/uh.exe` (`uh --version` → `1.9.2`) :
+  c'est la copie du 22/11 que lance le raccourci (G6).
+- **Piège de diagnostic** : `python -c "import uh"` lancé **depuis** le dépôt
+  importe le dépôt, le répertoire courant étant sur `sys.path`. Mesurer hors du
+  dépôt ou avec `-P` — c'est ce qui a failli faire conclure « le raccourci sert
+  déjà le dépôt ».
+- **8 processus `uh web` résiduels** (18/11 → 22/11) sont encore vivants, lancés
+  en `-m uh web`. Le filtre d'auto-nettoyage du lanceur cherche `-m uh.cli web`
+  (`uh/shortcut.py:184`) : il ne les voit pas. Personne ne les a tués ; ne pas les
+  tuer sans GO.
+- `tests/test_shortcut.py:273-279` asserte `-m uh.cli web` — chaîne qui
+  n'apparaît **que** dans ce filtre CIM, jamais dans la ligne de lancement
+  (`& $uh.Source web --app`, `uh/shortcut.py:195`). Aucun test ne lie donc le
+  raccourci à un interpréteur : c'est le trou que G6(c) doit fermer.
 
-### Ce qui n'est PAS mesuré (à garder tel quel)
+## 6. Lot 3 — ce que la lecture du code confirme
 
-- **Le couple dictée GPU / chat de 6,6 Go sur 8 Go.** Le banc 4 combinaisons avec
-  `qwen3.5:9b` préchargé (`6,4 Go`, **12 %/88 % CPU/GPU**) n'a jamais rendu : cache
-  Hugging Face stable sur 45 min, donc il attendait le GPU que le chat occupait. Processus
-  arrêté par l'agent (`taskkill /PID 12796 /T /F`), chat déchargé (`keep_alive: 0`).
-  Conséquence : **rien ne prouve qu'Whisper sur GPU dégrade ou non le chat**, ni que le
-  GPU gagne sur de la vraie parole.
-- La fidélité de transcription (mots corrects) n'a pas été mesurée sur de la parole
-  réelle. Une phrase SAPI française a été générée
-  (`…/scratch/sapi-fr.wav`, voix Microsoft Hortense), mais **le banc sur cette phrase n'a
-  pas été exécuté**.
-- Le relevé 3 du registre micro reste **non mesuré** (Edge jamais quitté complètement) ;
-  « qui a ouvert le micro le 17/11 » reste non mesuré, et `docs/HANDOFF_POINT0.md` le dit.
+- **G1** confirmé. `linkTabs` (`markdown.js:31-49`) remplace les URL nues par des
+  jetons avant de traiter les noms d'onglet, puis les restaure **en texte**
+  (ligne 46) : seuls `[texte](url)` (:61-67) et les noms d'onglet (:18-29)
+  deviennent des liens.
+- **G4** confirmé, et plus large que la capture. `markdown.js` n'a aucune règle
+  image. Côté serveur, `MARKDOWN_IMAGE` (`images.py:39`) n'accepte que `http(s)`
+  et `_from_markdown` (:267) récupère les octets **sans retirer la référence** :
+  pour `![x](https://…)`, le texte brut reste affiché **en plus** de l'image.
+  Une cible relative (`cochon.png`) n'est reconnue par personne : texte brut seul.
+- **G2** confirmé. `search()` renvoie `{title, url, snippet}` et la bulle
+  l'affiche en texte ; `image_engines()` ne rend que `brave`. Aucune route de
+  vignettes dans `uh/web/app.py` (zéro occurrence de `thumb`). La brique SSRF
+  existe : `uh/images.py::check_url` / `_host_is_local` (:109-145) — redirections
+  refusées, 2 Mo, MIME par octets magiques, SVG exclu — mais **l'hôte littéral
+  seulement**, avec un commentaire assumé (« a hostname we do not resolve »).
+  Le proxy du lot 3 doit résoudre le DNS puis épingler l'IP : cela contredit ce
+  commentaire, et le changement doit être écrit, pas glissé.
+- **G3** confirmé par absence : zéro occurrence de `youtube`, `oembed`, `ytimg`
+  dans `uh/`.
+- **G5** confirmé : le rendu passe par `execute_code` + matplotlib
+  (`uh/intent.py` route les dessins), le planificateur (roadmap, lot 2 point 5,
+  lignes 2166-2195) est toujours non coché, seul `ILLUSTRATION_NOTE` existe.
+- **G6** confirmé et mesuré (section 5). La roadmap le savait déjà
+  (lignes 126-128 : « the shortcut currently runs whatever `uh` is on PATH »,
+  `--from-checkout` proposé — absent du code, `grep` vide).
+- **G7** vérifié : « masquage de la console du raccourci Windows » est **livré**
+  (`uh/shortcut.py:404-406`, `-WindowStyle Hidden` ; `tests/test_shortcut.py:157` ;
+  roadmap lignes 70 et 91). « Parité de fallback des sessions web » est
+  **introuvable** : zéro occurrence de « parité » dans `docs/ROADMAP_UH_V2.md` ;
+  les seules entrées sont `docs/JALON7.md:127` (commandes console/CLI) et
+  `docs/SLASH_COMMANDS.md:63` (console/CLI/web sur `providers_admin`) — rien sur
+  un fallback de sessions web.
 
-## 3. Chantiers restants, dans l'ordre
+## 7. Ordre et règles du lot 3
 
-### 3.1 Garde dynamique VRAM (décidée par l'opérateur, à écrire)
+`G1 + G4` (petits, sûrs) → `G6` (note + procédure) → `G2 + G3` (surface réseau
+neuve, relecture sécurité **avant** le code) → `G5`.
 
-Règle validée : **au moment de dicter**, si la VRAM libre est **< 1,5 Go** — ou si la
-mesure est absente/en erreur — la dictée bascule sur **CPU `int8`** ; sinon elle utilise
-**GPU `int8_float16`** (et seulement si le banc dit que le GPU gagne, règle déjà en place).
+Une branche par point, un commit par sujet, contre-épreuve pour chaque test
+(le test échoue avant le correctif), suites complètes + `ruff` + `mypy`, captures
+clair et sombre, tout texte visible en français.
 
-À faire :
+Inchangé : aucun push, aucun `--no-verify`, rien toucher à l'authentification ni
+à `~/.gitconfig`, `gh` non relancé, aucun processus tué qui n'ait été lancé par
+l'agent, `basetemp` hors dépôt, jamais `uv run`, `PYTHONPATH` vide, ne promettre
+que ce qui est mesuré, aucune écriture dans les compétences / la mémoire / le
+profil sans GO explicite.
 
-1. `uh/voice_gpu.py` : `free_vram_mb()` (déjà `vram_used_mb` ; ajouter la lecture
-   `nvidia-smi --query-gpu=memory.free`), et une constante `MIN_FREE_VRAM_MB = 1500`.
-2. `uh/audio/local.py::whisper_device()` : appeler la garde **à chaque dictée** (pas au
-   démarrage), avant de rendre `cuda`. Un `None` (nvidia-smi absent, erreur, timeout) vaut
-   refus → CPU.
-3. Le panneau doit dire **pourquoi** : quand le GPU est refusé pour VRAM, la raison
-   affichée nomme les Go libres mesurés (jamais « insuffisant » sans chiffre).
-4. Tests : VRAM 900 Mo → CPU ; 2 000 Mo → GPU ; `None` → CPU ; et un test qui prouve que
-   la garde est **relue à chaque appel** (une baisse entre deux dictées suffit à rebasculer).
-5. Suites complètes + `ruff`/`mypy`, une branche dédiée (`feat/voice-vram-guard`).
+## 8. Repères
 
-### 3.2 Recherche web multi-moteurs (volet 2 de D)
-
-- `uh/toolsets/web_search.py` interroge la page HTML de DuckDuckGo : `no results parsed`
-  quand le débit est limité, et **aucune recherche d'images** (`/web image` ne peut pas
-  marcher).
-- À faire : interface de moteurs configurables — **Brave Search API**, **Tavily**,
-  **SearXNG** (instance locale) — avec **DuckDuckGo en dernier recours** ; clé absente →
-  moteur non candidat, jamais d'appel réseau sans clé (même règle que le vocal).
-- Échec honnête : quand tous les moteurs échouent, le message dit lequel a échoué et
-  pourquoi, au lieu de « retry later ».
-- `/web image` : soit un vrai moteur d'images (Brave/Tavily), soit un message clair
-  « pas de moteur d'images configuré » — pas de promesse muette.
-- Preuves attendues : tests purs (ordre des moteurs, absence de clé = aucun appel, échec
-  agrégé), un test qui prouve qu'aucune requête ne part sans clé, captures clair/sombre
-  si l'interface change, suites complètes.
-
-### 3.3 Lot E
-
-- Bloc CSS `uh-style-polish` (l'opérateur le redonne, avec les noms de classes vérifiés
-  sur le dernier `main`).
-- Restes d'anglais visibles : panneau Fournisseurs (« Ask UH », « Allow remote (free)
-  providers », « Test connection ») et champ de saisie.
-- Défaut de contraste ouvert : bordure de contrôle **4,37:1** en thème clair (sous 4,5:1).
-
-### 3.4 Lot F
-
-- Étiquetage honnête du rendu : un dessin matplotlib doit être annoncé comme
-  « illustration vectorielle, pas une photo » (constat du 23/11 : le modèle a présenté un
-  tracé comme « la photo de moutons générée »).
-
-## 4. Règles qui n'ont pas bougé
-
-- Aucun push, aucun `--no-verify`, aucune touche à l'authentification, `gh` non relancé,
-  aucun processus tué qui n'ait été lancé par l'agent.
-- Une branche par point, un commit par sujet, suites + `ruff` + `mypy` avant de conclure.
-- L'interface ne promet que ce qui est mesuré ; une capacité non vérifiée s'écrit
-  « non vérifiée ».
-- Aucune écriture dans les compétences, la mémoire ou le profil de l'opérateur sans son
-  GO explicite.
-
-## 5. Repères utiles
-
-- Dépôt : `C:/Users/searc/UH-Universal-Harness` (venv `.venv`, Python 3.10.11).
-- `uv run` est interdit dans ce dépôt (il a déjà vidé une partie du venv).
+- Dépôt `C:/Users/searc/UH-Universal-Harness` ; `.venv/Scripts/python.exe -V` → 3.10.11.
 - Suites : `.venv/Scripts/python.exe -m pytest -q` et
   `.venv/Scripts/python.exe -m pytest -o addopts="" -m e2e tests/e2e -q`.
-- Toujours un `UH_HOME` jetable pour les tests ; le vrai `~/.uh` ne se touche pas.
-- Captures de ce lot : `…/hermes/cache/scratch/{point1-shots,point2-shots,autofill-shots,voice-shots}`.
-- Journaux des suites : `…/hermes/cache/scratch/uh-{suite,e2e}-{rb,gpu,dev,d2}.log`.
+- Journaux : `…/hermes/cache/scratch/uh-suite-*.log`, `e2e49.log`, `bench-out.json`.
