@@ -114,6 +114,15 @@ TOOLS: tuple[Dict[str, Any], ...] = (
             "required": ["bucket"],
         },
     },
+    {
+        "name": "delete_bucket",
+        "description": "Delete a whole bucket. The S3 template does not allow it.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"bucket": {"type": "string"}},
+            "required": ["bucket"],
+        },
+    },
 )
 
 
@@ -336,6 +345,21 @@ def call_tool(name: str, arguments: Dict[str, Any], presigner: _Presigner) -> Di
                 "objects": len(table),
             }
         )
+
+    if name == "delete_bucket":
+        # Offered on purpose: the S3 template's `allow` list does not include it,
+        # so a connector that filtered nothing would hand this tool to the model.
+        if read_only:
+            return _error(f"AccessDenied: bucket {bucket} is read-only for this key")
+        try:
+            table = _bucket(data, bucket)
+        except KeyError:
+            return _error(f"NoSuchBucket: {bucket}")
+        if table:
+            return _error(f"BucketNotEmpty: {bucket} holds {len(table)} object(s)")
+        (data.get("buckets") or {}).pop(bucket, None)
+        _save(data)
+        return _text({"bucket": bucket, "deleted": True})
 
     return _error(f"UnknownTool: {name}")
 
