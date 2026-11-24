@@ -267,11 +267,18 @@ def normalise(
 def _from_markdown(
     text: str, *, client: Optional[httpx.Client], room: int
 ) -> Tuple[str, List[Artifact], List[str]]:
-    """Markdown images in a text answer: the reference is kept, bytes added."""
+    """Markdown images in a text answer: the bytes are added, the reference goes.
+
+    Garder la référence laissait « ![x](https://…png) » écrit au-dessus de
+    l'image qu'on venait d'afficher : la même chose deux fois, dont une en texte
+    brut. Une image **refusée** garde sa référence, et l'interface la rend alors
+    en lien vers la cible.
+    """
     found: List[Artifact] = []
     refusals: List[str] = []
     if not text or "![" not in text:
         return text, found, refusals
+    removed: List[Tuple[int, int]] = []
     for match in list(MARKDOWN_IMAGE.finditer(text)):
         if len(found) >= max(0, room):
             refusals.append(f"plus de {MAX_IMAGES} images : le reste est ignoré")
@@ -279,8 +286,17 @@ def _from_markdown(
         artifact, reason = _one(match.group(2), client=client, fetch=True)
         if artifact is not None:
             found.append(artifact)
+            removed.append((match.start(), match.end()))
         elif reason:
             refusals.append(reason)
+    if removed:
+        pieces: List[str] = []
+        cursor = 0
+        for start, end in removed:
+            pieces.append(text[cursor:start])
+            cursor = end
+        pieces.append(text[cursor:])
+        text = "".join(pieces).strip()
     return text, found, refusals
 
 

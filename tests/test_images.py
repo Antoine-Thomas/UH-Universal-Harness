@@ -166,7 +166,12 @@ def test_content_blocks_give_text_plus_artifacts() -> None:
     assert len(normalised.artifacts) == 1
 
 
-def test_a_markdown_image_keeps_its_reference_and_gains_bytes() -> None:
+def test_a_markdown_image_that_arrives_loses_its_reference() -> None:
+    """Les octets sont ajoutés, et la référence disparaît du texte.
+
+    La garder affichait « ![courbe](https://…/c.png) » au-dessus de l'image :
+    deux fois la même chose, dont une en texte brut (retour de l'opérateur).
+    """
     markers: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -176,9 +181,16 @@ def test_a_markdown_image_keeps_its_reference_and_gains_bytes() -> None:
     client = httpx.Client(transport=httpx.MockTransport(handler))
     normalised = images.normalise("Regarde : ![courbe](https://example.com/c.png)", client=client)
 
-    assert "![courbe](https://example.com/c.png)" in normalised.text, "the text is untouched"
+    assert normalised.text == "Regarde :", "la référence est retirée, le texte reste"
     assert markers == ["https://example.com/c.png"]
     assert len(normalised.artifacts) == 1
+
+
+def test_a_refused_markdown_image_keeps_its_reference() -> None:
+    """Refusée, elle reste écrite : l'interface en fera un lien, pas une image."""
+    normalised = images.normalise("vois ![x](http://127.0.0.1:8101/secret.png)", fetch=True)
+    assert "![x](http://127.0.0.1:8101/secret.png)" in normalised.text
+    assert normalised.artifacts == []
 
 
 def test_a_refused_url_becomes_a_readable_line_not_an_empty_frame() -> None:
