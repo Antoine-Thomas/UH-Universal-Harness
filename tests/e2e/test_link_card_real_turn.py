@@ -17,7 +17,6 @@ import pytest
 from playwright.sync_api import expect
 
 from .conftest import open_app
-from .conftest_fake_provider import fake_provider  # noqa: F401 - fixture importée
 
 pytestmark = pytest.mark.e2e
 

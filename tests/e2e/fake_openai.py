@@ -23,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Tuple
 
 #: La clé que le provider factice reçoit dans le `UH_HOME` temporaire.
+HITS: List[Tuple[str, int]] = []
+
 FAKE_KEY = "test-key-not-a-credential"
 
 #: L'URL que le test fera figurer dans un résultat d'outil.
@@ -58,9 +60,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"error": {"message": "route inconnue"}}, status=404)
 
     def do_POST(self) -> None:  # noqa: N802
-        owner = getattr(type(self), "owner", None)
-        if owner is not None:
-            owner.hits.append((self.path, 200))
+        HITS.append((self.path, 200))
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b"{}"
         try:
@@ -78,9 +78,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "id": "chatcmpl-fake",
                     "object": "chat.completion",
                     "model": "fake-1b",
-                    "choices": [
-                        {"index": 0, "message": {"role": "assistant", "content": TEXT}}
-                    ],
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": TEXT}}],
                 }
             )
 
@@ -107,10 +105,8 @@ class FakeOpenAI:
     """Le serveur, sur une adresse loopback et un port choisi par le système."""
 
     def __init__(self) -> None:
-        self.hits: List[Tuple[str, int]] = []
-        handler = type("CountingHandler", (_Handler,), {"owner": None})
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-        handler.owner = self
+        HITS.clear()
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.port = int(self.httpd.server_address[1])
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
@@ -129,4 +125,4 @@ class FakeOpenAI:
 
     def request_log(self) -> List[Tuple[str, int]]:
         """Les requêtes reçues, pour prouver qu'un tour est bien passé par ici."""
-        return list(self.hits)
+        return list(HITS)
