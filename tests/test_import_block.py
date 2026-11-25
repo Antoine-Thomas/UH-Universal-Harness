@@ -10,7 +10,10 @@ Trois promesses, chacune avec son test :
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+import pytest
 
 from uh import attachments
 from uh.toolsets.file import FileToolset
@@ -58,7 +61,12 @@ def test_without_read_roots_the_workspace_boundary_is_unchanged(tmp_path: Path) 
     assert "refused" in str(toolset.read_file(str(outside)))
 
 
-def test_a_pdf_without_pypdf_is_not_reported_as_read(tmp_path: Path) -> None:
+def test_a_pdf_without_pypdf_is_not_reported_as_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Meme raison : l'absence de pypdf se simule, elle ne se suppose pas.
+    monkeypatch.setitem(sys.modules, "pypdf", None)
     """La limite est dite, pas contournee : « je ne l'ai pas lu » et voici comment."""
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4\n%fake\n")
