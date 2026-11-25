@@ -117,7 +117,13 @@ def test_an_unknown_type_is_stored_but_not_read() -> None:
     assert "unknown type" in stored.note
 
 
-def test_a_pdf_without_pypdf_says_how_to_get_it() -> None:
+def test_a_pdf_without_pypdf_says_how_to_get_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Le test simule l'absence : sans cela il depend de ce qui est installe
+    # dans l'interpreteur qui l'execute (le hook pre-push utilise le Python
+    # global, ou pypdf peut tres bien etre present).
+    monkeypatch.setitem(sys.modules, "pypdf", None)
     stored = store("contrat.pdf", b"%PDF-1.4 ...")
 
     assert (stored.kind, stored.status) == ("pdf", "referenced")
