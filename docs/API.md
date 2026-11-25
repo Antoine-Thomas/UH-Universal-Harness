@@ -318,6 +318,31 @@ the **same** token, `Host`/`Origin` checks and CSP as the bundled interface (no
 
 Elements d interface : `skills-manager`, `skills-hint`, `skills-refresh`, `skills-enable-all`, `skills-disable-all`, `skill-new`, `skill-file`, `skill-editor`, `skill-editor-title`, `skill-name`, `skill-title`, `skill-description`, `skill-instructions`, `skill-save`, `skill-cancel`, `skill-error`
 
+## Aperçus de liens (P5-UI, G8)
+
+Chaque trame `answer` peut porter un champ `links`, calculé par le serveur :
+
+```json
+{"type": "answer", "content": "…", "links": [{"url": "https://exemple.fr/page", "origin": "model"}]}
+```
+
+`origin` vaut `tool` (l'adresse figure dans un résultat d'outil de cette session),
+`operator` (elle vient d'un message de l'opérateur), ou `model`. **Toute provenance
+absente ou inconnue vaut `model`** : c'est le refus par défaut, et c'est ce qui
+interdit qu'une URL écrite par le modèle soit récupérée sans un clic.
+
+La comparaison porte sur la forme normalisée — schéma et hôte en minuscules, sans
+`user:pass@`, sans fragment, ports par défaut retirés (un port n'est retiré que s'il
+est le défaut de son propre schéma : `https://x:80/` garde `:80`). Une URL qui diffère
+d'un caractère d'une adresse de résultat d'outil n'hérite donc pas de sa provenance.
+
+| Méthode | Route | Rôle |
+|---|---|---|
+| GET | `/api/link/preview` | paramètres `url`, `session`, `origin`. Titre, description, image, domaine **final**. `origin=tool` ou `operator` n'est accepté que si l'adresse figure vraiment dans un message de ce rôle ; `click` est le consentement. |
+| GET | `/api/link/image` | paramètres `url`, `session`. L'image de l'article, servie par UH (JPEG/PNG/WebP/GIF reconnus par leurs octets, SVG refusé, 2 Mo). |
+| GET | `/api/link/settings` | `{"enabled": bool}` — l'interrupteur, **coupé par défaut**. |
+| POST | `/api/link/settings` | `{"enabled": bool}`. Jeton **et** origine exigés : une page étrangère ne peut pas l'activer. La carte propose le bouton, et le clic vaut consentement. |
+
 ## Router API (`uh router serve`)
 
 A **second, separate** application: another port (8780), another token
