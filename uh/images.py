@@ -412,7 +412,7 @@ def _one(
             return fitted, ""
         return None, (
             f"image trop volumineuse (> {MAX_BYTES} octets) ; "
-            "installer Pillow pour l'afficher réduite"
+            "installer Pillow (pip install uh-harness[images]) pour l'afficher réduite"
         )
     if not fetch:
         return None, ""

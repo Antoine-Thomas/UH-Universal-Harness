@@ -46,6 +46,7 @@ dependencies = [
 
 [project.optional-dependencies]
 pdf = ["pypdf>=5"]
+images = ["pillow>=10"]
 dev = [
     "pytest>=8",
     "build>=1",
@@ -54,6 +55,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "pre-commit>=3.7",
+    "pillow>=10",
 ]
 ui = ["rich>=13"]
 web = ["fastapi>=0.110", "uvicorn>=0.29"]
