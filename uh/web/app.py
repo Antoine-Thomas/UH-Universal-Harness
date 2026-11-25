@@ -37,7 +37,15 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, attachments, media_proxy, media_store, turnlog, video_preview
+from .. import (
+    __version__,
+    attachments,
+    link_preview,
+    media_proxy,
+    media_store,
+    turnlog,
+    video_preview,
+)
 from .. import commands as uh_commands
 from .. import config as uh_config
 from .. import roles as uh_roles
@@ -76,6 +84,20 @@ LOOPBACK_NAMES = {"127.0.0.1", "localhost", "::1", "[::1]"}
 #: La seule route qui sert des octets venus d'ailleurs, et la seule qui se met en
 #: cache côté navigateur : une vignette change rarement, une réponse d'API jamais.
 THUMB_PATH = "/api/media/thumb"
+LINK_PREVIEW_PATH = "/api/link/preview"
+LINK_IMAGE_PATH = "/api/link/image"
+LINK_SETTINGS_PATH = "/api/link/settings"
+
+#: Les routes qui portent leurs propres en-têtes (CSP `sandbox`, cache privé) :
+#: une image n'exécute rien, et la CSP de la page n'a aucun sens pour elle.
+EXEMPT_CSP_PATHS = frozenset({THUMB_PATH, LINK_IMAGE_PATH})
+
+
+def _link_log() -> logging.Logger:
+    """Le journal d'un aperçu : le domaine, jamais l'URL ni la requête."""
+    return logging.getLogger("uh.web.links")
+
+
 THUMB_MAX_AGE = 86400
 #: Methods that change something. A cookie is ambient authority: the browser
 #: attaches it to any request a page makes, so these are refused when the only
@@ -521,6 +543,9 @@ def create_app(
     # sous $UH_HOME. La route /api/media/thumb est le seul consommateur.
     app.state.media_cache = media_store.ThumbCache(uh_config.uh_home() / "media-cache")
     app.state.media_limiter = media_store.RateLimiter()
+    # Les images d'aperçu ont leur propre cache : une image d'article n'a pas à
+    # chasser une vignette de recherche, et le plafond de 64 Mo vaut pour chacune.
+    app.state.link_image_cache = media_store.ThumbCache(uh_config.uh_home() / "link-image-cache")
 
     if provider_factory is None:
         from ..cli import _make_provider as provider_factory  # lazy: avoids a cycle
@@ -609,7 +634,7 @@ def create_app(
                 request.headers.get("referer") or "-",
             )
         response.headers["X-Content-Type-Options"] = "nosniff"
-        if request.url.path != THUMB_PATH:
+        if request.url.path not in EXEMPT_CSP_PATHS:
             # Une vignette porte ses propres en-têtes : CSP `sandbox` (une image
             # n'exécute rien) et cache privé, puisqu'elle change rarement. La CSP
             # de la page et le no-store ne s'appliquent qu'au reste.
@@ -729,6 +754,108 @@ def create_app(
             "description": card.description,
             "has_description": card.has_description,
         }
+
+    # -- link previews ------------------------------------------------------ #
+    @app.get(LINK_PREVIEW_PATH, dependencies=[Depends(require_token)])
+    async def link_preview_route(url: str, session: str = "", origin: str = "click") -> dict:
+        """Un aperçu de lien : cinq champs, et une provenance vérifiée ici.
+
+        La règle « aucune requête pour une URL écrite par le modèle sans clic »
+        ne peut pas vivre seulement dans la page : cette route la vérifie en
+        interrogeant les messages de la session. ``origin=tool`` n'est accepté que
+        si l'adresse figure vraiment dans un résultat d'outil ; ``operator`` dans
+        un message de l'opérateur ; ``click`` est le consentement lui-même.
+
+        Rien de ce qui sort d'ici n'est du HTML : des chaînes, coupées aux mêmes
+        longueurs que le module (titre 200, description 400, adresses 2000).
+        """
+        if not link_preview.load_enabled():
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "les aperçus de liens sont désactivés : "
+                    "activez « Aperçus de liens » dans le panneau Outils"
+                ),
+            )
+        allowed, reason = app.state.media_limiter.allow(f"link:{session}")
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
+        with _store(app) as store:
+            messages = store.get_messages(session) if session else []
+        proven, why = link_preview.provenance_ok(url, origin, messages)
+        if not proven:
+            raise HTTPException(status_code=403, detail=why)
+        try:
+            page = await asyncio.to_thread(link_preview.preview, url)
+        except link_preview.PreviewRefused as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _link_log().info("aperçu de lien : %s (%s)", page.host, page.robots)
+        return {
+            "url": page.url[: link_preview.URL_MAX],
+            "final_url": page.final_url[: link_preview.URL_MAX],
+            "host": page.host[:200],
+            "title": page.title[: link_preview.TITLE_MAX],
+            "description": page.description[: link_preview.DESCRIPTION_MAX],
+            "image": page.image[: link_preview.URL_MAX],
+            "icon": page.icon[: link_preview.URL_MAX],
+            "redirects": page.redirects,
+            "robots": page.robots,
+            "notes": [str(note)[:200] for note in page.notes][:4],
+        }
+
+    @app.get(LINK_IMAGE_PATH, dependencies=[Depends(require_token)])
+    async def link_image_route(url: str, session: str = "") -> Response:
+        """L'image d'un article, servie par UH — jamais demandée par la page.
+
+        Pourquoi une route à part : ``/api/media/thumb`` n'accepte que quatre
+        hôtes mesurés, et l'``og:image`` d'un article vient de son propre site.
+        Ici la récupération est celle de :mod:`uh.link_preview` (adresses
+        publiques, IP épinglée, redirections revalidées, sans cookie), le type est
+        décidé par les octets (SVG refusé), le plafond est de 2 Mo.
+        """
+        if not link_preview.load_enabled():
+            raise HTTPException(status_code=403, detail="les aperçus de liens sont désactivés")
+        allowed, reason = app.state.media_limiter.allow(f"link-image:{session}")
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
+        cache = app.state.link_image_cache
+        hit = cache.get(url)
+        if hit is None:
+            try:
+                image = await asyncio.to_thread(link_preview.fetch_image, url)
+            except link_preview.PreviewRefused as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            cache.put(url, mime=image.mime, data=image.data)
+            hit = media_store.Cached(mime=image.mime, data=image.data)
+        return Response(
+            content=hit.data,
+            media_type=hit.mime,
+            headers={
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": "inline",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "Cache-Control": "private, max-age=3600",
+            },
+        )
+
+    @app.get(LINK_SETTINGS_PATH, dependencies=[Depends(require_token)])
+    async def link_settings() -> dict:
+        """L'état de l'interrupteur, et la phrase de la première activation."""
+        return {"enabled": link_preview.load_enabled(), "sentence": link_preview.SENTENCE}
+
+    @app.post(LINK_SETTINGS_PATH, dependencies=[Depends(require_token)])
+    async def link_settings_set(request: Request) -> dict:
+        """Active ou coupe les aperçus. POST : le middleware exige l'origine."""
+        try:
+            payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="corps JSON attendu") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+            raise HTTPException(
+                status_code=400, detail="« enabled » est requis et doit être un booléen"
+            )
+        link_preview.save_enabled(bool(payload["enabled"]))
+        return {"enabled": link_preview.load_enabled(), "sentence": link_preview.SENTENCE}
 
     # -- icon fallbacks ---------------------------------------------------- #
     # Declared in index.html as data URIs, so a healthy page never asks for
@@ -2028,6 +2155,22 @@ def create_app(
                     name = str(event.get("name") or "tool")
                     tool_since[name] = time.perf_counter()
                     turnlog.event("tool_start", turn=turn_id, tool=name)
+                elif kind == "answer":
+                    # La provenance voyage avec la réponse : la page ne devine pas
+                    # si une URL vient d'un résultat d'outil, de l'opérateur ou du
+                    # modèle. Absente ou inconnue, elle vaut « model » : c'est le
+                    # refus par défaut, et c'est ce qui interdit une requête avant
+                    # un clic. Un aperçu ne doit jamais faire échouer un tour.
+                    try:
+                        with _store(app) as preview_store:
+                            links = link_preview.classify(
+                                link_preview.urls_in(str(event.get("content") or "")),
+                                preview_store.get_messages(session["id"]),
+                            )
+                        if links:
+                            event["links"] = links
+                    except Exception:  # noqa: BLE001 - jamais bloquant
+                        pass
                 elif kind == "tool_result":
                     name = str(event.get("name") or "tool")
                     began = tool_since.pop(name, None)

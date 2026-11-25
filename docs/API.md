@@ -66,6 +66,10 @@ come back", which nothing else in the product could.
 | GET | `/api/artifacts/trash` | — | `{files, root}` — ce que la corbeille contient avant de la vider |
 | GET | `/api/media/capabilities?provider=&model=&kind=` | — | `{kinds: {image: [...], video: [...], audio: [...], document: [...]}, budget_bytes, max_side, ffmpeg, model?, vision_candidates?}` — P1-14 : les extensions acceptées par nature, le budget d'image envoyée, et ce que le modèle **actif** peut réellement lire (`capable`, `loss`, `source`, `verified`) |
 | GET | `/api/media/thumb?url=&session=` | — | octets de la vignette distante (`image/png`, `image/jpeg`, `image/webp` ou `image/gif`) · `400` refus motivé (hôte hors liste, schéma, port, redirection, format, taille) · `429` au-delà de 30 vignettes/minute ou 300/heure **par session**. Le serveur résout le nom, refuse toute adresse non publique, épingle la connexion sur l'IP résolue (`Host` + `sni_hostname`), ne suit aucune redirection, plafonne le corps à 2 Mo et décide du type par les **magic bytes** (`uh/media_proxy.py`) ; cache disque 64 Mo FIFO sous `$UH_HOME/media-cache`. La CSP reste `img-src 'self' data:` — la page ne demande jamais l'image à un tiers |
+| GET | `/api/link/preview?url=&session=&origin=` | — | `{url, final_url, host, title, description, image, icon, redirects, robots, notes}` — cinq champs, coupés côté serveur (titre 200, description 400, adresses 2000, notes 4×200) · `403` si les aperçus sont désactivés, si l'origine est inconnue, ou si une provenance `tool`/`operator` n'est **pas** prouvée par un message de la session · `400` refus motivé du module (adresse non publique, robots.txt interdit, page trop lourde, délai total) · `429` au-delà de 30 aperçus/minute par session. `origin` : `click` (le consentement), `tool` (l'URL doit figurer dans un résultat d'outil de cette session), `operator` (dans un message de l'opérateur) |
+| GET | `/api/link/image?url=&session=` | — | octets de l'image d'aperçu (`image/png`, `image/jpeg`, `image/webp` ou `image/gif`, décidé par les **octets**) · `400` refus motivé (SVG refusé, plus de 2 Mo, adresse non publique, redirection refusée) · `403` interrupteur fermé · `429` même budget que les aperçus. Mêmes gardes que l'aperçu : DNS résolu, IP épinglée, redirections revalidées, sans cookie ; cache borné propre (`$UH_HOME/link-image-cache`), `nosniff` + CSP `default-src 'none'; sandbox`. Pourquoi une route à part de `/api/media/thumb` : l'`og:image` d'un article vient du site de l'article, que la liste de quatre hôtes refuserait |
+| GET | `/api/link/settings` | — | `{enabled, sentence}` — l'état de l'interrupteur « Aperçus de liens », **fermé par défaut**, et la phrase affichée à la première activation |
+| POST | `/api/link/settings` | `{"enabled": bool}` | `{enabled, sentence}` — écrit `$UH_HOME/link-previews.toml` · `400` si `enabled` n'est pas un booléen. POST : le middleware exige la preuve d'origine |
 | GET | `/api/media/video?url=&session=` | — | `{kind: "video", title, channel, channel_url, thumb, page, description, has_description}` — carte YouTube par **oEmbed**, sans clé · `400` adresse refusée (hôte exact exigé) ou vidéo non publique · `429` même budget que les vignettes. `has_description: false` : la description complète demande une clé YouTube Data, et la carte le dit ; la miniature passe par `/api/media/thumb`, **aucun iframe** (la CSP reste `default-src 'none'`) |
 | GET | `/api/models/vision` | — | `{candidates: [{provider, model, modalities, context, tools}], total}` — les modèles **configurés** qui lisent une image, capacité mesurée auprès du fournisseur (jamais déduite du nom) |
 | GET | `/api/audio/capabilities` | — | `{engines: [{name, label, kind, clones, stt, tts, available, reason}], tts, stt, ffmpeg}` — chaque moteur dit pourquoi il ne peut pas tourner (P1-15) |
@@ -313,6 +317,31 @@ the **same** token, `Host`/`Origin` checks and CSP as the bundled interface (no
 | POST | `/api/skills` | cycle de vie d un Skill |
 
 Elements d interface : `skills-manager`, `skills-hint`, `skills-refresh`, `skills-enable-all`, `skills-disable-all`, `skill-new`, `skill-file`, `skill-editor`, `skill-editor-title`, `skill-name`, `skill-title`, `skill-description`, `skill-instructions`, `skill-save`, `skill-cancel`, `skill-error`
+
+## Aperçus de liens (P5-UI, G8)
+
+Chaque trame `answer` peut porter un champ `links`, calculé par le serveur :
+
+```json
+{"type": "answer", "content": "…", "links": [{"url": "https://exemple.fr/page", "origin": "model"}]}
+```
+
+`origin` vaut `tool` (l'adresse figure dans un résultat d'outil de cette session),
+`operator` (elle vient d'un message de l'opérateur), ou `model`. **Toute provenance
+absente ou inconnue vaut `model`** : c'est le refus par défaut, et c'est ce qui
+interdit qu'une URL écrite par le modèle soit récupérée sans un clic.
+
+La comparaison porte sur la forme normalisée — schéma et hôte en minuscules, sans
+`user:pass@`, sans fragment, ports par défaut retirés (un port n'est retiré que s'il
+est le défaut de son propre schéma : `https://x:80/` garde `:80`). Une URL qui diffère
+d'un caractère d'une adresse de résultat d'outil n'hérite donc pas de sa provenance.
+
+| Méthode | Route | Rôle |
+|---|---|---|
+| GET | `/api/link/preview` | paramètres `url`, `session`, `origin`. Titre, description, image, domaine **final**. `origin=tool` ou `operator` n'est accepté que si l'adresse figure vraiment dans un message de ce rôle ; `click` est le consentement. |
+| GET | `/api/link/image` | paramètres `url`, `session`. L'image de l'article, servie par UH (JPEG/PNG/WebP/GIF reconnus par leurs octets, SVG refusé, 2 Mo). |
+| GET | `/api/link/settings` | `{"enabled": bool}` — l'interrupteur, **coupé par défaut**. |
+| POST | `/api/link/settings` | `{"enabled": bool}`. Jeton **et** origine exigés : une page étrangère ne peut pas l'activer. La carte propose le bouton, et le clic vaut consentement. |
 
 ## Router API (`uh router serve`)
 

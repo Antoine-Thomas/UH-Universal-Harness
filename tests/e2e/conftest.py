@@ -19,9 +19,12 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 import httpx
 import pytest
+
+from .fake_openai import FAKE_KEY
 
 ROOT = Path(__file__).resolve().parents[2]
 #: Which interpreter runs `uh web`, and from where. Default: this checkout's venv,
@@ -54,9 +57,14 @@ class Server:
         port: int,
         workspace: Path | None = None,
         extra_env: dict[str, str] | None = None,
+        seed: "Callable[[Path], None] | None" = None,
     ) -> None:
         self.home = home
         self.port = port
+        #: Appelé juste après la création du `UH_HOME`, AVANT `uh web` : c'est le
+        #: seul moment où l'on peut y déclarer un fournisseur, puisque la sélection
+        #: se fait au démarrage et que `uh web` n'a pas d'argument `--provider`.
+        self.seed = seed
         #: Le workspace du serveur, quand le test en veut un jetable (panneau Git).
         self.workspace = workspace
         #: Variables d'environnement du serveur (un UHB sur port fermé, des runs jetables).
@@ -73,6 +81,8 @@ class Server:
 
     def start(self) -> "Server":
         self.home.mkdir(parents=True, exist_ok=True)
+        if self.seed is not None:
+            self.seed(self.home)
         env = dict(os.environ, UH_HOME=str(self.home), PYTHONUNBUFFERED="1", **self.extra_env)
         command = [
             str(PYTHON),
@@ -199,12 +209,18 @@ def make_server(tmp_path: Path):
         port: int | None = None,
         workspace: Path | None = None,
         extra_env: dict[str, str] | None = None,
+        seed=None,
     ) -> Server:
         server = Server(
-            tmp_path / name, port or free_port(), workspace=workspace, extra_env=extra_env
+            tmp_path / name,
+            port or free_port(),
+            workspace=workspace,
+            extra_env=extra_env,
+            seed=seed,
         )
         started.append(server)
-        return server.start()
+        started_server: Server = server.start()
+        return started_server
 
     yield factory
     for server in started:
@@ -212,7 +228,7 @@ def make_server(tmp_path: Path):
 
 
 @pytest.fixture()
-def server(make_server) -> Server:
+def server(make_server: Callable[..., Server]) -> Server:
     return make_server()
 
 
@@ -242,3 +258,47 @@ def open_app(browser, server: Server, *, timezone_id: str | None = None):
     # composer is the wired one, not just the markup.
     page.wait_for_timeout(1500)
     return context, page
+
+
+# --- fournisseur factice (G8, phase 5) -------------------------------------- #
+# Déclaré ici plutôt que dans un module importé : une fixture appartient à
+# `conftest.py`, et l'importer depuis un test le fait passer pour une redéfinition.
+# `uh web` n'a pas d'argument `--provider` : le choix se fait dans la configuration
+# lue au démarrage, donc dans le `UH_HOME` jetable, AVANT le lancement.
+
+MODEL_ID = "fake-1b"
+
+
+def seed_provider_into(home: Path, base_url: str) -> None:
+    """Déclare le fournisseur factice dans un `UH_HOME`, avant tout démarrage."""
+    from uh import config as uh_config
+    from uh import keys as uh_keys
+
+    previous = os.environ.get("UH_HOME")
+    os.environ["UH_HOME"] = str(home)
+    try:
+        uh_keys.add_provider("fake", base_url, MODEL_ID, FAKE_KEY)
+        uh_config.write_flat_key_preserving_tables("default_provider", "fake")
+        uh_config.write_flat_key_preserving_tables("default_model", MODEL_ID)
+    finally:
+        if previous is None:
+            os.environ.pop("UH_HOME", None)
+        else:
+            os.environ["UH_HOME"] = previous
+
+
+@pytest.fixture()
+def fake_provider(make_server):
+    """Un `uh web` dont le fournisseur est le faux, et le faux lui-même."""
+    from .fake_openai import FAKE_KEY, FakeOpenAI  # noqa: F401 - clé factice
+
+    fake = FakeOpenAI().start()
+    try:
+        server = make_server(
+            "home-fake",
+            seed=lambda home: seed_provider_into(home, fake.base_url),
+            extra_env={"OLLAMA_URL": "http://127.0.0.1:9"},
+        )
+        yield server, fake
+    finally:
+        fake.stop()
