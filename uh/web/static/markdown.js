@@ -165,6 +165,68 @@ export function renderMarkdown(source, options = {}) {
   let inCode = false;
   let codeLines = [];
 
+  // --- tableaux (G15) ------------------------------------------------------- //
+  // Un tableau se reconnaît sur DEUX lignes (en-tête, puis séparation) : la boucle
+  // ligne à ligne ne peut donc pas le voir. Une pré-passe le remplace par une
+  // ligne-sentinel et garde le HTML de côté. Elle suit l'état des clôtures de code
+  // (` et ~), sinon une barre verticale dans un bloc de code deviendrait un tableau.
+  // Le sentinel contient un octet nul : aucun texte échappé ne peut le forger, et
+  // un sentinel dont la clé est inconnue retombe en texte ordinaire.
+  const tableFragments = new Map();
+  const scanned = [];
+  const alignmentOf = (cell) => {
+    const value = String(cell).trim();
+    if (value.startsWith(":") && value.endsWith(":")) return "md-align-center";
+    if (value.endsWith(":")) return "md-align-right";
+    if (value.startsWith(":")) return "md-align-left";
+    return "";
+  };
+  const cellsOf = (row) => {
+    let text = String(row).trim();
+    if (text.startsWith("|")) text = text.slice(1);
+    if (text.endsWith("|")) text = text.slice(0, -1);
+    return text.split("|").map((cell) => cell.trim());
+  };
+  // GFM ne fixe pas de minimum de tirets : `:--` est une séparation valide.
+  const isSeparator = (row) =>
+    /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(String(row));
+  let inFence = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      scanned.push(line);
+      continue;
+    }
+    const next = lines[index + 1];
+    if (!inFence && line.includes("|") && next !== undefined && isSeparator(next)) {
+      const header = cellsOf(line);
+      const aligns = cellsOf(next).map(alignmentOf);
+      const rows = [];
+      let cursor = index + 2;
+      while (cursor < lines.length && lines[cursor].includes("|") && lines[cursor].trim()) {
+        rows.push(cellsOf(lines[cursor]));
+        cursor += 1;
+      }
+      const cell = (tag, value, position) => {
+        const align = aligns[position] ? ` class="${aligns[position]}"` : "";
+        return `<${tag}${align}>${renderInline(escapeHtml(value), artifacts)}</${tag}>`;
+      };
+      const head = `<thead><tr>${header.map((value, i) => cell("th", value, i)).join("")}</tr></thead>`;
+      const body = rows.length
+        ? `<tbody>${rows
+            .map((row) => `<tr>${row.map((value, i) => cell("td", value, i)).join("")}</tr>`)
+            .join("")}</tbody>`
+        : "";
+      const key = `\u0000T${tableFragments.size}\u0000`;
+      tableFragments.set(key, `<table>${head}${body}</table>`);
+      scanned.push(key);
+      index = cursor - 1;
+      continue;
+    }
+    scanned.push(line);
+  }
+
   const flushParagraph = () => {
     if (paragraph.length) {
       const body = renderInline(paragraph.join(" "), artifacts);
@@ -197,7 +259,7 @@ export function renderMarkdown(source, options = {}) {
     codeLines = [];
   };
 
-  for (const line of lines) {
+  for (const line of scanned) {
     if (inCode) {
       if (/^```/.test(line)) {
         inCode = false;
@@ -211,6 +273,11 @@ export function renderMarkdown(source, options = {}) {
       flushAll();
       inCode = true;
       codeLines = [];
+      continue;
+    }
+    if (line.charCodeAt(0) === 0 && tableFragments.has(line)) {
+      flushAll();
+      html.push(tableFragments.get(line));
       continue;
     }
     if (!line.trim()) {
