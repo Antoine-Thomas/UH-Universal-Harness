@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from . import RETRY_ATTEMPTS, ProviderError
+from . import RETRY_BACKOFF_S, Provider, ProviderError
 from .omnirouter import OmniRouterProvider
 
 
@@ -31,10 +31,12 @@ class OpenAICompatProvider(OmniRouterProvider):
     ) -> None:
         if not base_url:
             raise ProviderError("OpenAI-compatible provider needs a base_url")
-        # Le parent pose ce champ (uh/providers/__init__.py:551), mais cette
-        # classe definit son propre __init__ sans l'appeler : sans cette ligne,
-        # le chemin de nouvelle tentative lit un attribut absent.
-        self.retry_attempts: int = RETRY_ATTEMPTS
+        # Le socle pose les compteurs d'usage, les parametres de requete et le
+        # budget de reprise (retry_attempts, retry_backoff, retry_sleep). On ne
+        # appelle PAS OmniRouterProvider.__init__ ici : il resoudrait une base_url
+        # d'OmniRoute et ecraserait model/api_key. On appelle le socle, qui ne
+        # fait que le menage interne.
+        Provider.__init__(self)
         self.base_url = base_url.rstrip("/")
         self.model = model or ""
         self.api_key = api_key or ""
