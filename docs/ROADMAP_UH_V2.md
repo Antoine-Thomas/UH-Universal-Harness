@@ -2611,6 +2611,161 @@ Critère de preuve (quand ce sera décidé) : aucune lecture sans approbation,
 balisage présent dans le message d'outil, bornes mesurées, refus des domaines
 hors liste.
 
+### G10 — Sortie d'image fiable : compression automatique, côté UH
+
+**Statut : OUVERT.** Constat de l'opérateur, 25/11, captures à l'appui.
+
+Une réponse a produit `chat.png` (3,35 Mo, 2000 × 2400). Au-delà de la limite
+d'affichage (1,5 Mo) l'image n'est **pas** injectée dans la conversation : seul
+un chemin dans le dossier du run s'affiche, et le modèle a dû deviner la cause,
+réexporter lui-même, puis l'expliquer longuement.
+
+À faire :
+
+- Un outil qui produit une image au-dessus de la limite (execute_code, atelier,
+  génération) déclenche **dans UH** un aperçu d'affichage sous la limite
+  (réduction de dimension puis ré-encodage ; Pillow s'il est déjà là, sinon
+  dégradation propre et annoncée). L'original reste intact.
+- Boutons « Ouvrir » et « Télécharger » sur l'original ; une ligne discrète dit
+  « Aperçu réduit (3,35 Mo → 1,2 Mo). Original conservé. »
+- L'original est exposé dans `UH_OUTPUTS` sur le Bureau, et c'est **UH** qui
+  affiche ce chemin, pas le modèle.
+- Les consignes du modèle ne mentionnent plus cette limite : il n'a plus à la
+  gérer.
+
+Bornes : taille d'entrée maximale, délai, type décidé **par les octets**
+(PNG/JPEG/WebP, SVG refusé), aucune lecture hors du dossier du run.
+
+Contre-épreuves : image de 3,4 Mo → affichée sous 1,5 Mo **et** original intact ;
+image trop grande → refus propre, message en français ; type inattendu → refusé.
+
+Constat associé : « Le run précédent n'a pas survécu au processus ». Mesurer la
+cause (processus `execute_code` tué, délai, mémoire) et faire dire à UH la vérité
+au lieu de laisser le modèle l'inventer ; relance unique et visible.
+
+### G11 — `/web` doit donner de vraies photos
+
+**Statut : OUVERT.** Constat de l'opérateur, 25/11.
+
+`/web donne moi la photo d'un chat` et `/web un vrai image` ne renvoient que des
+liens de moteurs (Shutterstock, Unsplash, Pexels, Pixabay, Google Images) :
+aucune photo dans la réponse, alors que c'était la demande expresse.
+
+À faire :
+
+- Ajouter une recherche **d'images** à la chaîne de recherche. Candidats à
+  **vérifier dans leur documentation officielle avant de coder** : Openverse
+  (licence et auteur fournis par résultat), Wikimedia Commons, puis
+  Pixabay/Pexels/Unsplash **seulement** si une clé existe. Rapporter pour
+  chacun : clé requise, quota, conditions, champ licence/auteur. *Non vérifié à
+  ce jour : quotas et conditions.*
+- Vignette dans la carte, avec licence + auteur + lien source visibles. Les
+  vignettes passent par `/api/link/image` (proxy de G8 : 2 Mo, type par octets,
+  CSP inchangée). Provenance `tool` : un résultat d'outil est cliquable, une URL
+  d'image écrite par le modèle ne l'est pas sans clic.
+- Une demande de photo déclenche la recherche d'images ; si le résultat est
+  vide, UH le dit en une phrase et propose la génération (G13) au lieu de
+  renvoyer des liens de moteurs.
+
+Contre-épreuves : « photo d'un chat » → au moins une vignette licenciée ;
+aucune requête d'image écrite par le modèle sans clic ; licence absente → image
+non affichée ou marquée « licence inconnue ».
+
+### G12 — La synthèse vocale (« Écouter ») doit aboutir
+
+**Statut : OUVERT.** Constat de l'opérateur, 25/11 : le bouton lance un
+processus trop lourd qui n'aboutit pas.
+
+À faire, dans cet ordre :
+
+- **Mesurer d'abord**, sans rien supposer : moteur lancé (nom, version),
+  processus, mémoire, durée, code de sortie, taille du texte, moment exact de
+  l'échec (chargement, découpage, lecture). Chiffres au rapport.
+- Chemin rapide **par défaut** : synthèse intégrée au navigateur (Web Speech
+  API), zéro installation, zéro processus lourd, voix française proposée. Un
+  moteur local lourd seulement si la machine le permet (`choose_voice_engines`,
+  VRAM libre, bench) **et** après accord de l'utilisateur.
+- Texte long : découpage en phrases, lecture progressive, bouton Arrêter, délai
+  maximal, message clair en français, jamais de processus orphelin (nettoyage
+  au timeout et à la fermeture).
+- Voxtral reste réservé à une clé valide ; jamais choisi pour une IA locale.
+
+Contre-épreuves : texte long → interface non bloquée ; échec du moteur lourd →
+bascule automatique sur le navigateur avec une ligne d'info ; processus tué au
+timeout (prouvé).
+
+### G13 — Les outils doivent aboutir à la demande expresse (routeur de capacités)
+
+**Statut : OUVERT.** Constat de l'opérateur, 25/11.
+
+Une demande de dessin/photo a fini en code numpy/matplotlib (« illustration
+vectorielle procédurale, pas une photo »), suivi d'un long exposé sur les
+modèles de diffusion absents. La demande était une image réaliste.
+
+À faire (la politique vit dans UHB, UH appelle et affiche) :
+
+- Un registre de capacités « génération d'image », chaque moyen portant sa
+  disponibilité **réelle** sur cette machine (jamais supposée), sa vitesse, son
+  réalisme, son coût, sa licence et son installation éventuelle.
+- Moyens à étudier **et à vérifier dans leur documentation avant de les
+  inscrire** : Cloudflare Workers AI (la carte de fournisseur existe déjà dans
+  UH ; vérifier la présence de `flux-1-schnell` au catalogue, le quota gratuit et
+  les conditions — *non vérifié à ce jour*), un fournisseur d'API payant déjà
+  configuré, un modèle local (Flux schnell ou SDXL via ComfyUI /
+  stable-diffusion.cpp ; sur une RTX 3070 Ti de 8 Go, vérifier la variante
+  quantifiée et la VRAM réelle).
+- **Règle d'aboutissement** : une demande explicite (« une vraie photo », « un
+  chat réaliste ») ne peut pas se terminer par une illustration de repli
+  présentée comme le résultat, sauf acceptation de l'utilisateur. Le chat
+  propose 2 ou 3 moyens classés par vitesse et réalisme, chacun avec coût, durée
+  estimée, installation éventuelle, et un bouton par option.
+- Installation jamais silencieuse : proposition explicite (taille du
+  téléchargement, licence, VRAM requise comparée à la VRAM libre **mesurée**,
+  durée estimée), accord de l'utilisateur, somme de contrôle vérifiée, `pip`
+  uniquement via `<sys.executable> -m pip install`, désinstallation documentée.
+  Rien n'est installé avant le clic.
+- Un fournisseur d'API payant n'utilise pas l'outil local à sa place, et
+  inversement : chaque IA emploie son meilleur outil. La règle de choix est
+  écrite.
+
+Contre-épreuves : « photo réaliste » sans moyen disponible → proposition
+d'options, aucun repli silencieux ; avec un moyen disponible → utilisé ; une
+installation proposée n'est jamais lancée sans accord (test qui compte les
+lancements).
+
+### G14 — Sobriété des réponses
+
+**Statut : OUVERT.** Constat de l'opérateur, 25/11 : un long pavé technique
+(silhouettes, 45 000 mèches, licences) pour une demande qui voulait une image.
+
+À faire (politique dans UHB, affichage dans UH) :
+
+- **Résultat d'abord** : une demande qui produit un fichier ou une image reçoit
+  le résultat et **au plus deux lignes** (ce qui a été fait, où est l'original).
+  Pas de description du procédé, des licences ni de la méthode sauf demande ou
+  obstacle réel.
+- En cas d'obstacle : une phrase de cause + les options (G13), pas un exposé.
+- Les détails techniques vivent dans un volet « Détails » replié, jamais dans le
+  corps de la réponse.
+- Réglage de verbosité (court par défaut) dans la configuration.
+
+Contre-épreuves : un jeu de demandes types (image, fichier, recherche) dont la
+réponse ne dépasse pas le plafond de lignes ; le volet « Détails » contient le
+procédé.
+
+### G15 — Tableaux Markdown cassés
+
+**Statut : OUVERT.** Constat de l'opérateur, 25/11 : un tableau s'affiche en
+texte brut (`| | |---|---| | Fichier | chat.png | …`) sur une seule ligne.
+
+À faire : vérifier dans `uh/web/static/markdown.js` si les tableaux sont
+supportés ; sinon les ajouter (lignes séparées, en-tête, alignement ; contenu en
+`textContent`, jamais `innerHTML`). Si le tableau arrive **sans retours à la
+ligne**, ne pas le deviner : le rendre lisible en texte et signaler le cas au
+pied de la correction.
+
+Contre-épreuve : un test qui échoue sur le texte brut actuel.
+
 ### Règles du lot 3 (identiques aux lots 1 et 2)
 
 Aucun push, aucun `--no-verify`, rien toucher à l'authentification ni à
@@ -2629,3 +2784,9 @@ ce qui est mesuré : une capacité non vérifiée s'écrit « non vérifiée ».
 procédure) → `G2 + G3` (surface réseau neuve : relecture sécurité **avant** le
 code) → `G8` (aperçus de liens, après le proxy de G2) → `G5`. `G9` reste une
 **spécification** : rien de codé sans décision de l'opérateur.
+
+Ordre du lot 4 (opérateur, 25/11) : **finir `G8`** (phases 4 à 7) → `G15`
+(court) → `G10` → `G11` (réutilise le proxy et la provenance de `G8`) → `G12` →
+`G13 + G14`, avec `G5` si les périmètres se recoupent → puis lot 2, points 3, 4
+et 8. Les idées du super agent (tickets, politique à trois forces, « observe
+avant auto ») restent des **candidats** pour le point 8, sans code.
