@@ -54,9 +54,14 @@ class Server:
         port: int,
         workspace: Path | None = None,
         extra_env: dict[str, str] | None = None,
+        seed: "Callable[[Path], None] | None" = None,
     ) -> None:
         self.home = home
         self.port = port
+        #: Appelé juste après la création du `UH_HOME`, AVANT `uh web` : c'est le
+        #: seul moment où l'on peut y déclarer un fournisseur, puisque la sélection
+        #: se fait au démarrage et que `uh web` n'a pas d'argument `--provider`.
+        self.seed = seed
         #: Le workspace du serveur, quand le test en veut un jetable (panneau Git).
         self.workspace = workspace
         #: Variables d'environnement du serveur (un UHB sur port fermé, des runs jetables).
@@ -73,6 +78,8 @@ class Server:
 
     def start(self) -> "Server":
         self.home.mkdir(parents=True, exist_ok=True)
+        if self.seed is not None:
+            self.seed(self.home)
         env = dict(os.environ, UH_HOME=str(self.home), PYTHONUNBUFFERED="1", **self.extra_env)
         command = [
             str(PYTHON),
@@ -199,9 +206,11 @@ def make_server(tmp_path: Path):
         port: int | None = None,
         workspace: Path | None = None,
         extra_env: dict[str, str] | None = None,
+        seed = None,
     ) -> Server:
         server = Server(
-            tmp_path / name, port or free_port(), workspace=workspace, extra_env=extra_env
+            tmp_path / name, port or free_port(), workspace=workspace, extra_env=extra_env,
+            seed=seed,
         )
         started.append(server)
         return server.start()
