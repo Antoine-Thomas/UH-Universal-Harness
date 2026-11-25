@@ -2454,3 +2454,15 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
   .video-card { flex-direction: column; }
   .video-thumb { width: 100%; height: auto; }
 }
+
+/* --- Tableaux Markdown (G15) ------------------------------------------------ */
+/* Jetons existants uniquement : le clair et le sombre suivent sans règle dédiée.
+   `display: block` + `overflow-x` : un tableau large défile au lieu de pousser la
+   page. */
+.md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 10px 0; max-width: 100%; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+.md th { background: var(--tool); color: var(--text); font-weight: 600; }
+.md td { color: var(--text); }
+.md .md-align-left { text-align: left; }
+.md .md-align-center { text-align: center; }
+.md .md-align-right { text-align: right; }
