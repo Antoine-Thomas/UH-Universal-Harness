@@ -94,7 +94,9 @@ async def _test_the_operator_origin_is_accepted(
 
 # Ce dépôt ne dépend pas de pytest-asyncio : les tests asynchrones s'exécutent par
 # , comme le reste du fichier de routes.
-def test_without_a_token_the_setting_does_not_move(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_without_a_token_the_setting_does_not_move(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     asyncio.run(_test_without_a_token_the_setting_does_not_move(tmp_path, monkeypatch))
 
 

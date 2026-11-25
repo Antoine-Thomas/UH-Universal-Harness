@@ -23,9 +23,7 @@ def test_a_configured_provider_carries_its_retry_budget() -> None:
 
 
 def test_the_parent_still_sets_it() -> None:
-    provider = OmniRouterProvider(
-        model="m", base_url="http://127.0.0.1:9/v1", api_key="k"
-    )
+    provider = OmniRouterProvider(model="m", base_url="http://127.0.0.1:9/v1", api_key="k")
 
     assert provider.retry_attempts == RETRY_ATTEMPTS
 
