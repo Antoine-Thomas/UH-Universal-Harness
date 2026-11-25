@@ -13,6 +13,7 @@
 
 const PREVIEW = "/api/link/preview";
 const IMAGE = "/api/link/image";
+const SETTINGS = "/api/link/settings";
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -102,11 +103,14 @@ async function preview(link, body, session) {
   const query = new URLSearchParams({ url: link.url, session, origin: link.origin || "click" });
   let data;
   try {
-    data = await getJSON(`${PREVIEW}?${query}`);
+    data = await getJSON(`${PREVIEW}?${query.toString()}`);
   } catch (error) {
-    body.appendChild(
-      node("p", "link-card-error", `Aperçu indisponible : ${error.message || "refus du serveur"}.`)
-    );
+    const message = String(error.message || "refus du serveur");
+    body.appendChild(node("p", "link-card-error", `Aperçu indisponible : ${message}.`));
+    // Le réglage est coupé : proposer de l'activer ici plutôt que d'envoyer
+    // l'utilisateur chercher un panneau. Le clic vaut consentement, et rien
+    // n'est activé sans lui.
+    if (/désactiv/i.test(message)) offerActivation(body, link, session);
     return;
   }
   if (data.title) body.appendChild(node("p", "link-card-title", data.title));
@@ -134,4 +138,52 @@ async function preview(link, body, session) {
   }
   for (const note of data.notes || []) facts.appendChild(host(note, "link-card-fact"));
   if (facts.childElementCount) body.appendChild(facts);
+}
+
+/**
+ * Le réglage est coupé : un bouton l'active depuis la carte.
+ *
+ * Le clic vaut consentement — c'est le seul chemin d'activation, et il dit ce
+ * qui va se passer. Rien n'est activé au chargement de la page, ni par un appel
+ * automatique : un aperçu sortant est une requête vers un site tiers, et elle
+ * ne part qu'après ce clic.
+ */
+function offerActivation(body, link, session) {
+  const explain = node(
+    "p",
+    "link-card-consent",
+    "UH ira lire la page à ta place ; seul le domaine est journalisé."
+  );
+  const activate = node("button", "link-card-activate", "Activer les aperçus");
+  activate.type = "button";
+  activate.addEventListener("click", async () => {
+    activate.disabled = true;
+    activate.textContent = "Activation…";
+    try {
+      await postJSON(SETTINGS, { enabled: true });
+    } catch (error) {
+      body.appendChild(
+        node("p", "link-card-error", `Activation refusée : ${error.message || "refus du serveur"}.`)
+      );
+      return;
+    }
+    body.replaceChildren();
+    await preview(link, body, session);
+  });
+  body.appendChild(explain);
+  body.appendChild(activate);
+}
+
+async function postJSON(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(String(detail.detail || detail.error || `HTTP ${response.status}`));
+  }
+  return response.json();
 }

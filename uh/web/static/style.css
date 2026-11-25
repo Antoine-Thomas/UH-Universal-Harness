@@ -2487,3 +2487,14 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
 .link-card-facts { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; }
 .link-card-fact { color: var(--muted); font-size: 0.82em; }
 .link-card-error { color: var(--error); margin: 4px 0 0; }
+
+.link-card-consent { color: var(--muted); font-size: 0.86em; margin: 6px 0; }
+.link-card-activate {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--panel);
+  border-radius: calc(var(--radius) - 4px);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.link-card-activate[disabled] { opacity: 0.6; cursor: default; }
