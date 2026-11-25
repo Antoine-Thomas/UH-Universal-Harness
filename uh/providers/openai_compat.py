@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from . import RETRY_BACKOFF_S, Provider, ProviderError
+from . import Provider, ProviderError
 from .omnirouter import OmniRouterProvider
 
 
