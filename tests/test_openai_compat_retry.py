@@ -11,7 +11,7 @@ Deux tests, et le premier est celui qui échouait : le second garde le parent.
 
 from __future__ import annotations
 
-from uh.providers import RETRY_ATTEMPTS
+from uh.providers import RETRY_ATTEMPTS, RETRY_BACKOFF_S
 from uh.providers.omnirouter import OmniRouterProvider
 from uh.providers.openai_compat import OpenAICompatProvider
 
@@ -28,3 +28,12 @@ def test_the_parent_still_sets_it() -> None:
     )
 
     assert provider.retry_attempts == RETRY_ATTEMPTS
+
+
+def test_the_base_bookkeeping_is_present() -> None:
+    """Les champs du socle, pas seulement celui qui a casse le premier."""
+    provider = OpenAICompatProvider(model="m", base_url="http://127.0.0.1:9/v1")
+
+    assert provider.retry_backoff == RETRY_BACKOFF_S
+    assert callable(provider.retry_sleep)
+    assert provider.request_params == {}
