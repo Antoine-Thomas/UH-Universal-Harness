@@ -3,6 +3,7 @@
 
 import { renderMarkdown } from "./markdown.js";
 import { drawCards, maybeVideoCard } from "./cards.js";
+import { linkCards } from "./links.js";
 
 const state = {
   sessionId: null,
@@ -2885,6 +2886,12 @@ async function sendMessage(text) {
               assistantContent.textContent = body;
               assistantContent.classList.add("md");
               assistantContent.innerHTML = renderMarkdown(body, { artifacts: artifactFiles });
+            }
+            // La provenance vient du serveur : une URL qu'il n'a pas vue dans un
+            // résultat d'outil ni dans un message de l'opérateur arrive en
+            // « model », et la carte n'envoie alors rien avant un clic.
+            if (Array.isArray(data.links) && data.links.length && !assistant.querySelector(".link-cards")) {
+              linkCards(assistant, data.links, { session: state.sessionId });
             }
           });
         } else if (event === "answer_meta") {
