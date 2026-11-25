@@ -18,9 +18,13 @@ in the transcript, because an empty frame reads like a bug.
 from __future__ import annotations
 
 import base64
+import hashlib
+import io
 import ipaddress
 import re
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlsplit
 
@@ -34,6 +38,94 @@ ALLOWED_MIME = ("image/png", "image/jpeg", "image/gif", "image/webp")
 #: picture: half an image is not an image, so it is refused whole.
 MAX_BYTES = 2 * 1024 * 1024
 MAX_IMAGES = 4
+
+# --- G10 : afficher réduit, conserver l'original ----------------------------- #
+# `MAX_BYTES` borne ce que l'interface reçoit ; `MAX_DOWNLOAD` borne ce qu'on
+# accepte de télécharger. Les confondre reviendrait à supprimer la borne réseau :
+# un fichier de plusieurs centaines de mégaoctets remplirait la mémoire avant même
+# d'être redimensionné.
+MAX_DOWNLOAD = 32 * 1024 * 1024
+MAX_SIDE = 1600
+MAX_PIXELS = 40_000_000
+_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
+
+
+def _save_original(mime: str, data: bytes) -> Optional[Path]:
+    """Écrit les octets bruts dans le dossier de sorties d'UH, sans jamais écraser.
+
+    Le nom combine un horodatage et un hachage court : deux images identiques
+    reçoivent deux fichiers distincts, et le nom ne dit rien du contenu au-delà de
+    son empreinte. L'extension vient du MIME **vérifié aux magic bytes**, jamais
+    d'un en-tête `content-type`. Échec silencieux : afficher l'image passe avant
+    garder une trace, et une note sans chemin vaut mieux qu'une exception.
+    """
+    try:
+        from .system_map import outputs_dir
+
+        folder = outputs_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(data).hexdigest()[:12]
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        audit_original = folder / f"image-{stamp}-{digest}.{_EXT.get(mime, 'bin')}"
+        with open(audit_original, "xb") as handle:
+            handle.write(data)
+        return audit_original
+    except Exception:  # noqa: BLE001 - jamais bloquant pour l'affichage
+        return None
+
+
+def _fit(mime: str, data: bytes, *, origin: str = "") -> Optional[Artifact]:
+    """Les octets à afficher : les mêmes, ou une version réduite si nécessaire.
+
+    Rend ``None`` quand l'image dépasse le plafond et que Pillow est absent : le
+    refus reste alors explicite, il ne devient pas une exception d'import.
+    """
+    if len(data) <= MAX_BYTES:
+        return Artifact(mime=mime, data=data, note=origin)
+
+    saved = _save_original(mime, data)
+    note = (
+        f"{origin} · original : {saved}"
+        if origin and saved
+        else (origin or (str(saved) if saved else ""))
+    )
+
+    try:
+        from PIL import Image
+    except Exception:  # noqa: BLE001 - dépendance optionnelle
+        return None
+
+    previous = Image.MAX_IMAGE_PIXELS
+    # La borne couvre la bombe de décompression (petit fichier, image énorme) et
+    # elle est restaurée : le réglage est global au processus.
+    Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            has_alpha = image.mode in {"RGBA", "LA"} or (
+                image.mode == "P" and "transparency" in image.info
+            )
+            frame = image.convert("RGBA" if has_alpha else "RGB")
+            out_mime = "image/png" if has_alpha else "image/jpeg"
+            out_format = "PNG" if has_alpha else "JPEG"
+            for side in (MAX_SIDE, 1200, 900, 700, 500, 320):
+                candidate_image = frame.copy()
+                candidate_image.thumbnail((side, side))
+                buffer = io.BytesIO()
+                if has_alpha:
+                    candidate_image.save(buffer, format=out_format, optimize=True)
+                else:
+                    candidate_image.save(buffer, format=out_format, quality=82, optimize=True)
+                candidate = buffer.getvalue()
+                if len(candidate) <= MAX_BYTES:
+                    return Artifact(mime=out_mime, data=candidate, note=note)
+            return None
+    except Exception:  # noqa: BLE001 - une image illisible ne casse pas le tour
+        return None
+    finally:
+        Image.MAX_IMAGE_PIXELS = previous
+
+
 FETCH_TIMEOUT = 10.0
 
 MARKDOWN_IMAGE = re.compile(r"!\[([^\]]*)\]\((https?://[^)\s]+)\)")
@@ -148,13 +240,16 @@ def fetch_image(
     url: str,
     *,
     client: Optional[httpx.Client] = None,
-    max_bytes: int = MAX_BYTES,
+    max_bytes: Optional[int] = None,
     timeout: float = FETCH_TIMEOUT,
 ) -> Tuple[Optional[Artifact], str]:
     """Download one remote image. Returns ``(artifact, "")`` or ``(None, reason)``."""
     reason = check_url(url)
     if reason:
         return None, reason
+    # Lu a l appel, pas fige dans la signature : le plafond reste patchable et
+    # une constante module ne peut pas mentir sur ce qui sapplique.
+    limit = MAX_DOWNLOAD if max_bytes is None else max_bytes
     owned = client is None
     http = client or httpx.Client(timeout=timeout, follow_redirects=False)
     try:
@@ -169,14 +264,14 @@ def fetch_image(
             if response.status_code != 200:
                 return None, f"HTTP {response.status_code}"
             declared = int(response.headers.get("content-length") or 0)
-            if declared and declared > max_bytes:
-                return None, f"trop volumineuse ({declared} octets, plafond {max_bytes})"
+            if declared and declared > limit:
+                return None, f"trop volumineuse ({declared} octets, plafond {limit})"
             chunks: List[bytes] = []
             total = 0
             for chunk in response.iter_bytes():
                 total += len(chunk)
-                if total > max_bytes:
-                    return None, f"trop volumineuse (> {max_bytes} octets)"
+                if total > limit:
+                    return None, f"trop volumineuse (> {limit} octets)"
                 chunks.append(chunk)
             data = b"".join(chunks)
     except httpx.HTTPError as exc:
@@ -188,7 +283,10 @@ def fetch_image(
     mime = sniff_mime(data)
     if mime is None:
         return None, "format non reconnu (png, jpeg, gif, webp seulement)"
-    return Artifact(mime=mime, data=data, note=url), ""
+    fitted = _fit(mime, data, origin=url)
+    if fitted is not None:
+        return fitted, ""
+    return None, (f"trop volumineuse ({total} octets) ; installer Pillow pour l'afficher réduite")
 
 
 def _block_url(block: Dict[str, Any]) -> Optional[str]:
@@ -306,12 +404,16 @@ def _one(
     decoded = decode_data_url(url)
     if decoded is not None:
         data, declared = decoded
-        if len(data) > MAX_BYTES:
-            return None, f"image trop volumineuse (> {MAX_BYTES} octets)"
         mime = sniff_mime(data)
         if mime is None:
             return None, f"format non reconnu (déclaré {declared or 'inconnu'})"
-        return Artifact(mime=mime, data=data), ""
+        fitted = _fit(mime, data)
+        if fitted is not None:
+            return fitted, ""
+        return None, (
+            f"image trop volumineuse (> {MAX_BYTES} octets) ; "
+            "installer Pillow pour l'afficher réduite"
+        )
     if not fetch:
         return None, ""
     return fetch_image(url, client=client)

@@ -104,27 +104,79 @@ def test_a_remote_png_becomes_an_artifact() -> None:
     assert payload["bytes"] == len(PNG)
 
 
-def test_a_body_over_the_cap_is_refused_whole() -> None:
-    big = PNG + b"\x00" * (images.MAX_BYTES + 1)
+def test_a_body_over_the_download_cap_is_refused_whole() -> None:
+    """Un flux geant reste refuse : la borne reseau n'a pas bouge avec G10.
+
+    C'est `MAX_DOWNLOAD` qui protege la memoire, pas `MAX_BYTES` (qui borne ce que
+    l'interface affiche). Le corps depasse le plafond dur.
+    """
+    big = PNG + b"\x00" * (images.MAX_DOWNLOAD + 1)
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=big)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    artifact, reason = images.fetch_image("https://example.com/c.png", client=client)
+    try:
+        artifact, reason = images.fetch_image("https://example.com/c.png", client=client)
+    finally:
+        client.close()
 
     assert artifact is None
     assert "trop volumineuse" in reason
 
 
+def test_a_body_between_the_caps_is_shown_reduced(big_png_bytes, tmp_path, monkeypatch) -> None:
+    """Entre 2 et 32 Mio : telechargee, reduite, originale conservee."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+    body = big_png_bytes
+    assert images.MAX_BYTES < len(body) <= images.MAX_DOWNLOAD
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-length": str(len(body))})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        artifact, reason = images.fetch_image("https://example.com/c.png", client=client)
+    finally:
+        client.close()
+
+    assert artifact is not None, reason
+    assert len(artifact.data) <= images.MAX_BYTES
+    assert artifact.note, "la note doit citer l'original conserve"
+
+
+def test_the_download_cap_is_what_refuses(big_png_bytes, tmp_path, monkeypatch) -> None:
+    """Contre-epreuve : ramener MAX_DOWNLOAD a MAX_BYTES refait refuser le meme corps."""
+    monkeypatch.setenv("UH_HOME", str(tmp_path))
+    monkeypatch.setattr(images, "MAX_DOWNLOAD", images.MAX_BYTES)
+    body = big_png_bytes
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-length": str(len(body))})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        artifact, reason = images.fetch_image("https://example.com/c.png", client=client)
+    finally:
+        client.close()
+
+    assert artifact is None, "le plafond dur doit de nouveau mordre"
+    assert "trop volumineuse" in reason
+
+
 def test_a_declared_length_over_the_cap_is_refused_before_reading() -> None:
+    """Annonce > MAX_DOWNLOAD : refuse avant de lire un seul octet."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            200, content=b"", headers={"content-length": str(images.MAX_BYTES + 1)}
+            200, content=b"", headers={"content-length": str(images.MAX_DOWNLOAD + 1)}
         )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    artifact, reason = images.fetch_image("https://example.com/c.png", client=client)
+    try:
+        artifact, reason = images.fetch_image("https://example.com/c.png", client=client)
+    finally:
+        client.close()
 
     assert artifact is None and "trop volumineuse" in reason
 
@@ -322,3 +374,33 @@ def test_a_provider_never_receives_the_answer_images() -> None:
     sent = request_messages([message])[0]
     assert "artifacts" not in sent, "the API is not paying for pixels twice"
     assert sent["content"] == "voici"
+
+
+@pytest.fixture()
+def big_png_bytes() -> bytes:
+    """Un PNG valide entre les deux plafonds : du bruit, donc incompressible."""
+    import struct
+    import zlib
+
+    width, height = 900, 900
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        body = kind + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    rows = bytearray()
+    seed = 0x9E3779B9
+    for _ in range(height):
+        rows.append(0)
+        for _ in range(width * 3):
+            seed = (1103515245 * seed + 12345) & 0xFFFFFFFF
+            rows.append((seed >> 16) & 0xFF)
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    data = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(bytes(rows), 6))
+        + chunk(b"IEND", b"")
+    )
+    assert len(data) > images.MAX_BYTES, len(data)
+    return data
