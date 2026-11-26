@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -35,6 +38,35 @@ HEADER = (
     "# UH provider keys - never commit this file.\n"
     "# Written by `uh providers add`; mode 0600 where the OS supports it.\n"
 )
+
+
+_LOCK = threading.RLock()
+
+
+class KeysBusy(RuntimeError):
+    """Le fichier de cles est occupe par un autre processus (Windows)."""
+
+
+def _replace_with_retry(source: str, target: Path) -> None:
+    """Remplace un fichier, avec une reprise bornee sur Windows seulement.
+
+    `os.replace` echoue par `PermissionError` tant qu'un autre handle tient la
+    destination. Le verrou couvre le processus ; cette reprise couvre l'autre
+    processus (la CLI `uh`). Elle ne dure que quelques dizaines de millisecondes,
+    et elle ne s'applique a aucune autre erreur : un disque plein ne doit pas
+    devenir une attente.
+    """
+    attempts = 8
+    delay = 0.01
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if sys.platform != "win32" or attempt == attempts - 1:
+                raise KeysBusy("fichier de clés occupé, réessayez") from None
+            time.sleep(delay)
+            delay = min(delay * 2, 0.04)
 
 
 def uh_home() -> Path:
@@ -66,7 +98,7 @@ def _quote(text: str) -> str:
     return '"' + "".join(out) + '"'
 
 
-def read_providers() -> dict[str, dict[str, Any]]:
+def _read_providers_unlocked() -> dict[str, dict[str, Any]]:
     path = keys_path()
     if not path.is_file():
         return {}
@@ -160,8 +192,8 @@ def _write_all(providers: dict[str, dict[str, Any]]) -> Path:
     try:
         with handle:
             handle.write(payload)
-        os.replace(handle.name, path)
-    except OSError:
+        _replace_with_retry(handle.name, path)
+    except (OSError, KeysBusy):
         try:
             os.unlink(handle.name)
         except OSError:
@@ -179,7 +211,7 @@ def _restrict(path: Path) -> None:
         pass
 
 
-def add_key(name: str, key: str) -> Path:
+def _add_key_unlocked(name: str, key: str) -> Path:
     """Append a key to an existing provider (rotation), ignoring duplicates."""
     clean = (name or "").strip().lower()
     providers = read_providers()
@@ -196,7 +228,7 @@ def add_key(name: str, key: str) -> Path:
     return _write_all(providers)
 
 
-def remove_key_at(name: str, index: int) -> bool:
+def _remove_key_at_unlocked(name: str, index: int) -> bool:
     """Drop the key at 1-based position ``index``.
 
     By index on purpose: deleting "by value" would put the secret in a URL, and
@@ -217,7 +249,7 @@ def remove_key_at(name: str, index: int) -> bool:
     return True
 
 
-def remove_key(name: str, key: str) -> bool:
+def _remove_key_unlocked(name: str, key: str) -> bool:
     """Drop one key (by exact value); never prints it back."""
     clean = (name or "").strip().lower()
     providers = read_providers()
@@ -233,7 +265,7 @@ def remove_key(name: str, key: str) -> bool:
     return True
 
 
-def add_provider(name: str, base_url: str, model: str, key: str) -> Path:
+def _add_provider_unlocked(name: str, base_url: str, model: str, key: str) -> Path:
     clean = (name or "").strip().lower()
     if not _NAME_RE.match(clean):
         raise ValueError(
@@ -251,7 +283,7 @@ def add_provider(name: str, base_url: str, model: str, key: str) -> Path:
     return _write_all(providers)
 
 
-def remove_provider(name: str) -> bool:
+def _remove_provider_unlocked(name: str) -> bool:
     providers = read_providers()
     clean = (name or "").strip().lower()
     if clean not in providers:
@@ -272,3 +304,40 @@ def file_mode(path: Optional[Path] = None) -> str:
         return f"present (mode {oct(target.stat().st_mode & 0o777)})"
     except OSError:  # pragma: no cover
         return "present"
+
+
+# --- interface publique : chaque cycle lecture-modification-ecriture est atomique --
+# Les fonctions ci-dessous gardent le nom public ; le corps a `_unlocked` suppose le
+# verrou deja tenu. Le RLock est reentrant, donc `read_providers()` et `_write_all()`
+# peuvent le reprendre a l'interieur sans se bloquer eux-memes.
+
+
+def add_key(name: str, key: str) -> Path:
+    with _LOCK:
+        return _add_key_unlocked(name, key)
+
+
+def remove_key_at(name: str, index: int) -> bool:
+    with _LOCK:
+        return _remove_key_at_unlocked(name, index)
+
+
+def remove_key(name: str, key: str) -> bool:
+    with _LOCK:
+        return _remove_key_unlocked(name, key)
+
+
+def add_provider(name: str, base_url: str, model: str, key: str) -> Path:
+    with _LOCK:
+        return _add_provider_unlocked(name, base_url, model, key)
+
+
+def remove_provider(name: str) -> bool:
+    with _LOCK:
+        return _remove_provider_unlocked(name)
+
+
+def read_providers() -> dict[str, dict[str, Any]]:
+    """Lecture sous verrou : c est elle qui tient le fichier ouvert pendant un remplacement."""
+    with _LOCK:
+        return _read_providers_unlocked()
