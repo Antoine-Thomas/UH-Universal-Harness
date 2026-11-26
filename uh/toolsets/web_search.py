@@ -96,6 +96,39 @@ TOOLS: List[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_image_search",
+            "description": (
+                "Find a REAL photograph on the web (Openverse, Wikimedia Commons, and the "
+                "configured image engine) and return image URLs with their licence and "
+                "author. Use it as soon as the user asks for a photo or a picture of "
+                "something that exists ('la photo d'un chat', 'une image de la tour "
+                "Eiffel'): it is the only tool here that returns images. Do NOT use "
+                "`execute_code` for such a request - code draws an illustration, never a "
+                "photograph. `execute_code` is for charts, diagrams and drawings the user "
+                "asks you to create."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "What to show, subject only ('chat', 'tour Eiffel'), in the "
+                            "conversation's language"
+                        ),
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Number of images, 1-5 (default 5)",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -499,25 +532,58 @@ class WebSearchToolset:
         """
         return ["brave"] if self.settings.get("brave") else []
 
-    def search_images(self, query: str, max_results: int = MAX_RESULTS) -> dict:
-        """``/web image`` : un vrai moteur d'images, ou une phrase honnête.
+    def _keyless_images(self, query: str, max_results: int) -> dict:
+        """Les sources libres, sans clé : Openverse puis Wikimedia Commons.
 
-        Sans clé Brave, il n'existe **aucun** moteur d'images disponible ici : la
-        réponse le dit et aucune requête ne part.
+        Le résultat a la même forme que celui de Brave — `title`, `url` (la page
+        source), `image`, `licence`, `author` — pour que l'appelant n'ait qu'un
+        seul format à lire, avec ou sans clé.
+        """
+        from .. import image_search
+
+        found = image_search.search_images(query, limit=max_results, language="fr")
+        results = [
+            {
+                "title": hit.title,
+                "url": hit.page,
+                "image": hit.thumb,
+                "thumbnail": hit.thumb,
+                "licence": hit.licence,
+                "author": hit.author,
+                "domain": hit.domain,
+                "provider": hit.provider,
+            }
+            for hit in found.hits
+        ]
+        if not results:
+            reasons = "; ".join(f"{name}: {reason}" for name, reason in found.failed.items())
+            return {
+                "query": query,
+                "results": [],
+                "count": 0,
+                "engine": ", ".join(found.engines),
+                "note": f"aucune image ({reasons or 'aucun résultat'})",
+            }
+        return {
+            "query": query,
+            "results": results,
+            "count": len(results),
+            "engine": ", ".join(found.engines) or "sans clé",
+        }
+
+    def search_images(self, query: str, max_results: int = MAX_RESULTS) -> dict:
+        """``/web image`` : un vrai moteur d'images, sinon les sources sans clé.
+
+        Sans clé Brave, Openverse et Wikimedia Commons répondent (mesuré, aucune
+        clé) : le refus « aucun moteur d'images » serait faux depuis qu'ils
+        existent. Ce qui reste vrai : jamais une recherche web texte à la place
+        d'images, et chaque résultat porte sa licence et son auteur.
         """
         query = str(query or "").strip()
         if not query:
             return {"error": "query is required", "type": "tool_error", "tool": "web_image_search"}
         if not self.image_engines():
-            return {
-                "error": (
-                    "no image engine configured: image search needs a Brave Search key "
-                    "(BRAVE_API_KEY, or [search] brave_key in keys.toml); nothing was sent"
-                ),
-                "type": "tool_error",
-                "tool": "web_image_search",
-                "engines": [],
-            }
+            return self._keyless_images(query, max_results)
         key = self.settings["brave"]
         try:
             response = self._http("get")(

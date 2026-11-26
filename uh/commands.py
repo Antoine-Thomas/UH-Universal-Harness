@@ -12,6 +12,7 @@ out) is documented in ``docs/SLASH_COMMANDS.md``.
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional
 from urllib.parse import urlsplit
@@ -327,6 +328,66 @@ def _cmd_tools(session: "ChatSession", _args: str) -> CommandResult:
     return CommandResult(out="\n".join(lines))
 
 
+#: Les tournures qui demandent une **image**, pas un lien. Volontairement
+#: conservatrices : sans un mot d'image explicite, la requete reste une recherche
+#: web. Le sujet est ce qui reste une fois le preambule et l'article retires :
+#: « donne moi la photo d'un chat » -> « chat ».
+_IMAGE_PREAMBLE = re.compile(
+    r"^(?:peux[- ]tu\s+|tu peux\s+|s'il te plait\s+|stp\s+)?(?:me\s+)?"
+    r"(?:donne(?:s)?[- ]moi|donne(?:s)?|montre(?:s)?[- ]moi|montre(?:s)?|"
+    r"cherche(?:s)?|trouve(?:s)?|affiche(?:s)?|je veux|je voudrais)\s+",
+    re.IGNORECASE,
+)
+_IMAGE_NOUN = re.compile(
+    r"^(?:(?:une?|des|la|le|les|the|a|an)\s+)?"
+    r"(?:(?:vraie?s?|belles?|jolies?|real|reelles?|bonnes?)\s+)?"
+    r"(?:photos?|images?|pictures?)\s+(?:de\s+|d'|of\s+|du\s+|des\s+)(.+)$",
+    re.IGNORECASE,
+)
+_LEADING_ARTICLE = re.compile(r"^(?:un|une|des|le|la|les|the|a|an)\s+", re.IGNORECASE)
+#: « image de chat » -> « chat » : le mot de liaison n'est pas le sujet.
+_IMAGE_LINK_WORD = re.compile(r"^(?:de\s+|d'|of\s+|du\s+|des\s+)", re.IGNORECASE)
+#: Le mot d'image **en fin** de requete : « chat images », « chat photo ». C'est la
+#: meme demande que « image chat » ; l'ordre des mots ne doit pas changer la route.
+#: Borne a quatre mots de sujet : au-dela, la phrase n'est plus une designation.
+_IMAGE_SUFFIX = re.compile(
+    r"^(?P<subject>\S+(?:\s+\S+){0,3})\s+(?:photos?|images?|pictures?)$",
+    re.IGNORECASE,
+)
+#: Une preposition qui traine devant le mot d'image ne fait pas partie du sujet.
+_IMAGE_TRAILING_LINK = re.compile(r"\s+(?:en|de|du|des|d'|pour|sur)\s*$", re.IGNORECASE)
+#: Demander de **fabriquer** une image n'est pas demander une photo existante :
+#: ces tournures restent au modele (c'est G13, la generation, pas la phototheque).
+_IMAGE_GENERATION = re.compile(
+    r"\b(?:dessine|dessiner|dessin|peins|peindre|g[ée]n[èe]re|g[ée]n[ée]rer"
+    r"|cr[ée]e|cr[ée]er|fabrique|invente|draw|generate|paint|create)\b",
+    re.IGNORECASE,
+)
+
+
+def _image_intent(query: str) -> Optional[str]:
+    """Le sujet d'une demande d'image, ou ``None`` si ce n'en est pas une.
+
+    Rend ``None`` plutot qu'une chaine vide : une requete qui ne porte pas de mot
+    d'image doit continuer d'aller vers la recherche web, pas vers une galerie vide.
+    Deux formes sont reconnues — le mot d'image en tete (« la photo d'un chat »)
+    et le mot d'image en fin (« chat images ») : c'est le meme sens.
+    """
+    if _IMAGE_GENERATION.search(query or ""):
+        return None
+    text = _IMAGE_PREAMBLE.sub("", (query or "").strip())
+    match = _IMAGE_NOUN.match(text)
+    if match:
+        candidate = match.group(1)
+    else:
+        suffix = _IMAGE_SUFFIX.match(text)
+        if not suffix:
+            return None
+        candidate = _IMAGE_TRAILING_LINK.sub("", suffix.group("subject"))
+    subject = _LEADING_ARTICLE.sub("", candidate.strip(" .!?,"))
+    return subject.strip() or None
+
+
 def _cmd_web(session: "ChatSession", args: str) -> CommandResult:
     """``/web <query>`` searches; ``/web image <query>`` looks for images.
 
@@ -347,7 +408,13 @@ def _cmd_web(session: "ChatSession", args: str) -> CommandResult:
         if lowered == prefix:
             return _web_images(session, "")
         if lowered.startswith(f"{prefix} "):
-            return _web_images(session, query[len(prefix) :].strip())
+            # « image de chat » : le mot de liaison n'est pas le sujet cherche.
+            return _web_images(session, _IMAGE_LINK_WORD.sub("", query[len(prefix) :].strip()))
+    # « donne moi la photo d'un chat » est une demande d'image, meme sans le mot
+    # « image » en tete : c'est exactement ce que l'utilisateur tape.
+    subject = _image_intent(query)
+    if subject is not None:
+        return _web_images(session, subject)
     return _web_search(session, query)
 
 
@@ -431,75 +498,55 @@ def _web_images(session: "ChatSession", query: str) -> CommandResult:
             ),
             cards={"kind": "images", "query": "", "results": [], "failed": {}},
         )
-    if engines:
-        result = toolset.call("web_image_search", {"query": query})
-        if result.get("error"):
-            return CommandResult(err=f"web image: {result['error']}")
-        results = result.get("results") or []
-        if not results:
-            return CommandResult(out=f"web image: {result.get('note') or 'aucune image'}")
-        engine = str(result.get("engine") or ", ".join(engines))
-        lines = [f"web images: {result.get('query', query)} ({engine})"]
-        cards: list[dict] = []
-        for position, item in enumerate(results, 1):
-            page = str(item.get("url") or "")
-            image = str(item.get("image") or "")
-            lines.append(f"  {position}. {item.get('title', '')}")
-            lines.append(f"     image  {image}")
-            lines.append(f"     page   {page}")
-            if image:
-                cards.append(
-                    {
-                        "title": str(item.get("title") or ""),
-                        "thumb": image,
-                        "page": page,
-                        "domain": _domain(page),
-                        "licence": "",
-                        "author": "",
-                        "provider": engine,
-                    }
-                )
+    # Un seul chemin, avec ou sans cle : le toolset choisit le moteur (Brave si
+    # une cle existe, Openverse et Commons sinon) et rend la meme forme.
+    result = toolset.call("web_image_search", {"query": query})
+    if result.get("error"):
+        return CommandResult(err=f"web image: {result['error']}")
+    results = result.get("results") or []
+    if not results:
         return CommandResult(
-            out="\n".join(lines),
+            out=f"web image: {result.get('note') or 'aucune image'}",
             cards={
                 "kind": "images",
-                "query": str(result.get("query") or query),
-                "results": cards,
-                "failed": {},
+                "query": query,
+                "results": [],
+                "failed": dict(result.get("failed") or {}),
             },
         )
-    # Aucune clé : les moteurs sans clé prennent le relais.
-    from . import image_search
-
-    found = image_search.search_images(query, limit=WEB_CARDS, language="fr")
-    cards = [
-        {
-            "title": hit.title,
-            "thumb": hit.thumb,
-            "page": hit.page,
-            "domain": hit.domain,
-            "licence": hit.licence,
-            "author": hit.author,
-            "provider": hit.provider,
-        }
-        for hit in found.hits
-    ]
-    if not cards:
-        reasons = "; ".join(f"{name} : {reason}" for name, reason in found.failed.items())
-        return CommandResult(
-            out=f"web image: aucune image ({reasons or 'aucun résultat'})",
-            cards={"kind": "images", "query": query, "results": [], "failed": found.failed},
-        )
-    lines = [f"web images: {query} ({', '.join(found.engines)})"]
-    for position, card in enumerate(cards, 1):
-        licence = card["licence"] or "inconnue"
-        author = card["author"] or "inconnu"
-        lines.append(f"  {position}. {card['title']}")
-        lines.append(f"     licence {licence} - auteur {author}")
-        lines.append(f"     page    {card['page']}")
+    engine = str(result.get("engine") or ", ".join(engines) or "moteur")
+    lines = [f"web images: {result.get('query', query)} ({engine})"]
+    cards: list[dict] = []
+    for position, item in enumerate(results, 1):
+        page = str(item.get("url") or "")
+        image = str(item.get("image") or "")
+        licence = str(item.get("licence") or "")
+        author = str(item.get("author") or "")
+        lines.append(f"  {position}. {item.get('title', '')}")
+        if licence or author:
+            lines.append(f"     licence {licence or 'inconnue'} - auteur {author or 'inconnu'}")
+        lines.append(f"     image  {image}")
+        lines.append(f"     page   {page}")
+        if image:
+            cards.append(
+                {
+                    "title": str(item.get("title") or ""),
+                    "thumb": image,
+                    "page": page,
+                    "domain": str(item.get("domain") or "") or _domain(page),
+                    "licence": licence,
+                    "author": author,
+                    "provider": str(item.get("provider") or engine),
+                }
+            )
     return CommandResult(
         out="\n".join(lines),
-        cards={"kind": "images", "query": query, "results": cards, "failed": found.failed},
+        cards={
+            "kind": "images",
+            "query": str(result.get("query") or query),
+            "results": cards,
+            "failed": dict(result.get("failed") or {}),
+        },
     )
 
 

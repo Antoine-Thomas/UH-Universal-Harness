@@ -269,13 +269,29 @@ def test_the_environment_wins_over_the_keys_file(
 # --------------------------------------------------------------------------- #
 # images
 # --------------------------------------------------------------------------- #
-def test_image_search_without_a_key_says_so_and_sends_nothing() -> None:
+def test_image_search_without_a_key_asks_the_keyless_sources_and_names_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sans cle Brave, Openverse repond : « aucun moteur d'images » n'est plus vrai.
+
+    L'ancien refus datait d'avant le branchement des sources sans cle (G2/G11).
+    Ce qui reste vrai, et que ce test garde : aucune recherche texte ne part a la
+    place des images, et une reponse vide dit qui a echoue et pourquoi.
+    """
+    from uh import image_search
+
+    monkeypatch.setattr(
+        image_search,
+        "search_images",
+        lambda *_args, **_kwargs: image_search.Result(
+            hits=[], failed={"openverse": "HTTP 500"}, engines=[]
+        ),
+    )
     transport = Transport({})
     out = toolset(transport).call("web_image_search", {"query": "moutons"})
-    assert out["type"] == "tool_error"
-    assert "no image engine configured" in out["error"]
-    assert "keys.toml" in out["error"], "la réponse dit où mettre la clé"
-    assert transport.calls == [], "aucune requête ne part sans moteur d'images"
+    assert out["count"] == 0
+    assert "openverse" in out["note"]
+    assert transport.calls == [], "aucune requête ne part vers un moteur d'images absent"
 
 
 def test_image_search_uses_brave_images_and_returns_image_urls() -> None:
