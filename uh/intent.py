@@ -112,10 +112,64 @@ SMALL_TALK = (
     "blague",
     "raconte-moi une histoire",
 )
+#: Words that ask to **see** an existing picture. They point at `web_search`, the
+#: toolset that publishes `web_image_search` (G11) : a photo is searched, not drawn.
+IMAGE_WORDS = (
+    "photo",
+    "photos",
+    "photographie",
+    "image",
+    "images",
+    "picture",
+    "pictures",
+)
+#: Words that ask to **make** a picture. Those are G13 (generation), not a photo
+#: library : without this guard, "dessine un chat photo realiste" would be routed to
+#: stock photos and answered with a stranger's cat.
+GENERATION_WORDS = (
+    "dessine",
+    "dessiner",
+    "dessin de",
+    "peins",
+    "peindre",
+    "genere",
+    "generer",
+    "fabrique",
+    "invente",
+    "draw",
+    "generate",
+    "paint",
+)
+#: Fixing code needs to read, write, patch and search: the `file` family, and only it.
+CODE_EDIT_WORDS = (
+    "corrige",
+    "corriger",
+    "patch",
+    "patche",
+    "refactor",
+    "refactorise",
+    "renomme",
+    "renommer",
+    "bug",
+    "fix ",
+)
+#: The operator's explicit way back to the whole toolbox. It is a sentence they
+#: write, never something the router guesses.
+ALL_TOOLS = (
+    "tous les outils",
+    "toutes les capacites",
+    "tout le catalogue",
+    "all tools",
+    "every tool",
+)
 #: Below this many characters, a request with no strong signal is ambiguous.
 SHORT_REQUEST = 24
 #: Toolsets are capped: offering twelve tools "just in case" is the defect.
 MAX_TOOLSETS = 3
+#: How many times the router had to refuse a tool it had withheld this turn, per
+#: tool name. A refusal is not an error: it is the measure of a router that is too
+#: narrow, and the number the operator asked for before trusting it.
+_REFUSALS: Dict[str, int] = {}
 
 
 def _fold(text: str) -> str:
@@ -215,6 +269,14 @@ def _family_boost(name: str, vocabulary: str, text: str) -> int:
     if _hits(text, MEMORY_WORDS):
         if any(mark in vocabulary for mark in ("memory", "remember", "note", "graph")):
             boost += 4
+    if _hits(text, IMAGE_WORDS) and not _hits(text, GENERATION_WORDS):
+        # Une photo existante se cherche : le toolset qui publie `web_image_search`.
+        if "web_image_search" in vocabulary:
+            boost += 6
+    if _hits(text, CODE_EDIT_WORDS):
+        # Corriger du code, c'est lire, écrire et patcher — pas dessiner un graphe.
+        if any(mark in vocabulary for mark in ("read_file", "write_file", "patch")):
+            boost += 6
     return boost
 
 
@@ -306,6 +368,15 @@ def select(
     request = (text or "").strip()
     if not request:
         return Selection(reason="demande vide")
+
+    # La porte de sortie explicite : l'operateur demande tout le catalogue, le
+    # routeur ne le devine pas. C'est une phrase, testee, et elle ne s'invente pas.
+    if _hits(request, ALL_TOOLS):
+        return Selection(
+            toolsets=tuple(str(name) for name in catalog),
+            confidence="high",
+            reason="tous les outils demandés",
+        )
 
     # The topic survives one turn: "et fais un graphique" after "voici mes chiffres"
     # still carries the data context, without re-injecting old tool calls.
@@ -413,7 +484,11 @@ def turn_toolsets(
     * flag on and the router named toolsets → only those, intersected with what
       really exists (a name outside the catalogue cannot widen anything);
     * flag on and the router named nothing → **no tool at all**: a plain question
-      should not arrive with a toolbox.
+      should not arrive with a toolbox. That is rule 4 of `select`, and it used to
+      be announced without being applied — the catalogue came back whole.
+
+    A tool withheld here is not lost: `explain_withheld` names it and gives the
+    operator the sentence that brings the whole toolbox back.
     """
     catalog = dict(toolsets)
     if not enabled or selection is None:
@@ -423,11 +498,10 @@ def turn_toolsets(
         # catalogue rather than guessing on the operator's behalf.
         return catalog
     if selection.toolsets:
-        kept = filter_toolsets(catalog, selection)
-        return kept or catalog
-    if selection.confidence == "none" and selection.reason.startswith("conversation"):
-        return {}
-    return catalog
+        # `kept` empty means the selection named nothing that exists: offer
+        # nothing, never the whole catalogue — widening is the defect.
+        return filter_toolsets(catalog, selection) or {}
+    return {}
 
 
 def describe(selection: Selection) -> str:
@@ -447,3 +521,71 @@ def describe(selection: Selection) -> str:
     if selection.skill:
         parts.append("application de la méthode adaptée")
     return " · ".join(dict.fromkeys(parts)) + "…"
+
+
+def _tools_by_toolset(catalog: Mapping[str, Any]) -> Dict[str, str]:
+    """Chaque outil du catalogue, et le toolset qui le publie (nom pour nom)."""
+    owners: Dict[str, str] = {}
+    for toolset_name, specs in catalog.items():
+        entries = getattr(specs, "tools", None)
+        if entries is None:
+            entries = specs if isinstance(specs, (list, tuple)) else ()
+        for spec in entries or ():
+            if not isinstance(spec, Mapping):
+                continue
+            inner = spec.get("function")
+            function: Mapping[str, Any] = inner if isinstance(inner, Mapping) else spec
+            tool = str(function.get("name") or "")
+            if tool:
+                owners[tool] = str(toolset_name)
+    return owners
+
+
+def explain_withheld(
+    name: str,
+    catalog: Mapping[str, Any],
+    selection: Optional[Selection],
+) -> Optional[dict]:
+    """Pourquoi cet outil n'est pas offert ce tour, et la phrase qui le ramène.
+
+    Rend ``None`` quand le routeur n'est pas la cause : un nom inconnu reste
+    inconnu, et un outil réellement offert n'est pas refusé par ce module. Chaque
+    refus est compté : c'est la mesure du risque annoncé (un routeur trop étroit).
+    """
+    tool = str(name or "")
+    if not tool:
+        return None
+    owner = _tools_by_toolset(catalog).get(tool)
+    if owner is None:
+        return None
+    offered = tuple(selection.toolsets if selection is not None else ())
+    if owner in offered:
+        return None
+    _REFUSALS[tool] = _REFUSALS.get(tool, 0) + 1
+    kept = ", ".join(sorted(offered)) or "aucune capacité"
+    return {
+        "error": (
+            f"`{tool}` n'est pas offert pour ce tour : le routeur a retenu {kept} "
+            "pour cette demande. Dis « avec tous les outils » pour que je les "
+            "repropose, ou précise ta demande."
+        ),
+        "type": "forbidden",
+        "tool": tool,
+        "reason": "not_offered",
+        "retry": "avec tous les outils",
+        "offered": sorted(offered),
+    }
+
+
+def reset_refusals() -> None:
+    """Remet le compteur à zéro (une mesure, pas une permission)."""
+    _REFUSALS.clear()
+
+
+def refusal_count(name: str) -> int:
+    return _REFUSALS.get(str(name or ""), 0)
+
+
+def refusal_counts() -> Dict[str, int]:
+    """Les refus de la session, outil par outil : le chiffre à suivre."""
+    return dict(_REFUSALS)

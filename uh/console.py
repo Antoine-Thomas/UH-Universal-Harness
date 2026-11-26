@@ -413,6 +413,23 @@ def _without_nudges(messages: list[dict]) -> tuple[list[dict], int]:
     return kept, dropped
 
 
+def _router_explainer(session: "ChatSession") -> Optional[Callable[[str], Optional[dict]]]:
+    """Le refus du routeur pour ce tour, ou ``None`` quand rien n'a été écarté.
+
+    Sans sélection (drapeau absent, routeur en erreur), le comportement historique
+    reste intact : aucun outil n'est « non offert », donc il n'y a rien à expliquer.
+    """
+    selection = getattr(session, "last_selection", None)
+    if selection is None:
+        return None
+    catalog = getattr(session, "toolsets", None) or {}
+
+    def explain(name: str) -> Optional[dict]:
+        return uh_intent.explain_withheld(name, catalog, selection)
+
+    return explain
+
+
 def _model_can_use_tools(provider: str, model: str) -> bool:
     """Whether to send a tool list at all - ``True`` unless it was measured as false.
 
@@ -653,6 +670,9 @@ class ChatSession:
         nothing here executes anything.
         """
         self.last_intent = None
+        #: La sélection qui a servi ce tour : c'est elle qui sait pourquoi un outil
+        #: écarté l'a été, et quelle phrase le ramène (P1 de G16).
+        self.last_selection = None
         if not intent_routing_enabled():
             return self.toolsets
         text = ""
@@ -672,6 +692,7 @@ class ChatSession:
             return self.toolsets
         chosen = uh_intent.turn_toolsets(self.toolsets, selection, enabled=True)
         self.last_intent = selection.payload()
+        self.last_selection = selection
         line = uh_intent.describe(selection)
         if line and chosen != self.toolsets:
             self._notice(line)
@@ -1122,6 +1143,10 @@ class ChatSession:
                 offer_tools=_model_can_use_tools(
                     self.provider_kind, str(getattr(self.provider, "model", "") or self.model)
                 ),
+                # Un outil que le routeur a écarté ce tour ne doit pas revenir en
+                # « unknown tool » : la sélection dit pourquoi, et la phrase qui
+                # ramène tout le catalogue (P1 de G16).
+                explain_missing=_router_explainer(self),
             )
             self._notice_unavailable_capability(updated)
             self._ended_on_refusal = _stopped_on_refusal(updated)
