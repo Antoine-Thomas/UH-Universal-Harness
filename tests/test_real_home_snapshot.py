@@ -82,3 +82,43 @@ def test_the_snapshot_reads_top_level_files_only(tmp_path: Path) -> None:
     (tmp_path / "memory" / "note.md").write_text("souvenir", encoding="utf-8")
 
     assert _snapshot(tmp_path) == before
+
+
+def test_a_prefixed_name_is_not_the_product_file(tmp_path: Path) -> None:
+    """`uhb.pid.bak` n'est pas `uhb.pid` : un préfixe n'exempte rien.
+
+    Relevé par la revue de la PR #79 : `str.startswith(volatile)` exemptait tout
+    nom qui *commence* par un nom volatil, donc une sauvegarde du pid glissait
+    dans le cliché sans être vue. La liste doit être exacte.
+    """
+    (tmp_path / "uhb.pid").write_text("4312", encoding="utf-8")
+    before = _snapshot(tmp_path)
+
+    (tmp_path / "uhb.pid.bak").write_text("4312", encoding="utf-8")
+
+    assert _snapshot(tmp_path) != before
+
+
+def test_a_rotated_journal_stays_invisible(tmp_path: Path) -> None:
+    """`uh-web.log.1` est le journal tourné par le produit, pas une fuite.
+
+    La rotation ajoute un suffixe numérique : l'exemption doit le nommer, sans
+    redevenir un `startswith` qui laisserait passer n'importe quoi.
+    """
+    (tmp_path / "uh-web.log").write_text("x", encoding="utf-8")
+    before = _snapshot(tmp_path)
+
+    (tmp_path / "uh-web.log.1").write_text("y" * 16, encoding="utf-8")
+
+    assert _snapshot(tmp_path) == before
+
+
+def test_the_sqlite_sidecars_of_the_store_stay_invisible(tmp_path: Path) -> None:
+    """Le store est en WAL : `uh.db-wal` et `uh.db-shm` bougent avec une session."""
+    (tmp_path / "uh.db").write_text("db", encoding="utf-8")
+    before = _snapshot(tmp_path)
+
+    (tmp_path / "uh.db-wal").write_text("wal", encoding="utf-8")
+    (tmp_path / "uh.db-shm").write_text("shm", encoding="utf-8")
+
+    assert _snapshot(tmp_path) == before
