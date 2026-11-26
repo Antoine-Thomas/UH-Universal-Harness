@@ -154,11 +154,13 @@ class Server:
             return
         try:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
-            log = (LOG_DIR / LOG_NAME).open("a", encoding="utf-8", buffering=1)
+            # Un fichier par serveur : la suite en demarre un par test.
+            log_path = LOG_DIR / f"{LOG_NAME}.{self.port}"
+            log = log_path.open("a", encoding="utf-8", buffering=1)
             try:
                 for line in stream:
                     self.lines.append(line)
-                    log.write(line)
+                    log.write(re.sub(r"token=[^\s&\"']+", "token=***", line))
                     log.flush()
             finally:
                 log.close()

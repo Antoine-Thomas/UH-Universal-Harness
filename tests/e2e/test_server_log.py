@@ -23,9 +23,11 @@ def test_the_server_writes_a_log_file(tmp_path: Path) -> None:
     server = Server(tmp_path / "home", 8899)
     server.start()
     try:
-        log = LOG_DIR / LOG_NAME
+        log = LOG_DIR / f"{LOG_NAME}.8899"
         assert log.is_file(), f"aucun journal ecrit : {log}"
         content = log.read_text(encoding="utf-8", errors="replace")
         assert "http://127.0.0.1:8899" in content, "le journal doit contenir l'URL du serveur"
+        assert "token=***" in content, "le jeton doit etre masque"
+        assert "token=***" in content and content.count("?token=") == content.count("?token=***")
     finally:
         server.stop()
