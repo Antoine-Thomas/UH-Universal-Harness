@@ -17,6 +17,7 @@ from typing import Annotated, Any, Callable
 
 from fastapi import Body, Depends, FastAPI, HTTPException
 
+from ..keys import KeysBusy
 from ..providers_admin import (
     AdminError,
     add_key_to,
@@ -121,7 +122,7 @@ def register_provider_routes(app: FastAPI, dependency: Callable[..., Any]) -> No
             count = remove_key_index(name, index)
         except AdminError as exc:
             raise translate(exc) from exc
-        except keys.KeysBusy as exc:
+        except KeysBusy as exc:
             # Le fichier de cles est occupe par un autre processus : message
             # clair, jamais un 500 ni une trace.
             raise HTTPException(status_code=503, detail=str(exc)) from None
