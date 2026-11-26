@@ -42,6 +42,17 @@ def fake_get(*args, **kwargs) -> FakeResponse:
     return FakeResponse()
 
 
+class FakeTransport:
+    """Un transport qui note tout appel : « rien n'est parti » se mesure."""
+
+    def __init__(self) -> None:
+        self.calls: list[object] = []
+
+    def __call__(self, *args, **kwargs) -> object:
+        self.calls.append(args[0] if args else None)
+        raise AssertionError("aucune requete ne doit partir de ce test")
+
+
 def test_parse_results_decodes_redirects() -> None:
     results = parse_results(SAMPLE_HTML)
     assert len(results) == 2
@@ -173,3 +184,53 @@ def test_registered_in_build_toolsets() -> None:
     spec = toolsets["web_search"].tools[0]
     assert spec["function"]["name"] == "web_search"
     assert spec["function"]["parameters"]["required"] == ["query"]
+
+
+def test_the_model_is_offered_the_photo_search_next_to_the_web_search() -> None:
+    """Une photo se demande, un dessin se code : le modele doit voir les deux.
+
+    `web_image_search` existait mais n'etait publiee nulle part : le chat normal
+    ne pouvait donc pas l'appeler, et une demande de photo realiste finissait en
+    `execute_code` (illustration) ou en `web_search` (liens de moteurs).
+    """
+    tools = {
+        spec["function"]["name"]: spec["function"] for spec in WebSearchToolset(settings={}).tools
+    }
+    assert "web_image_search" in tools
+    description = tools["web_image_search"]["description"]
+    assert "execute_code" in description
+    assert "photo" in description.lower()
+    assert tools["web_image_search"]["parameters"]["required"] == ["query"]
+
+
+def test_image_search_without_a_key_asks_the_keyless_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sans cle, la recherche d'images du chat n'est pas un refus : Openverse repond.
+
+    Le modele recoit des resultats dans la meme forme que Brave (`url`, `image`,
+    `licence`, `auteur`), sinon il ne peut pas nommer la source qu'il cite.
+    """
+    from uh import image_search
+
+    hit = image_search.Hit(
+        title="le chat",
+        thumb="https://api.openverse.org/v1/images/x/thumb/",
+        page="https://www.flickr.com/photos/1",
+        domain="www.flickr.com",
+        licence="by 2.0",
+        author="pilllpat",
+        provider="flickr",
+    )
+    monkeypatch.setattr(
+        image_search,
+        "search_images",
+        lambda *_args, **_kwargs: image_search.Result(hits=[hit], failed={}, engines=["openverse"]),
+    )
+    transport = FakeTransport()
+    out = WebSearchToolset(settings={}, get=transport).call("web_image_search", {"query": "chat"})
+    assert out["results"][0]["image"] == "https://api.openverse.org/v1/images/x/thumb/"
+    assert out["results"][0]["url"] == "https://www.flickr.com/photos/1"
+    assert out["results"][0]["licence"] == "by 2.0"
+    assert out["engine"] == "openverse"
+    assert transport.calls == [], "aucune recherche texte a la place des images"

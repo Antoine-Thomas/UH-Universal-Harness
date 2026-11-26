@@ -2645,31 +2645,47 @@ au lieu de laisser le modèle l'inventer ; relance unique et visible.
 
 ### G11 — `/web` doit donner de vraies photos
 
-**Statut : OUVERT.** Constat de l'opérateur, 25/11.
+**Statut : CLOS le 26/11** (branche `feat/g11-image-search`). Constat de
+l'opérateur, 25/11 : `/web donne moi la photo d'un chat` ne renvoyait que des
+liens de moteurs (Shutterstock, Unsplash, Pexels, Pixabay, Google Images).
 
-`/web donne moi la photo d'un chat` et `/web un vrai image` ne renvoient que des
-liens de moteurs (Shutterstock, Unsplash, Pexels, Pixabay, Google Images) :
-aucune photo dans la réponse, alors que c'était la demande expresse.
+Livré et mesuré :
 
-À faire :
+- `/web image <sujet>` interroge **Openverse puis Wikimedia Commons sans clé**
+  (Brave si une clé existe) et rend une galerie : vignette, **licence**, **auteur**
+  et page source. Mesure du 26/11 sur `v1.5.2` (captures opérateur) : huit
+  vignettes pour « chat », licences `by-nc 2.0` / `by-sa 4.0`, auteurs affichés —
+  aucune clé, aucun refus.
+- Les vignettes passent par **`/api/media/thumb`** (proxy de G2 : liste blanche
+  d'hôtes, plafond 2 Mo, type décidé par les octets, CSP `img-src 'self' data:`),
+  **pas** par `/api/link/image`, qui sert l'`og:image` d'un article. C'est ce que
+  les captures montrent : `api.openverse.org`, `thumb.wikimedia.org`.
+- La détection d'intention couvre les tournures naturelles **en tête**
+  (« je voudrais la photo d'un chat », « donne-moi une photo de chat ») **et le
+  mot d'image en fin de requête** (« chat images », « chat photo ») → sujet
+  nettoyé (`chat`) ; « actualités python » et « quelle heure est-il » restent des
+  recherches web ; une demande de **fabrication** (« dessine… ») n'est jamais
+  détournée vers la photothèque — c'est G13.
+- `web_image_search` est enfin **offerte au modèle** : l'outil existait mais
+  n'était publié dans aucune description, donc le chat normal ne pouvait pas
+  l'appeler. Sa description l'oppose explicitement à `execute_code` (la photo se
+  cherche, le dessin se code), et le prompt système nomme l'outil.
+- Sans clé, `web_image_search` ne refuse plus : il interroge les mêmes sources
+  libres et rend licence et auteur, comme `/web image`.
 
-- Ajouter une recherche **d'images** à la chaîne de recherche. Candidats à
-  **vérifier dans leur documentation officielle avant de coder** : Openverse
-  (licence et auteur fournis par résultat), Wikimedia Commons, puis
-  Pixabay/Pexels/Unsplash **seulement** si une clé existe. Rapporter pour
-  chacun : clé requise, quota, conditions, champ licence/auteur. *Non vérifié à
-  ce jour : quotas et conditions.*
-- Vignette dans la carte, avec licence + auteur + lien source visibles. Les
-  vignettes passent par `/api/link/image` (proxy de G8 : 2 Mo, type par octets,
-  CSP inchangée). Provenance `tool` : un résultat d'outil est cliquable, une URL
-  d'image écrite par le modèle ne l'est pas sans clic.
-- Une demande de photo déclenche la recherche d'images ; si le résultat est
-  vide, UH le dit en une phrase et propose la génération (G13) au lieu de
-  renvoyer des liens de moteurs.
+*Non vérifié à ce jour : quotas et conditions d'usage écrites dans la
+documentation officielle d'Openverse et de Wikimedia Commons — les appels sont
+mesurés (200 sans clé), pas les contrats.*
 
-Contre-épreuves : « photo d'un chat » → au moins une vignette licenciée ;
-aucune requête d'image écrite par le modèle sans clic ; licence absente → image
-non affichée ou marquée « licence inconnue ».
+Reste ouvert, hors de ce clos : le résultat d'un `web_image_search` pendant un
+**tour de chat** s'affiche aujourd'hui dans une carte texte d'outil, pas en
+galerie (la galerie est celle de la commande `/web`). Le branchement de la carte
+image dans le tour appartient à G13/G16, il n'est pas codé.
+
+Contre-épreuves livrées : `tests/test_web_intent_images.py` (tournures en tête,
+mot en fin, garde de génération, prompt), `tests/test_web_search_toolset.py`
+(outil publié, sources sans clé), `tests/test_web_search_engines.py` (aucune
+recherche texte à la place des images).
 
 ### G12 — La synthèse vocale (« Écouter ») doit aboutir
 
@@ -2765,6 +2781,50 @@ ligne**, ne pas le deviner : le rendre lisible en texte et signaler le cas au
 pied de la correction.
 
 Contre-épreuve : un test qui échoue sur le texte brut actuel.
+
+### G16 — Moins de rigidité, plus d'intention : le chat apprend de ses ratés
+
+**Statut : OUVERT.** Retour d'usage réel de l'opérateur, 26/11, sur `v1.5.2`.
+
+Constat mesuré (captures du 26/11) :
+
+- `/web image chat` rend la galerie ; `/web chat images` ne rend que des liens
+  cliquables. Même demande, deux routes : c'est la **formulation** qui décidait,
+  pas le sens. (Corrigé pour `/web` dans G11 ; la leçon reste pour les outils.)
+- « dessine un chat photo réaliste » a lancé `execute_code` (matplotlib), puis un
+  exposé sur les modèles de diffusion absents, puis le tour s'est arrêté sur
+  « Le modèle n'a rien renvoyé » et un `HTTP 500` (`turn taken back without a
+  single request`). L'intention — une photo — n'a jamais été atteinte.
+- La même demande produit parfois une image correcte (illustration) et parfois un
+  arrêt : c'est la **lourdeur du routage d'outils** qui coûte le tour entier, pas
+  la capacité du modèle.
+
+À faire :
+
+- **Le sens d'abord, les outils ensuite** : une demande simple se règle en un
+  tour d'outil, jamais deux outils lourds pour une photo. Toute formulation
+  naturelle (mot en tête, mot en fin, phrase complète, FR ou EN) donne la même
+  route, et chaque commande ou outil livré arrive avec son jeu de tournures en
+  test (G11 en est le modèle : tête, fin, garde de génération).
+- **Un tour qui revient vide n'est pas une réponse** : sans requête ou sans
+  contenu, UH le dit en une phrase, garde la demande en attente et propose une
+  relance avec l'outil qui convient. Mesure attendue : nombre de tours perdus
+  par session, journalisé, avant et après.
+- **Auto-correction à l'usage** : les frictions observées (route manquée, outil
+  lourd, tour perdu, arrêt du modèle) sont consignées dans la mémoire du dépôt
+  (jamais `~/.uh`), et le second cerveau (UHB) les remonte comme règles de
+  routage candidates. La veille (`uh dream`) propose ; elle n'applique jamais
+  seule — une règle apprise se relit avant d'entrer.
+- **S'alléger, pas grossir** : chaque correction doit **retirer** une règle, un
+  outil ou un détour. Une proposition arrive avec une mesure avant/après (tours
+  d'outils, latence, mots du prompt système) ; une règle qui ne gagne rien est
+  retirée. C'est la contrepartie du second cerveau : il sert à mieux comprendre
+  l'utilisateur, pas à empiler du contexte.
+
+Contre-épreuves : un jeu de demandes types (photo, actualités, heure, dessin)
+qui passe en **un** tour d'outil ; un tour revenu vide produit un message
+explicite et une relance proposée, jamais une bulle vide ; les règles apprises
+vivent dans le dépôt et sont relues avant d'être appliquées.
 
 ### Règles du lot 3 (identiques aux lots 1 et 2)
 
