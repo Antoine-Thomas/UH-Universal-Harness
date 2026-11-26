@@ -48,6 +48,11 @@ def free_port() -> int:
         return int(probe.getsockname()[1])
 
 
+#: Le journal du serveur, ecrit DANS le depot : l artefact CI ne cherche que la.
+LOG_DIR = Path(__file__).resolve().parents[2] / ".pytest-e2e"
+LOG_NAME = "uh-web.log"
+
+
 class Server:
     """One ``uh web`` process, started and stopped by the test."""
 
@@ -148,8 +153,17 @@ class Server:
         if stream is None:
             return
         try:
-            for line in stream:
-                self.lines.append(line)
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            # Un fichier par serveur : la suite en demarre un par test.
+            log_path = LOG_DIR / f"{LOG_NAME}.{self.port}"
+            log = log_path.open("a", encoding="utf-8", buffering=1)
+            try:
+                for line in stream:
+                    self.lines.append(line)
+                    log.write(re.sub(r"token=[^\s&\"']+", "token=***", line))
+                    log.flush()
+            finally:
+                log.close()
                 # Un serveur bavard ne doit pas faire grossir la mémoire du test.
                 # Jamais avant l'URL : `start()` lit la liste par index, et couper
                 # la tête décalerait cet index pendant la recherche.
