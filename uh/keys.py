@@ -64,7 +64,7 @@ def _replace_with_retry(source: str, target: Path) -> None:
             return
         except PermissionError:
             if sys.platform != "win32" or attempt == attempts - 1:
-                raise KeysBusy("fichier de cles occupe, reessayez") from None
+                raise KeysBusy("fichier de clés occupé, réessayez") from None
             time.sleep(delay)
             delay = min(delay * 2, 0.04)
 
