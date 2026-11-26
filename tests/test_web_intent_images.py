@@ -141,3 +141,26 @@ def test_a_cartoon_is_a_photo_request_not_a_generation(routes, asked: str, subje
     """
     assert commands._cmd_web(None, asked) == "images"
     assert routes == [("images", subject)], routes
+
+
+@pytest.mark.parametrize(
+    ("asked", "subject"),
+    [
+        ("trouve moi la photo d'un chat", "chat"),
+        ("trouve-moi la photo d'un chat", "chat"),
+        ("affiche moi une image de chien", "chien"),
+        ("affiche-moi des photos de velo", "velo"),
+        ("cherche moi des photos de chat", "chat"),
+    ],
+)
+def test_the_moi_of_a_verb_does_not_hide_the_subject(routes, asked: str, subject: str) -> None:
+    """« trouve moi la photo… » est une demande de photo, pas une recherche texte.
+
+    Relevé par un essai réel de l'opérateur : `/web trouve moi la photo d'un chat`
+    partait en DuckDuckGo. Les verbes étaient reconnus, mais pas le « moi » qui les
+    suit (`trouve moi` ≠ `trouve`) : le préambule s'arrêtait au verbe, et le sujet
+    restait collé à « moi la photo… ». Le particule est maintenant optionnelle pour
+    tous les verbes, pas seulement pour `donne`/`montre`.
+    """
+    assert commands._cmd_web(None, asked) == "images"
+    assert routes == [("images", subject)], routes

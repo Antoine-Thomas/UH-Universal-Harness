@@ -334,8 +334,11 @@ def _cmd_tools(session: "ChatSession", _args: str) -> CommandResult:
 #: « donne moi la photo d'un chat » -> « chat ».
 _IMAGE_PREAMBLE = re.compile(
     r"^(?:peux[- ]tu\s+|tu peux\s+|s'il te plait\s+|stp\s+)?(?:me\s+)?"
-    r"(?:donne(?:s)?[- ]moi|donne(?:s)?|montre(?:s)?[- ]moi|montre(?:s)?|"
-    r"cherche(?:s)?|trouve(?:s)?|affiche(?:s)?|je veux|je voudrais)\s+",
+    # Le « moi » suit n'importe quel verbe (« trouve moi », « affiche-moi »),
+    # pas seulement « donne » et « montre » : sans ça, le préambule s'arrête au
+    # verbe et le sujet reste collé à « moi la photo… » (essai réel du 26/11).
+    r"(?:donne(?:s)?|montre(?:s)?|cherche(?:s)?|trouve(?:s)?|affiche(?:s)?"
+    r"|je veux|je voudrais)(?:[- ]moi)?\s+",
     re.IGNORECASE,
 )
 _IMAGE_NOUN = re.compile(
