@@ -16,3 +16,4 @@ keys.toml
 dreams/
 # Dossier d'architecture : le PDF est publié en pièce jointe de release, pas versionné.
 docs/UH_UHB_Dossier_Architecture_Roadmap.pdf
+.pytest-e2e/
