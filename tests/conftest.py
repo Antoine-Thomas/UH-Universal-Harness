@@ -36,16 +36,19 @@ def _snapshot(directory: Path) -> dict[str, tuple[int, int]]:
     if not directory.is_dir():
         return {}
     # Written by a live process of the developer's, not by a test: the session
-    # store (any `uh` window), the dream daemon's heartbeat, the two logs, and
-    # the launcher/icon any `uh web` start regenerates when it was built by an
-    # older version. The guard is about credentials and memory landing in the
-    # real home; a file the product itself rewrites on start would make it fire
-    # on the user's own window, which teaches everybody to ignore it.
+    # store (any `uh` window), the dream daemon's heartbeat, the two logs, the pid
+    # a live `uh web` creates and deletes on every start, and the launcher/icon any
+    # `uh web` start regenerates when it was built by an older version. The guard is
+    # about credentials and memory landing in the real home; a file the product
+    # itself rewrites on start would make it fire on the user's own window, which
+    # teaches everybody to ignore it. `uhb.pid` was added after blocking a legit
+    # push on 26/11 - the window was open in another console.
     volatile = (
         "uh.db",
         "dream-daemon.status",
         "uh-web.log",
         "uhb.log",
+        "uhb.pid",
         "uh-web.ps1",
         "uh-web.ico",
     )
@@ -152,12 +155,18 @@ def pinned_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
 
 @pytest.fixture(scope="session", autouse=True)
 def real_home_untouched():
-    """Fail the whole run if a test wrote credentials or memory into ``~/.uh``.
+    """Fail the whole run if a test wrote a top-level file into ``~/.uh``.
 
     The store is excluded from the snapshot on purpose: a live ``uh`` session in
     another window keeps writing its WAL, and a guard that trips on the
     developer's own chat window is one everybody learns to ignore. Store leaks
     are caught precisely by :func:`no_real_store` instead.
+
+    What it sees is the first level of ``~/.uh`` and nothing deeper: a file
+    dropped under ``memory/`` does not change the snapshot (measured in
+    ``tests/test_real_home_snapshot.py``). Without that limit a live session
+    writing its own memory during a push gate would trip it - the very false
+    positive this guard exists to remove.
     """
     real = Path.home() / ".uh"
     before = _snapshot(real)
