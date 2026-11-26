@@ -122,3 +122,22 @@ def test_the_system_prompt_sends_a_photo_request_to_the_photo_tool(tmp_path) -> 
     content = system_message(tmp_path)["content"]
     assert "web_image_search" in content
     assert "execute_code" in content
+
+
+@pytest.mark.parametrize(
+    ("asked", "subject"),
+    [
+        ("photo d'un dessin animé", "dessin animé"),
+        ("montre-moi une image d'un dessin anime", "dessin anime"),
+        ("images de dessins animés", "dessins animés"),
+    ],
+)
+def test_a_cartoon_is_a_photo_request_not_a_generation(routes, asked: str, subject: str) -> None:
+    """« dessin animé » est un sujet, pas un verbe : la photothèque reste la bonne route.
+
+    La garde de génération bloquait ces demandes parce qu'elle contenait le nom
+    « dessin ». Seules les formes verbales (dessine, dessiner, génère, crée…)
+    expriment une fabrication — la revue de la PR #78 l'a relevé.
+    """
+    assert commands._cmd_web(None, asked) == "images"
+    assert routes == [("images", subject)], routes
