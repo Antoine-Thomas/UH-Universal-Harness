@@ -108,14 +108,16 @@ def _fit(mime: str, data: bytes, *, origin: str = "") -> Optional[Artifact]:
             frame = image.convert("RGBA" if has_alpha else "RGB")
             out_mime = "image/png" if has_alpha else "image/jpeg"
             out_format = "PNG" if has_alpha else "JPEG"
+            # `thumbnail` reduit EN PLACE : une seule image decodee en memoire, au
+            # lieu d'une copie complete par echelon. Sur une image proche de
+            # MAX_PIXELS, c'est la difference entre ~200 Mo et plusieurs fois cela.
             for side in (MAX_SIDE, 1200, 900, 700, 500, 320):
-                candidate_image = frame.copy()
-                candidate_image.thumbnail((side, side))
+                frame.thumbnail((side, side))
                 buffer = io.BytesIO()
                 if has_alpha:
-                    candidate_image.save(buffer, format=out_format, optimize=True)
+                    frame.save(buffer, format=out_format, optimize=True)
                 else:
-                    candidate_image.save(buffer, format=out_format, quality=82, optimize=True)
+                    frame.save(buffer, format=out_format, quality=82, optimize=True)
                 candidate = buffer.getvalue()
                 if len(candidate) <= MAX_BYTES:
                     return Artifact(mime=out_mime, data=candidate, note=note)
