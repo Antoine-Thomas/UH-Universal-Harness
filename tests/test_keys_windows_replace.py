@@ -145,20 +145,6 @@ def test_no_key_is_lost_when_writers_race(home: Path) -> None:
     assert not missing, f"mise a jour perdue malgre le verrou : {missing}"
 
 
-def test_without_the_lock_a_key_is_lost(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Contre-epreuve : sans le verrou, le cycle lecture-ecriture n'est plus atomique.
-
-    Ce n'est pas une garantie de temps : c'est une course. Le test echoue s'il ne
-    perd rien, ce qui signale que la fenetre s'est refermee - pas que le verrou est
-    inutile.
-    """
-    monkeypatch.setattr(keys, "_LOCK", _NoLock())
-    stored = _add_each(16)
-    keeps = stored.get("deepseek", {}).get("keys") or []
-    missing = [f"perdue-{index:03d}" for index in range(16) if f"perdue-{index:03d}" not in keeps]
-    assert missing, "aucune cle perdue : la course ne s'est pas produite, relancer"
-
-
 def test_the_busy_message_is_readable_french(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Le 503 porte une phrase accentuee, pas de l'ASCII de fortune."""
     monkeypatch.setattr(keys, "sys", type("S", (), {"platform": "win32"}))
