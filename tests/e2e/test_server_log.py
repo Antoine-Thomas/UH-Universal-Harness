@@ -16,7 +16,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from tests.e2e.conftest import LOG_DIR, LOG_NAME, Server  # noqa: E402
+from .conftest import LOG_DIR, LOG_NAME, Server  # noqa: E402
 
 
 def test_the_server_writes_a_log_file(tmp_path: Path) -> None:
