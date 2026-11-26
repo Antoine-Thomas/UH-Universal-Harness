@@ -12,6 +12,7 @@ out) is documented in ``docs/SLASH_COMMANDS.md``.
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional
 from urllib.parse import urlsplit
@@ -327,6 +328,39 @@ def _cmd_tools(session: "ChatSession", _args: str) -> CommandResult:
     return CommandResult(out="\n".join(lines))
 
 
+#: Les tournures qui demandent une **image**, pas un lien. Volontairement
+#: conservatrices : sans un mot d'image explicite, la requete reste une recherche
+#: web. Le sujet est ce qui reste une fois le preambule et l'article retires :
+#: « donne moi la photo d'un chat » -> « chat ».
+_IMAGE_PREAMBLE = re.compile(
+    r"^(?:peux[- ]tu\s+|tu peux\s+|s'il te plait\s+|stp\s+)?(?:me\s+)?"
+    r"(?:donne(?:s)?[- ]moi|donne(?:s)?|montre(?:s)?[- ]moi|montre(?:s)?|"
+    r"cherche(?:s)?|trouve(?:s)?|affiche(?:s)?|je veux|je voudrais)\s+",
+    re.IGNORECASE,
+)
+_IMAGE_NOUN = re.compile(
+    r"^(?:(?:une?|des|la|le|les|the|a|an)\s+)?"
+    r"(?:(?:vraie?s?|belles?|jolies?|real|reelles?|bonnes?)\s+)?"
+    r"(?:photos?|images?|pictures?)\s+(?:de\s+|d'|of\s+|du\s+|des\s+)(.+)$",
+    re.IGNORECASE,
+)
+_LEADING_ARTICLE = re.compile(r"^(?:un|une|des|le|la|les|the|a|an)\s+", re.IGNORECASE)
+
+
+def _image_intent(query: str) -> Optional[str]:
+    """Le sujet d'une demande d'image, ou ``None`` si ce n'en est pas une.
+
+    Rend ``None`` plutot qu'une chaine vide : une requete qui ne porte pas de mot
+    d'image doit continuer d'aller vers la recherche web, pas vers une galerie vide.
+    """
+    text = _IMAGE_PREAMBLE.sub("", (query or "").strip())
+    match = _IMAGE_NOUN.match(text)
+    if not match:
+        return None
+    subject = _LEADING_ARTICLE.sub("", match.group(1).strip(" .!?,"))
+    return subject.strip() or None
+
+
 def _cmd_web(session: "ChatSession", args: str) -> CommandResult:
     """``/web <query>`` searches; ``/web image <query>`` looks for images.
 
@@ -348,6 +382,11 @@ def _cmd_web(session: "ChatSession", args: str) -> CommandResult:
             return _web_images(session, "")
         if lowered.startswith(f"{prefix} "):
             return _web_images(session, query[len(prefix) :].strip())
+    # « donne moi la photo d'un chat » est une demande d'image, meme sans le mot
+    # « image » en tete : c'est exactement ce que l'utilisateur tape.
+    subject = _image_intent(query)
+    if subject is not None:
+        return _web_images(session, subject)
     return _web_search(session, query)
 
 
