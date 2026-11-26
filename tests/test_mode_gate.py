@@ -271,3 +271,22 @@ def test_without_a_mode_aware_toolset_the_message_is_unchanged() -> None:
 
     other, _ = _execute({}, "invented_tool", {}, "call_3")
     assert json.loads(other["content"])["reason"] == "unknown_tool"
+
+
+def test_a_read_only_mode_still_offers_the_photo_search() -> None:
+    """Chercher une photo n'écrit rien : le mode `chat` doit l'offrir.
+
+    `web_image_search` est né après `READ_ONLY_TOOLS` (G11) et n'y avait pas été
+    ajouté : le mode en lecture seule, seul mode livré avec le produit, retirait
+    donc l'outil et la demande de photo redevenait une recherche texte. Relevé par
+    la revue de la PR #78.
+    """
+    toolset = FakeToolset(("read_file", "web_search", "web_image_search", "write_file"))
+
+    view = mode_gate.ReadOnlyToolset(toolset, "chat")
+    offered = [spec["function"]["name"] for spec in view.tools]
+
+    assert "web_image_search" in offered
+    assert view.explain_missing("web_image_search") is None
+    assert "write_file" not in offered
+    assert (view.explain_missing("write_file") or {}).get("reason") == "mode_forbidden"

@@ -358,8 +358,10 @@ _IMAGE_SUFFIX = re.compile(
 _IMAGE_TRAILING_LINK = re.compile(r"\s+(?:en|de|du|des|d'|pour|sur)\s*$", re.IGNORECASE)
 #: Demander de **fabriquer** une image n'est pas demander une photo existante :
 #: ces tournures restent au modele (c'est G13, la generation, pas la phototheque).
+#: Seules les formes **verbales** comptent : « photo d'un dessin animé » est un
+#: sujet, pas une fabrication (revue de la PR #78).
 _IMAGE_GENERATION = re.compile(
-    r"\b(?:dessine|dessiner|dessin|peins|peindre|g[ée]n[èe]re|g[ée]n[ée]rer"
+    r"\b(?:dessine|dessiner|peins|peindre|g[ée]n[èe]re|g[ée]n[ée]rer"
     r"|cr[ée]e|cr[ée]er|fabrique|invente|draw|generate|paint|create)\b",
     re.IGNORECASE,
 )

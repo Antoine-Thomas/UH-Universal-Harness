@@ -45,6 +45,10 @@ READ_ONLY_TOOLS = frozenset(
         "read_file",
         "search_files",
         "web_search",
+        # Chercher une photo ne touche aucun fichier : l'outil est né après cette
+        # liste (G11) et un mode en lecture seule le retirait, ce qui ramenait une
+        # demande de photo à une recherche texte.
+        "web_image_search",
         "memory_read",
         "uhb_status",
         "uhb_modes",
