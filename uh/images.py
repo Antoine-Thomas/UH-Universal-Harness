@@ -83,13 +83,6 @@ def _fit(mime: str, data: bytes, *, origin: str = "") -> Optional[Artifact]:
     if len(data) <= MAX_BYTES:
         return Artifact(mime=mime, data=data, note=origin)
 
-    saved = _save_original(mime, data)
-    note = (
-        f"{origin} · original : {saved}"
-        if origin and saved
-        else (origin or (str(saved) if saved else ""))
-    )
-
     try:
         from PIL import Image
     except Exception:  # noqa: BLE001 - dépendance optionnelle
@@ -120,6 +113,14 @@ def _fit(mime: str, data: bytes, *, origin: str = "") -> Optional[Artifact]:
                     frame.save(buffer, format=out_format, quality=82, optimize=True)
                 candidate = buffer.getvalue()
                 if len(candidate) <= MAX_BYTES:
+                    # L'original n'est ecrit qu'une fois l'affichage acquis : une
+                    # image finalement refusee ne laisse rien derriere elle.
+                    saved = _save_original(mime, data)
+                    note = (
+                        f"{origin} · original : {saved}"
+                        if origin and saved
+                        else (origin or (str(saved) if saved else ""))
+                    )
                     return Artifact(mime=out_mime, data=candidate, note=note)
             return None
     except Exception:  # noqa: BLE001 - une image illisible ne casse pas le tour
