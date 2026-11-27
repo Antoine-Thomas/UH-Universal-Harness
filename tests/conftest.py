@@ -17,6 +17,7 @@ into the real home. A closed loopback port makes the probe fail at once instead.
 from __future__ import annotations
 
 import os
+import re
 import socket
 import sys
 from pathlib import Path
@@ -32,6 +33,23 @@ def _closed_url() -> str:
     return f"http://127.0.0.1:{port}"
 
 
+#: The names a live process of the developer's rewrites, **name for name**.
+#: `uh-web.log.1` is the product rotating its own journal (a numeric suffix the
+#: product adds), and `uh.db-wal`/`uh.db-shm` are SQLite's sidecars of a WAL store.
+#: Everything else is matched exactly: `uhb.pid.bak` is an ordinary file and it is
+#: seen. A prefix match (`startswith`) exempted anything that began with one of
+#: these names, which is how a backup of the pid slipped through (review of #79).
+_VOLATILE_NAME = re.compile(
+    r"(?:uh\.db(?:-(?:wal|shm|journal))?"
+    r"|dream-daemon\.status"
+    r"|uh-web\.log(?:\.\d+)?"
+    r"|uhb\.log(?:\.\d+)?"
+    r"|uhb\.pid"
+    r"|uh-web\.ps1"
+    r"|uh-web\.ico)"
+)
+
+
 def _snapshot(directory: Path) -> dict[str, tuple[int, int]]:
     if not directory.is_dir():
         return {}
@@ -41,21 +59,12 @@ def _snapshot(directory: Path) -> dict[str, tuple[int, int]]:
     # `uh web` start regenerates when it was built by an older version. The guard is
     # about credentials and memory landing in the real home; a file the product
     # itself rewrites on start would make it fire on the user's own window, which
-    # teaches everybody to ignore it. `uhb.pid` was added after blocking a legit
-    # push on 26/11 - the window was open in another console.
-    volatile = (
-        "uh.db",
-        "dream-daemon.status",
-        "uh-web.log",
-        "uhb.log",
-        "uhb.pid",
-        "uh-web.ps1",
-        "uh-web.ico",
-    )
+    # teaches everybody to ignore it. The list lives in `_VOLATILE_NAME`, matched
+    # exactly (see the comment there for why not a prefix).
     return {
         item.name: (item.stat().st_mtime_ns, item.stat().st_size)
         for item in directory.iterdir()
-        if item.is_file() and not item.name.startswith(volatile)
+        if item.is_file() and not _VOLATILE_NAME.fullmatch(item.name)
     }
 
 
