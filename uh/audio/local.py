@@ -14,6 +14,7 @@ the page can show - never an exception that reaches the chat:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -95,6 +96,67 @@ XTTS_TIMEOUT_CAP = 300.0
 def speech_timeout(text: str) -> float:
     """Le délai d'un rendu, en secondes : 60 s + 0,06 s par caractère, plafonné."""
     return min(XTTS_TIMEOUT_CAP, XTTS_LOAD_SECONDS + XTTS_SECONDS_PER_CHAR * len(text or ""))
+
+
+#: Pic mesuré de XTTS-v2 sur cette machine (27/11) et la marge qu'on ne franchit pas :
+#: en dessous, le modèle charge puis se fait déplacer en RAM, ce qui prend des
+#: minutes au lieu de secondes.
+XTTS_PEAK_VRAM_GB = 4.2
+XTTS_VRAM_MARGIN_GB = 0.8
+
+
+def free_vram_gb() -> Optional[float]:
+    """La VRAM libre en Go, mesurée par ``nvidia-smi`` ; ``None`` si elle ne se mesure pas."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=20,
+            check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    values = []
+    for line in out.splitlines():
+        value = line.strip().split(" ")[0]
+        try:
+            values.append(float(value) / 1024.0)
+        except ValueError:
+            continue
+    return max(values) if values else None
+
+
+def heavy_engine_fits(
+    free_gb: Optional[float],
+    *,
+    needed: float = XTTS_PEAK_VRAM_GB,
+    margin: float = XTTS_VRAM_MARGIN_GB,
+) -> bool:
+    """Le moteur lourd tient-il, marge comprise ? Une VRAM non mesurée ne tient pas."""
+    return free_gb is not None and free_gb >= needed + margin
+
+
+def heavy_engine_refusal(
+    free_gb: Optional[float],
+    *,
+    needed: float = XTTS_PEAK_VRAM_GB,
+    margin: float = XTTS_VRAM_MARGIN_GB,
+) -> str:
+    """La phrase française qui dit pourquoi le moteur lourd n'est pas proposé."""
+    if free_gb is None:
+        return (
+            "voix locale lourde indisponible : VRAM libre non mesurable — "
+            "la voix du navigateur est utilisée"
+        )
+    return (
+        f"voix locale lourde indisponible : {free_gb:.1f} Go de VRAM libre, "
+        f"{needed:.1f} Go nécessaires plus {margin:.1f} Go de marge — "
+        "la voix du navigateur est utilisée"
+    )
 
 
 def kill_tree(pid: int) -> None:

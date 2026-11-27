@@ -1995,6 +1995,31 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return clip
 
+    @app.post("/api/audio/plan", dependencies=[Depends(require_token)])
+    async def audio_plan(payload: dict) -> dict:
+        """Découpe un texte en morceaux dictables, et annonce le délai calculé.
+
+        L'interface lit morceau par morceau au lieu de bloquer sur un seul appel de
+        cinq minutes. Le serveur **ne tronque jamais** : un texte qui demanderait
+        plus de morceaux que le maximum est refusé, avec son compte et sa limite.
+        """
+        from .. import audio as uh_audio
+        from ..audio.local import speech_timeout
+        from ..audio.speech_plan import MAX_PART_CHARS, MAX_PARTS, plan_speech
+
+        body = payload or {}
+        try:
+            plan = plan_speech(
+                str(body.get("text") or ""),
+                limit=int(body.get("limit") or MAX_PART_CHARS),
+                max_parts=int(body.get("max_parts") or MAX_PARTS),
+            )
+        except uh_audio.AudioUnavailable as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        data = plan.as_dict()
+        data["delay_seconds"] = round(speech_timeout(plan.parts[-1] if plan.parts else ""), 1)
+        return data
+
     @app.get("/api/audio/file", dependencies=[Depends(require_token)])
     async def audio_file(path: str = "") -> FileResponse:
         """One stored clip, and only inside the uploads root."""
