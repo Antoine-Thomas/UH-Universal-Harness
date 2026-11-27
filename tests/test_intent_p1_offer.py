@@ -172,3 +172,40 @@ def test_the_router_never_runs_anything() -> None:
         catalog, intent.select("je voudrais la photo d'un chat", catalog), enabled=True
     )
     assert {name: id(toolset) for name, toolset in catalog.items()} == before
+
+
+def test_the_mode_wins_over_the_router_explainer() -> None:
+    """Une porte fermée par le mode reste fermée par le mode.
+
+    L'explicateur du routeur ne doit jamais transformer un refus de permission en
+    « pas offert ce tour » : l'interface affiche « Autoriser pour cette
+    conversation » sur `mode_forbidden`, et rien sur `not_offered`. L'ordre des
+    causes est donc une garantie, pas un détail de rédaction.
+    """
+
+    class Gate:
+        def explain_missing(self, name: str) -> dict:
+            return {
+                "error": f"`{name}` n'est pas proposé dans un mode en lecture seule",
+                "type": "forbidden",
+                "tool": name,
+                "reason": "mode_forbidden",
+                "mode": "chat",
+            }
+
+    def router(name: str) -> dict:
+        return {
+            "error": f"`{name}` n'est pas offert pour ce tour",
+            "type": "forbidden",
+            "tool": name,
+            "reason": "not_offered",
+            "retry": "avec tous les outils",
+        }
+
+    message, refused = agent._execute(
+        {}, "write_file", {}, toolsets={"file": Gate()}, explain_missing=router
+    )
+
+    assert refused is True
+    assert "mode_forbidden" in message["content"]
+    assert "not_offered" not in message["content"], "le mode doit rester la cause"

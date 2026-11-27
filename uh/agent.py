@@ -347,17 +347,17 @@ def _execute(
         # a tool it saw in a previous mode. Ask the toolset that knows, so the
         # refusal names the mode and the interface can offer « Autoriser » (point
         # 2) instead of an anonymous "unknown tool".
-        # The caller may know a cause the toolsets do not: the intent router
-        # withheld this tool for the turn, and only it can say which sentence
-        # brings the whole toolbox back (P1 of G16).
-        explanation = None
-        if explain_missing is not None:
+        #
+        # Order matters, and it is a guarantee, not a wording detail: a door the
+        # mode closed stays closed. The router's explainer is asked only second,
+        # so it can never relabel a `mode_forbidden` as "not offered this turn"
+        # (the interface offers « Autoriser » on one and nothing on the other).
+        explanation = _missing_explanation(toolsets, name)
+        if explanation is None and explain_missing is not None:
             try:
                 explanation = explain_missing(name)
             except Exception:  # noqa: BLE001 - an explanation never breaks a turn
                 explanation = None
-        if explanation is None:
-            explanation = _missing_explanation(toolsets, name)
         if explanation is not None:
             payload.update(explanation)
         elif name == "execute_code":
