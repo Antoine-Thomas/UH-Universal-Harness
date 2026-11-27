@@ -83,6 +83,42 @@ def xtts_model_dir() -> Optional[str]:
     return None
 
 
+#: Délai d'un rendu XTTS, **calculé depuis les mesures** (27/11, RTX 3070 Ti) et non
+#: deviné : ~25 s de chargement du modèle, puis ~35 ms par caractère. Les 900 s
+#: d'avant bloquaient un quart d'heure sur un texte ordinaire sans jamais dire où
+#: le temps passait. Plafond explicite : au-delà, on préfère un échec nommé.
+XTTS_LOAD_SECONDS = 60.0
+XTTS_SECONDS_PER_CHAR = 0.06
+XTTS_TIMEOUT_CAP = 300.0
+
+
+def speech_timeout(text: str) -> float:
+    """Le délai d'un rendu, en secondes : 60 s + 0,06 s par caractère, plafonné."""
+    return min(XTTS_TIMEOUT_CAP, XTTS_LOAD_SECONDS + XTTS_SECONDS_PER_CHAR * len(text or ""))
+
+
+def kill_tree(pid: int) -> None:
+    """Tue le processus **et ses enfants** : un moteur orphelin garde la VRAM.
+
+    Sous Windows, `taskkill /T` est la seule façon d'emporter l'arbre : tuer le
+    parent laisse le worker torch vivant, ce qui a été mesuré (un plantage du
+    harnais de mesure a laissé un runner et son enfant XTTS en vie).
+    """
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=60, check=False
+        )
+        return
+    killer = getattr(os, "killpg", None)
+    getter = getattr(os, "getpgid", None)
+    if killer is None or getter is None:  # pragma: no cover - Windows only
+        return
+    try:
+        killer(getter(pid), 9)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def xtts_speak(text: str, reference_wav: Optional[Path] = None) -> bytes:
     """One WAV out of the XTTS-v2 venv, or an exception the chain catches."""
     python = xtts_python()
@@ -101,15 +137,23 @@ def xtts_speak(text: str, reference_wav: Optional[Path] = None) -> bytes:
         model_dir = xtts_model_dir()
         if model_dir:
             env["UH_XTTS_MODEL_DIR"] = model_dir
-        proc = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=900,
-            check=False,
-            env=env,
-        )
+        limit = speech_timeout(text)
+        try:
+            proc = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=limit,
+                check=False,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"xtts a dépassé {limit:.0f} s (mesure : 60 s de chargement + 0,06 s "
+                f"par caractère, plafond {XTTS_TIMEOUT_CAP:.0f} s) ; texte de "
+                f"{len(text)} caractères"
+            ) from None
         if proc.returncode != 0 or not out.is_file():
             raise RuntimeError(f"xtts a échoué : {(proc.stderr or proc.stdout)[-300:]}")
         return out.read_bytes()
