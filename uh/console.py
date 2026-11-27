@@ -17,6 +17,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import os
@@ -297,6 +298,10 @@ def system_message(workspace: Path, extra_system: str = "", role: Optional[dict]
         f"files inside the workspace {workspace}, to run shell commands, and to keep notes "
         "in long-term memory. Prefer the file tools over the shell for file edits. "
         "Answer without calling a tool once the task is done. "
+        # Date et fuseau fixés au démarrage : le préfixe du prompt reste stable
+        # (cache), et le modèle ne fabrique pas une horloge qu'il n'a pas.
+        f"Session started {_SESSION_STARTED} (local time, timezone included): answer "
+        "any date or time question from it, and never invent a clock. "
         "When the user asks for a chart, a plot, a diagram or a map, draw it: call "
         "execute_code and have it save a .png (matplotlib, Agg backend - there is no "
         "display), then say one line about what it shows. Save it in the CURRENT "
@@ -411,6 +416,33 @@ def _without_nudges(messages: list[dict]) -> tuple[list[dict], int]:
             continue
         kept.append(message)
     return kept, dropped
+
+
+#: Fixé au démarrage du processus, pas à chaque tour : une heure à la minute
+#: changerait le préfixe du prompt à chaque tour et casserait le cache fournisseur.
+#: La date et le fuseau suffisent à répondre « quel jour sommes-nous » sans inventer.
+_SESSION_STARTED = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+
+
+def _generation_available() -> bool:
+    """Aucune capacité de génération d'image n'existe avant G13.
+
+    Le jour où G13 livre un registre de capacités (diffusion locale ou API), cette
+    fonction lira ce registre ; d'ici là elle dit la vérité : rien à lancer.
+    """
+    return False
+
+
+def _generation_notice_for(text: str) -> Optional[str]:
+    """La phrase à afficher pour une demande de fabrication, ou ``None``.
+
+    ``None`` a deux causes, toutes deux voulues : ce n'est pas une demande de
+    fabrication, ou une capacité de génération existe (G13) et le chat n'a plus
+    à s'excuser. Aucune des deux ne lance quoi que ce soit.
+    """
+    if _generation_available():
+        return None
+    return uh_intent.generation_notice(text)
 
 
 def _router_explainer(session: "ChatSession") -> Optional[Callable[[str], Optional[dict]]]:
@@ -1130,6 +1162,16 @@ class ChatSession:
         base = list(self.history) + list(extra or [])
         toolsets = self._intent_toolsets(base)
         base = self._intent_skill(base)
+        # G13 n'existe pas encore : une demande de fabrication d'image reçoit une
+        # phrase déterministe et deux options, sans rien lancer. Le jour où un
+        # moteur existe, `_generation_available()` le dit et le chat se tait.
+        asked = next(
+            (str(m.get("content") or "") for m in reversed(base) if m.get("role") == "user"),
+            "",
+        )
+        notice = _generation_notice_for(asked)
+        if notice:
+            self._notice(notice)
         try:
             updated = run_turn(
                 base,
