@@ -10,7 +10,7 @@ window, tool use, a **Model Context Protocol client**, a night pass that reads
 your notes *and* your tooling, persisted sessions — and **one** runtime
 dependency (`httpx`). Local-first: no account, no API key on first launch.
 
-![The UH cockpit: a message, the MCP tool card that answered it, the reply, and the configuration column](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/cockpit.png)
+![The UH cockpit at 1440x900: sessions on the left, a real turn in the middle (the question, the read_file tool card that answered it, the French reply with its « Écouter » button), the context gauge and the model selector on top, and the configuration column with every tab on the right](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/cockpit.png)
 
 *A real turn, not a mock-up: `qwen3:8b` on the machine that built this, asked to
 look at a notes folder, called `mcp__atelier__list_directory` through a
@@ -151,7 +151,7 @@ lives - is drawn in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   result sizes, and every failure returned as a tool result instead of a crashed
   turn ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)).
   The Data panel shows one row per server and a test button that asks it *now*.
-![The Connexions tab: a Cloud template on top, a custom MCP server form below](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/connections.png)
+![The Connexions tab: sub-tabs (Outils, MCP, UHB, Infra, Tâches, Extensions), the Cloud storage template (AWS S3, empty secrets) on top, and the MCP servers section with its « + Connecter un MCP » button below](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/connections.png)
 
 - **Cloud connections in two clicks** (no TOML). The Data panel offers "Connecter
   un Cloud": pick **AWS S3** or **Google Drive**, fill the labelled fields, press
@@ -529,6 +529,16 @@ use `%USERPROFILE%`.
   place (the memory toolset still reads and writes it).
 
 ## Recommended local models (measured, not quoted)
+
+![The Machine panel: the measured profile (RTX 3070 Ti, 5.6 GB of VRAM free out of 8), the recommended model with its download button, and the inkling-2-mini alternative with its « à vérifier » badge, its warning and an unticked consent box](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/machine.png)
+
+UH does not guess what your machine can run: the **Machine** panel asks UHB for the
+measured profile, then shows the largest catalogue entry that fits with a 0.8 GB
+margin. On the capture above only 5.6 GB of VRAM were free, so `lfm3` (2.1 GB) is
+recommended rather than `qwen2.5:7b` (6.5 GB with the margin) — and
+`inkling-2-mini:26b-a5b-iq4_NL` is offered as an alternative with its warning, its
+« à vérifier » badge and a consent box that starts unticked. Nothing downloads
+without a click on a button that names the size.
 
 UH has no preferred model, but two are worth knowing for a 8 GB GPU:
 
