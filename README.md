@@ -23,6 +23,7 @@ French. The card is the tool call. Nothing in this screenshot is staged.*
 pip install uh-harness          # Python 3.10+
 uh                              # console: picks a local model, starts chatting
 pip install "uh-harness[web]" && uh web   # optional: the browser UI
+pip install "uh-harness[pdf]"             # optional: read_pdf appears only with pypdf
 ```
 
 That is the whole setup. UH finds an Ollama model you already have, pulls
@@ -133,8 +134,13 @@ lives - is drawn in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **It can propose a patch on its own code**, prove that the patch applies, and
   apply it on an isolated branch - never commit, never push
   ([Repairing itself](#repairing-itself-with-a-brake)).
-- **Cloud storage in two clicks**: AWS S3 (write) or Google Drive (read) from the
-  Data panel, secrets kept out of `config.toml`.
+- **Cloud storage from the Data panel**: AWS S3 (write) or a Google Drive server
+  (read), secrets kept out of `config.toml`. Both templates are launched through
+  `npx`, so **Node.js is required** and UH does not check it yet — the failure
+  only appears when you press Connect. The Drive template uses
+  `@modelcontextprotocol/server-gdrive`, which npm marks deprecated and which has
+  moved to `servers-archived`: treat Drive as experimental, S3 is the tested one
+  (offline only).
 
 - **A cockpit, not a chat box.** `uh web` is a three-column window with dockable
   consoles — API keys, providers, models, second brain, memory graph, decision
@@ -153,9 +159,11 @@ lives - is drawn in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   The Data panel shows one row per server and a test button that asks it *now*.
 ![The Connexions tab: a Cloud template on top, a custom MCP server form below](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/connections.png)
 
-- **Cloud connections in two clicks** (no TOML). The Data panel offers "Connecter
-  un Cloud": pick **AWS S3** or **Google Drive**, fill the labelled fields, press
-  Connect. UH writes the `[[mcp.servers]]` entry for you, keeps the secrets in
+- **Cloud connections from the panel** (no TOML, but Node.js required). The Data
+  panel offers "Connecter un Cloud": pick **AWS S3** or **Google Drive**, fill the
+  labelled fields, press Connect. `npx` must be on `PATH`; the Drive template
+  relies on a package npm lists as deprecated, so expect S3 to be the one that
+  works today. UH writes the `[[mcp.servers]]` entry for you, keeps the secrets in
   `mcp-secrets.toml` (never in `config.toml`), re-reads the file to prove it
   parses, then shows a green dot once the server has listed its tools. "Exaucer"
   on a dream offers **Exaucer + AWS S3** when a cloud that can write is connected:
@@ -346,7 +354,7 @@ and returns errors the model can read — an error is a message, not a crash.
 
 | Toolset | Tools | Notes |
 | --- | --- | --- |
-| `file` | `read_file`, `write_file`, `patch`, `search_files`, `read_pdf` | confined to the workspace. `read_pdf(path, pages?)` extracts a PDF's text (50 pages / 10 KB per call, ranges like `2-7`) and is **only offered when `pypdf` is installed** — absent, it simply does not appear in `/tools` |
+| `file` | `read_file`, `write_file`, `patch`, `search_files`, `read_pdf` | reads confined to the workspace; writes to the workspace and `~/Desktop`, `~/Documents`, `~/Downloads`, `~/uh-workspace`, never elsewhere. `read_pdf(path, pages?)` extracts a PDF's text (50 pages / 10 KB per call, ranges like `2-7`) and is **only offered when `pypdf` is installed** — absent, it simply does not appear in `/tools` |
 | `terminal` | `run_command` | blacklist plus timeout, not a sandbox; off in the web UI unless `--allow-terminal` |
 | `memory` | `memory_read`, `memory_write` | one flat file, sections |
 | `web_search` | `web_search(query, max_results)` | DuckDuckGo HTML endpoint, no API key, up to 5 results (title, url, snippet); `max_results` is capped, parse failures are reported as throttling |
@@ -674,9 +682,15 @@ the OS allows).
 ```
 uh providers free          # catalogue, then (in a terminal) store a key
 uh router status           # per provider: keys, ready/cooling, last error kind
-uh --local-only chat ...   # one command, guaranteed local
+uh --local-only chat ...   # no remote model; see the limits below
 uh config set allow_remote true
 ```
+
+`--local-only` governs **models only**, and the documentation used to promise
+more than that. With the flag on, `web_search`, link previews and the media proxy
+still make outbound requests when you ask for them, and a configured Mistral key
+still makes « Écouter » use the cloud voice. Closing that gap is tracked as **G17**
+in `docs/ROADMAP_UH_V2.md`.
 
 Remote access is **off by default**. The first remote call asks for an explicit
 consent, because free tiers routinely keep requests and may train on them —
