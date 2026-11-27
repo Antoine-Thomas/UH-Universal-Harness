@@ -41,6 +41,7 @@ from .. import (
     __version__,
     attachments,
     link_preview,
+    machine_client,
     media_proxy,
     media_store,
     turnlog,
@@ -856,6 +857,61 @@ def create_app(
             )
         link_preview.save_enabled(bool(payload["enabled"]))
         return {"enabled": link_preview.load_enabled(), "sentence": link_preview.SENTENCE}
+
+    # -- machine (G19) ------------------------------------------------------ #
+    # Le panneau ne mesure rien : UHB le fait (politique), UH affiche. Ces routes
+    # sont un transport, et elles refusent ici ce qui doit l'être — sans accord
+    # explicite, rien n'est même envoyé à UHB.
+    @app.post("/api/machine/scan", dependencies=[Depends(require_token)])
+    async def machine_scan(request: Request) -> dict:
+        """Profil matériel, catalogue et recommandation, calculés par UHB."""
+        try:
+            payload = await request.json()
+        except ValueError:
+            payload = {}
+        category = payload.get("category") if isinstance(payload, dict) else None
+        try:
+            return await asyncio.to_thread(machine_client.scan, str(category or "chat"))
+        except machine_client.MachineRefused as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+        except machine_client.MachineUnavailable as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+    @app.post("/api/machine/pull", dependencies=[Depends(require_token)])
+    async def machine_pull(request: Request) -> dict:
+        """Le seul chemin de téléchargement, et il exige ``accept: true``."""
+        try:
+            payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="corps JSON attendu") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="objet JSON attendu")
+        entry_id = payload.get("entry_id")
+        if not isinstance(entry_id, str) or not entry_id:
+            raise HTTPException(status_code=400, detail="« entry_id » est requis")
+        if payload.get("accept") is not True:
+            raise HTTPException(
+                status_code=403,
+                detail="téléchargement refusé : l'accord explicite (bouton "
+                "« Télécharger ») est obligatoire",
+            )
+        try:
+            started = await asyncio.to_thread(machine_client.start_pull, entry_id, True)
+        except machine_client.MachineRefused as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+        except machine_client.MachineUnavailable as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+        return {"started": True, **started}
+
+    @app.get("/api/machine/pull/{run_id}", dependencies=[Depends(require_token)])
+    async def machine_pull_status(run_id: str) -> dict:
+        """Où en est ce téléchargement, d'après UHB."""
+        try:
+            return await asyncio.to_thread(machine_client.pull_status, run_id)
+        except machine_client.MachineRefused as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+        except machine_client.MachineUnavailable as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
     # -- icon fallbacks ---------------------------------------------------- #
     # Declared in index.html as data URIs, so a healthy page never asks for
