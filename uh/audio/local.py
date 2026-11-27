@@ -200,24 +200,29 @@ def xtts_speak(text: str, reference_wav: Optional[Path] = None) -> bytes:
         if model_dir:
             env["UH_XTTS_MODEL_DIR"] = model_dir
         limit = speech_timeout(text)
+        # `Popen` + `communicate(timeout=)` : au dépassement, on a encore le PID,
+        # donc on peut tuer l'**arbre**. `subprocess.run` tue le seul processus
+        # direct et laisse les enfants (worker torch) vivants, ce qui garde la VRAM.
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
         try:
-            proc = subprocess.run(
-                args,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=limit,
-                check=False,
-                env=env,
-            )
+            stdout, stderr = proc.communicate(timeout=limit)
         except subprocess.TimeoutExpired:
+            kill_tree(proc.pid)
+            proc.communicate()
             raise RuntimeError(
                 f"xtts a dépassé {limit:.0f} s (mesure : 60 s de chargement + 0,06 s "
                 f"par caractère, plafond {XTTS_TIMEOUT_CAP:.0f} s) ; texte de "
                 f"{len(text)} caractères"
             ) from None
         if proc.returncode != 0 or not out.is_file():
-            raise RuntimeError(f"xtts a échoué : {(proc.stderr or proc.stdout)[-300:]}")
+            raise RuntimeError(f"xtts a échoué : {(stderr or stdout)[-300:]}")
         return out.read_bytes()
 
 

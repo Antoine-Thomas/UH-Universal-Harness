@@ -98,6 +98,7 @@ def capabilities() -> Dict[str, Any]:
     sentences, not error codes.
     """
     has_key = bool(mistral_key())
+    free_vram_gb = local.free_vram_gb()
     engines: List[Dict[str, Any]] = []
 
     engines.append(
@@ -172,6 +173,16 @@ def capabilities() -> Dict[str, Any]:
         "fallback": {
             "engine": policy_module.FALLBACK_ENGINE,
             "info": policy_module.FALLBACK_INFO,
+        },
+        # Ce que l'interface doit savoir avant de proposer « moteur lourd ».
+        "heavy": {
+            "fits": local.heavy_engine_fits(free_vram_gb),
+            "free_gb": free_vram_gb,
+            "needed_gb": local.XTTS_PEAK_VRAM_GB,
+            "margin_gb": local.XTTS_VRAM_MARGIN_GB,
+            "reason": ""
+            if local.heavy_engine_fits(free_vram_gb)
+            else local.heavy_engine_refusal(free_vram_gb),
         },
     }
 
@@ -344,6 +355,7 @@ def speak(
     reference_wav: Optional[Path] = None,
     engine: Optional[str] = None,
     consent: Optional[bool] = None,
+    heavy_consent: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Text to a WAV file, first engine that answers wins.
 
@@ -383,12 +395,24 @@ def speak(
         attempts.append(f"voxtral : {voxtral.KEY_ENV} absente")
 
     if (not only or only == "xtts") and local.xtts_python() is not None:
-        try:
-            wav = local.xtts_speak(body, reference_wav)
-            path = save_clip(session_id, wav, ".wav")
-            return {"engine": "xtts", **reference(path, engine="xtts")}
-        except Exception as exc:  # noqa: BLE001
-            attempts.append(f"xtts : {type(exc).__name__}: {exc}")
+        # La porte VRAM et l'accord sont consultés **ici**, dans le chemin réel :
+        # une fonction testée à part ne protège rien si speak() ne l'appelle pas.
+        free_vram = local.free_vram_gb()
+        if not local.heavy_engine_fits(free_vram):
+            attempts.append(f"xtts : {local.heavy_engine_refusal(free_vram)}")
+        elif heavy_consent is not True:
+            attempts.append(
+                "xtts : accord non donné (moteur lourd : "
+                f"{local.XTTS_PEAK_VRAM_GB:.1f} Go de VRAM au pic, "
+                f"~{local.XTTS_SECONDS_PER_CHAR * 1000:.0f} ms par caractère)"
+            )
+        else:
+            try:
+                wav = local.xtts_speak(body, reference_wav)
+                path = save_clip(session_id, wav, ".wav")
+                return {"engine": "xtts", **reference(path, engine="xtts")}
+            except Exception as exc:  # noqa: BLE001
+                attempts.append(f"xtts : {type(exc).__name__}: {exc}")
     elif not only or only == "xtts":
         attempts.append("xtts : ~/.uhb/xtts absent")
 

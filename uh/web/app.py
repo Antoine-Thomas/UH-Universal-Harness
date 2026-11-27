@@ -1967,6 +1967,29 @@ def create_app(
 
         return await asyncio.to_thread(voice_gpu.bench)
 
+    @app.get("/api/audio/policy", dependencies=[Depends(require_token)])
+    async def audio_policy() -> dict:
+        """La politique de voix cloud : demander (défaut), jamais, toujours."""
+        from ..audio import policy as uh_policy
+
+        return {
+            "policy": uh_policy.load_policy(),
+            "choices": list(uh_policy.POLICIES),
+            "consent_line": uh_policy.CONSENT_LINE,
+            "calls": uh_policy.cloud_calls(),
+        }
+
+    @app.post("/api/audio/policy", dependencies=[Depends(require_token)])
+    async def audio_policy_set(payload: dict) -> dict:
+        """Enregistre la politique. Elle ne contient aucun secret : trois mots."""
+        from ..audio import policy as uh_policy
+
+        try:
+            path = uh_policy.save_policy(str((payload or {}).get("policy") or ""))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"policy": uh_policy.load_policy(), "file": str(path)}
+
     @app.post("/api/audio/speak", dependencies=[Depends(require_token)])
     async def audio_speak(payload: dict) -> dict:
         """Text in, one WAV file out, with the reference the thread keeps instead of bytes."""
@@ -1990,6 +2013,12 @@ def create_app(
                 session_id=str(body.get("session_id") or "audio"),
                 reference_wav=reference_wav,
                 engine=str(body.get("engine") or "").strip() or None,
+                # Les deux accords viennent du corps de la requête, donc d'un clic :
+                # absent veut dire « pas d'accord », jamais « accord par défaut ».
+                consent=body.get("consent") if isinstance(body.get("consent"), bool) else None,
+                heavy_consent=body.get("heavy_consent")
+                if isinstance(body.get("heavy_consent"), bool)
+                else None,
             )
         except uh_audio.AudioUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
