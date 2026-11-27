@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from _static_source import script_text
+
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "uh" / "web" / "static"
 APP = STATIC / "app.js"
@@ -67,7 +69,7 @@ BANNED = (
 
 
 def _served() -> tuple[str, str]:
-    return APP.read_text(encoding="utf-8"), INDEX.read_text(encoding="utf-8")
+    return script_text(), INDEX.read_text(encoding="utf-8")
 
 
 def test_no_visible_english_phrase_survives_in_the_served_ui() -> None:

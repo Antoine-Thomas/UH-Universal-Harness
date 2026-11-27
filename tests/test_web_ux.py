@@ -10,8 +10,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from _static_source import script_text
+
 ROOT = Path(__file__).resolve().parents[1]
-APP_JS = (ROOT / "uh" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+APP_JS = script_text()
 
 
 def test_each_remote_server_has_its_own_test_button() -> None:

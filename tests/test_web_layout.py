@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 import pytest
+from _static_source import script_text
 
 ROOT = Path(__file__).resolve().parents[1]
 CSS = ROOT / "uh" / "web" / "static" / "style.css"
@@ -25,7 +26,7 @@ KEEP = pytest.mark.skipif(not CSS.is_file(), reason="web assets absent")
 @KEEP
 def test_the_splash_stays_long_enough_to_be_seen() -> None:
     """A splash dismissed in 120 ms is a white flash, not a first impression."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     match = re.search(r"SPLASH_MIN_MS = (\d+)", script)
 
     assert match, "the splash needs a minimum visible duration"
@@ -48,7 +49,7 @@ def test_the_dream_button_is_wired_to_a_real_route() -> None:
 @KEEP
 def test_the_second_brain_panel_offers_a_button_not_a_shell_command() -> None:
     """An error message that tells the user to run a command is a bug in the UI."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert "Run 'uh web'" not in script, "no shell instruction in a browser panel"
     assert "Connecter le second cerveau" in script
@@ -67,7 +68,7 @@ def test_the_three_breakpoints_are_declared() -> None:
 @KEEP
 def test_the_script_uses_the_same_breakpoint_as_the_stylesheet() -> None:
     """isNarrow decides the overlay behaviour; if it disagrees, clicks misfire."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     match = re.search(r'matchMedia\("\(max-width: (\d+)px\)"\)', script)
 
     assert match, "isNarrow must read a breakpoint"
@@ -122,7 +123,7 @@ def test_the_drawer_has_a_handle_and_the_banner_exists() -> None:
 
 @KEEP
 def test_the_remote_banner_is_wired_to_the_capabilities_endpoint() -> None:
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert "showRemoteBanner" in script
     assert "api/system/capabilities" in script
@@ -132,7 +133,7 @@ def test_the_remote_banner_is_wired_to_the_capabilities_endpoint() -> None:
 @KEEP
 def test_the_memory_tab_wires_the_read_only_routes() -> None:
     """A tab that calls a route nobody wrote is a blank panel; this pins the wiring."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     page = INDEX.read_text(encoding="utf-8")
 
     assert 'id="tab-memory"' in page
@@ -149,7 +150,7 @@ def test_the_memory_tab_wires_the_read_only_routes() -> None:
 @KEEP
 def test_the_memory_tab_never_promises_a_button_it_cannot_honour() -> None:
     """RAG has no route and SiYuan has no client: the tab says so, it does not act."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     # Le fond du contrat est « l'onglet le dit », pas la langue : la phrase est en
     # francais depuis le lot E, et l'assertion porte sur le texte servi.
@@ -161,7 +162,7 @@ def test_the_memory_tab_never_promises_a_button_it_cannot_honour() -> None:
 
 @KEEP
 def test_the_decision_tab_reads_the_recorded_payload() -> None:
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     page = INDEX.read_text(encoding="utf-8")
 
     assert 'id="tab-decision"' in page
@@ -180,7 +181,7 @@ def test_the_decision_tab_reads_the_recorded_payload() -> None:
 
 @KEEP
 def test_the_decision_tab_says_when_uhb_was_not_consulted() -> None:
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert "UHB n'a pas été consulté" in script
     assert "non appliqué au tour" in script, "the on-demand plan must be labelled as a plan"
@@ -189,7 +190,7 @@ def test_the_decision_tab_says_when_uhb_was_not_consulted() -> None:
 @KEEP
 def test_the_memory_actions_go_through_uh() -> None:
     """The browser never speaks to UHB: CSP is 'self', and the token stays server-side."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert "/api/memory/rag/reload" in script
     assert "/api/memory/siyuan/blocks" in script
@@ -203,7 +204,7 @@ def test_the_memory_actions_go_through_uh() -> None:
 @KEEP
 def test_the_memory_tab_says_reloaded_never_reindexed() -> None:
     """POST /rag/reindex reloads the index; claiming a rebuild would be a lie."""
-    script = APP.read_text(encoding="utf-8").lower()
+    script = script_text().lower()
 
     # The interface is French, so the intention is asserted on the French wording:
     # the index was RELOADED, not rebuilt. A reindex would be a different promise.
@@ -254,7 +255,7 @@ def test_the_splash_is_static_markup_and_the_script_ends_it() -> None:
     """The first paint must show something without waiting for the module."""
     page = INDEX.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert 'id="splash"' in page
     assert 'class="splash-mark"' in page
@@ -271,7 +272,7 @@ def test_the_telemetry_tab_reads_the_route_without_a_chart_library() -> None:
     The CSP is 'self', so a CDN script would be blocked, and a vendored charting
     library is a dependency UH does not need to place seven rectangles.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     page = INDEX.read_text(encoding="utf-8")
 
     assert 'id="tab-telemetry"' in page
@@ -287,7 +288,7 @@ def test_the_telemetry_tab_reads_the_route_without_a_chart_library() -> None:
 @KEEP
 def test_the_second_brain_draws_the_graph_and_a_turn_can_carry_a_skill() -> None:
     """The graph and the skill badge are the two promises of P6/P8 in the UI."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     page = INDEX.read_text(encoding="utf-8")
 
     assert 'id="memory-graph"' in page
@@ -307,7 +308,7 @@ def test_each_console_can_live_in_its_own_window() -> None:
     is remembered per browser (it is furniture, not data)."""
     page = INDEX.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     mobile = css.split("@media (max-width: 768px)", 1)[1]
 
     assert 'id="pane-detach"' in page
@@ -328,7 +329,7 @@ def test_each_console_can_live_in_its_own_window() -> None:
 def test_the_conversation_settings_panel_is_drawn_from_the_route() -> None:
     """A slider that promises a range the backend refuses is worse than no slider."""
     page = INDEX.read_text(encoding="utf-8")
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert 'id="llm-open"' in page
     assert 'id="llm-badge"' in page
@@ -343,7 +344,7 @@ def test_the_panel_can_be_detached_and_a_phone_cannot() -> None:
     """Docking v1: detach the configuration panel, snap it to an edge, dock back."""
     page = INDEX.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     mobile = css.split("@media (max-width: 768px)", 1)[1]
 
     assert 'id="panel-float"' in page
@@ -359,7 +360,7 @@ def test_the_panel_can_be_detached_and_a_phone_cannot() -> None:
 @KEEP
 def test_the_data_tab_wires_backup_and_skills() -> None:
     """A panel that promises an export must call the routes that do it."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     page = INDEX.read_text(encoding="utf-8")
 
     assert 'id="tab-data"' in page
@@ -405,7 +406,7 @@ def test_a_finished_turn_never_rebuilds_the_thread() -> None:
     still be one message behind the DOM. Rebuilding the thread from it erased the
     reply the user had just read; the turn now reconciles in place instead.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split("async function sendMessage(text) {", 1)[1].split(
         "async function stopTurn()", 1
     )[0]
@@ -419,7 +420,7 @@ def test_a_finished_turn_never_rebuilds_the_thread() -> None:
 @KEEP
 def test_the_reconciliation_never_removes_a_message() -> None:
     """Fewer rows in the store than on screen is a lag, not a deletion order."""
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split("async function reconcileTranscript() {", 1)[1].split(
         "\nasync function ", 1
     )[0]
@@ -446,7 +447,7 @@ def test_every_form_field_can_be_autofilled() -> None:
         if "id=" not in attrs and "name=" not in attrs:
             offenders.append(f"index.html:{html[: match.start()].count(chr(10)) + 1}")
 
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     for match in re.finditer(r'el\("(input|select|textarea)"', script):
         # The element's own setup follows the call: that is where an id lands.
         setup = script[match.end() :][:400]
@@ -469,7 +470,7 @@ def test_the_columns_follow_the_window_until_the_user_drags() -> None:
     assert "var(--sidebar-w, 260px)" not in css
     assert "var(--right-w, 340px)" not in css
 
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     defaults = re.search(r"const LAYOUT_DEFAULTS = \{([^}]*)\}", script)
     assert defaults, "layout defaults must stay declarative"
     assert "sidebar: null" in defaults.group(1), "no width until the splitter is dragged"
@@ -483,7 +484,7 @@ def test_every_panel_tab_loads_its_own_content() -> None:
     "Fournisseurs" was the case: the list was loaded by the ⚙ button only, so
     clicking the tab showed a blank panel - reported as "the tab is empty".
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split("function showPanelTab(name) {", 1)[1].split("\nfunction ", 1)[0]
     html = INDEX.read_text(encoding="utf-8")
 
@@ -506,7 +507,7 @@ def test_the_model_choice_is_remembered_by_the_browser_too() -> None:
     file refuses the write (a hand-edited config), the page still restores what
     the user picked instead of showing the first local model.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert 'const MODEL_CHOICE_KEY = "uh.selected_model"' in script
     assert "storeModelChoice(" in script, "the switch must write the pair"
@@ -524,7 +525,7 @@ def test_the_providers_panel_is_loaded_once_and_stays_isolated() -> None:
     that had already rendered. The loader is now coalesced and the router
     settings load beside it, not inside it.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     loader = script.split("function loadProviders() {", 1)[1].split("\n// Remote access", 1)[0]
 
     assert "if (state.providersPromise) return state.providersPromise" in loader, (
@@ -554,7 +555,7 @@ def test_the_transcript_reconciliation_ignores_system_bubbles() -> None:
     ``storedMessages()`` — the filter has to hold in both, and the reconcile body
     must keep using them.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     bubbles = script.split("function threadBubbles() {", 1)[1].split("\n}\n", 1)[0]
     stored = script.split("async function storedMessages(count) {", 1)[1].split("\n}\n", 1)[0]
     body = script.split("async function reconcileTranscript() {", 1)[1].split(
@@ -581,7 +582,7 @@ def test_the_transcript_notice_lives_in_the_header_not_in_the_thread() -> None:
     header ("Actualiser la vue"), which refreshes the view and nothing else — it
     never draws a bubble in the conversation, and it never touches the store.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split("async function reconcileTranscript() {", 1)[1].split(
         "\nasync function ", 1
     )[0]
@@ -605,7 +606,7 @@ def test_a_command_failure_is_not_labelled_a_model_failure() -> None:
     The frame carries `source: "command"` and the browser says so, instead of
     sending people to check a provider key for a dead search endpoint.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split('} else if (event === "error") {', 1)[1].split("} else if", 1)[0]
 
     assert 'data.source === "command"' in body
@@ -619,7 +620,7 @@ def test_a_cut_answer_offers_to_continue() -> None:
     They looked like a finished answer, and a reload lost them. The frame now
     says `partial: true` and the bubble carries one button.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split('} else if (event === "error") {', 1)[1].split("} else if", 1)[0]
 
     assert "data.partial" in body, "the browser is told whether the words are real"
@@ -634,7 +635,7 @@ def test_the_decision_view_follows_the_session_that_is_open() -> None:
     Its loader then ran with no id, and the panel kept "envoyez un message" for
     ever, even with a session full of recorded turns in front of it.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split("async function openSession(id) {", 1)[1].split("\nasync function ", 1)[0]
 
     assert 'state.activeTab === "decision"' in body, "opening a session reloads the view"
@@ -652,7 +653,7 @@ def test_the_settings_master_switch_is_a_control_you_can_see() -> None:
     An on/off nobody sees, on a panel that changes what is sent to a provider -
     the operator reported the button as missing.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     css = CSS.read_text(encoding="utf-8")
 
     assert 'id="llm-enabled" class="llm-switch"' in script, "a button, not a hidden checkbox"
@@ -670,7 +671,7 @@ def test_the_tools_panel_shows_uhbs_catalogue_and_keeps_no_copy_of_it() -> None:
     assert 'id="tab-tools"' in page and 'id="tools-view"' in page
     assert 'id="tools-list"' in page and "aria-busy" in page
 
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split("function catalogCard(entry) {", 1)[1].split("\nfunction showPanelTab(", 1)[
         0
     ]
@@ -691,7 +692,7 @@ def test_tool_artifacts_are_rendered_as_images_and_never_as_markup() -> None:
     at a `data:` URL whose prefix matches an allow-listed MIME. Anything else is
     skipped, because the payload's MIME is a claim — and `svg` is not in the list.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split("function drawArtifacts(container, artifacts, context) {", 1)[1].split(
         "\nfunction fillToolCard(", 1
     )[0]
@@ -716,7 +717,7 @@ def test_the_providers_list_loads_on_arrival() -> None:
     `showPanelTab` was the only caller of the loader that fetches, and boot never
     called it - so the active tab was uncovered, never loaded.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     boot = script.split("async function boot() {", 1)[1].split("\n// First launch", 1)[0]
 
     assert 'if (providersAreOpen() && state.activeTab === "keys") openProviders();' in boot, (
@@ -737,7 +738,7 @@ def test_the_decision_view_exposes_the_execution_mode() -> None:
     change it. The control now lives in that panel, with human labels, and it
     calls the route that restarts the second brain.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert "async function renderExecutionMode()" in script
     assert 'api("/api/uhb/mode"' in script
@@ -759,7 +760,7 @@ def test_the_artifact_toolbar_speaks_french_with_icons() -> None:
     label per button, an explicit accessible name, and a download link built from
     the artifact's own data URL.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     for label in ("Garder", "Utile", "Pas utile", "Télécharger", "Corbeille"):
         assert f'"{label}"' in script, f"the toolbar offers {label}"
@@ -778,7 +779,7 @@ def test_the_mode_is_visible_in_the_header_and_grantable_from_the_refusal() -> N
     whose button grants execution and re-posts the turn the user already typed.
     """
     page = INDEX.read_text(encoding="utf-8")
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert 'id="mode-badge"' in page and 'aria-label="Mode d\'exécution"' in page
     assert "function refreshModeBadge()" in script and 'api("/api/uhb/status")' in script
@@ -852,7 +853,7 @@ def _theme_blocks() -> tuple[str, str]:
 def test_the_csp_stays_strict_in_the_static_files() -> None:
     """No inline style or handler, no CDN, no third-party host: the CSP forbids them."""
     html = INDEX.read_text(encoding="utf-8")
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     css = CSS.read_text(encoding="utf-8")
 
     assert "<style" not in html and 'style="' not in html
@@ -918,7 +919,7 @@ def test_every_css_variable_in_use_is_defined() -> None:
 
 @KEEP
 def test_booleans_are_switches_and_the_decision_panel_speaks_french() -> None:
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     css = CSS.read_text(encoding="utf-8")
 
     rows = script[
@@ -942,7 +943,7 @@ def test_booleans_are_switches_and_the_decision_panel_speaks_french() -> None:
 
 @KEEP
 def test_no_raw_http_code_is_shown_and_errors_offer_an_action() -> None:
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     assert "`HTTP ${" not in script, "a raw status code must go through httpErrorText"
     assert "function humanizeError" in script and "function decorateError" in script
@@ -953,7 +954,7 @@ def test_no_raw_http_code_is_shown_and_errors_offer_an_action() -> None:
 
 @KEEP
 def test_tool_cards_have_four_distinct_states() -> None:
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     css = CSS.read_text(encoding="utf-8")
 
     for name in ("loading", "success", "refused", "error"):
@@ -966,7 +967,7 @@ def test_tool_cards_have_four_distinct_states() -> None:
 
 @KEEP
 def test_image_artifacts_are_bounded_lazy_and_openable() -> None:
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     css = CSS.read_text(encoding="utf-8")
 
     assert re.search(
@@ -978,7 +979,7 @@ def test_image_artifacts_are_bounded_lazy_and_openable() -> None:
 
 @KEEP
 def test_the_uhb_status_has_four_states_with_icon_and_words() -> None:
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     css = CSS.read_text(encoding="utf-8")
 
     block = script[
@@ -1004,7 +1005,7 @@ def test_the_uhb_status_has_four_states_with_icon_and_words() -> None:
 @KEEP
 def test_system_notices_are_live_regions_and_modals_trap_the_focus() -> None:
     html = INDEX.read_text(encoding="utf-8")
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
 
     for ident in ("remote-banner", "terminal-warning", "version-warning", "model-note"):
         tag = re.search(rf'<div id="{ident}"[^>]*>|<span id="{ident}"[^>]*>', html)

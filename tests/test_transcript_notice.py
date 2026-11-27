@@ -20,8 +20,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from _static_source import script_text
+
 ROOT = Path(__file__).resolve().parents[1]
-APP_JS = (ROOT / "uh" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+APP_JS = script_text()
 INDEX_HTML = (ROOT / "uh" / "web" / "static" / "index.html").read_text(encoding="utf-8")
 STYLE_CSS = (ROOT / "uh" / "web" / "static" / "style.css").read_text(encoding="utf-8")
 

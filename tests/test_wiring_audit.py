@@ -12,10 +12,12 @@ import json
 import re
 from pathlib import Path
 
+from _static_source import script_text
+
 ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "uh" / "web" / "app.py").read_text(encoding="utf-8")
 CONSOLE = (ROOT / "uh" / "console.py").read_text(encoding="utf-8")
-JS = (ROOT / "uh" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+JS = script_text()
 HTML = (ROOT / "uh" / "web" / "static" / "index.html").read_text(encoding="utf-8")
 API_DOC = (ROOT / "docs" / "API.md").read_text(encoding="utf-8")
 
