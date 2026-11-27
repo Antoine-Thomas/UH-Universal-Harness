@@ -2510,3 +2510,35 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
   cursor: pointer;
 }
 .link-card-activate[disabled] { opacity: 0.6; cursor: default; }
+
+
+/* -- Machine (G19) ------------------------------------------------------- */
+.machine-panel { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; }
+.machine-panel[aria-busy="true"] { opacity: 0.7; }
+.machine-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.machine-title { font-weight: 600; margin-top: 6px; }
+.machine-profile {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.machine-profile dt { color: var(--muted, #8a8a8a); }
+.machine-profile dd { margin: 0; }
+.machine-unknown { font-size: 12px; color: var(--error); }
+.machine-entry {
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.machine-entry-alt { border-style: dashed; }
+.machine-entry-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.machine-entry-meta, .machine-reason { font-size: 12px; color: var(--muted, #8a8a8a); }
+.machine-warning { font-size: 12px; color: var(--error); }
+.machine-consent { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.badge.badge-warn { color: var(--error); border-color: var(--error); }
+.machine-progress { font-size: 12px; color: var(--accent); }

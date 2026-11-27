@@ -160,7 +160,7 @@ come back", which nothing else in the product could.
 | POST | `/api/system/alive` | `{visible?: bool}` | `{alive: true, window, ttl_s}` — renews the lease of the window this server opened: the page sends it every 10 s, and only with `uh web --app` does the server stop UHB and exit after the lease goes quiet (45 s visible, 300 s hidden so a minimised window is not killed) · `401` without the token · `403` a cross-site caller |
 | POST | `/api/uhb/start` | — | starts UHB from the panel (off the event loop, 25 s budget): `{connected: true, …status}` · `{connected: false, reason, log, checkout}` when it still does not answer · `400` `UH_UHB_URL` disabled · `503` the spawn itself failed |
 | POST | `/api/uhb/stop` | — | stops the UHB this process started: `{connected: false, stopped}` |
-| POST | `/api/models/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
+| POST | `/api/machine/pull` | `{name}` | `{started, name}` · `400` no name · `429` two pulls already running |
 | GET | `/api/search` | `?q=&limit=` | `{query, hits: [{…, short_id}]}` |
 | GET | `/api/models` | — | `{provider, model, current, choices: [{id, provider, local, note}], ollama, providers, pulling}` — an API provider appears only when it holds a key |
 | POST | `/api/model` | `{model, provider?, session_id?}` | `{model, provider, note, persisted}` — the pair is **written to `config.toml`** (`default_provider`, `default_model`), so the next `uh web` starts on it; `persisted: false` means the file refused the write (a hand-edited config with a table) and the switch only holds for this process · `400` when the pair does not fit (a local id with an API provider, an uninstalled Ollama model, an unknown provider) |
@@ -238,6 +238,7 @@ app-banner
 attach  attachments  command-chips  composer  files  folder-hint  mic  mic-status
 mic-bar  mic-clock  mic-stop
 tab-voice  voice-panel  voice-view
+tab-machine  machine-panel  machine-view
 project-add  project-path  projects-hint  projects-list  projects-refresh  projects-view
 runs-clean  runs-hint  runs-list  tab-projects
 plus-backdrop  plus-close  plus-empty  plus-filters  plus-import  plus-title
@@ -342,6 +343,14 @@ d'un caractère d'une adresse de résultat d'outil n'hérite donc pas de sa prov
 | GET | `/api/link/image` | paramètres `url`, `session`. L'image de l'article, servie par UH (JPEG/PNG/WebP/GIF reconnus par leurs octets, SVG refusé, 2 Mo). |
 | GET | `/api/link/settings` | `{"enabled": bool}` — l'interrupteur, **coupé par défaut**. |
 | POST | `/api/link/settings` | `{"enabled": bool}`. Jeton **et** origine exigés : une page étrangère ne peut pas l'activer. La carte propose le bouton, et le clic vaut consentement. |
+
+### Machine (G19)
+
+| Méthode | Route | Ce qu'elle fait |
+| --- | --- | --- |
+| POST | `/api/machine/scan` | Profil matériel, catalogue et recommandation, calculés par UHB (`POST /machine/scan`). Échec de mesure = champ `null` **et** nom dans `unknown`, jamais une valeur supposée. |
+| POST | `/api/models/pull` | Le seul chemin de téléchargement. Exige `{"entry_id": "...", "accept": true}` : sans `accept`, 403 et **aucune** requête vers UHB. |
+| GET | `/api/machine/pull/{run_id}` | Où en est ce téléchargement, lu depuis UHB. |
 
 ## Router API (`uh router serve`)
 
