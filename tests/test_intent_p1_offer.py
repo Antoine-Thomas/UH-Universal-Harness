@@ -24,6 +24,18 @@ from uh import agent, intent
 from uh.toolsets import build_toolsets
 
 
+@pytest.fixture(autouse=True)
+def _read_pdf_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rend l'offre hermétique : `read_pdf` n'existe que si `pypdf` est importable.
+
+    La porte de push de l'opérateur tourne avec son Python global (pypdf 7.x) et la
+    mesure avec le `.venv` (sans pypdf) : sans ce verrou, le même commit offrait
+    quatre ou cinq outils fichiers selon l'interpréteur. Le jeu gelé garde donc ses
+    attentes, et l'environnement est fixé ici, pas dans le jeu.
+    """
+    monkeypatch.setattr("uh.toolsets.file.pdf_available", lambda: False)
+
+
 def _catalog() -> dict:
     return build_toolsets()
 
@@ -215,3 +227,24 @@ def test_the_mode_wins_over_the_router_explainer() -> None:
     assert refused is True
     assert "mode_forbidden" in message["content"]
     assert "not_offered" not in message["content"], "le mode doit rester la cause"
+
+
+# --------------------------------------------------------------------------- #
+# l'autre environnement : pypdf installé n'ajoute qu'un outil, et un seul
+# --------------------------------------------------------------------------- #
+def test_read_pdf_only_appears_when_pypdf_is_importable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Même demande, même famille, un outil de plus : la différence est nommée.
+
+    C'est le cas de la porte de push de l'opérateur (Python global, pypdf 7.0.1).
+    L'offre reste décidée par toolset, donc `read_pdf` arrive avec le toolset
+    `file` ; ce test dit que c'est le **seul** écart, pour qu'une future refonte
+    ne l'ajoute pas en silence.
+    """
+    monkeypatch.setattr("uh.toolsets.file.pdf_available", lambda: True)
+
+    offered, tools = _offered("corrige le bug dans app.py")
+
+    assert offered == {"file"}
+    assert tools == {"read_file", "write_file", "patch", "search_files", "read_pdf"}
