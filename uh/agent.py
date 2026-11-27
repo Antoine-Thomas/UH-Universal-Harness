@@ -320,6 +320,7 @@ def _execute(
     args: dict,
     call_id: str = "",
     toolsets: Optional[Dict[str, "Toolset"]] = None,
+    explain_missing: Optional[Callable[[str], Optional[dict]]] = None,
 ) -> tuple[dict, bool]:
     """Run one tool, always returning a ``role: tool`` message and a refusal flag.
 
@@ -346,7 +347,17 @@ def _execute(
         # a tool it saw in a previous mode. Ask the toolset that knows, so the
         # refusal names the mode and the interface can offer « Autoriser » (point
         # 2) instead of an anonymous "unknown tool".
+        #
+        # Order matters, and it is a guarantee, not a wording detail: a door the
+        # mode closed stays closed. The router's explainer is asked only second,
+        # so it can never relabel a `mode_forbidden` as "not offered this turn"
+        # (the interface offers « Autoriser » on one and nothing on the other).
         explanation = _missing_explanation(toolsets, name)
+        if explanation is None and explain_missing is not None:
+            try:
+                explanation = explain_missing(name)
+            except Exception:  # noqa: BLE001 - an explanation never breaks a turn
+                explanation = None
         if explanation is not None:
             payload.update(explanation)
         elif name == "execute_code":
@@ -503,6 +514,7 @@ def run_turn(
     on_notice: Optional[Callable[[str], None]] = None,
     images: Optional[List[str]] = None,
     offer_tools: bool = True,
+    explain_missing: Optional[Callable[[str], Optional[dict]]] = None,
 ) -> List[dict]:
     """Run the agent loop until a final answer or until the budget is spent.
 
@@ -606,7 +618,7 @@ def run_turn(
 
         for call in calls:
             call_id, name, args = _split_call(call)
-            result, refused = _execute(index, name, args, call_id, toolsets)
+            result, refused = _execute(index, name, args, call_id, toolsets, explain_missing)
             history.append(result)
             if not refused:
                 continue

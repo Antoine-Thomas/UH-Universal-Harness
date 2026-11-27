@@ -17,6 +17,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import os
@@ -297,6 +298,10 @@ def system_message(workspace: Path, extra_system: str = "", role: Optional[dict]
         f"files inside the workspace {workspace}, to run shell commands, and to keep notes "
         "in long-term memory. Prefer the file tools over the shell for file edits. "
         "Answer without calling a tool once the task is done. "
+        # Date et fuseau fixés au démarrage : le préfixe du prompt reste stable
+        # (cache), et le modèle ne fabrique pas une horloge qu'il n'a pas.
+        f"Session started {_SESSION_STARTED} (local time, timezone included): answer "
+        "any date or time question from it, and never invent a clock. "
         "When the user asks for a chart, a plot, a diagram or a map, draw it: call "
         "execute_code and have it save a .png (matplotlib, Agg backend - there is no "
         "display), then say one line about what it shows. Save it in the CURRENT "
@@ -411,6 +416,50 @@ def _without_nudges(messages: list[dict]) -> tuple[list[dict], int]:
             continue
         kept.append(message)
     return kept, dropped
+
+
+#: Fixé au démarrage du processus, pas à chaque tour : une heure à la minute
+#: changerait le préfixe du prompt à chaque tour et casserait le cache fournisseur.
+#: La date et le fuseau suffisent à répondre « quel jour sommes-nous » sans inventer.
+_SESSION_STARTED = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+
+
+def _generation_available() -> bool:
+    """Aucune capacité de génération d'image n'existe avant G13.
+
+    Le jour où G13 livre un registre de capacités (diffusion locale ou API), cette
+    fonction lira ce registre ; d'ici là elle dit la vérité : rien à lancer.
+    """
+    return False
+
+
+def _generation_notice_for(text: str) -> Optional[str]:
+    """La phrase à afficher pour une demande de fabrication, ou ``None``.
+
+    ``None`` a deux causes, toutes deux voulues : ce n'est pas une demande de
+    fabrication, ou une capacité de génération existe (G13) et le chat n'a plus
+    à s'excuser. Aucune des deux ne lance quoi que ce soit.
+    """
+    if _generation_available():
+        return None
+    return uh_intent.generation_notice(text)
+
+
+def _router_explainer(session: "ChatSession") -> Optional[Callable[[str], Optional[dict]]]:
+    """Le refus du routeur pour ce tour, ou ``None`` quand rien n'a été écarté.
+
+    Sans sélection (drapeau absent, routeur en erreur), le comportement historique
+    reste intact : aucun outil n'est « non offert », donc il n'y a rien à expliquer.
+    """
+    selection = getattr(session, "last_selection", None)
+    if selection is None:
+        return None
+    catalog = getattr(session, "toolsets", None) or {}
+
+    def explain(name: str) -> Optional[dict]:
+        return uh_intent.explain_withheld(name, catalog, selection)
+
+    return explain
 
 
 def _model_can_use_tools(provider: str, model: str) -> bool:
@@ -653,6 +702,9 @@ class ChatSession:
         nothing here executes anything.
         """
         self.last_intent = None
+        #: La sélection qui a servi ce tour : c'est elle qui sait pourquoi un outil
+        #: écarté l'a été, et quelle phrase le ramène (P1 de G16).
+        self.last_selection = None
         if not intent_routing_enabled():
             return self.toolsets
         text = ""
@@ -672,6 +724,7 @@ class ChatSession:
             return self.toolsets
         chosen = uh_intent.turn_toolsets(self.toolsets, selection, enabled=True)
         self.last_intent = selection.payload()
+        self.last_selection = selection
         line = uh_intent.describe(selection)
         if line and chosen != self.toolsets:
             self._notice(line)
@@ -1109,6 +1162,16 @@ class ChatSession:
         base = list(self.history) + list(extra or [])
         toolsets = self._intent_toolsets(base)
         base = self._intent_skill(base)
+        # G13 n'existe pas encore : une demande de fabrication d'image reçoit une
+        # phrase déterministe et deux options, sans rien lancer. Le jour où un
+        # moteur existe, `_generation_available()` le dit et le chat se tait.
+        asked = next(
+            (str(m.get("content") or "") for m in reversed(base) if m.get("role") == "user"),
+            "",
+        )
+        notice = _generation_notice_for(asked)
+        if notice:
+            self._notice(notice)
         try:
             updated = run_turn(
                 base,
@@ -1122,6 +1185,10 @@ class ChatSession:
                 offer_tools=_model_can_use_tools(
                     self.provider_kind, str(getattr(self.provider, "model", "") or self.model)
                 ),
+                # Un outil que le routeur a écarté ce tour ne doit pas revenir en
+                # « unknown tool » : la sélection dit pourquoi, et la phrase qui
+                # ramène tout le catalogue (P1 de G16).
+                explain_missing=_router_explainer(self),
             )
             self._notice_unavailable_capability(updated)
             self._ended_on_refusal = _stopped_on_refusal(updated)

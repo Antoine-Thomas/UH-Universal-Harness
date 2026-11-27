@@ -1,0 +1,123 @@
+{
+ "frozen": "2026-11-27",
+ "cases": [
+  {
+   "asked": "oui",
+   "history": [
+    "quel temps fait-il a Lyon ?"
+   ],
+   "tools": [
+    "web_search"
+   ],
+   "note": "relance d'une demande de meteo"
+  },
+  {
+   "asked": "vas-y",
+   "history": [
+    "lis README.md"
+   ],
+   "tools": [
+    "read_file"
+   ],
+   "note": "relance d'une lecture"
+  },
+  {
+   "asked": "ok, fais-le",
+   "history": [
+    "cree notes.txt avec le resume"
+   ],
+   "tools": [
+    "write_file"
+   ],
+   "note": "relance d'une ecriture"
+  },
+  {
+   "asked": "continue",
+   "history": [
+    "lance les tests"
+   ],
+   "tools": [
+    "terminal"
+   ],
+   "note": "relance d'une execution"
+  },
+  {
+   "asked": "et demain ?",
+   "history": [
+    "quel temps fait-il a Lyon ?"
+   ],
+   "tools": [
+    "web_search"
+   ],
+   "note": "anaphore temporelle"
+  },
+  {
+   "asked": "pareil pour Paris",
+   "history": [
+    "quelle est la meteo a Lyon ?"
+   ],
+   "tools": [
+    "web_search"
+   ],
+   "note": "anaphore de lieu"
+  },
+  {
+   "asked": "montre-moi",
+   "history": [
+    "trouve une photo de chat"
+   ],
+   "tools": [
+    "web_image_search"
+   ],
+   "note": "relance d'image"
+  },
+  {
+   "asked": "refais-le",
+   "history": [
+    "cherche sur le web la doc de httpx"
+   ],
+   "tools": [
+    "web_search"
+   ],
+   "note": "relance de recherche"
+  },
+  {
+   "asked": "yes please",
+   "history": [
+    "run the test suite please"
+   ],
+   "tools": [
+    "terminal"
+   ],
+   "note": "relance EN"
+  },
+  {
+   "asked": "and tomorrow?",
+   "history": [
+    "what's the weather in Bordeaux"
+   ],
+   "tools": [
+    "web_search"
+   ],
+   "note": "anaphore EN"
+  },
+  {
+   "asked": "ok",
+   "history": [
+    "bonjour"
+   ],
+   "tools": [
+    "read_file",
+    "search_files",
+    "web_search"
+   ],
+   "note": "rien a poursuivre (conversation) : socle lecture seule"
+  },
+  {
+   "asked": "oui",
+   "history": [],
+   "tools": [],
+   "note": "premier message d'une session : rien a poursuivre"
+  }
+ ]
+}

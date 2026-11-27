@@ -1,0 +1,206 @@
+{
+ "frozen": "2026-11-26",
+ "cases": [
+  {
+   "asked": "bonjour",
+   "needs_tool": false,
+   "tools": []
+  },
+  {
+   "asked": "merci beaucoup, c'etait parfait",
+   "needs_tool": false,
+   "tools": []
+  },
+  {
+   "asked": "qui es-tu ?",
+   "needs_tool": false,
+   "tools": []
+  },
+  {
+   "asked": "quelle est la capitale du Japon ?",
+   "needs_tool": false,
+   "tools": []
+  },
+  {
+   "asked": "raconte-moi une blague courte",
+   "needs_tool": false,
+   "tools": []
+  },
+  {
+   "asked": "comment vas-tu aujourd'hui ?",
+   "needs_tool": false,
+   "tools": []
+  },
+  {
+   "asked": "explique-moi la photosynthese simplement",
+   "needs_tool": false,
+   "tools": []
+  },
+  {
+   "asked": "lis README.md",
+   "needs_tool": true,
+   "tools": [
+    "read_file"
+   ]
+  },
+  {
+   "asked": "lis le fichier docs/API.md et dis-moi la version",
+   "needs_tool": true,
+   "tools": [
+    "read_file"
+   ]
+  },
+  {
+   "asked": "ouvre pyproject.toml et donne la version",
+   "needs_tool": true,
+   "tools": [
+    "read_file"
+   ]
+  },
+  {
+   "asked": "consulte le fichier tests/conftest.py",
+   "needs_tool": true,
+   "tools": [
+    "read_file"
+   ]
+  },
+  {
+   "asked": "combien de lignes contient uh/intent.py",
+   "needs_tool": true,
+   "tools": [
+    "read_file",
+    "search_files"
+   ]
+  },
+  {
+   "asked": "how many lines does uh/agent.py have",
+   "needs_tool": true,
+   "tools": [
+    "read_file",
+    "search_files"
+   ]
+  },
+  {
+   "asked": "quel temps fait-il a Lyon demain",
+   "needs_tool": true,
+   "tools": [
+    "web_search"
+   ]
+  },
+  {
+   "asked": "il va pleuvoir a Paris ce week-end ?",
+   "needs_tool": true,
+   "tools": [
+    "web_search"
+   ]
+  },
+  {
+   "asked": "what's the weather in Bordeaux",
+   "needs_tool": true,
+   "tools": [
+    "web_search"
+   ]
+  },
+  {
+   "asked": "cree notes.txt avec le resume",
+   "needs_tool": true,
+   "tools": [
+    "write_file"
+   ]
+  },
+  {
+   "asked": "ecris un fichier sources.md",
+   "needs_tool": true,
+   "tools": [
+    "write_file"
+   ]
+  },
+  {
+   "asked": "enregistre le resultat dans rapport.md",
+   "needs_tool": true,
+   "tools": [
+    "write_file"
+   ]
+  },
+  {
+   "asked": "lance les tests",
+   "needs_tool": true,
+   "tools": [
+    "terminal"
+   ]
+  },
+  {
+   "asked": "execute pytest sur le module intent",
+   "needs_tool": true,
+   "tools": [
+    "terminal"
+   ]
+  },
+  {
+   "asked": "run the test suite please",
+   "needs_tool": true,
+   "tools": [
+    "terminal"
+   ]
+  },
+  {
+   "asked": "cherche sur le web la doc de httpx",
+   "needs_tool": true,
+   "tools": [
+    "web_search"
+   ]
+  },
+  {
+   "asked": "lis la doc de fastapi en ligne",
+   "needs_tool": true,
+   "tools": [
+    "web_search"
+   ]
+  },
+  {
+   "asked": "trouve une photo de la tour Eiffel",
+   "needs_tool": true,
+   "tools": [
+    "web_image_search"
+   ]
+  },
+  {
+   "asked": "find a picture of a red panda",
+   "needs_tool": true,
+   "tools": [
+    "web_image_search"
+   ]
+  },
+  {
+   "asked": "notes.txt",
+   "needs_tool": true,
+   "tools": [
+    "read_file",
+    "search_files",
+    "web_search"
+   ]
+  },
+  {
+   "asked": "de la meteo a Lyon, tu peux me la donner ?",
+   "needs_tool": true,
+   "tools": [
+    "web_search"
+   ]
+  },
+  {
+   "asked": "ou est enregistre le fichier keys.toml ?",
+   "needs_tool": true,
+   "tools": [
+    "read_file",
+    "search_files"
+   ]
+  },
+  {
+   "asked": "peux-tu creer notes.md quand tu auras le temps",
+   "needs_tool": true,
+   "tools": [
+    "write_file"
+   ]
+  }
+ ]
+}
