@@ -422,6 +422,20 @@ function readAloud(text, { onDone, onError, onRemote }) {
   };
 }
 
+// La décision de bascule est prise par le serveur (`capabilities.fallback`) : le
+// client la lit au lieu d'écrire sa propre phrase. Une seule requête par session.
+let audioCapsCache = null;
+
+async function audioCapabilities() {
+  if (audioCapsCache) return audioCapsCache;
+  try {
+    audioCapsCache = await api("/api/audio/capabilities");
+  } catch (error) {
+    audioCapsCache = {};
+  }
+  return audioCapsCache;
+}
+
 // Read an answer aloud. The synthesis is what creates the sound, so the player only
 // appears once a file really exists - the conditional rule, applied to its origin.
 function speakBox(box, text) {
@@ -478,9 +492,16 @@ function speakBox(box, text) {
       bar.remove();
     } catch (error) {
       const failure = humanizeError(error.message, "ui");
+      // La bascule (« repli navigateur ») vient de `capabilities.fallback` : le
+      // serveur dit quoi faire et pourquoi, le client ne réinvente pas la phrase.
+      const caps = await audioCapabilities();
+      const fallback = (caps && caps.fallback) || {};
+      const advice = fallback.engine === "browser" && fallback.info ? ` — ${fallback.info}` : "";
       // Hors ligne : la phrase du serveur qui ne répond plus, et un bouton utile.
       // Sinon : le préfixe « voix impossible » reste, il dit de quoi on parle.
-      status.textContent = failure.offline ? failure.text : `voix impossible : ${failure.text}`;
+      status.textContent = failure.offline
+        ? failure.text
+        : `voix impossible : ${failure.text}${advice}`;
       if (failure.offline) {
         const reload = el("button", "data-button", "Recharger");
         reload.type = "button";

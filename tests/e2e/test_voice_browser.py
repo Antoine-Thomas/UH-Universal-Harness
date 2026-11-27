@@ -361,3 +361,46 @@ def test_a_too_long_text_is_refused_in_french(browser, server) -> None:
         assert page.locator("#messages .answer-audio .tool-artifact-status").count() == 1
     finally:
         context.close()
+
+
+def test_the_browser_fallback_line_comes_from_the_server(browser, server) -> None:
+    """La phrase de bascule est celle de `capabilities.fallback`, pas une invention.
+
+    Contre-épreuve : sans la lecture de `capabilities` dans `app.js`, cette ligne
+    n'apparaît nulle part et le test échoue.
+    """
+    seed_answer(server)
+    context, page = open_app(browser, server)
+    try:
+        page.evaluate(NO_BROWSER_VOICE)
+        line = "Repli serveur : la voix du navigateur est la seule disponible (ligne de test)"
+        page.route(
+            "**/api/audio/capabilities",
+            lambda route: route.fulfill(
+                status=200,
+                json={
+                    "engines": [],
+                    "tts": False,
+                    "stt": False,
+                    "fallback": {"engine": "browser", "info": line},
+                    "cloud": {"policy": "ask", "consent_line": "Le texte sera envoyé à Mistral", "calls": 0},
+                    "heavy": {"fits": False, "free_gb": 3.0, "needed_gb": 4.2, "margin_gb": 0.8, "reason": ""},
+                },
+            ),
+        )
+        page.route(
+            "**/api/audio/plan",
+            lambda route: route.fulfill(status=200, json=_plan_body(["Première phrase de la réponse."])),
+        )
+        page.route(
+            "**/api/audio/speak",
+            lambda route: route.fulfill(status=503, json={"detail": "aucun moteur de voix disponible"}),
+        )
+
+        page.locator("#messages .answer-audio button").first.click()
+
+        status = page.locator("#messages .answer-audio .tool-artifact-status").first
+        expect(status).to_contain_text(line, timeout=15000)
+        assert page.locator("#messages .answer-audio .tool-artifact-status").count() == 1
+    finally:
+        context.close()
