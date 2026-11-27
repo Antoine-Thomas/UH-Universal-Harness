@@ -2549,3 +2549,16 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
 .machine-consent { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .badge.badge-warn { color: var(--error); border-color: var(--error); }
 .machine-progress { font-size: 12px; color: var(--accent); }
+
+/* P2-10 : qui décide du routage. Un filet à gauche distingue la phrase de
+   politique des chiffres du tour ; l'état « avertissement » la met en évidence
+   quand aucune politique n'a été consultée. */
+.decision-authority {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--accent);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.decision-authority.warn { border-left-color: var(--state-warn); color: var(--text); }
