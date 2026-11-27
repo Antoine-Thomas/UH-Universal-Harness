@@ -87,8 +87,8 @@ REMOTE_ONLY_SYNTH = """
     },
     removeEventListener: () => {},
     speak: (line) => {
+      // Pas de `onend` : la lecture reste en cours, donc le statut reste lisible.
       window.__spoken.push({ text: line.text, voice: line.voice && line.voice.name });
-      setTimeout(() => line.onend && line.onend(), 0);
     },
     cancel: () => {},
   };
