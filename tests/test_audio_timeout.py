@@ -64,14 +64,22 @@ def test_a_timeout_kills_the_whole_tree_and_names_the_delay(
     _fake_xtts(monkeypatch, FAKE_SCRIPT, delay=3.0)
 
     started = time.monotonic()
-    with pytest.raises(RuntimeError, match=r"dépassé 3 s"):
-        local.xtts_speak("bonjour")
-    elapsed = time.monotonic() - started
+    try:
+        with pytest.raises(RuntimeError, match=r"dépassé 3 s"):
+            local.xtts_speak("bonjour")
+        elapsed = time.monotonic() - started
 
-    assert elapsed < 60, f"le timeout doit couper court, mesuré {elapsed:.1f} s"
-    assert child_file.is_file(), "le faux script n'a pas démarré"
-    child = int(child_file.read_text(encoding="utf-8").strip())
-    assert not _alive(child), "un petit-enfant survivant garderait la VRAM"
+        assert elapsed < 60, f"le timeout doit couper court, mesuré {elapsed:.1f} s"
+        assert child_file.is_file(), "le faux script n'a pas démarré"
+        child = int(child_file.read_text(encoding="utf-8").strip())
+        assert not _alive(child), "un petit-enfant survivant garderait la VRAM"
+    finally:
+        # Si l'assertion échoue, le produit n'a pas tué l'enfant : le test le tue
+        # lui-même, sinon un dormeur de 120 s survivrait à la suite.
+        if child_file.is_file():
+            survivor = int(child_file.read_text(encoding="utf-8").strip())
+            if _alive(survivor):
+                local.kill_tree(survivor)
 
 
 def test_a_failure_names_the_stderr_tail(monkeypatch: pytest.MonkeyPatch) -> None:
