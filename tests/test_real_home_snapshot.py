@@ -122,3 +122,33 @@ def test_the_sqlite_sidecars_of_the_store_stay_invisible(tmp_path: Path) -> None
     (tmp_path / "uh.db-shm").write_text("shm", encoding="utf-8")
 
     assert _snapshot(tmp_path) == before
+
+
+def test_the_volatile_match_is_anchored_on_both_ends(tmp_path: Path) -> None:
+    """Un nom qui *contient* un volatil n'est pas ce volatil.
+
+    `fullmatch`, jamais `search` : `monuhb.pid` (préfixe étranger) et
+    `uhb.pid.tmp` (suffixe étranger) sont des fichiers ordinaires, et ils sont
+    vus. Sans ancrage, l'exemption deviendrait un fourre-tout.
+    """
+    (tmp_path / "uhb.pid").write_text("4312", encoding="utf-8")
+    before = _snapshot(tmp_path)
+
+    (tmp_path / "monuhb.pid").write_text("1", encoding="utf-8")
+    (tmp_path / "uhb.pid.tmp").write_text("2", encoding="utf-8")
+    (tmp_path / "uh.db.backup").write_text("3", encoding="utf-8")
+
+    assert _snapshot(tmp_path) != before
+
+
+def test_a_temporary_keys_file_stays_visible(tmp_path: Path) -> None:
+    """`keys.toml.tmp`, c'est le fichier sensible en cours d'écriture : vu.
+
+    Une écriture atomique passe par un temporaire à côté du fichier final ; si un
+    test y déposait une clé, ce temporaire est exactement ce qu'il faut voir.
+    """
+    before = _snapshot(tmp_path)
+
+    (tmp_path / "keys.toml.tmp").write_text("[search]\n", encoding="utf-8")
+
+    assert _snapshot(tmp_path) != before
