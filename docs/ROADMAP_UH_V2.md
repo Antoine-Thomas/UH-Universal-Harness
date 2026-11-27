@@ -2502,6 +2502,8 @@ l'interpréteur et le dépôt ou le paquet servi.
 
 ### G8 — Aperçus de liens : icône du site, titre, description, image d'article
 
+**Statut : FUSIONNÉ (#72).** Aperçus de liens servis par `/api/link/preview`.
+
 Ajout de l'opérateur, 24/11. C'est la partie la plus risquée du lot : le
 harness irait chercher des pages au hasard sur le web.
 
@@ -2613,7 +2615,7 @@ hors liste.
 
 ### G10 — Sortie d'image fiable : compression automatique, côté UH
 
-**Statut : OUVERT.** Constat de l'opérateur, 25/11, captures à l'appui.
+**Statut : FUSIONNÉ (#74).** Constat de l'opérateur, 25/11, captures à l'appui.
 
 Une réponse a produit `chat.png` (3,35 Mo, 2000 × 2400). Au-delà de la limite
 d'affichage (1,5 Mo) l'image n'est **pas** injectée dans la conversation : seul
@@ -2645,7 +2647,21 @@ au lieu de laisser le modèle l'inventer ; relance unique et visible.
 
 ### G11 — `/web` doit donner de vraies photos
 
-**Statut : CLOS le 26/11** (branche `feat/g11-image-search`). Constat de
+**Statut : CLOS SOUS RÉSERVE** (branche `feat/g11-image-search`, PR #78). La
+galerie, les licences, les auteurs et l'intention de photo sont livrés et testés ;
+quatre preuves manquent encore pour un clos définitif :
+
+1. sources officielles d'Openverse et de Wikimedia Commons (clé requise, quota,
+   conditions d'usage et d'attribution, champs licence/auteur) — tout ce qui n'est
+   pas sourcé reste **« à vérifier »** ;
+2. contre-épreuves sur les URL d'image **écrites par le modèle** : aucune requête
+   réseau sans clic ;
+3. licence absente : image non affichée ou marquée « licence inconnue » (test chiffré) ;
+4. bornes de sécurité de `/api/media/thumb` (anti-SSRF, IP épinglée, redirections,
+   ports, taille, type par octets, SVG, cookies/Referer, délai, CSP), comparées une
+   par une à celles de `/api/link/image`.
+
+Constat de
 l'opérateur, 25/11 : `/web donne moi la photo d'un chat` ne renvoyait que des
 liens de moteurs (Shutterstock, Unsplash, Pexels, Pixabay, Google Images).
 
@@ -2771,7 +2787,7 @@ procédé.
 
 ### G15 — Tableaux Markdown cassés
 
-**Statut : OUVERT.** Constat de l'opérateur, 25/11 : un tableau s'affiche en
+**Statut : FUSIONNÉ (#73).** Constat de l'opérateur, 25/11 : un tableau s'affiche en
 texte brut (`| | |---|---| | Fichier | chat.png | …`) sur une seule ligne.
 
 À faire : vérifier dans `uh/web/static/markdown.js` si les tableaux sont
@@ -2785,6 +2801,13 @@ Contre-épreuve : un test qui échoue sur le texte brut actuel.
 ### G16 — Moins de rigidité, plus d'intention : le chat apprend de ses ratés
 
 **Statut : OUVERT.** Retour d'usage réel de l'opérateur, 26/11, sur `v1.5.2`.
+
+Avancement (26/11, branche `feat/g16-p1-intent-router`, non poussée) : P1 (le
+routeur rétrécit pour de vrai, refus typé `not_offered`, porte « avec tous les
+outils »), P1b (socle lecture seule pour une demande non reconnue, familles par
+verbe et par objet, horloge fixée au démarrage, avis de génération) et P1c (une
+relance hérite de l'offre du tour précédent) sont faits et mesurés sur trois jeux
+gelés. Reste : P1d éventuel, puis la boucle UH ↔ UHB ↔ `uh dream`.
 
 Constat mesuré (captures du 26/11) :
 
