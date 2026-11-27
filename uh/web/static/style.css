@@ -2160,9 +2160,16 @@ html[data-theme="dark"] .notice-action { color: #1c1210; }
 .mode-badge.readonly { border-color: var(--control-border); }
 .mode-badge.degraded { border-color: var(--state-warn); border-width: 2px; }
 .mode-badge.offline { border-color: var(--state-bad); border-width: 2px; border-style: dashed; }
+/* P1-8 : deux pannes, deux gestes. Absent = rien n'écoute (démarrer), en erreur =
+   il répond mal (lire le journal) ; les confondre sous « hors ligne » coûtait le
+   diagnostic. */
+.mode-badge.absent { border-color: var(--state-bad); border-width: 2px; border-style: dashed; }
+.mode-badge.error { border-color: var(--state-warn); border-width: 2px; }
 .mode-badge.agent .mode-badge-dot { color: var(--state-ok); }
 .mode-badge.degraded .mode-badge-dot { color: var(--state-warn); }
 .mode-badge.offline .mode-badge-dot { color: var(--state-bad); }
+.mode-badge.absent .mode-badge-dot { color: var(--state-bad); }
+.mode-badge.error .mode-badge-dot { color: var(--state-warn); }
 #mode-badge-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 @media (forced-colors: active) {

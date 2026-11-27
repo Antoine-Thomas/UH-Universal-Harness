@@ -4193,7 +4193,16 @@ async function loadUhb() {
   if (!data.connected) {
     // The user should not have to run a shell command to switch on a panel they
     // can see. One button, one attempt, and the log only if it fails.
-    box.appendChild(el("p", "uhb-offline", "Le second cerveau n'est pas joignable."));
+    // P1-8 : la phrase vient du serveur, et elle distingue « absent » de « en
+    // erreur » — un panneau qui dit seulement « injoignable » cache le diagnostic.
+    const state = data.state || "absent";
+    const line = el(
+      "p",
+      state === "error" ? "uhb-offline uhb-error" : "uhb-offline",
+      data.sentence || "Le second cerveau n'est pas joignable."
+    );
+    line.dataset.uhbState = state;
+    box.appendChild(line);
     box.appendChild(
       el(
         "p",
@@ -4775,13 +4784,32 @@ const UHB_STATES = {
     text: "Hors ligne",
     full: "Second cerveau hors ligne",
   },
+  // P1-8 : deux situations distinctes, deux gestes distincts. « Absent » veut un
+  // démarrage, « en erreur » veut une lecture — les mélanger coûtait un diagnostic.
+  absent: {
+    icon: "○",
+    text: "Second cerveau absent",
+    full: "Second cerveau absent : rien n'écoute, il faut le démarrer",
+  },
+  error: {
+    icon: "⚠",
+    text: "Second cerveau en erreur",
+    full: "Second cerveau joignable mais en erreur : il faut lire son journal",
+  },
 };
 
 function uhbStateOf(status) {
-  if (!status || !status.connected) return "offline";
+  // L'état est décidé par le serveur (`state`: ok / absent / error) : le client
+  // l'affiche, il ne le réinvente pas à partir de trois booléens.
+  if (status && (status.state === "absent" || status.state === "error")) return status.state;
+  if (!status) return "absent";
+  if (status.state === "ok") {
+    return String(status.mode || "") === "dev" ? "dev" : "chat";
+  }
+  // Ancien serveur (pas encore de `state`) : on garde la lecture d'avant.
+  if (!status.connected) return "absent";
   if (status.degraded === true || status.ok === false || status.healthy === false) return "degraded";
-  const mode = String(status.mode || "");
-  return mode === "dev" ? "dev" : "chat";
+  return String(status.mode || "") === "dev" ? "dev" : "chat";
 }
 
 async function refreshModeBadge() {
@@ -4807,10 +4835,16 @@ async function refreshModeBadge() {
   badge.classList.toggle("readonly", key === "chat");
   badge.classList.toggle("agent", key === "dev");
   badge.classList.toggle("degraded", key === "degraded");
-  badge.classList.toggle("offline", key === "offline");
+  badge.classList.toggle("offline", key === "offline" || key === "absent");
+  badge.classList.toggle("absent", key === "absent");
+  badge.classList.toggle("error", key === "error");
   badge.setAttribute("aria-label", `Second cerveau : ${full}`);
   badge.title =
-    key === "offline"
+    (key === "offline" || key === "absent") && status.sentence
+      ? `${status.sentence} Cliquez pour ouvrir son panneau.`
+      : key === "error" && status.sentence
+        ? `${status.sentence} Cliquez pour lire son journal.`
+        : key === "offline"
       ? "Le second cerveau ne répond pas. Cliquez pour ouvrir son panneau et le démarrer."
       : key === "degraded"
         ? "Le second cerveau répond mais signale un problème. Cliquez pour ouvrir son panneau."
@@ -4822,7 +4856,10 @@ async function refreshModeBadge() {
 async function toggleModeFromBadge() {
   const badge = $("mode-badge");
   // Offline or degraded: switching a mode is meaningless, show the panel that can fix it.
-  if (badge && (badge.dataset.uhb === "offline" || badge.dataset.uhb === "degraded")) {
+  if (
+    badge &&
+    ["offline", "absent", "error", "degraded"].includes(badge.dataset.uhb)
+  ) {
     showPanelTab("uhb");
     return;
   }
