@@ -984,8 +984,14 @@ def test_the_uhb_status_has_four_states_with_icon_and_words() -> None:
     block = script[
         script.index("const UHB_STATES") : script.index("async function toggleModeFromBadge")
     ]
-    for expected in ("Mode Dev", "Mode Chat", "Dégradé", "Hors ligne",
-                     "Second cerveau absent", "Second cerveau en erreur"):
+    for expected in (
+        "Mode Dev",
+        "Mode Chat",
+        "Dégradé",
+        "Hors ligne",
+        "Second cerveau absent",
+        "Second cerveau en erreur",
+    ):
         assert expected in block, expected
     # P1-8 ajoute « absent » et « en erreur » : la règle ne change pas — chaque
     # état porte une icône et un mot, jamais une couleur seule.
