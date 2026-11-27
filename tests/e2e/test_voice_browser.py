@@ -274,13 +274,17 @@ def test_the_server_path_asks_for_a_plan_and_sends_no_consent_by_default(browser
         page.route("**/api/audio/speak", lambda route: route.fulfill(status=200, json=CLIP))
         page.on(
             "request",
-            lambda request: bodies.append(json.loads(request.post_data or "{}"))
-            if "/api/audio/speak" in request.url
-            else None,
+            lambda request: (
+                bodies.append(json.loads(request.post_data or "{}"))
+                if "/api/audio/speak" in request.url
+                else None
+            ),
         )
 
         page.locator("#messages .answer-audio button").first.click()
-        page.wait_for_function("() => document.querySelector('.audio-player') !== null", timeout=20000)
+        page.wait_for_function(
+            "() => document.querySelector('.audio-player') !== null", timeout=20000
+        )
 
         assert len(plans) == 1, "le plan est demandé au serveur"
         assert bodies[0]["consent"] is False, "aucun accord cloud sans clic"
@@ -319,17 +323,23 @@ def test_a_three_part_answer_is_synthesised_three_times_in_order(browser, server
     parts = ["Première phrase.", "Deuxième phrase.", "Troisième phrase."]
     try:
         page.evaluate(NO_BROWSER_VOICE)
-        page.route("**/api/audio/plan", lambda route: route.fulfill(status=200, json=_plan_body(parts)))
+        page.route(
+            "**/api/audio/plan", lambda route: route.fulfill(status=200, json=_plan_body(parts))
+        )
         page.route("**/api/audio/speak", lambda route: route.fulfill(status=200, json=CLIP))
         page.on(
             "request",
-            lambda request: texts.append(json.loads(request.post_data or "{}").get("text", ""))
-            if "/api/audio/speak" in request.url
-            else None,
+            lambda request: (
+                texts.append(json.loads(request.post_data or "{}").get("text", ""))
+                if "/api/audio/speak" in request.url
+                else None
+            ),
         )
 
         page.locator("#messages .answer-audio button").first.click()
-        page.wait_for_function("() => document.querySelector('.audio-player') !== null", timeout=20000)
+        page.wait_for_function(
+            "() => document.querySelector('.audio-player') !== null", timeout=20000
+        )
         for _ in range(40):
             if len(texts) >= 3:
                 break
@@ -383,18 +393,32 @@ def test_the_browser_fallback_line_comes_from_the_server(browser, server) -> Non
                     "tts": False,
                     "stt": False,
                     "fallback": {"engine": "browser", "info": line},
-                    "cloud": {"policy": "ask", "consent_line": "Le texte sera envoyé à Mistral", "calls": 0},
-                    "heavy": {"fits": False, "free_gb": 3.0, "needed_gb": 4.2, "margin_gb": 0.8, "reason": ""},
+                    "cloud": {
+                        "policy": "ask",
+                        "consent_line": "Le texte sera envoyé à Mistral",
+                        "calls": 0,
+                    },
+                    "heavy": {
+                        "fits": False,
+                        "free_gb": 3.0,
+                        "needed_gb": 4.2,
+                        "margin_gb": 0.8,
+                        "reason": "",
+                    },
                 },
             ),
         )
         page.route(
             "**/api/audio/plan",
-            lambda route: route.fulfill(status=200, json=_plan_body(["Première phrase de la réponse."])),
+            lambda route: route.fulfill(
+                status=200, json=_plan_body(["Première phrase de la réponse."])
+            ),
         )
         page.route(
             "**/api/audio/speak",
-            lambda route: route.fulfill(status=503, json={"detail": "aucun moteur de voix disponible"}),
+            lambda route: route.fulfill(
+                status=503, json={"detail": "aucun moteur de voix disponible"}
+            ),
         )
 
         page.locator("#messages .answer-audio button").first.click()

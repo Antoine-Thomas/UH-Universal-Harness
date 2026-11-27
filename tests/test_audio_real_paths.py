@@ -34,7 +34,9 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (tmp_path / "home").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr("uh.audio._hermes_env_key", lambda name: "")
     monkeypatch.setattr("uh.audio.save_clip", lambda *a, **k: Path("clip.wav"))
-    monkeypatch.setattr("uh.audio.reference", lambda path, engine: {"path": str(path), "engine": engine})
+    monkeypatch.setattr(
+        "uh.audio.reference", lambda path, engine: {"path": str(path), "engine": engine}
+    )
     monkeypatch.setattr(local, "piper", lambda: None)
     policy.reset_cloud_calls()
     state = {"xtts": 0, "cloud": 0, "vram": None}
@@ -168,9 +170,7 @@ def test_the_policy_routes_read_and_write(tmp_path, monkeypatch) -> None:
             transport=httpx.ASGITransport(app=app), base_url=BASE
         ) as client:
             read = await client.get("/api/audio/policy", headers=AUTH)
-            written = await client.post(
-                "/api/audio/policy", json={"policy": "never"}, headers=AUTH
-            )
+            written = await client.post("/api/audio/policy", json={"policy": "never"}, headers=AUTH)
             bad = await client.post("/api/audio/policy", json={"policy": "parfois"}, headers=AUTH)
             return {
                 "read": read.json(),

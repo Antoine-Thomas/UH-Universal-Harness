@@ -17,7 +17,7 @@ import pytest
 
 from uh.audio import local
 
-FAKE_SCRIPT = '''
+FAKE_SCRIPT = """
 import os, subprocess, sys, time
 from pathlib import Path
 
@@ -25,7 +25,7 @@ child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
 Path(os.environ["UH_TEST_CHILD_FILE"]).write_text(str(child.pid), encoding="utf-8")
 Path(sys.argv[2]).write_text("pas un wav", encoding="utf-8")
 time.sleep(120)
-'''
+"""
 
 
 def test_the_delay_comes_from_the_measurements() -> None:
@@ -83,11 +83,11 @@ def test_a_timeout_kills_the_whole_tree_and_names_the_delay(
 
 
 def test_a_failure_names_the_stderr_tail(monkeypatch: pytest.MonkeyPatch) -> None:
-    failing = '''
+    failing = """
 import sys
 sys.stderr.write("CUDA out of memory (simulation)")
 sys.exit(3)
-'''
+"""
     _fake_xtts(monkeypatch, failing)
 
     with pytest.raises(RuntimeError, match="CUDA out of memory"):
@@ -95,11 +95,11 @@ sys.exit(3)
 
 
 def test_a_success_returns_the_wav(monkeypatch: pytest.MonkeyPatch) -> None:
-    good = '''
+    good = """
 import sys
 from pathlib import Path
 Path(sys.argv[2]).write_bytes(b"RIFF0000WAVE")
-'''
+"""
     _fake_xtts(monkeypatch, good)
 
     assert local.xtts_speak("bonjour").startswith(b"RIFF")
