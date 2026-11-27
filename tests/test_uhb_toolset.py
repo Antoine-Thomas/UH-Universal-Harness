@@ -42,6 +42,9 @@ STATUS = {
 
 EXPECTED = {
     "connected": True,
+    # P2-9 : le contrat de fil voyage avec l'état. Un UHB antérieur n'en publie
+    # pas, d'où None — la clé est toujours là, comme `execute` l'est déjà vide.
+    "contract": None,
     "version": "0.4.2",
     "mode": "dev",
     "harness": "uh 1.0.1",
@@ -139,6 +142,7 @@ def test_a_missing_field_becomes_none_or_an_empty_list() -> None:
 
     assert out == {
         "connected": True,
+        "contract": None,
         "version": "0.4.2",
         "mode": None,
         "harness": None,
