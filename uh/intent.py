@@ -379,6 +379,59 @@ def _family_boost(name: str, vocabulary: str, text: str) -> int:
     return boost
 
 
+#: Mots et tournures d'une relance : la demande est dans le tour d'avant.
+FOLLOW_UP_WORDS = (
+    "oui",
+    "yes",
+    "ok",
+    "d'accord",
+    "vas-y",
+    "vas y",
+    "go",
+    "continue",
+    "encore",
+    "refais",
+    "remets",
+    "pareil",
+    "idem",
+    "fais-le",
+    "fais le",
+    "montre-moi",
+    "montre moi",
+    "and tomorrow",
+    "et demain",
+    "celui-la",
+    "celle-la",
+    "exactement",
+    "please",
+)
+
+
+def _looks_like_follow_up(text: str) -> bool:
+    """Vrai pour un message court, sans objet propre, ou une anaphore.
+
+    Un nom de fichier, une salutation ou une question de culture générale ne sont
+    jamais des relances : ils ont leur propre route. Le reste — six mots au plus —
+    est une relance si un mot l'annonce ou si la phrase est trop courte pour
+    porter un objet.
+    """
+    if not text:
+        return False
+    if FILE_NAME.search(text):
+        return False
+    if _hits(text, SMALL_TALK) or _word_hits(text, CULTURE_WORDS + EXPLAIN_WORDS):
+        return False
+    # Un objet d'action, même en trois mots, n'est pas une relance : « fais un
+    # graphique » demande un graphique, il n'hérite de rien.
+    if _word_hits(text, CHART_WORDS + WEB_WORDS + EXEC_WORDS + COUNT_WORDS + WEATHER_WORDS):
+        return False
+    if len(_words(text)) > 6:
+        return False
+    if _word_hits(text, FOLLOW_UP_WORDS):
+        return True
+    return len(text.strip()) < SHORT_REQUEST
+
+
 def _score_toolsets(
     text: str,
     catalog: Mapping[str, Sequence[Any]],
@@ -454,6 +507,7 @@ def select(
     skills: Sequence[Mapping[str, Any]] = (),
     history: Sequence[Mapping[str, Any]] = (),
     has_attachment: bool = False,
+    inherit: bool = True,
 ) -> Selection:
     """Pick the toolsets (and at most one skill) this request is worth.
 
@@ -571,6 +625,35 @@ def select(
         return Selection(
             confidence="none", reason=f"{CONVERSATION_PREFIX} : réponse en mots, aucun outil"
         )
+    # Une relance (« oui », « vas-y », « et demain ? », « refais-le ») n'a pas
+    # d'objet propre : elle demande la même capacité que le tour précédent de
+    # l'utilisateur. Sans tour précédent, il n'y a rien à poursuivre.
+    if inherit and _looks_like_follow_up(request):
+        earlier = [
+            str(message.get("content") or "")
+            for message in history or ()
+            if isinstance(message, Mapping) and message.get("role") == "user"
+        ]
+        earlier = [text for text in earlier if text.strip() and text.strip() != request]
+        if not earlier:
+            return Selection(
+                confidence="none",
+                reason=f"{CONVERSATION_PREFIX} : relance sans tour précédent, rien à poursuivre",
+            )
+        prior = select(earlier[-1], catalog, skills=skills, history=(), inherit=False)
+        if prior.tools or prior.toolsets:
+            return Selection(
+                toolsets=prior.toolsets,
+                tools=prior.tools,
+                skill=prior.skill,
+                confidence="high",
+                reason=f"relance : hérite de l'offre du tour précédent ({prior.reason})",
+            )
+        return Selection(
+            confidence="low",
+            reason="relance sans offre à poursuivre : socle lecture seule",
+        )
+
     # Une courte phrase sans objet (fichier, web, exécution, mémoire, image) est
     # une conversation : c'est la seule route vers « zéro outil ».
     if len(request) < SHORT_REQUEST and not names_a_file:
