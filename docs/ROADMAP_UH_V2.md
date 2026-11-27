@@ -2849,6 +2849,46 @@ qui passe en **un** tour d'outil ; un tour revenu vide produit un message
 explicite et une relance proposée, jamais une bulle vide ; les règles apprises
 vivent dans le dépôt et sont relues avant d'être appliquées.
 
+### G17 — `--local-only` doit être honnête
+
+**Statut : OUVERT.** Constat de la vérification des affirmations publiques, 27/11.
+
+`--local-only` (et `allow_remote: false`, le défaut de `config.py:37`) ne coupe que
+les **fournisseurs de modèle**. Mesuré : `allow_remote` n'apparaît ni dans
+`uh/toolsets/web_search.py`, ni dans `uh/link_preview.py`, ni dans
+`uh/media_proxy.py`, et `uh/audio/__init__.py:351` essaie Voxtral (cloud Mistral)
+avant XTTS sans que l'interface le dise. Une recherche web, un aperçu de lien ou
+un « Écouter » avec une clé sortent donc du poste alors que le drapeau est levé.
+
+À faire (politique dans UHB, affichage dans UH) :
+
+- le drapeau couvre **aussi** `web_search` / `web_image_search`, les aperçus de
+  liens (`/api/link/*`), le proxy de miniatures (`/api/media/*`) et la voix cloud
+  Voxtral — chaque outil refusé le dit en français et nomme le drapeau ;
+- un badge visible « local seulement » dans l'interface quand le drapeau est levé ;
+- sans le drapeau, comportement inchangé, octet pour octet.
+
+Contre-épreuves : avec le drapeau, un test qui compte les connexions sortantes non
+loopback = **0** (transport injecté, comme `tests/test_web_search_engines.py`) ;
+sans le drapeau, les mêmes appels fonctionnent ; un refus nomme `local_only`.
+
+### G18 — Premier lancement sans téléchargement silencieux
+
+**Statut : OUVERT.** Constat de la vérification, 27/11.
+
+`uh/onboarding.py:44` définit `ZERO_CONFIG_MODEL = ("qwen2.5:0.5b", "~400 MB")` et
+`:100-110` le tire dès qu'Ollama tourne sans modèle, annoncé sur stderr **sans
+demande** (la docstring dit elle-même « announced on stderr, no prompt »). C'est un
+téléchargement non consenti, contraire à « pas d'installation silencieuse ».
+
+À faire : demande explicite `[y/N]` avec la taille, bouton équivalent dans
+l'interface web, et **jamais** de pull en mode non interactif (CI, cron, tâche
+planifiée). Conserver le message qui dit ce qui va être téléchargé et pourquoi.
+
+Contre-épreuves : un test qui compte les appels de `pull_model` = **0** sans accord
+(oui, non, absence de TTY) ; avec accord, un seul appel ; le modèle déjà présent ne
+déclenche aucun pull.
+
 ### Règles du lot 3 (identiques aux lots 1 et 2)
 
 Aucun push, aucun `--no-verify`, rien toucher à l'authentification ni à
