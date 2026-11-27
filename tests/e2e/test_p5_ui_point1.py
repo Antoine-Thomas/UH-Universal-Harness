@@ -159,6 +159,12 @@ def test_three_failed_listen_clicks_leave_one_message(browser, server: Server) -
             ),
         )
         reload_on_session(page, server)
+        # Depuis G12, la voix du navigateur passe avant le serveur : on la retire pour
+        # éprouver le chemin serveur (503) que ce test mesure depuis toujours.
+        page.evaluate(
+            "() => Object.defineProperty(window, 'speechSynthesis', "
+            "{ configurable: true, get: () => undefined })"
+        )
 
         button = page.locator(".answer-audio button")
         assert button.count() == 1

@@ -14,6 +14,7 @@ the page can show - never an exception that reaches the chat:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -83,6 +84,103 @@ def xtts_model_dir() -> Optional[str]:
     return None
 
 
+#: Délai d'un rendu XTTS, **calculé depuis les mesures** (27/11, RTX 3070 Ti) et non
+#: deviné : ~25 s de chargement du modèle, puis ~35 ms par caractère. Les 900 s
+#: d'avant bloquaient un quart d'heure sur un texte ordinaire sans jamais dire où
+#: le temps passait. Plafond explicite : au-delà, on préfère un échec nommé.
+XTTS_LOAD_SECONDS = 60.0
+XTTS_SECONDS_PER_CHAR = 0.06
+XTTS_TIMEOUT_CAP = 300.0
+
+
+def speech_timeout(text: str) -> float:
+    """Le délai d'un rendu, en secondes : 60 s + 0,06 s par caractère, plafonné."""
+    return min(XTTS_TIMEOUT_CAP, XTTS_LOAD_SECONDS + XTTS_SECONDS_PER_CHAR * len(text or ""))
+
+
+#: Pic mesuré de XTTS-v2 sur cette machine (27/11) et la marge qu'on ne franchit pas :
+#: en dessous, le modèle charge puis se fait déplacer en RAM, ce qui prend des
+#: minutes au lieu de secondes.
+XTTS_PEAK_VRAM_GB = 4.2
+XTTS_VRAM_MARGIN_GB = 0.8
+
+
+def free_vram_gb() -> Optional[float]:
+    """La VRAM libre en Go, mesurée par ``nvidia-smi`` ; ``None`` si elle ne se mesure pas."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=20,
+            check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    values = []
+    for line in out.splitlines():
+        value = line.strip().split(" ")[0]
+        try:
+            values.append(float(value) / 1024.0)
+        except ValueError:
+            continue
+    return max(values) if values else None
+
+
+def heavy_engine_fits(
+    free_gb: Optional[float],
+    *,
+    needed: float = XTTS_PEAK_VRAM_GB,
+    margin: float = XTTS_VRAM_MARGIN_GB,
+) -> bool:
+    """Le moteur lourd tient-il, marge comprise ? Une VRAM non mesurée ne tient pas."""
+    return free_gb is not None and free_gb >= needed + margin
+
+
+def heavy_engine_refusal(
+    free_gb: Optional[float],
+    *,
+    needed: float = XTTS_PEAK_VRAM_GB,
+    margin: float = XTTS_VRAM_MARGIN_GB,
+) -> str:
+    """La phrase française qui dit pourquoi le moteur lourd n'est pas proposé."""
+    if free_gb is None:
+        return (
+            "voix locale lourde indisponible : VRAM libre non mesurable — "
+            "la voix du navigateur est utilisée"
+        )
+    return (
+        f"voix locale lourde indisponible : {free_gb:.1f} Go de VRAM libre, "
+        f"{needed:.1f} Go nécessaires plus {margin:.1f} Go de marge — "
+        "la voix du navigateur est utilisée"
+    )
+
+
+def kill_tree(pid: int) -> None:
+    """Tue le processus **et ses enfants** : un moteur orphelin garde la VRAM.
+
+    Sous Windows, `taskkill /T` est la seule façon d'emporter l'arbre : tuer le
+    parent laisse le worker torch vivant, ce qui a été mesuré (un plantage du
+    harnais de mesure a laissé un runner et son enfant XTTS en vie).
+    """
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=60, check=False
+        )
+        return
+    killer = getattr(os, "killpg", None)
+    getter = getattr(os, "getpgid", None)
+    if killer is None or getter is None:  # pragma: no cover - Windows only
+        return
+    try:
+        killer(getter(pid), 9)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def xtts_speak(text: str, reference_wav: Optional[Path] = None) -> bytes:
     """One WAV out of the XTTS-v2 venv, or an exception the chain catches."""
     python = xtts_python()
@@ -101,17 +199,30 @@ def xtts_speak(text: str, reference_wav: Optional[Path] = None) -> bytes:
         model_dir = xtts_model_dir()
         if model_dir:
             env["UH_XTTS_MODEL_DIR"] = model_dir
-        proc = subprocess.run(
+        limit = speech_timeout(text)
+        # `Popen` + `communicate(timeout=)` : au dépassement, on a encore le PID,
+        # donc on peut tuer l'**arbre**. `subprocess.run` tue le seul processus
+        # direct et laisse les enfants (worker torch) vivants, ce qui garde la VRAM.
+        proc = subprocess.Popen(
             args,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
-            timeout=900,
-            check=False,
             env=env,
         )
+        try:
+            stdout, stderr = proc.communicate(timeout=limit)
+        except subprocess.TimeoutExpired:
+            kill_tree(proc.pid)
+            proc.communicate()
+            raise RuntimeError(
+                f"xtts a dépassé {limit:.0f} s (mesure : 60 s de chargement + 0,06 s "
+                f"par caractère, plafond {XTTS_TIMEOUT_CAP:.0f} s) ; texte de "
+                f"{len(text)} caractères"
+            ) from None
         if proc.returncode != 0 or not out.is_file():
-            raise RuntimeError(f"xtts a échoué : {(proc.stderr or proc.stdout)[-300:]}")
+            raise RuntimeError(f"xtts a échoué : {(stderr or stdout)[-300:]}")
         return out.read_bytes()
 
 

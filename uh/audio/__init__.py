@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import local, voxtral
+from . import policy as policy_module
 
 #: 24 kHz mono is what the measured Voxtral WAVs are; XTTS-v2 also writes 24 kHz.
 SAMPLE_RATE = 24_000
@@ -97,6 +98,7 @@ def capabilities() -> Dict[str, Any]:
     sentences, not error codes.
     """
     has_key = bool(mistral_key())
+    free_vram_gb = local.free_vram_gb()
     engines: List[Dict[str, Any]] = []
 
     engines.append(
@@ -159,6 +161,29 @@ def capabilities() -> Dict[str, Any]:
         "tts": any(engine["tts"] for engine in engines),
         "stt": any(engine["stt"] for engine in engines),
         "ffmpeg": ffmpeg_path(),
+        # La politique cloud est visible pour que la page puisse afficher la ligne
+        # d'accord **avant** l'appel, au lieu d'envoyer puis d'expliquer.
+        "cloud": {
+            "policy": policy_module.load_policy(),
+            "consent_line": policy_module.CONSENT_LINE,
+            "calls": policy_module.cloud_calls(),
+        },
+        # Décision de bascule, décidée côté serveur : la page n'a pas à deviner quoi
+        # faire quand aucun moteur ne répond.
+        "fallback": {
+            "engine": policy_module.FALLBACK_ENGINE,
+            "info": policy_module.FALLBACK_INFO,
+        },
+        # Ce que l'interface doit savoir avant de proposer « moteur lourd ».
+        "heavy": {
+            "fits": local.heavy_engine_fits(free_vram_gb),
+            "free_gb": free_vram_gb,
+            "needed_gb": local.XTTS_PEAK_VRAM_GB,
+            "margin_gb": local.XTTS_VRAM_MARGIN_GB,
+            "reason": ""
+            if local.heavy_engine_fits(free_vram_gb)
+            else local.heavy_engine_refusal(free_vram_gb),
+        },
     }
 
 
@@ -329,12 +354,18 @@ def speak(
     session_id: str = "audio",
     reference_wav: Optional[Path] = None,
     engine: Optional[str] = None,
+    consent: Optional[bool] = None,
+    heavy_consent: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Text to a WAV file, first engine that answers wins.
 
     ``engine`` restreint la chaîne à un moteur : c'est ce que fait « Tester » dans le
     panneau Voix. Le test ne bascule donc pas silencieusement sur un autre moteur — il
     dit pourquoi celui-là ne répond pas.
+
+    ``consent=True`` autorise l'envoi du texte à Mistral pour cet appel ; sans lui,
+    la politique ``ask`` (le défaut) garde le texte sur la machine. ``consent`` est
+    ignoré quand la politique enregistrée est ``never``.
 
     ``voice`` is a saved Voxtral voice id (paid accounts only). ``reference_wav`` is
     the operator's own sample, used as ``ref_audio`` for Voxtral and as the speaker
@@ -348,23 +379,40 @@ def speak(
     attempts: List[str] = []
     only = (engine or "").strip().lower()
     key = mistral_key()
+    policy = policy_module.load_policy()
     if (not only or only == "voxtral") and key:
-        try:
-            wav = voxtral.speech(body, key, voice=voice, reference_wav=reference_wav)
-            path = save_clip(session_id, wav, ".wav")
-            return {"engine": "voxtral", **reference(path, engine="voxtral")}
-        except Exception as exc:  # noqa: BLE001
-            attempts.append(f"voxtral : {type(exc).__name__}: {exc}")
+        if not policy_module.cloud_allowed(policy, consent):
+            attempts.append(f"voxtral : {policy_module.refusal_reason(policy)}")
+        else:
+            policy_module.note_cloud_call()
+            try:
+                wav = voxtral.speech(body, key, voice=voice, reference_wav=reference_wav)
+                path = save_clip(session_id, wav, ".wav")
+                return {"engine": "voxtral", **reference(path, engine="voxtral")}
+            except Exception as exc:  # noqa: BLE001
+                attempts.append(f"voxtral : {type(exc).__name__}: {exc}")
     elif not only or only == "voxtral":
         attempts.append(f"voxtral : {voxtral.KEY_ENV} absente")
 
     if (not only or only == "xtts") and local.xtts_python() is not None:
-        try:
-            wav = local.xtts_speak(body, reference_wav)
-            path = save_clip(session_id, wav, ".wav")
-            return {"engine": "xtts", **reference(path, engine="xtts")}
-        except Exception as exc:  # noqa: BLE001
-            attempts.append(f"xtts : {type(exc).__name__}: {exc}")
+        # La porte VRAM et l'accord sont consultés **ici**, dans le chemin réel :
+        # une fonction testée à part ne protège rien si speak() ne l'appelle pas.
+        free_vram = local.free_vram_gb()
+        if not local.heavy_engine_fits(free_vram):
+            attempts.append(f"xtts : {local.heavy_engine_refusal(free_vram)}")
+        elif heavy_consent is not True:
+            attempts.append(
+                "xtts : accord non donné (moteur lourd : "
+                f"{local.XTTS_PEAK_VRAM_GB:.1f} Go de VRAM au pic, "
+                f"~{local.XTTS_SECONDS_PER_CHAR * 1000:.0f} ms par caractère)"
+            )
+        else:
+            try:
+                wav = local.xtts_speak(body, reference_wav)
+                path = save_clip(session_id, wav, ".wav")
+                return {"engine": "xtts", **reference(path, engine="xtts")}
+            except Exception as exc:  # noqa: BLE001
+                attempts.append(f"xtts : {type(exc).__name__}: {exc}")
     elif not only or only == "xtts":
         attempts.append("xtts : ~/.uhb/xtts absent")
 
@@ -380,7 +428,12 @@ def speak(
 
     if only and not attempts:
         attempts.append(f"{only} : moteur inconnu")
-    raise AudioUnavailable("aucun moteur de voix disponible : " + " | ".join(attempts))
+    raise AudioUnavailable(
+        "aucun moteur de voix disponible : "
+        + " | ".join(attempts)
+        + " | "
+        + policy_module.FALLBACK_INFO
+    )
 
 
 def to_flac24(source: Path, target: Optional[Path] = None) -> Path:

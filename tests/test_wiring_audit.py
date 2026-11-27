@@ -141,7 +141,10 @@ def test_an_audio_player_only_ever_comes_from_a_real_clip() -> None:
     assert 'item.kind || "").toLowerCase() === "audio" && item.url' in JS
     # The player is built inside drawAudio, which is only called with real records.
     assert "player.src = artifact.url" in JS
-    assert "drawAudio(box, [payload]" in JS, "a synthesised clip is the only other entry point"
+    # Depuis G12, un texte long se lit en morceaux : `drawAudio` reçoit la liste des
+    # clips rendus par `/api/audio/speak`, jamais autre chose.
+    assert "drawAudio(box, clips" in JS, "a synthesised clip is the only other entry point"
+    assert 'await api("/api/audio/speak"' in JS
 
 
 def test_the_kept_bin_window_is_the_documented_one() -> None:

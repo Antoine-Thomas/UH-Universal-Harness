@@ -1967,6 +1967,29 @@ def create_app(
 
         return await asyncio.to_thread(voice_gpu.bench)
 
+    @app.get("/api/audio/policy", dependencies=[Depends(require_token)])
+    async def audio_policy() -> dict:
+        """La politique de voix cloud : demander (défaut), jamais, toujours."""
+        from ..audio import policy as uh_policy
+
+        return {
+            "policy": uh_policy.load_policy(),
+            "choices": list(uh_policy.POLICIES),
+            "consent_line": uh_policy.CONSENT_LINE,
+            "calls": uh_policy.cloud_calls(),
+        }
+
+    @app.post("/api/audio/policy", dependencies=[Depends(require_token)])
+    async def audio_policy_set(payload: dict) -> dict:
+        """Enregistre la politique. Elle ne contient aucun secret : trois mots."""
+        from ..audio import policy as uh_policy
+
+        try:
+            path = uh_policy.save_policy(str((payload or {}).get("policy") or ""))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"policy": uh_policy.load_policy(), "file": str(path)}
+
     @app.post("/api/audio/speak", dependencies=[Depends(require_token)])
     async def audio_speak(payload: dict) -> dict:
         """Text in, one WAV file out, with the reference the thread keeps instead of bytes."""
@@ -1990,10 +2013,41 @@ def create_app(
                 session_id=str(body.get("session_id") or "audio"),
                 reference_wav=reference_wav,
                 engine=str(body.get("engine") or "").strip() or None,
+                # Les deux accords viennent du corps de la requête, donc d'un clic :
+                # absent veut dire « pas d'accord », jamais « accord par défaut ».
+                consent=body.get("consent") if isinstance(body.get("consent"), bool) else None,
+                heavy_consent=body.get("heavy_consent")
+                if isinstance(body.get("heavy_consent"), bool)
+                else None,
             )
         except uh_audio.AudioUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return clip
+
+    @app.post("/api/audio/plan", dependencies=[Depends(require_token)])
+    async def audio_plan(payload: dict) -> dict:
+        """Découpe un texte en morceaux dictables, et annonce le délai calculé.
+
+        L'interface lit morceau par morceau au lieu de bloquer sur un seul appel de
+        cinq minutes. Le serveur **ne tronque jamais** : un texte qui demanderait
+        plus de morceaux que le maximum est refusé, avec son compte et sa limite.
+        """
+        from .. import audio as uh_audio
+        from ..audio.local import speech_timeout
+        from ..audio.speech_plan import MAX_PART_CHARS, MAX_PARTS, plan_speech
+
+        body = payload or {}
+        try:
+            plan = plan_speech(
+                str(body.get("text") or ""),
+                limit=int(body.get("limit") or MAX_PART_CHARS),
+                max_parts=int(body.get("max_parts") or MAX_PARTS),
+            )
+        except uh_audio.AudioUnavailable as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        data = plan.as_dict()
+        data["delay_seconds"] = round(speech_timeout(plan.parts[-1] if plan.parts else ""), 1)
+        return data
 
     @app.get("/api/audio/file", dependencies=[Depends(require_token)])
     async def audio_file(path: str = "") -> FileResponse:

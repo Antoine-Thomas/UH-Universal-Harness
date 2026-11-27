@@ -181,6 +181,38 @@ def check_command(command: str) -> dict | None:
     return None
 
 
+def check_config_folder(command: str) -> dict | None:
+    """Refuse une commande qui nomme ``$UH_HOME`` ou ``~/.uh``.
+
+    Les clés de fournisseurs vivent là (``keys.toml``), et les outils fichiers
+    refusent déjà d'y lire quoi que ce soit. Le terminal suivait la règle inverse
+    sans raison : un simple ``cat ~/.uh/keys.toml`` sortait les secrets.
+
+    C'est une ceinture, pas un bac à sable : un chemin encodé à la main
+    (``printf '%s' …``, variable construite morceau par morceau) passe encore, et
+    le terminal reste réservé au mode dev avec approbation.
+    """
+    lowered = command.replace("\\", "/").lower()
+    needles = []
+    try:
+        from ..config import uh_home
+
+        needles.append(str(uh_home()).replace("\\", "/").lower().rstrip("/"))
+    except Exception:  # noqa: BLE001 - pas de config lisible : on garde les motifs textuels
+        pass
+    needles.extend(["~/.uh", "%userprofile%/.uh", "$uh_home", "${uh_home}"])
+    for needle in needles:
+        if needle and needle in lowered:
+            return {
+                "error": (
+                    "refused: the UH configuration folder is neither readable nor writable "
+                    "from the terminal (provider keys live there); use the panel or /key"
+                ),
+                "refused": True,
+            }
+    return None
+
+
 def _scan_command(command: str) -> tuple[list[list[str]], list[str]]:
     """Split a shell line into token segments plus redirection targets.
 
@@ -359,7 +391,7 @@ class TerminalToolset:
         return self.terminal(args["command"], args.get("timeout", 60))
 
     def terminal(self, command: str, timeout: int = 60) -> dict:
-        refusal = check_command(command)
+        refusal = check_command(command) or check_config_folder(command)
         if refusal:
             return refusal
 
