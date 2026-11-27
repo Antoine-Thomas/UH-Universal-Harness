@@ -10,7 +10,7 @@ window, tool use, a **Model Context Protocol client**, a night pass that reads
 your notes *and* your tooling, persisted sessions — and **one** runtime
 dependency (`httpx`). Local-first: no account, no API key on first launch.
 
-![The UH cockpit: a message, the MCP tool card that answered it, the reply, and the configuration column](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/cockpit.png)
+![The UH cockpit at 1440x900: sessions on the left, a real turn in the middle (the question, the read_file tool card that answered it, the French reply with its « Écouter » button), the context gauge and the model selector on top, and the configuration column with every tab on the right](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/cockpit.png)
 
 *A real turn, not a mock-up: `qwen3:8b` on the machine that built this, asked to
 look at a notes folder, called `mcp__atelier__list_directory` through a
@@ -151,7 +151,7 @@ lives - is drawn in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   result sizes, and every failure returned as a tool result instead of a crashed
   turn ([docs/MCP.md](https://github.com/Antoine-Thomas/UH-Universal-Harness/blob/main/docs/MCP.md)).
   The Data panel shows one row per server and a test button that asks it *now*.
-![The Connexions tab: a Cloud template on top, a custom MCP server form below](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/connections.png)
+![The Connexions tab: sub-tabs (Outils, MCP, UHB, Infra, Tâches, Extensions), the Cloud storage template (AWS S3, empty secrets) on top, and the MCP servers section with its « + Connecter un MCP » button below](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/connections.png)
 
 - **Cloud connections in two clicks** (no TOML). The Data panel offers "Connecter
   un Cloud": pick **AWS S3** or **Google Drive**, fill the labelled fields, press
