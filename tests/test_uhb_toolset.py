@@ -631,3 +631,43 @@ def test_a_plain_403_is_not_mistaken_for_a_mode_refusal() -> None:
     payload = toolset._failure(response)
 
     assert "reason" not in payload or payload["reason"] != "mode_forbidden"
+
+
+def test_a_timeout_is_not_a_refused_connection() -> None:
+    """`transport` (port fermé) et `timeout` (processus lent) se distinguent ici."""
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("trop lent", request=request)
+
+    out = uhb_mod.Uhbtoolset(URL, client=httpx.Client(transport=httpx.MockTransport(slow))).status()
+
+    assert out["kind"] == "timeout"
+    assert "timeout" in out["error"]
+
+
+def test_a_refused_connection_keeps_its_own_kind() -> None:
+    def refused(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refusé", request=request)
+
+    out = uhb_mod.Uhbtoolset(
+        URL, client=httpx.Client(transport=httpx.MockTransport(refused))
+    ).status()
+
+    assert out["kind"] == "transport"
+
+
+def test_a_connect_timeout_is_an_absence_not_a_slow_uhb() -> None:
+    """Mesuré sur Windows : un port fermé lève ConnectTimeout, pas ConnectError.
+
+    Le classer en « timeout » afficherait « trop lent » pour un UHB qui n'existe
+    pas — l'inverse du défaut que ce correctif ferme.
+    """
+
+    def swallowed(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("pas de réponse", request=request)
+
+    out = uhb_mod.Uhbtoolset(
+        URL, client=httpx.Client(transport=httpx.MockTransport(swallowed))
+    ).status()
+
+    assert out["kind"] == "transport"

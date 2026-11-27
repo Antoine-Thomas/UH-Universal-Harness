@@ -81,6 +81,14 @@ def uhb_state_of(url: Optional[str], payload: dict) -> tuple[str, str]:
                 UHB_STATE_ABSENT,
                 "Second cerveau absent : rien ne répond à cette adresse.",
             )
+        if str(payload.get("kind") or "") == "timeout":
+            # Le processus tourne, il n'a pas répondu dans le délai : ce n'est pas
+            # une absence, et dire « rien ne répond » enverrait redémarrer un UHB
+            # déjà lancé (remarque Codex sur la PR #87).
+            return (
+                UHB_STATE_ERROR,
+                "Second cerveau trop lent : il tourne mais n'a pas répondu dans le délai imparti.",
+            )
         return (
             UHB_STATE_ERROR,
             f"Second cerveau en erreur : {payload.get('error')}",

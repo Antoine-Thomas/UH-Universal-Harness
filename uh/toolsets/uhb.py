@@ -736,10 +736,23 @@ class Uhbtoolset:
         return payload if isinstance(payload, dict) else _invalid()
 
     def _get(self, path: str) -> Dict[str, Any]:
-        """GET ``path``: UHB's payload, or a tool-error dict carrying ``error``."""
+        """GET ``path``: UHB's payload, or a tool-error dict carrying ``error``.
+
+        Trois issues, trois ``kind`` : un UHB qui refuse la connexion (port fermé,
+        processus absent) n'est pas un UHB lent, et l'interface ne doit pas dire
+        « rien ne répond » à propos d'un processus qui tourne et réfléchit. Le
+        timeout est donc distingué ici, au seul endroit qui voit l'exception.
+        """
         try:
             with _client(self.timeout, self.client) as http:
                 response = http.get(f"{self.url}{path}")
+        except httpx.ConnectTimeout:
+            # La connexion n'a jamais abouti : rien n'écoute (ou le pare-feu
+            # avale les SYN). C'est une absence, pas une lenteur — mesuré sur
+            # Windows, où un port fermé produit un ConnectTimeout, pas un refus.
+            return _unreachable()
+        except httpx.TimeoutException:
+            return {"error": f"uhb timeout after {self.timeout:g}s", "kind": "timeout"}
         except Exception:  # noqa: BLE001 - a dead UHB is a tool error, not a crash
             return _unreachable()
         if response.status_code != 200:

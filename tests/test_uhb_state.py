@@ -160,3 +160,31 @@ def test_the_three_states_are_the_only_ones(monkeypatch, tmp_path) -> None:
 
     assert payload["state"] in {UHB_STATE_OK, UHB_STATE_ABSENT, UHB_STATE_ERROR}
     assert set(payload) >= {"state", "sentence", "connected"}
+
+
+def test_a_slow_uhb_is_error_not_absent(monkeypatch, tmp_path) -> None:
+    """Un UHB qui tourne et dépasse le délai n'est pas « rien ne répond ».
+
+    La route sonde avec 1 s : le faux serveur dort 2 s. Dire « absent » ici
+    enverrait redémarrer un processus déjà lancé (remarque Codex, PR #87).
+    """
+    import time as _time
+
+    uhb = FakeUHB(json.dumps(STATUS_OK).encode())
+    original = uhb.httpd.RequestHandlerClass.do_GET
+
+    def slow(self) -> None:  # noqa: ANN001 - handler signature
+        _time.sleep(2.0)
+        original(self)
+
+    uhb.httpd.RequestHandlerClass.do_GET = slow
+    monkeypatch.setenv("UH_UHB_URL", uhb.url)
+    try:
+        payload = status_of(make_app(tmp_path, monkeypatch))
+    finally:
+        uhb.httpd.RequestHandlerClass.do_GET = original
+        uhb.close()
+
+    assert payload["state"] == UHB_STATE_ERROR
+    assert "trop lent" in payload["sentence"]
+    assert "rien ne répond" not in payload["sentence"]
