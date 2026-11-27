@@ -530,6 +530,16 @@ use `%USERPROFILE%`.
 
 ## Recommended local models (measured, not quoted)
 
+![The Machine panel: the measured profile (RTX 3070 Ti, 5.6 GB of VRAM free out of 8), the recommended model with its download button, and the inkling-2-mini alternative with its « à vérifier » badge, its warning and an unticked consent box](https://raw.githubusercontent.com/Antoine-Thomas/UH-Universal-Harness/main/docs/assets/machine.png)
+
+UH does not guess what your machine can run: the **Machine** panel asks UHB for the
+measured profile, then shows the largest catalogue entry that fits with a 0.8 GB
+margin. On the capture above only 5.6 GB of VRAM were free, so `lfm3` (2.1 GB) is
+recommended rather than `qwen2.5:7b` (6.5 GB with the margin) — and
+`inkling-2-mini:26b-a5b-iq4_NL` is offered as an alternative with its warning, its
+« à vérifier » badge and a consent box that starts unticked. Nothing downloads
+without a click on a button that names the size.
+
 UH has no preferred model, but two are worth knowing for a 8 GB GPU:
 
 | Model | Pull | Context | Tools | Measured in UH |
