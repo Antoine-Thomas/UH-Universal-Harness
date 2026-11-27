@@ -132,7 +132,9 @@ def test_speak_falls_back_to_the_local_engine_when_voxtral_refuses(
     monkeypatch.setattr(audio_local, "xtts_speak", lambda text, ref=None: wav_bytes())
     monkeypatch.setattr(audio_local, "piper", lambda: None)
 
-    clip = audio.speak("bonjour", session_id="s1")
+    # Depuis G12, la politique par défaut est « demander » : sans consentement,
+    # Voxtral n'est même pas appelé et ce test ne prouverait plus le repli.
+    clip = audio.speak("bonjour", session_id="s1", consent=True)
 
     assert clip["engine"] == "xtts"
     assert Path(clip["path"]).is_file()
