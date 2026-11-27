@@ -57,3 +57,48 @@ def test_reading_it_is_refused_too(home: Path) -> None:
 
     assert isinstance(result, dict) and "error" in result, result
     assert "UH configuration folder" in result["error"]
+
+
+def test_patch_does_not_touch_it_either(home: Path, tmp_path: Path) -> None:
+    policy.save_policy("ask")
+    target = home / policy.POLICY_FILE
+    before = target.read_bytes()
+
+    result = build_toolsets(workspace=tmp_path / "ws")["file"].patch(
+        str(target), 'cloud = "ask"', 'cloud = "always"'
+    )
+
+    assert "error" in result, result
+    assert "UH configuration folder" in result["error"]
+    assert target.read_bytes() == before
+
+
+def test_the_terminal_neither_reads_nor_writes_it(home: Path, tmp_path: Path) -> None:
+    """Les clés vivent dans `$UH_HOME` : le terminal ne doit pas les sortir."""
+    target = home / policy.POLICY_FILE
+    policy.save_policy("never")
+    before = target.read_bytes()
+    workspace = tmp_path / "ws"
+    workspace.mkdir(parents=True, exist_ok=True)
+    tools = build_toolsets(workspace=workspace)["terminal"]
+    posix = str(target).replace("\\", "/")
+
+    read = tools.terminal(f"cat {posix}")
+    write = tools.terminal(f'echo cloud = "always" > {posix}')
+    via_tilde = tools.terminal("cat ~/.uh/voice.toml")
+
+    for result in (read, write, via_tilde):
+        assert result.get("refused") is True, result
+        assert "UH configuration folder" in result["error"]
+    assert target.read_bytes() == before, "rien ne doit avoir été écrit"
+
+
+def test_the_terminal_still_runs_an_ordinary_command(home: Path, tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir(parents=True, exist_ok=True)
+    tools = build_toolsets(workspace=workspace)["terminal"]
+
+    result = tools.terminal("echo bonjour")
+
+    assert result["exit_code"] == 0
+    assert "bonjour" in result["stdout"]
