@@ -49,16 +49,11 @@ def _offered(asked: str, catalog: dict | None = None) -> tuple[set[str], set[str
 CASES = [
     # (demande, toolsets attendus, outils attendus)
     ("bonjour", set(), set()),
-    ("je voudrais la photo d'un chat", {"web_search"}, {"web_search", "web_image_search"}),
-    ("montre-moi une vraie photo d'un chat", {"web_search"}, {"web_search", "web_image_search"}),
-    # Le toolset `web_search` publie les deux recherches : offrir est par toolset,
-    # couper un schéma demanderait de remplacer l'objet — ce que l'architecture
-    # interdit (test_t7). Trois outils, contre huit auparavant.
-    (
-        "actualites python",
-        {"web_search", "terminal"},
-        {"web_search", "web_image_search", "terminal"},
-    ),
+    ("je voudrais la photo d'un chat", {"web_search"}, {"web_image_search"}),
+    ("montre-moi une vraie photo d'un chat", {"web_search"}, {"web_image_search"}),
+    # Depuis P1b, l'offre est décidée **outil par outil** pour une famille reconnue :
+    # une actu ne demande ni le terminal ni la recherche d'images.
+    ("actualites python", {"web_search"}, {"web_search"}),
     # Aucune capacité ne rend l'heure : le modèle répond, il n'appelle rien.
     ("quelle heure est-il", set(), set()),
     # Fabriquer une image, c'est G13 : la photothèque n'est pas la réponse.
@@ -87,11 +82,22 @@ def test_no_request_ever_gets_the_whole_catalogue_any_more() -> None:
         assert _names(offered) != everything, (asked, sorted(_names(offered)))
 
 
-def test_below_the_threshold_means_no_tool() -> None:
-    """La règle 4, sans passer par une phrase : une sélection vide vaut zéro outil."""
+def test_a_nameless_selection_gets_the_read_only_floor() -> None:
+    """P1b : « zéro outil » est réservé à la conversation **reconnue**.
+
+    Une sélection vide qui n'est pas une conversation reçoit le socle en lecture
+    seule — jamais le catalogue, jamais une écriture, jamais un terminal.
+    """
     catalog = _catalog()
-    empty = intent.Selection(confidence="medium", reason="aucune capacite au-dessus du seuil")
-    assert intent.turn_toolsets(catalog, empty, enabled=True) == {}
+    nameless = intent.Selection(confidence="medium", reason="aucune capacite au-dessus du seuil")
+    offered = intent.turn_toolsets(catalog, nameless, enabled=True)
+    tools = _names(offered)
+    assert tools == set(intent.FLOOR_TOOLS), tools
+
+    conversation = intent.Selection(
+        confidence="none", reason=f"{intent.CONVERSATION_PREFIX} : rien à faire"
+    )
+    assert intent.turn_toolsets(catalog, conversation, enabled=True) == {}
 
 
 # --------------------------------------------------------------------------- #
