@@ -302,6 +302,86 @@ function textFeedback(box, words) {
   return bar;
 }
 
+// La voix du navigateur lit par défaut : gratuite, instantanée, et le texte ne
+// quitte pas la machine. Le serveur n'est appelé que si elle ne sait pas parler.
+function browserSynth() {
+  return typeof window !== "undefined" && window.speechSynthesis ? window.speechSynthesis : null;
+}
+
+function frenchVoice(voices) {
+  const list = Array.isArray(voices) ? voices : [];
+  let saved = "";
+  try {
+    saved = window.localStorage.getItem("uh.voice") || "";
+  } catch (error) {
+    saved = "";
+  }
+  if (saved) {
+    const chosen = list.find((voice) => voice && voice.name === saved);
+    if (chosen) return chosen;
+  }
+  return list.find((voice) => /^fr([-_]|$)/i.test(String((voice && voice.lang) || ""))) || null;
+}
+
+// Une phrase = une prise de parole : on peut arrêter entre deux phrases, et la
+// prosodie ne traverse pas trente lignes. Une phrase plus longue que la borne du
+// serveur (2 000 caractères) est coupée à la borne, comme le fait le plan serveur.
+function sentences(text, limit = 2000) {
+  const parts = [];
+  String(text || "")
+    .split(/(?<=[.!?…;:])\s+/)
+    .forEach((block) => {
+      const piece = block.trim();
+      if (!piece) return;
+      if (piece.length <= limit) {
+        parts.push(piece);
+        return;
+      }
+      for (let at = 0; at < piece.length; at += limit) parts.push(piece.slice(at, at + limit));
+    });
+  return parts;
+}
+
+// Rend un lecteur { stop } quand le navigateur sait parler, sinon null : l'appelant
+// choisit alors le serveur, au lieu de croire que rien n'a été dit.
+function readAloud(text, { onDone, onError }) {
+  const synth = browserSynth();
+  if (!synth || typeof window.SpeechSynthesisUtterance !== "function") return null;
+  const parts = sentences(text);
+  if (!parts.length) return null;
+  const voices = typeof synth.getVoices === "function" ? synth.getVoices() : [];
+  const voice = frenchVoice(voices);
+  let stopped = false;
+  let index = 0;
+  const next = () => {
+    if (stopped) return;
+    if (index >= parts.length) {
+      onDone();
+      return;
+    }
+    const line = new window.SpeechSynthesisUtterance(parts[index]);
+    index += 1;
+    if (voice) line.voice = voice;
+    line.lang = (voice && voice.lang) || "fr-FR";
+    line.onend = next;
+    line.onerror = (event) => {
+      if (!stopped) onError(event);
+    };
+    synth.speak(line);
+  };
+  next();
+  return {
+    stop() {
+      stopped = true;
+      try {
+        synth.cancel();
+      } catch (error) {
+        // rien à annuler : le lecteur est déjà arrêté
+      }
+    },
+  };
+}
+
 // Read an answer aloud. The synthesis is what creates the sound, so the player only
 // appears once a file really exists - the conditional rule, applied to its origin.
 function speakBox(box, text) {
@@ -316,22 +396,26 @@ function speakBox(box, text) {
   button.setAttribute("aria-label", "lire cette réponse à voix haute");
   // Un seul nœud de statut, réutilisé : la phrase d'erreur remplace, elle ne s'empile pas.
   const status = el("span", "tool-artifact-status", "");
+  let reading = null;
   bar.appendChild(button);
   bar.appendChild(status);
-  button.addEventListener("click", async () => {
-    if (button.disabled) return;
-    const current = feedbackText(text);
-    if (current.words < 3) {
-      status.textContent = "texte trop court pour être lu";
-      return;
-    }
+
+  const reset = () => {
+    reading = null;
+    button.textContent = "Écouter";
+    button.disabled = false;
+  };
+
+  const speakOnServer = async () => {
     button.disabled = true;
     status.textContent = "synthèse…";
     try {
+      // Le texte complet, jamais coupé en silence : si le serveur le refuse, il dit
+      // combien de morceaux il faudrait et la limite.
       const payload = await api("/api/audio/speak", {
         method: "POST",
         body: JSON.stringify({
-          text: String(text || "").slice(0, 2000),
+          text: String(text || ""),
           session_id: state.sessionId || "",
         }),
       });
@@ -349,16 +433,47 @@ function speakBox(box, text) {
         reload.addEventListener("click", () => window.location.reload());
         status.appendChild(document.createTextNode(" "));
         status.appendChild(reload);
-        button.disabled = false;
-        return;
       }
-      button.disabled = false;
+      reset();
     }
+  };
+
+  button.addEventListener("click", () => {
+    if (reading) {
+      reading.stop();
+      reset();
+      status.textContent = "";
+      return;
+    }
+    if (button.disabled) return;
+    const current = feedbackText(text);
+    if (current.words < 3) {
+      status.textContent = "texte trop court pour être lu";
+      return;
+    }
+    const reader = readAloud(String(text || ""), {
+      onDone: () => {
+        reset();
+        status.textContent = "";
+      },
+      onError: () => {
+        // La voix du navigateur a échoué : on le dit, et on bascule sur le serveur.
+        reset();
+        status.textContent = "voix du navigateur indisponible : repli serveur";
+        speakOnServer();
+      },
+    });
+    if (!reader) {
+      speakOnServer();
+      return;
+    }
+    reading = reader;
+    button.textContent = "Arrêter";
+    status.textContent = "lecture par la voix du navigateur";
   });
   box.appendChild(bar);
   return bar;
 }
-
 // Les noms de fichiers que le message porte déjà comme artefacts. Une image
 // Markdown qui les nomme est retirée du texte : elle est dessinée juste en
 // dessous, et le « ![cochon](cochon.png) » brut restait affiché au-dessus.
