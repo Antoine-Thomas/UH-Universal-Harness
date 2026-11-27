@@ -308,6 +308,10 @@ function browserSynth() {
   return typeof window !== "undefined" && window.speechSynthesis ? window.speechSynthesis : null;
 }
 
+// Choisir une voix : française de préférence, et **locale** par défaut. Sous Edge,
+// les voix « Natural (en ligne) » envoient le texte chez Microsoft — `localService`
+// vaut alors false (MDN, Web Speech API). Une voix en ligne n'est utilisée que si
+// aucune voix locale française n'existe, et l'interface le dit.
 function frenchVoice(voices) {
   const list = Array.isArray(voices) ? voices : [];
   let saved = "";
@@ -318,9 +322,38 @@ function frenchVoice(voices) {
   }
   if (saved) {
     const chosen = list.find((voice) => voice && voice.name === saved);
-    if (chosen) return chosen;
+    if (chosen && chosen.localService !== false) return chosen;
   }
-  return list.find((voice) => /^fr([-_]|$)/i.test(String((voice && voice.lang) || ""))) || null;
+  const french = list.filter((voice) => /^fr([-_]|$)/i.test(String((voice && voice.lang) || "")));
+  const localFrench = french.find((voice) => voice.localService !== false);
+  if (localFrench) return localFrench;
+  const anyLocal = list.find((voice) => voice && voice.localService !== false);
+  return french[0] || anyLocal || null;
+}
+
+function voiceIsRemote(voice) {
+  return Boolean(voice) && voice.localService === false;
+}
+
+// Le navigateur remplit sa liste de voix *après* le premier appel : `getVoices()`
+// rend souvent un tableau vide au premier clic, puis `voiceschanged` arrive (MDN).
+function whenVoicesReady(synth, callback, timeoutMs = 1500) {
+  const first = typeof synth.getVoices === "function" ? synth.getVoices() || [] : [];
+  if (first.length) {
+    callback(first);
+    return;
+  }
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    if (typeof synth.removeEventListener === "function") {
+      synth.removeEventListener("voiceschanged", finish);
+    }
+    callback(typeof synth.getVoices === "function" ? synth.getVoices() || [] : []);
+  };
+  if (typeof synth.addEventListener === "function") synth.addEventListener("voiceschanged", finish);
+  setTimeout(finish, timeoutMs);
 }
 
 // Une phrase = une prise de parole : on peut arrêter entre deux phrases, et la
@@ -344,13 +377,12 @@ function sentences(text, limit = 2000) {
 
 // Rend un lecteur { stop } quand le navigateur sait parler, sinon null : l'appelant
 // choisit alors le serveur, au lieu de croire que rien n'a été dit.
-function readAloud(text, { onDone, onError }) {
+function readAloud(text, { onDone, onError, onRemote }) {
   const synth = browserSynth();
   if (!synth || typeof window.SpeechSynthesisUtterance !== "function") return null;
   const parts = sentences(text);
   if (!parts.length) return null;
-  const voices = typeof synth.getVoices === "function" ? synth.getVoices() : [];
-  const voice = frenchVoice(voices);
+  let voice = null;
   let stopped = false;
   let index = 0;
   const next = () => {
@@ -359,6 +391,7 @@ function readAloud(text, { onDone, onError }) {
       onDone();
       return;
     }
+    if (index === 0 && !voice) voice = frenchVoice([]); // aucune voix : on lit quand même
     const line = new window.SpeechSynthesisUtterance(parts[index]);
     index += 1;
     if (voice) line.voice = voice;
@@ -369,7 +402,14 @@ function readAloud(text, { onDone, onError }) {
     };
     synth.speak(line);
   };
-  next();
+  // Les voix arrivent parfois après le clic : on démarre la première phrase dès
+  // qu'elles sont là, sans bloquer l'interface.
+  whenVoicesReady(synth, (voices) => {
+    if (stopped) return;
+    voice = frenchVoice(voices);
+    if (voiceIsRemote(voice) && typeof onRemote === "function") onRemote(voice);
+    next();
+  });
   return {
     stop() {
       stopped = true;
@@ -397,6 +437,7 @@ function speakBox(box, text) {
   // Un seul nœud de statut, réutilisé : la phrase d'erreur remplace, elle ne s'empile pas.
   const status = el("span", "tool-artifact-status", "");
   let reading = null;
+  let remoteWarned = false;
   bar.appendChild(button);
   bar.appendChild(status);
 
@@ -452,6 +493,13 @@ function speakBox(box, text) {
       return;
     }
     const reader = readAloud(String(text || ""), {
+      onRemote: () => {
+        // Une voix en ligne envoie le texte chez le fournisseur du navigateur :
+        // on le dit avant la première phrase, pas après.
+        remoteWarned = true;
+        status.textContent =
+          "voix en ligne : le texte part chez le fournisseur du navigateur";
+      },
       onDone: () => {
         reset();
         status.textContent = "";
@@ -469,7 +517,7 @@ function speakBox(box, text) {
     }
     reading = reader;
     button.textContent = "Arrêter";
-    status.textContent = "lecture par la voix du navigateur";
+    if (!remoteWarned) status.textContent = "lecture par la voix du navigateur";
   });
   box.appendChild(bar);
   return bar;
