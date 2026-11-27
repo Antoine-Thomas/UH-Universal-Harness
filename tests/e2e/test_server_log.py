@@ -6,6 +6,11 @@ e2e echoue, le journal du serveur est la seule source qui dise pourquoi.
 
 Le journal est ecrit dans le depot (`.pytest-e2e/uh-web.log`), pas dans le dossier
 temporaire : un artefact `**/uh-web.log` ne cherche que dans l'espace de travail.
+
+Ce fichier tourne dans la **matrice unitaire**, volontairement : il ne porte pas le
+marqueur `e2e`, donc il s'execute a chaque PR sur toutes les plateformes, sans
+navigateur. C'est la ou le masquage du jeton et l'ecriture du journal doivent etre
+verifies, pas dans le job qui conduit Chromium.
 """
 
 from __future__ import annotations

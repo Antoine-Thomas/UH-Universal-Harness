@@ -2502,6 +2502,8 @@ l'interpréteur et le dépôt ou le paquet servi.
 
 ### G8 — Aperçus de liens : icône du site, titre, description, image d'article
 
+**Statut : FUSIONNÉ (#72).** Aperçus de liens servis par `/api/link/preview`.
+
 Ajout de l'opérateur, 24/11. C'est la partie la plus risquée du lot : le
 harness irait chercher des pages au hasard sur le web.
 
@@ -2613,7 +2615,7 @@ hors liste.
 
 ### G10 — Sortie d'image fiable : compression automatique, côté UH
 
-**Statut : OUVERT.** Constat de l'opérateur, 25/11, captures à l'appui.
+**Statut : FUSIONNÉ (#74).** Constat de l'opérateur, 25/11, captures à l'appui.
 
 Une réponse a produit `chat.png` (3,35 Mo, 2000 × 2400). Au-delà de la limite
 d'affichage (1,5 Mo) l'image n'est **pas** injectée dans la conversation : seul
@@ -2645,7 +2647,21 @@ au lieu de laisser le modèle l'inventer ; relance unique et visible.
 
 ### G11 — `/web` doit donner de vraies photos
 
-**Statut : CLOS le 26/11** (branche `feat/g11-image-search`). Constat de
+**Statut : CLOS SOUS RÉSERVE** (branche `feat/g11-image-search`, PR #78). La
+galerie, les licences, les auteurs et l'intention de photo sont livrés et testés ;
+quatre preuves manquent encore pour un clos définitif :
+
+1. sources officielles d'Openverse et de Wikimedia Commons (clé requise, quota,
+   conditions d'usage et d'attribution, champs licence/auteur) — tout ce qui n'est
+   pas sourcé reste **« à vérifier »** ;
+2. contre-épreuves sur les URL d'image **écrites par le modèle** : aucune requête
+   réseau sans clic ;
+3. licence absente : image non affichée ou marquée « licence inconnue » (test chiffré) ;
+4. bornes de sécurité de `/api/media/thumb` (anti-SSRF, IP épinglée, redirections,
+   ports, taille, type par octets, SVG, cookies/Referer, délai, CSP), comparées une
+   par une à celles de `/api/link/image`.
+
+Constat de
 l'opérateur, 25/11 : `/web donne moi la photo d'un chat` ne renvoyait que des
 liens de moteurs (Shutterstock, Unsplash, Pexels, Pixabay, Google Images).
 
@@ -2771,7 +2787,7 @@ procédé.
 
 ### G15 — Tableaux Markdown cassés
 
-**Statut : OUVERT.** Constat de l'opérateur, 25/11 : un tableau s'affiche en
+**Statut : FUSIONNÉ (#73).** Constat de l'opérateur, 25/11 : un tableau s'affiche en
 texte brut (`| | |---|---| | Fichier | chat.png | …`) sur une seule ligne.
 
 À faire : vérifier dans `uh/web/static/markdown.js` si les tableaux sont
@@ -2785,6 +2801,13 @@ Contre-épreuve : un test qui échoue sur le texte brut actuel.
 ### G16 — Moins de rigidité, plus d'intention : le chat apprend de ses ratés
 
 **Statut : OUVERT.** Retour d'usage réel de l'opérateur, 26/11, sur `v1.5.2`.
+
+Avancement (26/11, branche `feat/g16-p1-intent-router`, non poussée) : P1 (le
+routeur rétrécit pour de vrai, refus typé `not_offered`, porte « avec tous les
+outils »), P1b (socle lecture seule pour une demande non reconnue, familles par
+verbe et par objet, horloge fixée au démarrage, avis de génération) et P1c (une
+relance hérite de l'offre du tour précédent) sont faits et mesurés sur trois jeux
+gelés. Reste : P1d éventuel, puis la boucle UH ↔ UHB ↔ `uh dream`.
 
 Constat mesuré (captures du 26/11) :
 
@@ -2825,6 +2848,72 @@ Contre-épreuves : un jeu de demandes types (photo, actualités, heure, dessin)
 qui passe en **un** tour d'outil ; un tour revenu vide produit un message
 explicite et une relance proposée, jamais une bulle vide ; les règles apprises
 vivent dans le dépôt et sont relues avant d'être appliquées.
+
+### G17 — `--local-only` doit être honnête
+
+**Statut : OUVERT.** Constat de la vérification des affirmations publiques, 27/11.
+
+`--local-only` (et `allow_remote: false`, le défaut de `config.py:37`) ne coupe que
+les **fournisseurs de modèle**. Mesuré : `allow_remote` n'apparaît ni dans
+`uh/toolsets/web_search.py`, ni dans `uh/link_preview.py`, ni dans
+`uh/media_proxy.py`, et `uh/audio/__init__.py:351` essaie Voxtral (cloud Mistral)
+avant XTTS sans que l'interface le dise. Une recherche web, un aperçu de lien ou
+un « Écouter » avec une clé sortent donc du poste alors que le drapeau est levé.
+
+À faire (politique dans UHB, affichage dans UH) :
+
+- le drapeau couvre **aussi** `web_search` / `web_image_search`, les aperçus de
+  liens (`/api/link/*`), le proxy de miniatures (`/api/media/*`) et la voix cloud
+  Voxtral — chaque outil refusé le dit en français et nomme le drapeau ;
+- un badge visible « local seulement » dans l'interface quand le drapeau est levé ;
+- sans le drapeau, comportement inchangé, octet pour octet.
+
+Contre-épreuves : avec le drapeau, un test qui compte les connexions sortantes non
+loopback = **0** (transport injecté, comme `tests/test_web_search_engines.py`) ;
+sans le drapeau, les mêmes appels fonctionnent ; un refus nomme `local_only`.
+
+### G18 — Premier lancement sans téléchargement silencieux
+
+**Statut : OUVERT.** Constat de la vérification, 27/11.
+
+`uh/onboarding.py:44` définit `ZERO_CONFIG_MODEL = ("qwen2.5:0.5b", "~400 MB")` et
+`:100-110` le tire dès qu'Ollama tourne sans modèle, annoncé sur stderr **sans
+demande** (la docstring dit elle-même « announced on stderr, no prompt »). C'est un
+téléchargement non consenti, contraire à « pas d'installation silencieuse ».
+
+À faire : demande explicite `[y/N]` avec la taille, bouton équivalent dans
+l'interface web, et **jamais** de pull en mode non interactif (CI, cron, tâche
+planifiée). Conserver le message qui dit ce qui va être téléchargé et pourquoi.
+
+Contre-épreuves : un test qui compte les appels de `pull_model` = **0** sans accord
+(oui, non, absence de TTY) ; avec accord, un seul appel ; le modèle déjà présent ne
+déclenche aucun pull.
+
+### P1-7b — Connecteur Google Drive sur paquet déprécié
+
+**Statut : OUVERT — décision requise.** Constat du 27/11, sources : page npm de
+`@modelcontextprotocol/server-gdrive` (déprécié) et dépôt
+`modelcontextprotocol/servers-archived`.
+
+`uh/mcp_cloud.py:146-152` propose le modèle « Google Drive (lecture) » en lançant
+`npx -y @modelcontextprotocol/server-gdrive`, paquet **déprécié** et déplacé dans
+les serveurs archivés. Annoncer « Google Drive existe » reposerait donc sur un
+paquet abandonné.
+
+Décision à prendre par Thomas, sans code ici :
+
+- **remplacer** le modèle par un paquet maintenu — lequel, après revue de sa
+  licence et des droits OAuth qu'il exige (aucun remplaçant n'est recommandé tant
+  qu'il n'est pas sourcé) ;
+- ou **retirer** le modèle de l'interface et du texte public.
+
+En attendant la décision : ne pas annoncer Google Drive publiquement.
+
+**Les connecteurs npx (S3, Drive) exigent Node/npx** : l'interface doit le
+vérifier et le dire **avant** la configuration. Aujourd'hui rien ne le vérifie ni
+ne le mentionne (`uh/mcp_cloud.py:91,149` lancent `npx` ; aucune vérification
+côté `app.js`), et l'échec n'apparaît qu'à la connexion. La maintenance de
+`mcp-server-s3` reste **à vérifier** de la même façon.
 
 ### Règles du lot 3 (identiques aux lots 1 et 2)
 
