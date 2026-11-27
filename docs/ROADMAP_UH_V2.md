@@ -2889,6 +2889,32 @@ Contre-épreuves : un test qui compte les appels de `pull_model` = **0** sans ac
 (oui, non, absence de TTY) ; avec accord, un seul appel ; le modèle déjà présent ne
 déclenche aucun pull.
 
+### P1-7b — Connecteur Google Drive sur paquet déprécié
+
+**Statut : OUVERT — décision requise.** Constat du 27/11, sources : page npm de
+`@modelcontextprotocol/server-gdrive` (déprécié) et dépôt
+`modelcontextprotocol/servers-archived`.
+
+`uh/mcp_cloud.py:146-152` propose le modèle « Google Drive (lecture) » en lançant
+`npx -y @modelcontextprotocol/server-gdrive`, paquet **déprécié** et déplacé dans
+les serveurs archivés. Annoncer « Google Drive existe » reposerait donc sur un
+paquet abandonné.
+
+Décision à prendre par Thomas, sans code ici :
+
+- **remplacer** le modèle par un paquet maintenu — lequel, après revue de sa
+  licence et des droits OAuth qu'il exige (aucun remplaçant n'est recommandé tant
+  qu'il n'est pas sourcé) ;
+- ou **retirer** le modèle de l'interface et du texte public.
+
+En attendant la décision : ne pas annoncer Google Drive publiquement.
+
+**Les connecteurs npx (S3, Drive) exigent Node/npx** : l'interface doit le
+vérifier et le dire **avant** la configuration. Aujourd'hui rien ne le vérifie ni
+ne le mentionne (`uh/mcp_cloud.py:91,149` lancent `npx` ; aucune vérification
+côté `app.js`), et l'échec n'apparaît qu'à la connexion. La maintenance de
+`mcp-server-s3` reste **à vérifier** de la même façon.
+
 ### Règles du lot 3 (identiques aux lots 1 et 2)
 
 Aucun push, aucun `--no-verify`, rien toucher à l'authentification ni à
