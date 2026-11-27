@@ -11,6 +11,8 @@ appelle le serveur — vérifié en interceptant la route, donc sans synthèse r
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from playwright.sync_api import expect
 
@@ -220,5 +222,142 @@ def test_a_remote_voice_is_used_but_announced(browser, server) -> None:
         page.wait_for_function("() => (window.__spoken || []).length >= 1", timeout=10000)
         spoken = page.evaluate("() => window.__spoken")
         assert spoken[0]["voice"] == "Voix française (en ligne)"
+    finally:
+        context.close()
+
+
+# --------------------------------------------------------------------------- #
+# le repli serveur : découpage demandé, accords transmis, refus affiché
+# --------------------------------------------------------------------------- #
+NO_BROWSER_VOICE = """
+() => Object.defineProperty(window, "speechSynthesis", { configurable: true, get: () => undefined })
+"""
+
+CLIP = {
+    "kind": "audio",
+    "source": {"path": "clip.wav", "root": "uploads"},
+    "url": "/api/audio/file?path=clip.wav",
+    "name": "clip.wav",
+    "mime": "audio/wav",
+    "bytes": 44,
+    "seconds": 1.0,
+    "sha256": "0" * 64,
+    "engine": "voxtral",
+}
+
+
+def _plan_body(parts: list[str]) -> dict:
+    return {
+        "parts": parts,
+        "count": len(parts),
+        "total_chars": sum(len(part) for part in parts),
+        "part_limit": 2000,
+        "truncated": False,
+        "delay_seconds": 60.9,
+    }
+
+
+def test_the_server_path_asks_for_a_plan_and_sends_no_consent_by_default(browser, server) -> None:
+    seed_answer(server)
+    context, page = open_app(browser, server)
+    bodies: list[dict] = []
+    plans: list[str] = []
+    try:
+        page.evaluate(NO_BROWSER_VOICE)
+        page.route(
+            "**/api/audio/plan",
+            lambda route: (
+                plans.append(route.request.post_data or ""),
+                route.fulfill(status=200, json=_plan_body(["Première phrase de la réponse."])),
+            )[-1],
+        )
+        page.route("**/api/audio/speak", lambda route: route.fulfill(status=200, json=CLIP))
+        page.on(
+            "request",
+            lambda request: bodies.append(json.loads(request.post_data or "{}"))
+            if "/api/audio/speak" in request.url
+            else None,
+        )
+
+        page.locator("#messages .answer-audio button").first.click()
+        page.wait_for_function("() => document.querySelector('.audio-player') !== null", timeout=20000)
+
+        assert len(plans) == 1, "le plan est demandé au serveur"
+        assert bodies[0]["consent"] is False, "aucun accord cloud sans clic"
+        assert bodies[0]["heavy_consent"] is False, "aucun accord moteur lourd sans clic"
+    finally:
+        context.close()
+
+
+def test_the_voice_panel_offers_the_policy_and_both_consents(browser, server) -> None:
+    seed_answer(server)
+    context, page = open_app(browser, server)
+    try:
+        page.locator("#tab-voice").click()
+        page.wait_for_selector("#voice-cloud-policy", timeout=20000)
+
+        page.select_option("#voice-cloud-policy", "never")
+        page.wait_for_function(
+            "() => document.querySelector('#voice-cloud-policy').value === 'never'", timeout=10000
+        )
+        # La ligne d'accord est affichée avant tout appel, et la case existe.
+        panel = page.locator("#voice-panel").inner_text()
+        assert "Le texte sera envoyé à Mistral" in panel, panel[:300]
+        assert page.locator("#voice-cloud-consent").count() == 1
+        assert page.locator("#voice-heavy-consent").count() == 1
+
+        page.locator("#voice-cloud-consent").check()
+        assert page.evaluate("() => localStorage.getItem('uh.cloud.consent')") == "1"
+    finally:
+        context.close()
+
+
+def test_a_three_part_answer_is_synthesised_three_times_in_order(browser, server) -> None:
+    seed_answer(server)
+    context, page = open_app(browser, server)
+    texts: list[str] = []
+    parts = ["Première phrase.", "Deuxième phrase.", "Troisième phrase."]
+    try:
+        page.evaluate(NO_BROWSER_VOICE)
+        page.route("**/api/audio/plan", lambda route: route.fulfill(status=200, json=_plan_body(parts)))
+        page.route("**/api/audio/speak", lambda route: route.fulfill(status=200, json=CLIP))
+        page.on(
+            "request",
+            lambda request: texts.append(json.loads(request.post_data or "{}").get("text", ""))
+            if "/api/audio/speak" in request.url
+            else None,
+        )
+
+        page.locator("#messages .answer-audio button").first.click()
+        page.wait_for_function("() => document.querySelector('.audio-player') !== null", timeout=20000)
+        for _ in range(40):
+            if len(texts) >= 3:
+                break
+            page.wait_for_timeout(100)
+
+        assert texts == parts, texts
+    finally:
+        context.close()
+
+
+def test_a_too_long_text_is_refused_in_french(browser, server) -> None:
+    seed_answer(server)
+    context, page = open_app(browser, server)
+    try:
+        page.evaluate(NO_BROWSER_VOICE)
+        page.route(
+            "**/api/audio/plan",
+            lambda route: route.fulfill(
+                status=400,
+                json={
+                    "detail": "texte trop long : 30 morceaux de 2000 caractères au plus, maximum 12"
+                },
+            ),
+        )
+        page.locator("#messages .answer-audio button").first.click()
+
+        status = page.locator("#messages .answer-audio .tool-artifact-status").first
+        expect(status).to_contain_text("texte trop long", timeout=15000)
+        assert page.locator("#messages .answer-audio .tool-artifact-status").count() == 1
     finally:
         context.close()

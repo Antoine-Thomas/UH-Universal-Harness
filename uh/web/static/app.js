@@ -451,17 +451,30 @@ function speakBox(box, text) {
     button.disabled = true;
     status.textContent = "synthèse…";
     try {
-      // Le texte complet, jamais coupé en silence : si le serveur le refuse, il dit
-      // combien de morceaux il faudrait et la limite.
-      const payload = await api("/api/audio/speak", {
+      // Le découpage est demandé au serveur (même règle que `speech_plan`) : un
+      // texte long se lit en morceaux au lieu de partir entier. Au-delà du plafond,
+      // le serveur refuse et le dit — aucune troncature silencieuse.
+      const plan = await api("/api/audio/plan", {
         method: "POST",
-        body: JSON.stringify({
-          text: String(text || ""),
-          session_id: state.sessionId || "",
-        }),
+        body: JSON.stringify({ text: String(text || "") }),
       });
-      status.textContent = "";
-      drawAudio(box, [payload], { sessionId: state.sessionId });
+      const clips = [];
+      for (const part of plan.parts) {
+        clips.push(
+          await api("/api/audio/speak", {
+            method: "POST",
+            body: JSON.stringify({
+              text: part,
+              session_id: state.sessionId || "",
+              // Deux accords explicites, jamais supposés : le cloud et le GPU.
+              consent: voiceConsentGiven(),
+              heavy_consent: heavyConsentGiven(),
+            }),
+          })
+        );
+      }
+      status.textContent = plan.count > 1 ? `${plan.count} morceaux lus` : "";
+      drawAudio(box, clips, { sessionId: state.sessionId });
       bar.remove();
     } catch (error) {
       const failure = humanizeError(error.message, "ui");
@@ -9727,6 +9740,109 @@ function voiceEngineLine(part) {
   return row;
 }
 
+const VOICE_POLICY_LABELS = [
+  ["ask", "demander (défaut)"],
+  ["never", "jamais"],
+  ["always", "toujours"],
+];
+const CLOUD_CONSENT_LINE = "Le texte sera envoyé à Mistral";
+
+function voiceSetting(key) {
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function voiceSet(key, value) {
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+  } catch (error) {
+    // stockage refusé : l'accord ne vaut que pour cette page, ce qui reste prudent
+  }
+}
+
+function voiceConsentGiven() {
+  return voiceSetting("uh.cloud.consent") === "1";
+}
+
+function heavyConsentGiven() {
+  return voiceSetting("uh.heavy.consent") === "1";
+}
+
+// Le réglage vit dans ~/.uh/voice.toml, via l'API : le client ne touche jamais le
+// fichier. Deux accords distincts, parce que deux risques distincts : le texte
+// part chez Mistral, ou le GPU chauffe.
+function voicePrivacyBlock(caps) {
+  const block = el("div", "voice-privacy");
+  block.appendChild(el("div", "voice-heading", "Voix cloud et moteur lourd"));
+  block.appendChild(el("p", "panel-hint", CLOUD_CONSENT_LINE));
+
+  const row = el("div", "voice-profile");
+  row.appendChild(el("span", "voice-label", "Politique cloud"));
+  const select = document.createElement("select");
+  select.id = "voice-cloud-policy";
+  select.setAttribute("aria-label", "Politique de voix cloud");
+  for (const [value, label] of VOICE_POLICY_LABELS) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  }
+  select.value = (caps.cloud && caps.cloud.policy) || "ask";
+  select.addEventListener("change", async () => {
+    try {
+      await api("/api/audio/policy", {
+        method: "POST",
+        body: JSON.stringify({ policy: select.value }),
+      });
+    } catch (error) {
+      block.appendChild(
+        el("p", "panel-hint", `politique non enregistrée : ${error.message}`)
+      );
+    }
+    loadVoicePanel().catch(() => {});
+  });
+  row.appendChild(select);
+  block.appendChild(row);
+
+  const cloudBox = document.createElement("label");
+  cloudBox.className = "voice-consent";
+  const cloudInput = document.createElement("input");
+  cloudInput.type = "checkbox";
+  cloudInput.id = "voice-cloud-consent";
+  cloudInput.checked = voiceConsentGiven();
+  cloudInput.addEventListener("change", () => {
+    voiceSet("uh.cloud.consent", cloudInput.checked ? "1" : null);
+  });
+  cloudBox.appendChild(cloudInput);
+  cloudBox.appendChild(document.createTextNode(" J'accepte l'envoi du texte à Mistral"));
+  block.appendChild(cloudBox);
+
+  const heavy = caps.heavy || {};
+  const heavyBox = document.createElement("label");
+  heavyBox.className = "voice-consent";
+  const heavyInput = document.createElement("input");
+  heavyInput.type = "checkbox";
+  heavyInput.id = "voice-heavy-consent";
+  heavyInput.checked = heavyConsentGiven();
+  if (heavy.fits === false) heavyInput.disabled = true;
+  heavyInput.addEventListener("change", () => {
+    voiceSet("uh.heavy.consent", heavyInput.checked ? "1" : null);
+  });
+  heavyBox.appendChild(heavyInput);
+  heavyBox.appendChild(
+    document.createTextNode(" J'accepte le moteur lourd XTTS (~4,2 Go de VRAM au pic)")
+  );
+  block.appendChild(heavyBox);
+  if (heavy.fits === false && heavy.reason) {
+    block.appendChild(el("p", "panel-hint", heavy.reason));
+  }
+  return block;
+}
+
 function renderVoicePanel(plan, caps) {
   const box = $("voice-panel");
   if (!box) return;
@@ -9750,6 +9866,7 @@ function renderVoicePanel(plan, caps) {
   });
   profileRow.appendChild(select);
   box.appendChild(profileRow);
+  box.appendChild(voicePrivacyBlock(caps || {}));
 
   const engines = el("div", "voice-engines");
   engines.appendChild(el("div", "voice-heading", "Dictée"));
