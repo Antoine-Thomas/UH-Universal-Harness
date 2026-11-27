@@ -984,10 +984,13 @@ def test_the_uhb_status_has_four_states_with_icon_and_words() -> None:
     block = script[
         script.index("const UHB_STATES") : script.index("async function toggleModeFromBadge")
     ]
-    for expected in ("Mode Dev", "Mode Chat", "Dégradé", "Hors ligne"):
+    for expected in ("Mode Dev", "Mode Chat", "Dégradé", "Hors ligne",
+                     "Second cerveau absent", "Second cerveau en erreur"):
         assert expected in block, expected
-    assert block.count("icon:") == 4, "each state carries an icon, never a colour alone"
-    for state in ("degraded", "offline"):
+    # P1-8 ajoute « absent » et « en erreur » : la règle ne change pas — chaque
+    # état porte une icône et un mot, jamais une couleur seule.
+    assert block.count("icon:") == 6, "each state carries an icon, never a colour alone"
+    for state in ("degraded", "offline", "absent", "error"):
         assert f".mode-badge.{state}" in css
     assert "setInterval" in script[script.index("refreshModeBadge().catch") :][:400]
 

@@ -60,6 +60,39 @@ from .sse import frame
 if TYPE_CHECKING:  # pragma: no cover - annotations only
     from ..toolsets.file import FileToolset
 
+#: P1-8 — trois états, et trois seulement. « Offline » mélangeait deux situations
+#: que l'utilisateur ne répare pas de la même façon : UHB absent (rien n'écoute,
+#: il faut le démarrer) et UHB en erreur (il répond, mais mal : il faut lire).
+UHB_STATE_OK = "ok"
+UHB_STATE_ABSENT = "absent"
+UHB_STATE_ERROR = "error"
+
+
+def uhb_state_of(url: Optional[str], payload: dict) -> tuple[str, str]:
+    """(état, phrase) pour un UHB donné. Aucun quatrième état supposé."""
+    if url is None:
+        return (
+            UHB_STATE_ABSENT,
+            "Second cerveau désactivé : UH_UHB_URL est vide ou n'est pas une adresse locale.",
+        )
+    if "error" in payload:
+        if str(payload.get("kind") or "") == "transport":
+            return (
+                UHB_STATE_ABSENT,
+                "Second cerveau absent : rien ne répond à cette adresse.",
+            )
+        return (
+            UHB_STATE_ERROR,
+            f"Second cerveau en erreur : {payload.get('error')}",
+        )
+    if payload.get("connected") is False:
+        return (
+            UHB_STATE_ERROR,
+            "Second cerveau joignable, mais il se déclare non connecté.",
+        )
+    return UHB_STATE_OK, "Second cerveau joignable."
+
+
 STATIC_DIR = Path(__file__).parent / "static"
 #: The cookie is host-scoped, not port-scoped: with one name, two `uh web` on
 #: 127.0.0.1 overwrite each other's token and the older tab answers 401 to
@@ -2498,14 +2531,20 @@ def create_app(
 
         url = resolve_url()
         if url is None:
+            state, sentence = uhb_state_of(None, {})
             return {
                 "connected": False,
+                "state": state,
+                "sentence": sentence,
                 "reason": "UHB is disabled (UH_UHB_URL is empty or not loopback)",
             }
         payload = Uhbtoolset(url, timeout=1.0).status()
-        if "error" in payload:
+        state, sentence = uhb_state_of(url, payload)
+        if state != UHB_STATE_OK:
             return {
                 "connected": False,
+                "state": state,
+                "sentence": sentence,
                 "reason": str(payload.get("error") or "unreachable"),
                 # The panel offers "Détails": the log is what actually explains a
                 # failed start, and the user should not have to find it.
@@ -2516,7 +2555,13 @@ def create_app(
                 # reported, never killed.
                 "owned": uhb_spawn.running() is not None,
             }
-        return {"connected": True, **payload, "owned": uhb_spawn.running() is not None}
+        return {
+            "connected": True,
+            "state": state,
+            "sentence": sentence,
+            **payload,
+            "owned": uhb_spawn.running() is not None,
+        }
 
     @app.get("/api/uhb/overview", dependencies=[Depends(require_token)])
     async def uhb_overview() -> dict:
