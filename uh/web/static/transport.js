@@ -4,7 +4,13 @@
 // la page — comment signaler un jeton périmé — et elle lui est passée. C'est ce
 // qui rend la règle testable : `api()` ne peut pas décider de vider l'écran.
 
-export function createTransport({ onAuthLost }) {
+export function createTransport({ onAuthLost, httpErrorText }) {
+  // Un 401 est un fait sur le cookie, pas un ordre de vider l'écran : la page
+  // décide quoi en faire. Le module se contente de l'appeler, s'il est branché.
+  function signalExpired() {
+    if (typeof onAuthLost === "function") onAuthLost();
+  }
+
   // Like api(), but a refusal keeps its body: these routes answer {error, hint,
   // kind} on purpose, and throwing away the hint would throw away the fix.
   async function apiResult(path, options = {}) {
@@ -15,7 +21,7 @@ export function createTransport({ onAuthLost }) {
     });
     const body = await response.json().catch(() => ({}));
     if (response.status === 401) {
-      showSessionBanner();
+      signalExpired();
       return { ok: false, status: 401, body: {} };
     }
     return { ok: response.ok, status: response.status, body };
@@ -28,7 +34,7 @@ export function createTransport({ onAuthLost }) {
       ...options,
     });
     if (response.status === 401) {
-      showSessionBanner();
+      signalExpired();
       throw new Error("jeton périmé : cette page n'est plus reliée à UH");
     }
     if (response.status === 404) {

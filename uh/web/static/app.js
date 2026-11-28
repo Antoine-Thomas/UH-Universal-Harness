@@ -44,7 +44,12 @@ const $ = (id) => document.getElementById(id);
 // `transport.js` (P2-11) : deux fonctions, aucune dépendance au DOM. Les noms
 // restent identiques, donc les quelques centaines d'appels ci-dessous ne bougent
 // pas — c'est la liaison d'import qui les relie au module.
-const transport = createTransport({ onAuthLost: () => showSessionBanner() });
+const transport = createTransport({
+  onAuthLost: () => showSessionBanner(),
+  // Le texte d'une erreur HTTP sans corps JSON vit dans ce fichier : il est
+  // passé, pas recopié, sinon le module lèverait un ReferenceError.
+  httpErrorText: (status) => httpErrorText(status),
+});
 const api = transport.api;
 const apiResult = transport.apiResult;
 
@@ -281,7 +286,11 @@ const audio = createAudio({
   el,
   feedbackText: (text) => feedbackText(text),
   humanizeError: (raw, origin) => humanizeError(raw, origin),
-  drawAudio: (box, clips) => drawAudio(box, clips),
+  // Les trois arguments : la voix transmet la session, et la perdre
+  // détacherait le clip de sa conversation.
+  // audio.js transmet déjà un contexte ({sessionId}) : on le passe tel quel.
+  // Re-emballer ici perdrait le session_id et détacherait le clip de sa session.
+  drawAudio: (box, clips, context) => drawAudio(box, clips, context),
   // La seule chose de l'état dont la voix a besoin : la session courante, lue au
   // moment de l'appel (elle change quand on ouvre une conversation).
   currentSessionId: () => state.sessionId,
@@ -2109,7 +2118,7 @@ function drawWaveform(canvas, url) {
     .catch(() => flat());
 }
 
-function drawAudio(container, artifacts, context) {
+function drawAudio(container, artifacts, context = {}) {
   for (const artifact of audioArtifacts(artifacts)) {
     const figure = el("figure", "tool-artifact audio");
     const player = el("audio", "audio-player");
