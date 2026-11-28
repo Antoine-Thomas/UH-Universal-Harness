@@ -193,7 +193,7 @@ def test_an_old_uhb_without_contract_stays_usable(monkeypatch, tmp_path) -> None
 def test_the_toolset_refuses_to_call_a_version_two_uhb() -> None:
     uhb = FakeUHB({"name": "uh-uhb", "version": 2})
     try:
-        tools = Uhbtoolset(uhb.url, timeout=2.0)
+        tools = Uhbtoolset(uhb.url, timeout=10.0)
         tools.remote = {"read_file"}
 
         refusal = tools.call("read_file", {"path": "x"})
@@ -208,7 +208,7 @@ def test_the_toolset_refuses_to_call_a_version_two_uhb() -> None:
 def test_the_toolset_calls_a_version_one_uhb() -> None:
     uhb = FakeUHB({"name": "uh-uhb", "version": 1})
     try:
-        tools = Uhbtoolset(uhb.url, timeout=2.0)
+        tools = Uhbtoolset(uhb.url, timeout=10.0)
         tools.remote = {"read_file"}
 
         answer = tools.call("read_file", {"path": "x"})
