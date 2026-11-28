@@ -2590,6 +2590,7 @@ def create_app(
 
     @app.get("/api/uhb/status", dependencies=[Depends(require_token)])
     async def uhb_state() -> dict:
+        from .. import contract as uh_contract
         from .. import uhb_spawn
         from ..toolsets.uhb import Uhbtoolset, resolve_url
 
@@ -2619,11 +2620,30 @@ def create_app(
                 # reported, never killed.
                 "owned": uhb_spawn.running() is not None,
             }
+        contract_state, contract_sentence = uh_contract.check(payload)
+        if contract_state == uh_contract.STATE_INCOMPATIBLE:
+            # P2-9 : une majeure différente n'est pas une panne de réseau ; on le
+            # dit, et l'état passe en erreur pour que le badge le montre.
+            return {
+                "connected": False,
+                "state": UHB_STATE_ERROR,
+                "sentence": contract_sentence,
+                "reason": "contract_mismatch",
+                "contract": contract_state,
+                "contract_sentence": contract_sentence,
+                "log": uhb_spawn.log_tail(),
+                "checkout": str(uhb_spawn.find_checkout() or ""),
+                "owned": uhb_spawn.running() is not None,
+            }
         return {
+            **payload,
             "connected": True,
             "state": state,
             "sentence": sentence,
-            **payload,
+            # Après `**payload` exprès : `summarize` porte le contrat brut, l'état
+            # calculé doit gagner sur lui.
+            "contract": contract_state,
+            "contract_sentence": contract_sentence,
             "owned": uhb_spawn.running() is not None,
         }
 
