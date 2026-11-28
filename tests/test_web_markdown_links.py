@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from _static_source import script_text
 
 ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN = ROOT / "uh" / "web" / "static" / "markdown.js"
@@ -181,7 +182,7 @@ def test_the_source_keeps_the_rule() -> None:
 
 def test_the_page_hands_the_artifact_names_to_the_renderer() -> None:
     """Le retrait du texte brut ne vaut que si `app.js` transmet les noms."""
-    lines = (ROOT / "uh" / "web" / "static" / "app.js").read_text(encoding="utf-8").splitlines()
+    lines = script_text().splitlines()
     calls = [index for index, line in enumerate(lines) if "renderMarkdown(" in line]
     assert len(calls) == 4, calls
     for index in calls:

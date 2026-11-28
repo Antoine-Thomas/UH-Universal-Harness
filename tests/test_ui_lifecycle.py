@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from _static_source import script_text
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "uh" / "web" / "static" / "app.js"
@@ -24,7 +25,7 @@ def test_no_ui_code_erases_the_document() -> None:
     ``document.body.textContent = …`` was the one line that turned "the token of
     another instance took the cookie" into "the whole interface disappeared".
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     offenders = [
         f"app.js:{number}"
         for number, line in enumerate(script.splitlines(), 1)
@@ -43,7 +44,7 @@ def test_one_submit_path_and_the_draft_survives() -> None:
     immediately when a previous turn was still flagged as streaming: the message was
     neither sent nor kept.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     assert "function submitComposer(" in script
     assert "function canSend(" in script
     assert "function restoreDraft(" in script
@@ -82,7 +83,7 @@ def test_a_chat_stream_always_has_a_life_sign_and_an_end() -> None:
     source = APP_PY.read_text(encoding="utf-8")
     assert "HEARTBEAT_S" in source and "TURN_CAP_S" in source
     assert 'yield frame("ping"' in source
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     assert "STALL_MS" in script and "UH_STALL_MS" in script
 
 
@@ -144,7 +145,7 @@ def test_the_boot_never_dies_halfway() -> None:
     single throw left the session list, the transcript and the "no session" hint
     undone while the page still looked alive.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     body = script.split("async function boot() {", 1)[1].split("\n}\n", 1)[0]
 
     assert "bootStep(" in body, "each step must be isolated"
@@ -160,7 +161,7 @@ def test_one_session_creation_path_only() -> None:
     /api/sessions, and sendMessage() called the first one: a second answer re-pointed
     state.sessionId in the middle of a turn.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     send = script.split("async function sendMessage(text) {", 1)[1].split("\nasync function ", 1)[0]
     assert "await newSession()" not in send, "sendMessage must go through ensureSession()"
     assert "await ensureSession()" in send
@@ -189,7 +190,7 @@ def test_a_stored_key_can_be_deleted_from_the_panel() -> None:
     existed, the panel only printed "N key(s) · hints". The value never reaches the
     browser, so the button deletes by position and names the mask.
     """
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     assert "function keyRows(" in script
     assert 'method: "DELETE"' in script
     assert "/api/providers/${encodeURIComponent(provider)}/keys" in script
@@ -210,7 +211,7 @@ def test_the_product_says_which_install_is_running() -> None:
     source = APP_PY.read_text(encoding="utf-8")
     assert "def _install_info()" in source
     assert '"install": _install_info()' in source
-    script = APP.read_text(encoding="utf-8")
+    script = script_text()
     assert 'id="install-badge"' in INDEX.read_text(encoding="utf-8")
     assert "dépôt" in script and "paquet installé" in script
     cli = CLI.read_text(encoding="utf-8")

@@ -13,13 +13,14 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from _static_source import script_text
 
 APP = Path(__file__).resolve().parents[1] / "uh" / "web" / "static" / "app.js"
 NODE = shutil.which("node")
 
 
 def mic_block() -> str:
-    source = APP.read_text(encoding="utf-8")
+    source = script_text()
     start = source.index("// BEGIN micText")
     end = source.index("// END micText") + len("// END micText")
     block = source[start:end]

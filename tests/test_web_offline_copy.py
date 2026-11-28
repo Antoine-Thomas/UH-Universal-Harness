@@ -19,13 +19,14 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from _static_source import script_text
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "uh" / "web" / "static" / "app.js"
 
 
 def block(begin: str, end: str) -> str:
-    text = APP.read_text(encoding="utf-8")
+    text = script_text()
     start = text.index(begin)
     stop = text.index(end, start)
     return text[start:stop]

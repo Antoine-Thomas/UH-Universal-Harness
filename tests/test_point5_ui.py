@@ -14,12 +14,13 @@ import json
 from pathlib import Path
 
 import pytest
+from _static_source import script_text
 
 from uh import artifacts
 from uh.web.app import answer_meta
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_JS = (ROOT / "uh" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+APP_JS = script_text()
 STYLE = (ROOT / "uh" / "web" / "static" / "style.css").read_text(encoding="utf-8")
 
 

@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from _static_source import script_text
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "uh" / "web" / "static" / "app.js"
@@ -31,7 +32,7 @@ BLOCK_END = "function errorButton("
 
 
 def _script() -> str:
-    return APP.read_text(encoding="utf-8")
+    return script_text()
 
 
 def _block() -> str:
