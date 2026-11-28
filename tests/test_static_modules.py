@@ -19,6 +19,8 @@ APP = STATIC / "app.js"
 
 #: Les modules sortis de `app.js` jusqu'ici, avec la fabrique qu'ils exposent.
 MODULES = {
+    "transport.js": "createTransport",
+    "audio.js": "createAudio",
     "machine.js": "createMachinePanel",
     "decision.js": "createDecisionView",
 }
@@ -38,16 +40,18 @@ def test_each_module_exposes_its_factory() -> None:
 
 
 def test_no_module_reaches_into_the_global_state() -> None:
-    """Un module reçoit ses dépendances ; il ne lit pas `state` ni le document global.
+    """Un module reçoit ses dépendances ; il ne lit pas `state` ni ne publie de global.
 
     C'est la frontière qui rend le découpage utile : un module qui écrit dans
-    l'état partagé serait un déplacement de ligne, pas une séparation.
+    l'état partagé serait un déplacement de ligne, pas une séparation. Lire une API
+    du navigateur (`window.speechSynthesis`, `localStorage`) reste permis : ce n'est
+    pas de l'état applicatif, c'est la plateforme.
     """
     for name in MODULES:
         text = (STATIC / name).read_text(encoding="utf-8")
         code = re.sub(r"//[^\n]*", "", text)
         assert "state." not in code, f"{name} lit l'état global"
-        assert "window." not in code, f"{name} touche à window"
+        assert not re.search(r"\bwindow\.\w+\s*=(?!=)", code), f"{name} publie une global"
 
 
 def test_the_split_stays_without_a_build_step() -> None:

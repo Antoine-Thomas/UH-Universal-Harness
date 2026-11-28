@@ -18,6 +18,8 @@ STATIC = Path(__file__).resolve().parents[1] / "uh" / "web" / "static"
 #: Les modules du front, dans l'ordre où la page les charge.
 MODULES: tuple[str, ...] = (
     "app.js",
+    "transport.js",
+    "audio.js",
     "machine.js",
     "decision.js",
 )
