@@ -306,6 +306,9 @@ def summarize(payload: Dict[str, Any]) -> dict:
     """The compact status: what is up, what it runs, nothing else."""
     return {
         "connected": True,
+        #: P2-9 : le contrat publié par UHB, tel quel. `summarize` ne l'interprète
+        #: pas — c'est `uh.contract` qui décide, et lui seul.
+        "contract": payload.get("contract") if isinstance(payload.get("contract"), dict) else None,
         "version": _scalar(payload.get("version")),
         "mode": _scalar(payload.get("mode")),
         "harness": _harness(payload.get("harness")),
@@ -495,6 +498,9 @@ class Uhbtoolset:
         self.blocked: Dict[str, Dict[str, Any]] = {}
         #: The mode read once from `/status`, so `explain_missing` never asks twice.
         self._mode: str = ""
+        #: P2-9 : contrat lu une fois par instance — (état, phrase), None tant que
+        #: `/status` n'a pas répondu. Une majeure différente refuse les appels.
+        self._contract_state: Optional[tuple[str, str]] = None
         #: Bounds published by UHB for `execute_code.timeout` (``default`` and
         #: ``maximum``), captured from the catalogue so this file never carries a
         #: second copy of the clamp. Empty until a catalogue is read.
@@ -545,9 +551,43 @@ class Uhbtoolset:
                 refusal = self._approval_refusal(name, arguments)
                 if refusal is not None:
                     return refusal
+            # P2-9 : un contrat majeur différent se refuse ici, pas au milieu d'un
+            # appel qui renverrait des champs manquants.
+            mismatch = self._contract_refusal()
+            if mismatch is not None:
+                return mismatch
             # UHB decides: this only transports the call and its answer.
             return self._call_remote(name, arguments)
         return {"error": f"unknown tool: {name}", "type": "forbidden", "tool": name}
+
+    def _contract_refusal(self) -> Optional[dict]:
+        """Refuse d'appeler UHB quand les deux majeures de contrat diffèrent.
+
+        La sonde est faite une fois par instance : le contrat ne change pas pendant
+        une session, et un `/status` par appel coûterait un aller-retour à chaque
+        outil. Une incompatibilité est nommée ici, avant tout appel, au lieu de
+        laisser un champ manquant échouer loin de sa cause.
+        """
+        if self._contract_state is None:
+            payload = self._get("/status")
+            if "error" in payload:
+                # UHB muet : ce n'est pas un problème de contrat, et le refus
+                # viendra de l'appel lui-même.
+                self._contract_state = ("unknown", "")
+            else:
+                from .. import contract as uh_contract
+
+                self._contract_state = uh_contract.check(payload)
+        state, sentence = self._contract_state
+        if state != "incompatible":
+            return None
+        return {
+            "error": sentence,
+            "type": "forbidden",
+            "kind": "forbidden",
+            "status": 409,
+            "reason": "contract_mismatch",
+        }
 
     def _approval_refusal(self, name: str, arguments: dict) -> Optional[dict]:
         """Refuse a call the operator did not authorise, in the shared vocabulary.
